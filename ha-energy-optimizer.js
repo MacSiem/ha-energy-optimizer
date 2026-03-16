@@ -9,100 +9,6 @@ class HaEnergyOptimizer extends HTMLElement {
     this._weeklyData = [];
     this._recommendations = [];
     this._comparisonData = null;
-    this._lastRenderedData = null;
-    this._renderTimeout = null;
-    this._isLoading = false;
-  }
-
-  static get _translations() {
-    return {
-      en: {
-        energyOptimizer: "Energy Optimizer",
-        dashboard: "Dashboard",
-        patterns: "Patterns",
-        recommendations: "Recommendations",
-        compare: "Compare",
-        todayUsage: "Today's Usage",
-        costEstimate: "Cost Estimate",
-        peakHour: "Peak Hour",
-        highestConsumption: "Highest consumption",
-        efficiencyScore: "Efficiency Score",
-        currentPowerDraw: "Current Power Draw",
-        usage24Hour: "24-Hour Usage",
-        kwhByHour: "kWh by hour",
-        weeklyHeatMap: "Weekly Heat Map",
-        energyIntensity: "Energy intensity by day & hour",
-        low: "Low",
-        moderate: "Moderate",
-        high: "High",
-        peak: "Peak",
-        peakUsage: "Peak Usage",
-        offPeakUsage: "Off-Peak Usage",
-        ratio: "Ratio",
-        sevenDayTrend: "7-Day Trend",
-        dailyConsumptionAvg: "Daily consumption average",
-        dayOfWeekComparison: "Day-of-Week Comparison",
-        averageDailyUsage: "Average daily usage",
-        thisWeek: "This Week",
-        lastWeek: "Last Week",
-        thisMonth: "This Month",
-        lastMonth: "Last Month",
-        weeklyComparison: "Weekly Comparison",
-        costDifferenceWeek: "Cost Difference (Week)",
-        weeklyAverageCost: "Weekly Average Cost",
-        shiftLaundry: "Shift laundry to off-peak hours",
-        dishwasherOffPeak: "Use dishwasher in off-peak time",
-        optimizeThermostat: "Optimize thermostat settings",
-        replaceLED: "Replace with LED lighting",
-        reduceStandby: "Reduce standby power consumption",
-      },
-      pl: {
-        energyOptimizer: "Optymalizator Energii",
-        dashboard: "Pulpit",
-        patterns: "Wzorce",
-        recommendations: "Rekomendacje",
-        compare: "Porównaj",
-        todayUsage: "Dzisiejsze Zużycie",
-        costEstimate: "Szacunek Kosztu",
-        peakHour: "Godzina Szczytu",
-        highestConsumption: "Najwyższe zużycie",
-        efficiencyScore: "Wynik Wydajności",
-        currentPowerDraw: "Bieżące Pobieranie Mocy",
-        usage24Hour: "Zużycie 24 Godzinne",
-        kwhByHour: "kWh na godzinę",
-        weeklyHeatMap: "Tygodniowa Mapa Ciepła",
-        energyIntensity: "Intensywność energii dzień i godzina",
-        low: "Niskie",
-        moderate: "Umiarkowane",
-        high: "Wysokie",
-        peak: "Szczyt",
-        peakUsage: "Zużycie Szczytu",
-        offPeakUsage: "Zużycie Poza Szczytem",
-        ratio: "Stosunek",
-        sevenDayTrend: "Trend 7-Dniowy",
-        dailyConsumptionAvg: "Średnie zużycie dzienne",
-        dayOfWeekComparison: "Porównanie Dzień Tygodnia",
-        averageDailyUsage: "Średnie dzienne zużycie",
-        thisWeek: "Ten Tydzień",
-        lastWeek: "Zeszły Tydzień",
-        thisMonth: "Ten Miesiąc",
-        lastMonth: "Zeszły Miesiąc",
-        weeklyComparison: "Porównanie Tygodniowe",
-        costDifferenceWeek: "Różnica Kosztów (Tydzień)",
-        weeklyAverageCost: "Średni Koszt Tygodniowy",
-        shiftLaundry: "Przesuń pranie na godziny poza szczytem",
-        dishwasherOffPeak: "Włącz zmywarkę poza szczytem",
-        optimizeThermostat: "Optymalizuj ustawienia termostatu",
-        replaceLED: "Zamień na oświetlenie LED",
-        reduceStandby: "Zmniejsz zużycie mocy w trybie czuwania",
-      },
-    };
-  }
-
-  _t(key) {
-    const lang = this._hass?.language || 'en';
-    const T = HaEnergyOptimizer._translations;
-    return (T[lang] || T['en'])[key] || T['en'][key] || key;
   }
 
   static getConfigElement() {
@@ -129,21 +35,7 @@ class HaEnergyOptimizer extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     this._updateEnergyData();
-
-    // Debounce renders - only re-render if data actually changed
-    clearTimeout(this._renderTimeout);
-    this._renderTimeout = setTimeout(() => {
-      const currentDataHash = JSON.stringify({
-        energyData: this._energyData,
-        weeklyData: this._weeklyData,
-        comparisonData: this._comparisonData
-      });
-
-      if (currentDataHash !== this._lastRenderedData) {
-        this._lastRenderedData = currentDataHash;
-        this._render();
-      }
-    }, 500);
+    this._render();
   }
 
   _generateDemoData() {
@@ -194,8 +86,8 @@ class HaEnergyOptimizer extends HTMLElement {
     this._recommendations = [
       {
         id: 1,
-        icon: '??',
-        title: this._t('shiftLaundry'),
+        icon: '🧺',
+        title: `Shift laundry to off-peak hours`,
         description: `Your peak usage is ${peakHourStart}-${peakHourEnd}. Running laundry at night saves up to 30% on that load.`,
         savings: 12.5,
         difficulty: 'easy',
@@ -203,8 +95,8 @@ class HaEnergyOptimizer extends HTMLElement {
       },
       {
         id: 2,
-        icon: '???',
-        title: this._t('dishwasherOffPeak'),
+        icon: '🍽️',
+        title: 'Use dishwasher in off-peak time',
         description: 'Schedule dishwasher runs for morning or late evening when rates are lower.',
         savings: 8.3,
         difficulty: 'easy',
@@ -212,8 +104,8 @@ class HaEnergyOptimizer extends HTMLElement {
       },
       {
         id: 3,
-        icon: '???',
-        title: this._t('optimizeThermostat'),
+        icon: '🌡️',
+        title: 'Optimize thermostat settings',
         description: `Reduce heating by 1°C during peak hours (${peakHourStart}-${peakHourEnd}) for consistent savings.`,
         savings: 15.0,
         difficulty: 'medium',
@@ -221,8 +113,8 @@ class HaEnergyOptimizer extends HTMLElement {
       },
       {
         id: 4,
-        icon: '??',
-        title: this._t('replaceLED'),
+        icon: '💡',
+        title: 'Replace with LED lighting',
         description: 'Your evening usage spikes significantly. LED bulbs reduce lighting energy by 75%.',
         savings: 6.2,
         difficulty: 'medium',
@@ -230,8 +122,8 @@ class HaEnergyOptimizer extends HTMLElement {
       },
       {
         id: 5,
-        icon: '??',
-        title: this._t('reduceStandby'),
+        icon: '📱',
+        title: 'Reduce standby power consumption',
         description: 'Use smart power strips to eliminate phantom loads from devices in standby mode.',
         savings: 4.5,
         difficulty: 'easy',
@@ -266,6 +158,336 @@ class HaEnergyOptimizer extends HTMLElement {
   _getStyles() {
     return `
       <style>
+        :host {
+          --text-color: var(--primary-text-color, #000);
+          --secondary-text: var(--secondary-text-color, #666);
+          --bg-color: var(--card-background-color, #fff);
+          --primary: var(--primary-color, #3498db);
+          --divider: var(--divider-color, #e0e0e0);
+          --success: #4caf50;
+          --warning: #ff9800;
+          --danger: #f44336;
+        }
+
+        * {
+          box-sizing: border-box;
+        }
+
+        .card-container {
+          background: var(--bg-color);
+          border-radius: 8px;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+          padding: 16px;
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+
+        .card-title {
+          font-size: 20px;
+          font-weight: 600;
+          color: var(--text-color);
+          margin: 0 0 16px 0;
+        }
+
+        .tabs {
+          display: flex;
+          gap: 8px;
+          border-bottom: 1px solid var(--divider);
+          margin-bottom: 20px;
+          overflow-x: auto;
+        }
+
+        .tab-button {
+          padding: 8px 16px;
+          border: none;
+          background: none;
+          color: var(--secondary-text);
+          cursor: pointer;
+          font-size: 14px;
+          font-weight: 500;
+          border-bottom: 3px solid transparent;
+          transition: all 0.3s ease;
+          white-space: nowrap;
+        }
+
+        .tab-button:hover {
+          color: var(--text-color);
+        }
+
+        .tab-button.active {
+          color: var(--primary);
+          border-bottom-color: var(--primary);
+        }
+
+        .tab-content {
+          display: none;
+        }
+
+        .tab-content.active {
+          display: block;
+        }
+
+        .grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 12px;
+          margin-bottom: 20px;
+        }
+
+        .summary-card {
+          background: linear-gradient(135deg, var(--primary) 0%, var(--primary)cc 100%);
+          color: white;
+          padding: 16px;
+          border-radius: 8px;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+        }
+
+        .summary-card.alt {
+          background: linear-gradient(135deg, var(--success) 0%, var(--success)cc 100%);
+        }
+
+        .summary-card.warn {
+          background: linear-gradient(135deg, var(--warning) 0%, var(--warning)cc 100%);
+        }
+
+        .summary-value {
+          font-size: 28px;
+          font-weight: 700;
+          margin: 8px 0;
+        }
+
+        .summary-label {
+          font-size: 12px;
+          opacity: 0.9;
+          text-transform: uppercase;
+          letter-spacing: 0.5px;
+        }
+
+        .chart-container {
+          background: rgba(0, 0, 0, 0.02);
+          border-radius: 8px;
+          padding: 12px;
+          margin-bottom: 20px;
+          border: 1px solid var(--divider);
+        }
+
+        .chart-title {
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--text-color);
+          margin-bottom: 12px;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        canvas {
+          max-width: 100%;
+          height: auto;
+          display: block;
+        }
+
+        .stats-row {
+          display: flex;
+          gap: 20px;
+          margin: 16px 0;
+          padding: 12px;
+          background: rgba(0, 0, 0, 0.02);
+          border-radius: 6px;
+        }
+
+        .stat-item {
+          flex: 1;
+        }
+
+        .stat-label {
+          font-size: 12px;
+          color: var(--secondary-text);
+          text-transform: uppercase;
+          margin-bottom: 4px;
+        }
+
+        .stat-value {
+          font-size: 18px;
+          font-weight: 600;
+          color: var(--text-color);
+        }
+
+        .recommendation {
+          background: rgba(0, 0, 0, 0.02);
+          border-left: 4px solid var(--primary);
+          padding: 16px;
+          margin-bottom: 12px;
+          border-radius: 4px;
+          display: flex;
+          gap: 12px;
+        }
+
+        .recommendation.high {
+          border-left-color: var(--danger);
+        }
+
+        .recommendation.medium {
+          border-left-color: var(--warning);
+        }
+
+        .recommendation.low {
+          border-left-color: var(--success);
+        }
+
+        .rec-icon {
+          font-size: 24px;
+          min-width: 32px;
+        }
+
+        .rec-content {
+          flex: 1;
+        }
+
+        .rec-title {
+          font-weight: 600;
+          color: var(--text-color);
+          margin-bottom: 4px;
+        }
+
+        .rec-description {
+          font-size: 12px;
+          color: var(--secondary-text);
+          margin-bottom: 8px;
+        }
+
+        .rec-footer {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          font-size: 12px;
+        }
+
+        .savings-badge {
+          background: var(--success);
+          color: white;
+          padding: 2px 8px;
+          border-radius: 12px;
+          font-weight: 600;
+        }
+
+        .difficulty-badge {
+          background: rgba(0, 0, 0, 0.1);
+          color: var(--text-color);
+          padding: 2px 8px;
+          border-radius: 12px;
+          font-size: 11px;
+        }
+
+        .comparison-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: 16px;
+          margin-bottom: 20px;
+        }
+
+        .comparison-card {
+          background: rgba(0, 0, 0, 0.02);
+          padding: 16px;
+          border-radius: 8px;
+          border: 1px solid var(--divider);
+        }
+
+        .comparison-title {
+          font-size: 12px;
+          color: var(--secondary-text);
+          text-transform: uppercase;
+          margin-bottom: 8px;
+        }
+
+        .comparison-value {
+          font-size: 24px;
+          font-weight: 700;
+          color: var(--text-color);
+          margin-bottom: 4px;
+        }
+
+        .change-indicator {
+          font-size: 12px;
+          font-weight: 600;
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .change-up {
+          color: var(--danger);
+        }
+
+        .change-down {
+          color: var(--success);
+        }
+
+        .heatmap-legend {
+          display: flex;
+          gap: 8px;
+          margin-top: 12px;
+          font-size: 11px;
+          justify-content: flex-end;
+        }
+
+        .legend-item {
+          display: flex;
+          align-items: center;
+          gap: 4px;
+        }
+
+        .legend-color {
+          width: 12px;
+          height: 12px;
+          border-radius: 2px;
+        }
+
+        .power-draw {
+          background: linear-gradient(135deg, var(--primary) 0%, var(--primary)cc 100%);
+          color: white;
+          padding: 16px;
+          border-radius: 8px;
+          text-align: center;
+        }
+
+        .power-draw-value {
+          font-size: 36px;
+          font-weight: 700;
+          margin: 8px 0;
+        }
+
+        .power-draw-unit {
+          font-size: 14px;
+          opacity: 0.9;
+        }
+
+        @media (max-width: 768px) {
+          .grid {
+            grid-template-columns: 1fr;
+          }
+
+          .comparison-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .stats-row {
+            flex-direction: column;
+            gap: 12px;
+          }
+
+          .tabs {
+            gap: 4px;
+          }
+
+          .tab-button {
+            padding: 8px 12px;
+            font-size: 12px;
+          }
+        }
+      
+/* === Modern Bento Light Mode === */
 
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
@@ -565,46 +787,46 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
         <h2 class="card-title">${this._config.title || 'Energy Optimizer'}</h2>
 
         <div class="tabs">
-          <button class="tab-button active" data-tab="dashboard">${this._t('dashboard')}</button>
-          <button class="tab-button" data-tab="patterns">${this._t('patterns')}</button>
-          <button class="tab-button" data-tab="recommendations">${this._t('recommendations')}</button>
-          <button class="tab-button" data-tab="compare">${this._t('compare')}</button>
+          <button class="tab-button active" data-tab="dashboard">Dashboard</button>
+          <button class="tab-button" data-tab="patterns">Patterns</button>
+          <button class="tab-button" data-tab="recommendations">Recommendations</button>
+          <button class="tab-button" data-tab="compare">Compare</button>
         </div>
 
         <div id="dashboard" class="tab-content active">
           <div class="grid">
             <div class="summary-card">
-              <span class="summary-label">${this._t('todayUsage')}</span>
+              <span class="summary-label">Today's Usage</span>
               <div class="summary-value">${this._calculateTodayUsage().toFixed(2)}</div>
               <span class="summary-label">kWh</span>
             </div>
             <div class="summary-card alt">
-              <span class="summary-label">${this._t('costEstimate')}</span>
+              <span class="summary-label">Cost Estimate</span>
               <div class="summary-value">${this._calculateTodayCost().toFixed(2)}</div>
               <span class="summary-label">${this._config.currency || 'PLN'}</span>
             </div>
             <div class="summary-card warn">
-              <span class="summary-label">${this._t('peakHour')}</span>
+              <span class="summary-label">Peak Hour</span>
               <div class="summary-value">${this._getPeakHour()}:00</div>
-              <span class="summary-label">${this._t('highestConsumption')}</span>
+              <span class="summary-label">Highest consumption</span>
             </div>
             <div class="summary-card">
-              <span class="summary-label">${this._t('efficiencyScore')}</span>
+              <span class="summary-label">Efficiency Score</span>
               <div class="summary-value">${this._calculateEfficiencyScore()}</div>
               <span class="summary-label">/ 100</span>
             </div>
           </div>
 
           <div class="power-draw">
-            <div class="power-draw-unit">${this._t('currentPowerDraw')}</div>
+            <div class="power-draw-unit">Current Power Draw</div>
             <div class="power-draw-value">${(Math.random() * 3 + 0.5).toFixed(2)}</div>
             <div class="power-draw-unit">kW</div>
           </div>
 
           <div class="chart-container">
             <div class="chart-title">
-              <span>${this._t('usage24Hour')}</span>
-              <span style="font-size: 12px; color: var(--secondary-text-color, #9e9e9e); font-weight: 400;">${this._t('kwhByHour')}</span>
+              <span>24-Hour Usage</span>
+              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">kWh by hour</span>
             </div>
             <canvas id="dashboard-chart"></canvas>
           </div>
@@ -613,57 +835,57 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
         <div id="patterns" class="tab-content">
           <div class="chart-container">
             <div class="chart-title">
-              <span>${this._t('weeklyHeatMap')}</span>
-              <span style="font-size: 12px; color: var(--secondary-text-color, #9e9e9e); font-weight: 400;">${this._t('energyIntensity')}</span>
+              <span>Weekly Heat Map</span>
+              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">Energy intensity by day & hour</span>
             </div>
             <canvas id="heatmap-canvas"></canvas>
             <div class="heatmap-legend">
               <div class="legend-item">
                 <div class="legend-color" style="background: #1e3a8a;"></div>
-                <span>${this._t('low')}</span>
+                <span>Low</span>
               </div>
               <div class="legend-item">
                 <div class="legend-color" style="background: #3b82f6;"></div>
-                <span>${this._t('moderate')}</span>
+                <span>Moderate</span>
               </div>
               <div class="legend-item">
                 <div class="legend-color" style="background: #fbbf24;"></div>
-                <span>${this._t('high')}</span>
+                <span>High</span>
               </div>
               <div class="legend-item">
                 <div class="legend-color" style="background: #dc2626;"></div>
-                <span>${this._t('peak')}</span>
+                <span>Peak</span>
               </div>
             </div>
           </div>
 
           <div class="stats-row">
             <div class="stat-item">
-              <div class="stat-label">${this._t('peakUsage')}</div>
+              <div class="stat-label">Peak Usage</div>
               <div class="stat-value">${(this._energyData.reduce((a, b) => Math.max(a, b))).toFixed(2)} kWh</div>
             </div>
             <div class="stat-item">
-              <div class="stat-label">${this._t('offPeakUsage')}</div>
+              <div class="stat-label">Off-Peak Usage</div>
               <div class="stat-value">${(this._energyData.slice(0, this._config.peak_hours?.start || 6).reduce((a, b) => a + b, 0) / (this._config.peak_hours?.start || 6)).toFixed(2)} kWh/h</div>
             </div>
             <div class="stat-item">
-              <div class="stat-label">${this._t('ratio')}</div>
+              <div class="stat-label">Ratio</div>
               <div class="stat-value">${this._calculatePeakRatio().toFixed(1)}:1</div>
             </div>
           </div>
 
           <div class="chart-container">
             <div class="chart-title">
-              <span>${this._t('sevenDayTrend')}</span>
-              <span style="font-size: 12px; color: var(--secondary-text-color, #9e9e9e); font-weight: 400;">${this._t('dailyConsumptionAvg')}</span>
+              <span>7-Day Trend</span>
+              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">Daily consumption average</span>
             </div>
             <canvas id="trend-chart"></canvas>
           </div>
 
           <div class="chart-container">
             <div class="chart-title">
-              <span>${this._t('dayOfWeekComparison')}</span>
-              <span style="font-size: 12px; color: var(--secondary-text-color, #9e9e9e); font-weight: 400;">${this._t('averageDailyUsage')}</span>
+              <span>Day-of-Week Comparison</span>
+              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">Average daily usage</span>
             </div>
             <canvas id="weekday-chart"></canvas>
           </div>
@@ -676,15 +898,15 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
         <div id="compare" class="tab-content">
           <div class="comparison-grid">
             <div class="comparison-card">
-              <div class="comparison-title">${this._t('thisWeek')}</div>
+              <div class="comparison-title">This Week</div>
               <div class="comparison-value">${this._comparisonData.thisWeek.toFixed(2)}</div>
               <div class="comparison-title">kWh</div>
             </div>
             <div class="comparison-card">
-              <div class="comparison-title">${this._t('lastWeek')}</div>
+              <div class="comparison-title">Last Week</div>
               <div class="comparison-value">${this._comparisonData.lastWeek.toFixed(2)}</div>
               <div class="change-indicator ${this._comparisonData.thisWeek > this._comparisonData.lastWeek ? 'change-up' : 'change-down'}">
-                ${this._comparisonData.thisWeek > this._comparisonData.lastWeek ? '??' : '??'}
+                ${this._comparisonData.thisWeek > this._comparisonData.lastWeek ? '📈' : '📉'}
                 ${Math.abs(((this._comparisonData.thisWeek - this._comparisonData.lastWeek) / this._comparisonData.lastWeek * 100)).toFixed(1)}%
               </div>
             </div>
@@ -692,15 +914,15 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
 
           <div class="comparison-grid">
             <div class="comparison-card">
-              <div class="comparison-title">${this._t('thisMonth')}</div>
+              <div class="comparison-title">This Month</div>
               <div class="comparison-value">${this._comparisonData.thisMonth.toFixed(0)}</div>
               <div class="comparison-title">kWh</div>
             </div>
             <div class="comparison-card">
-              <div class="comparison-title">${this._t('lastMonth')}</div>
+              <div class="comparison-title">Last Month</div>
               <div class="comparison-value">${this._comparisonData.lastMonth.toFixed(0)}</div>
               <div class="change-indicator ${this._comparisonData.thisMonth > this._comparisonData.lastMonth ? 'change-up' : 'change-down'}">
-                ${this._comparisonData.thisMonth > this._comparisonData.lastMonth ? '??' : '??'}
+                ${this._comparisonData.thisMonth > this._comparisonData.lastMonth ? '📈' : '📉'}
                 ${Math.abs(((this._comparisonData.thisMonth - this._comparisonData.lastMonth) / this._comparisonData.lastMonth * 100)).toFixed(1)}%
               </div>
             </div>
@@ -708,19 +930,19 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
 
           <div class="chart-container">
             <div class="chart-title">
-              <span>${this._t('weeklyComparison')}</span>
-              <span style="font-size: 12px; color: var(--secondary-text-color, #9e9e9e); font-weight: 400;">This week vs last week</span>
+              <span>Weekly Comparison</span>
+              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">This week vs last week</span>
             </div>
             <canvas id="comparison-chart"></canvas>
           </div>
 
           <div class="stats-row">
             <div class="stat-item">
-              <div class="stat-label">${this._t('costDifferenceWeek')}</div>
+              <div class="stat-label">Cost Difference (Week)</div>
               <div class="stat-value" style="${this._comparisonData.thisWeek > this._comparisonData.lastWeek ? 'color: var(--danger)' : 'color: var(--success)'}">${((this._comparisonData.thisWeek - this._comparisonData.lastWeek) * this._comparisonData.costPerKwh).toFixed(2)} ${this._config.currency}</div>
             </div>
             <div class="stat-item">
-              <div class="stat-label">${this._t('weeklyAverageCost')}</div>
+              <div class="stat-label">Weekly Average Cost</div>
               <div class="stat-value">${(this._comparisonData.thisWeek * this._comparisonData.costPerKwh).toFixed(2)} ${this._config.currency}</div>
             </div>
           </div>
@@ -744,35 +966,22 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
   _showTab(tabName) {
     const tabs = this.shadowRoot.querySelectorAll('.tab-content');
     tabs.forEach(tab => tab.classList.remove('active'));
-    const tabEl = this.shadowRoot.getElementById(tabName);
-    if (tabEl) {
-      tabEl.classList.add('active');
-    }
+    this.shadowRoot.getElementById(tabName).classList.add('active');
 
     // Draw charts after showing tab (needed for canvas sizing)
-    // Use requestAnimationFrame to ensure layout is complete
-    requestAnimationFrame(() => {
-      // Fallback to setTimeout if tab not in focus (browser optimization)
-      const drawWithFallback = (drawFn) => {
-        try {
-          drawFn();
-        } catch (e) {
-          setTimeout(drawFn, 50);
-        }
-      };
-
+    setTimeout(() => {
       if (tabName === 'dashboard') {
-        drawWithFallback(() => this._drawDashboardChart());
+        this._drawDashboardChart();
       } else if (tabName === 'patterns') {
-        drawWithFallback(() => this._drawHeatmap());
-        drawWithFallback(() => this._drawTrendChart());
-        drawWithFallback(() => this._drawWeekdayChart());
+        this._drawHeatmap();
+        this._drawTrendChart();
+        this._drawWeekdayChart();
       } else if (tabName === 'recommendations') {
         this._renderRecommendations();
       } else if (tabName === 'compare') {
-        drawWithFallback(() => this._drawComparisonChart());
+        this._drawComparisonChart();
       }
-    });
+    }, 100);
   }
 
   _renderCurrentTab() {
@@ -784,20 +993,11 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
 
-    // Set canvas size in CSS pixels and device pixels
-    const displayWidth = rect.width || 400;
-    const displayHeight = 200;
-
-    canvas.width = displayWidth * dpr;
-    canvas.height = displayHeight * dpr;
-    canvas.style.width = displayWidth + 'px';
-    canvas.style.height = displayHeight + 'px';
-
+    canvas.width = rect.width * dpr;
+    canvas.height = 200 * dpr;
     ctx.scale(dpr, dpr);
 
     const width = rect.width;
@@ -857,19 +1057,11 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
 
-    const displayWidth = rect.width || 400;
-    const displayHeight = 200;
-
-    canvas.width = displayWidth * dpr;
-    canvas.height = displayHeight * dpr;
-    canvas.style.width = displayWidth + 'px';
-    canvas.style.height = displayHeight + 'px';
-
+    canvas.width = rect.width * dpr;
+    canvas.height = 200 * dpr;
     ctx.scale(dpr, dpr);
 
     const width = rect.width;
@@ -924,19 +1116,11 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
 
-    const displayWidth = rect.width || 400;
-    const displayHeight = 150;
-
-    canvas.width = displayWidth * dpr;
-    canvas.height = displayHeight * dpr;
-    canvas.style.width = displayWidth + 'px';
-    canvas.style.height = displayHeight + 'px';
-
+    canvas.width = rect.width * dpr;
+    canvas.height = 150 * dpr;
     ctx.scale(dpr, dpr);
 
     const width = rect.width;
@@ -1008,19 +1192,11 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
 
-    const displayWidth = rect.width || 400;
-    const displayHeight = 150;
-
-    canvas.width = displayWidth * dpr;
-    canvas.height = displayHeight * dpr;
-    canvas.style.width = displayWidth + 'px';
-    canvas.style.height = displayHeight + 'px';
-
+    canvas.width = rect.width * dpr;
+    canvas.height = 150 * dpr;
     ctx.scale(dpr, dpr);
 
     const width = rect.width;
@@ -1071,19 +1247,11 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     if (!canvas) return;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
 
-    const displayWidth = rect.width || 400;
-    const displayHeight = 180;
-
-    canvas.width = displayWidth * dpr;
-    canvas.height = displayHeight * dpr;
-    canvas.style.width = displayWidth + 'px';
-    canvas.style.height = displayHeight + 'px';
-
+    canvas.width = rect.width * dpr;
+    canvas.height = 180 * dpr;
     ctx.scale(dpr, dpr);
 
     const width = rect.width;
@@ -1138,12 +1306,12 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     ctx.fillStyle = 'rgba(52, 152, 219, 0.8)';
     ctx.fillRect(padding.left, padding.top - 20, 12, 12);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillText(this._t('thisWeek'), padding.left + 16, padding.top - 10);
+    ctx.fillText('This week', padding.left + 16, padding.top - 10);
 
     ctx.fillStyle = 'rgba(100, 100, 100, 0.5)';
     ctx.fillRect(padding.left + 120, padding.top - 20, 12, 12);
     ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillText(this._t('lastWeek'), padding.left + 136, padding.top - 10);
+    ctx.fillText('Last week', padding.left + 136, padding.top - 10);
   }
 
   _renderRecommendations() {
@@ -1194,14 +1362,3 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
 }
 
 customElements.define('ha-energy-optimizer', HaEnergyOptimizer);
-
-// Auto-load HA Tools Panel (if not already registered)
-if (!customElements.get('ha-tools-panel')) {
-  const _currentScript = document.currentScript?.src || '';
-  const _baseUrl = _currentScript.substring(0, _currentScript.lastIndexOf('/') + 1);
-  if (_baseUrl) {
-    const _s = document.createElement('script');
-    _s.src = _baseUrl + 'ha-tools-panel.js';
-    document.head.appendChild(_s);
-  }
-}
