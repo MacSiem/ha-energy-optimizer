@@ -269,6 +269,10 @@ class HaEnergyOptimizer extends HTMLElement {
     const avgDaily = thisWeekTotal / Math.max(1, dailyTotals.filter(d => d > 0).length);
     const lastWeekEstimate = thisWeekTotal * 0.95; // Conservative estimate
 
+    const peakRate = this._config.peak_rate || this._config.energy_price || 0.65;
+    const offPeakRate = this._config.off_peak_rate || peakRate;
+    const hasDualTariff = peakRate !== offPeakRate;
+
     this._comparisonData = {
       thisWeek: thisWeekTotal,
       lastWeek: lastWeekEstimate,
@@ -276,7 +280,11 @@ class HaEnergyOptimizer extends HTMLElement {
       lastMonth: lastWeekEstimate * 4.3,
       dailyBreakdown: dailyTotals,
       costCurrency: this._config.currency || 'PLN',
-      costPerKwh: this._config.energy_price || 0.65
+      costPerKwh: peakRate,
+      offPeakRate: offPeakRate,
+      hasDualTariff: hasDualTariff,
+      peakCostWeekly: hasDualTariff ? thisWeekTotal * 0.65 * peakRate : thisWeekTotal * peakRate,
+      offPeakCostWeekly: hasDualTariff ? thisWeekTotal * 0.35 * offPeakRate : 0
     };
   }
 
@@ -862,13 +870,19 @@ canvas {
             <div class="summary-card alt">
               <span class="summary-label">Cost Estimate</span>
               <div class="summary-value">${this._calculateTodayCost().toFixed(2)}</div>
-              <span class="summary-label">${this._config.currency || 'PLN'}</span>
+              <span class="summary-label">${this._config.currency || 'PLN'}${(this._config.off_peak_rate && this._config.peak_rate !== this._config.off_peak_rate) ? ' (dual-tariff)' : ''}</span>
             </div>
+            ${(this._config.off_peak_rate && this._config.peak_rate !== this._config.off_peak_rate) ? `
+            <div class="summary-card" style="border-left:3px solid var(--success)">
+              <span class="summary-label">Potential Savings</span>
+              <div class="summary-value">${this._calculatePotentialSavings().toFixed(2)}</div>
+              <span class="summary-label">${this._config.currency || 'PLN'}/day by shifting to off-peak</span>
+            </div>` : `
             <div class="summary-card warn">
               <span class="summary-label">Peak Hour</span>
               <div class="summary-value">${this._getPeakHour()}:00</div>
               <span class="summary-label">Highest consumption</span>
-            </div>
+            </div>`}
             <div class="summary-card">
               <span class="summary-label">Efficiency Score</span>
               <div class="summary-value">${this._calculateEfficiencyScore()}</div>
@@ -1417,9 +1431,31 @@ canvas {
   }
 
   _calculateTodayCost() {
-    const usage = this._calculateTodayUsage();
-    const costPerKwh = this._config.energy_price || 0.65;
-    return usage * costPerKwh;
+    const peakRate = this._config.peak_rate || this._config.energy_price || 0.65;
+    const offPeakRate = this._config.off_peak_rate || peakRate;
+    const peakStart = this._config.peak_hours?.start || 6;
+    const peakEnd = this._config.peak_hours?.end || 22;
+    let cost = 0;
+    this._energyData.forEach((kwh, hour) => {
+      const rate = (hour >= peakStart && hour < peakEnd) ? peakRate : offPeakRate;
+      cost += kwh * rate;
+    });
+    return cost;
+  }
+
+  _calculatePotentialSavings() {
+    const peakRate = this._config.peak_rate || this._config.energy_price || 0.65;
+    const offPeakRate = this._config.off_peak_rate || peakRate;
+    if (peakRate === offPeakRate) return 0;
+    const peakStart = this._config.peak_hours?.start || 6;
+    const peakEnd = this._config.peak_hours?.end || 22;
+    let savings = 0;
+    this._energyData.forEach((kwh, hour) => {
+      if (hour >= peakStart && hour < peakEnd) {
+        savings += kwh * (peakRate - offPeakRate) * 0.3;
+      }
+    });
+    return savings;
   }
 
   _getPeakHour() {
