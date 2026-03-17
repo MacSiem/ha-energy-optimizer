@@ -1,33 +1,35 @@
-# HA Energy Optimizer
+# ⚡ Energy Optimizer
 
-![HA Energy Optimizer Screenshot](screenshot.png)
+Optimize energy consumption with smart scheduling and monitoring
 
-Optimize energy consumption in your smart home. Analyzes usage patterns, suggests scheduling optimizations, and tracks savings.
+Part of the [HA Tools](https://github.com/MacSiem/ha-tools-panel) collection for Home Assistant.
 
 ## Installation
 
 ### HACS (recommended)
-
 1. Open HACS in Home Assistant
-2. Go to **Frontend** section
-3. Click the three dots menu > **Custom repositories**
-4. Add `https://github.com/MacSiem/ha-energy-optimizer` as **Dashboard**
-5. Install **HA Energy Optimizer**
-6. Restart Home Assistant
+2. Go to Frontend > Explore & Download Repositories
+3. Search for "Energy Optimizer"
+4. Install and restart Home Assistant
 
 ### Manual
+1. Download `ha-energy-optimizer.js` from this repository
+2. Copy to `/config/www/community/ha-energy-optimizer/`
+3. Add as a Lovelace resource
 
-Copy the contents to `/config/www/community/ha-energy-optimizer/`
+## Screenshot
 
-## Design
+![Screenshot](screenshot.png)
 
-Uses **Modern Bento Light Mode** design system:
+## Changelog
 
-- Background: `#F8FAFC`
-- Primary: `#3B82F6`
-- Text: `#1E293B`
-- Border: `#E2E8F0`
-- Font: Inter, 16px border-radius, smooth animations
+### v2.3 (2026-03-17)
+- Bento Light Mode UI redesign (Inter font, blue accent #3B82F6)
+- Throttled hass updates (5s) to prevent UI lag
+- Stable pagination and data persistence
+- Fixed dual-script loading (customElements.define guard)
+- CSS custom properties for theming (--bento-primary, --bento-bg, etc.)
+- Improved readability and layout consistency
 
 ## License
 

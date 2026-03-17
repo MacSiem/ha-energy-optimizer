@@ -1,5 +1,5 @@
 {
-  "name": "Energy Optimizer",
-  "render_readme": true,
-  "content_in_root": true
+    "name":  "Energy Optimizer",
+    "filename":  "ha-energy-optimizer.js",
+    "render_readme":  true
 }

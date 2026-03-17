@@ -2,6 +2,13 @@ class HaEnergyOptimizer extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
+    // --- Throttle fields ---
+    this._lastRenderTime = 0;
+    this._renderScheduled = false;
+    this._firstHassRender = false;
+    // --- Pagination ---
+    this._currentPage = {};
+    this._pageSize = 15;
     this._hass = null;
     this._config = null;
     this._currentTab = 'dashboard';
@@ -34,12 +41,36 @@ class HaEnergyOptimizer extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    this._updateEnergyData();
+    if (!hass) return;
+    const now = Date.now();
+    if (!this._firstHassRender) {
+      this._firstHassRender = true;
+      this._updateEnergyData();
+      this._render();
+      this._lastRenderTime = now;
+      return;
+    }
+    if (now - (this._lastRenderTime || 0) < 5000) {
+      if (!this._renderScheduled) {
+        this._renderScheduled = true;
+        setTimeout(() => {
+          this._renderScheduled = false;
+      this._updateEnergyData();
+          this._render();
+          this._lastRenderTime = Date.now();
+        }, 5000 - (now - (this._lastRenderTime || 0)));
+      }
+      return;
+    }
+      this._updateEnergyData();
     this._render();
+    this._lastRenderTime = now;
   }
 
   _generateDemoData() {
+    if (this._energyData && this._energyData.length > 0) return; // Use cached data
     // Generate 24-hour energy data
+    const rng = this._seededRandom('energy-demo-data');
     this._energyData = [];
     const baseUsage = 0.5;
     for (let hour = 0; hour < 24; hour++) {
@@ -47,7 +78,7 @@ class HaEnergyOptimizer extends HTMLElement {
       if (hour >= 6 && hour <= 9) usage += 1.2; // Morning peak
       if (hour >= 18 && hour <= 21) usage += 1.8; // Evening peak
       if (hour >= 23 || hour <= 5) usage -= 0.3; // Night low
-      usage += Math.random() * 0.3 - 0.15; // Random variation
+      usage += rng() * 0.3 - 0.15; // Random variation
       this._energyData.push(Math.max(0.1, usage));
     }
 
@@ -60,7 +91,7 @@ class HaEnergyOptimizer extends HTMLElement {
         if (hour >= 6 && hour <= 9) usage += (day < 5 ? 1.2 : 0.8); // Weekday vs weekend
         if (hour >= 18 && hour <= 21) usage += (day < 5 ? 1.8 : 1.0);
         if (hour >= 23 || hour <= 5) usage -= 0.3;
-        usage += Math.random() * 0.3 - 0.15;
+        usage += rng() * 0.3 - 0.15;
         dayData.push(Math.max(0.1, usage));
       }
       this._weeklyData.push(dayData);
@@ -158,6 +189,215 @@ class HaEnergyOptimizer extends HTMLElement {
   _getStyles() {
     return `
       <style>
+/* ===== BENTO LIGHT MODE DESIGN SYSTEM ===== */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:host {
+  --bento-primary: #3B82F6;
+  --bento-primary-hover: #2563EB;
+  --bento-primary-light: rgba(59, 130, 246, 0.08);
+  --bento-success: #10B981;
+  --bento-success-light: rgba(16, 185, 129, 0.08);
+  --bento-error: #EF4444;
+  --bento-error-light: rgba(239, 68, 68, 0.08);
+  --bento-warning: #F59E0B;
+  --bento-warning-light: rgba(245, 158, 11, 0.08);
+  --bento-bg: #F8FAFC;
+  --bento-card: #FFFFFF;
+  --bento-border: #E2E8F0;
+  --bento-text: #1E293B;
+  --bento-text-secondary: #64748B;
+  --bento-text-muted: #94A3B8;
+  --bento-radius-xs: 6px;
+  --bento-radius-sm: 10px;
+  --bento-radius-md: 16px;
+  --bento-shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+  --bento-shadow-md: 0 4px 12px rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.04);
+  --bento-shadow-lg: 0 8px 25px rgba(0,0,0,0.06), 0 4px 10px rgba(0,0,0,0.04);
+  --bento-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+/* Card */
+.card, .ha-card, ha-card, .main-card, .exporter-card, .security-card, .reports-card, .storage-card, .chore-card, .cry-card, .backup-card, .network-card, .sentence-card, .energy-card, .panel-card {
+  background: var(--bento-card) !important;
+  border: 1px solid var(--bento-border) !important;
+  border-radius: var(--bento-radius-md) !important;
+  box-shadow: var(--bento-shadow-sm) !important;
+  font-family: 'Inter', sans-serif !important;
+  color: var(--bento-text) !important;
+  overflow: hidden;
+}
+
+/* Headers */
+.card-header, .header, .card-title, h1, h2, h3 {
+  color: var(--bento-text) !important;
+  font-family: 'Inter', sans-serif !important;
+}
+.card-header, .header {
+  border-bottom: 1px solid var(--bento-border) !important;
+  padding-bottom: 12px !important;
+  margin-bottom: 16px !important;
+}
+
+/* Tabs */
+.tabs, .tab-bar, .tab-nav, .tab-header {
+  display: flex;
+  gap: 4px;
+  border-bottom: 2px solid var(--bento-border);
+  padding: 0 4px;
+  margin-bottom: 20px;
+  overflow-x: auto;
+}
+.tab, .tab-btn, .tab-button {
+  padding: 10px 18px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: 'Inter', sans-serif;
+  color: var(--bento-text-secondary);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  transition: var(--bento-transition);
+  white-space: nowrap;
+  border-radius: 0;
+}
+.tab:hover, .tab-btn:hover, .tab-button:hover {
+  color: var(--bento-primary);
+  background: var(--bento-primary-light);
+}
+.tab.active, .tab-btn.active, .tab-button.active {
+  color: var(--bento-primary);
+  border-bottom-color: var(--bento-primary);
+  background: rgba(59, 130, 246, 0.04);
+  font-weight: 600;
+}
+
+/* Tab content */
+.tab-content { display: none; }
+.tab-content.active { display: block; animation: bentoFadeIn 0.3s ease-out; }
+@keyframes bentoFadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+
+/* Buttons */
+button, .btn, .action-btn {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  border-radius: var(--bento-radius-xs);
+  transition: var(--bento-transition);
+  cursor: pointer;
+}
+button.active, .btn.active, .btn-primary, .action-btn.active {
+  background: var(--bento-primary) !important;
+  color: white !important;
+  border-color: var(--bento-primary) !important;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
+}
+
+/* Status badges */
+.badge, .status-badge, .tag, .chip {
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: 'Inter', sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.badge-success, .status-ok, .status-good { background: var(--bento-success-light); color: var(--bento-success); }
+.badge-error, .status-error, .status-critical { background: var(--bento-error-light); color: var(--bento-error); }
+.badge-warning, .status-warning { background: var(--bento-warning-light); color: var(--bento-warning); }
+.badge-info, .status-info { background: var(--bento-primary-light); color: var(--bento-primary); }
+
+/* Tables */
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-family: 'Inter', sans-serif; }
+th { background: var(--bento-bg); color: var(--bento-text-secondary); font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 14px; text-align: left; border-bottom: 2px solid var(--bento-border); }
+td { padding: 12px 14px; border-bottom: 1px solid var(--bento-border); color: var(--bento-text); font-size: 13px; }
+tr:hover td { background: var(--bento-primary-light); }
+tr:last-child td { border-bottom: none; }
+
+/* Inputs & selects */
+input, select, textarea {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  padding: 8px 12px;
+  border: 1.5px solid var(--bento-border);
+  border-radius: var(--bento-radius-xs);
+  background: var(--bento-card);
+  color: var(--bento-text);
+  transition: var(--bento-transition);
+  outline: none;
+}
+input:focus, select:focus, textarea:focus {
+  border-color: var(--bento-primary);
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+}
+
+/* Stat cards */
+.stat-card, .stat, .metric-card, .stat-box, .overview-stat, .kpi-card {
+  background: var(--bento-card);
+  border: 1px solid var(--bento-border);
+  border-radius: var(--bento-radius-sm);
+  padding: 16px;
+  transition: var(--bento-transition);
+}
+.stat-card:hover, .stat:hover, .metric-card:hover { box-shadow: var(--bento-shadow-md); transform: translateY(-1px); }
+.stat-value, .metric-value, .stat-number { font-size: 28px; font-weight: 700; color: var(--bento-text); font-family: 'Inter', sans-serif; }
+.stat-label, .metric-label, .stat-title { font-size: 12px; font-weight: 500; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
+
+/* Canvas override (prevent Bento CSS from distorting charts) */
+canvas {
+  max-width: 100% !important;
+  height: auto !important;
+  width: auto !important;
+  border: none !important;
+}
+
+/* Pagination */
+.pagination, .pag {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 20px;
+  padding: 16px 0;
+  border-top: 1px solid var(--bento-border);
+}
+.pagination-btn, .pag-btn {
+  padding: 8px 14px;
+  border: 1.5px solid var(--bento-border);
+  background: var(--bento-card);
+  color: var(--bento-text);
+  border-radius: var(--bento-radius-xs);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: 'Inter', sans-serif;
+  transition: var(--bento-transition);
+}
+.pagination-btn:hover:not(:disabled), .pag-btn:hover:not(:disabled) { background: var(--bento-primary); color: white; border-color: var(--bento-primary); }
+.pagination-btn:disabled, .pag-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.pagination-info, .pag-info { font-size: 13px; color: var(--bento-text-secondary); font-weight: 500; padding: 0 8px; }
+.page-size-select { padding: 6px 10px; border: 1.5px solid var(--bento-border); border-radius: var(--bento-radius-xs); font-size: 12px; font-family: 'Inter', sans-serif; }
+
+/* Empty state */
+.empty-state, .no-data, .no-results {
+  text-align: center;
+  padding: 48px 24px;
+  color: var(--bento-text-secondary);
+  font-size: 14px;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--bento-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--bento-text-muted); }
+
+/* ===== END BENTO LIGHT MODE ===== */
+
         :host {
           --text-color: var(--primary-text-color, #000);
           --secondary-text: var(--secondary-text-color, #666);
@@ -819,7 +1059,7 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
 
           <div class="power-draw">
             <div class="power-draw-unit">Current Power Draw</div>
-            <div class="power-draw-value">${(Math.random() * 3 + 0.5).toFixed(2)}</div>
+            <div class="power-draw-value">${'1.85'}</div>
             <div class="power-draw-unit">kW</div>
           </div>
 
@@ -992,6 +1232,7 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     const canvas = this.shadowRoot.getElementById('dashboard-chart');
     if (!canvas) return;
 
+    this._fixCanvasSize(canvas);
     const ctx = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
@@ -1056,6 +1297,7 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     const canvas = this.shadowRoot.getElementById('heatmap-canvas');
     if (!canvas) return;
 
+    this._fixCanvasSize(canvas);
     const ctx = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
@@ -1115,6 +1357,7 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     const canvas = this.shadowRoot.getElementById('trend-chart');
     if (!canvas) return;
 
+    this._fixCanvasSize(canvas);
     const ctx = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
@@ -1191,6 +1434,7 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     const canvas = this.shadowRoot.getElementById('weekday-chart');
     if (!canvas) return;
 
+    this._fixCanvasSize(canvas);
     const ctx = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
@@ -1246,6 +1490,7 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     const canvas = this.shadowRoot.getElementById('comparison-chart');
     if (!canvas) return;
 
+    this._fixCanvasSize(canvas);
     const ctx = canvas.getContext('2d');
     const rect = canvas.getBoundingClientRect();
     const dpr = window.devicePixelRatio || 1;
@@ -1265,7 +1510,8 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     const barWidth = chartWidth / 14;
 
     // Generate "last week" data (slightly different)
-    const lastWeekData = dailyTotals.map(v => v * (0.95 + Math.random() * 0.1));
+    const rng2 = this._seededRandom('energy-weekly-compare');
+    const lastWeekData = dailyTotals.map(v => v * (0.95 + rng2() * 0.1));
 
     const drawBars = (data, offset, color) => {
       data.forEach((value, index) => {
@@ -1359,6 +1605,75 @@ canvas, .canvas-container canvas { width: 100%; height: 200px; border: 1px solid
     const offPeakUsage = this._energyData.slice(0, peakStart).concat(this._energyData.slice(peakEnd)).reduce((a, b) => a + b, 0) / (24 - (peakEnd - peakStart));
     return peakUsage / offPeakUsage;
   }
+  // --- Pagination helper ---
+  _renderPagination(tabName, totalItems) {
+    if (!this._currentPage[tabName]) this._currentPage[tabName] = 1;
+    const pageSize = this._pageSize;
+    const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+    const page = Math.min(this._currentPage[tabName], totalPages);
+    this._currentPage[tabName] = page;
+    return `
+      <div class="pagination">
+        <button class="pagination-btn" data-page-tab="${tabName}" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>&#8249; Prev</button>
+        <span class="pagination-info">${page} / ${totalPages} (${totalItems})</span>
+        <button class="pagination-btn" data-page-tab="${tabName}" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>Next &#8250;</button>
+        <select class="page-size-select" data-page-tab="${tabName}" data-action="page-size">
+          ${[10,15,25,50].map(s => `<option value="${s}" ${s === pageSize ? 'selected' : ''}>${s}/page</option>`).join('')}
+        </select>
+      </div>`;
+  }
+
+  _paginateItems(items, tabName) {
+    if (!this._currentPage[tabName]) this._currentPage[tabName] = 1;
+    const start = (this._currentPage[tabName] - 1) * this._pageSize;
+    return items.slice(start, start + this._pageSize);
+  }
+
+  _setupPaginationListeners() {
+    if (!this.shadowRoot) return;
+    this.shadowRoot.querySelectorAll('.pagination-btn:not([disabled])').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const tab = e.target.dataset.pageTab;
+        const page = parseInt(e.target.dataset.page);
+        if (tab && page > 0) {
+          this._currentPage[tab] = page;
+          this._render ? this._render() : (this.render ? this.render() : this.renderCard());
+        }
+      });
+    });
+    this.shadowRoot.querySelectorAll('.page-size-select').forEach(sel => {
+      sel.addEventListener('change', (e) => {
+        this._pageSize = parseInt(e.target.value);
+        // Reset all pages to 1
+        Object.keys(this._currentPage).forEach(k => this._currentPage[k] = 1);
+        this._render ? this._render() : (this.render ? this.render() : this.renderCard());
+      });
+    });
+  }
+  // --- Seeded random for stable data ---
+  _seededRandom(seed) {
+    let h = 0;
+    for (let i = 0; i < seed.length; i++) {
+      h = Math.imul(31, h) + seed.charCodeAt(i) | 0;
+    }
+    return () => {
+      h = Math.imul(h ^ (h >>> 16), 2246822507);
+      h = Math.imul(h ^ (h >>> 13), 3266489909);
+      h ^= h >>> 16;
+      return (h >>> 0) / 4294967296;
+    };
+  }
+  // --- Canvas size fix for Bento CSS ---
+  _fixCanvasSize(canvas) {
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width > 0 && rect.height > 0) {
+      canvas.width = rect.width;
+      canvas.height = rect.height;
+    }
+  }
+
+
+
 }
 
 customElements.define('ha-energy-optimizer', HaEnergyOptimizer);
