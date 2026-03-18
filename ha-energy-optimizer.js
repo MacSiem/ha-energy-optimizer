@@ -1,4 +1,4 @@
-class HaEnergyOptimizer extends HTMLElement {
+﻿class HaEnergyOptimizer extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
@@ -21,7 +21,11 @@ class HaEnergyOptimizer extends HTMLElement {
     this._currentPowerW = 0;
     this._statsLoading = false;
     this._lastStatsFetch = 0;
-    this._energySensorIds = [];
+    this._energySensorIds = [];    this._charts = {};
+    this._chartJsLoaded = false;
+  }
+  disconnectedCallback() {
+    this._destroyAllCharts();
   }
 
   static getConfigElement() {
@@ -213,7 +217,7 @@ class HaEnergyOptimizer extends HTMLElement {
     this._recommendations = [
       {
         id: 1,
-        icon: '🧺',
+        icon: 'đź§ş',
         title: `Shift laundry to off-peak hours`,
         description: `Your peak usage is ${peakHourStart}-${peakHourEnd}. Running laundry at night saves up to 30% on that load.`,
         savings: 12.5,
@@ -222,7 +226,7 @@ class HaEnergyOptimizer extends HTMLElement {
       },
       {
         id: 2,
-        icon: '🍽️',
+        icon: 'đźŤ˝ď¸Ź',
         title: 'Use dishwasher in off-peak time',
         description: 'Schedule dishwasher runs for morning or late evening when rates are lower.',
         savings: 8.3,
@@ -231,16 +235,16 @@ class HaEnergyOptimizer extends HTMLElement {
       },
       {
         id: 3,
-        icon: '🌡️',
+        icon: 'đźŚˇď¸Ź',
         title: 'Optimize thermostat settings',
-        description: `Reduce heating by 1°C during peak hours (${peakHourStart}-${peakHourEnd}) for consistent savings.`,
+        description: `Reduce heating by 1Â°C during peak hours (${peakHourStart}-${peakHourEnd}) for consistent savings.`,
         savings: 15.0,
         difficulty: 'medium',
         impact: 'high'
       },
       {
         id: 4,
-        icon: '💡',
+        icon: 'đź’ˇ',
         title: 'Replace with LED lighting',
         description: 'Your evening usage spikes significantly. LED bulbs reduce lighting energy by 75%.',
         savings: 6.2,
@@ -249,7 +253,7 @@ class HaEnergyOptimizer extends HTMLElement {
       },
       {
         id: 5,
-        icon: '📱',
+        icon: 'đź“±',
         title: 'Reduce standby power consumption',
         description: 'Use smart power strips to eliminate phantom loads from devices in standby mode.',
         savings: 4.5,
@@ -289,6 +293,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
 
   _render() {
+    this._destroyAllCharts();
     this.shadowRoot.innerHTML = this._getStyles() + this._getTemplate();
     this._setupEventListeners();
     this._renderCurrentTab();
@@ -840,7 +845,51 @@ canvas {
             font-size: 12px;
           }
         }
-      </style>
+      
+/* ===== MOBILE RESPONSIVE TABLE STYLES ===== */
+.table-container {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 768px) {
+  .table-container {
+    margin: 0 -16px;
+    padding: 0 16px;
+  }
+
+  table {
+    min-width: 600px;
+  }
+
+  th, td {
+    padding: 10px 10px;
+    font-size: 12px;
+  }
+
+  /* Hide non-essential columns on mobile */
+  th:nth-child(n+4),
+  td:nth-child(n+4) {
+    display: none;
+  }
+
+  /* Adjust first few columns on mobile */
+  th:first-child,
+  td:first-child {
+    min-width: 120px;
+  }
+
+  th:nth-child(2),
+  td:nth-child(2) {
+    min-width: 100px;
+  }
+
+  th:nth-child(3),
+  td:nth-child(3) {
+    min-width: 80px;
+  }
+}</style>
     `;
   }
 
@@ -850,7 +899,7 @@ canvas {
         <h2 class="card-title">${this._config.title || 'Energy Optimizer'}</h2>
 
         <div class="data-source-badge">
-          ${this._hasRealData ? '📊 Dane z ' + (this._energySensorIds || []).length + ' sensorów energii' : '⚠️ Demo data — brak sensorów kWh'}
+          ${this._hasRealData ? 'đź“Š Dane z ' + (this._energySensorIds || []).length + ' sensorĂłw energii' : 'âš ď¸Ź Demo data â€” brak sensorĂłw kWh'}
         </div>
 
         <div class="tabs">
@@ -979,7 +1028,7 @@ canvas {
               <div class="comparison-title">Last Week</div>
               <div class="comparison-value">${this._comparisonData.lastWeek.toFixed(2)}</div>
               <div class="change-indicator ${this._comparisonData.thisWeek > this._comparisonData.lastWeek ? 'change-up' : 'change-down'}">
-                ${this._comparisonData.thisWeek > this._comparisonData.lastWeek ? '📈' : '📉'}
+                ${this._comparisonData.thisWeek > this._comparisonData.lastWeek ? 'đź“' : 'đź“‰'}
                 ${Math.abs(((this._comparisonData.thisWeek - this._comparisonData.lastWeek) / this._comparisonData.lastWeek * 100)).toFixed(1)}%
               </div>
             </div>
@@ -995,7 +1044,7 @@ canvas {
               <div class="comparison-title">Last Month</div>
               <div class="comparison-value">${this._comparisonData.lastMonth.toFixed(0)}</div>
               <div class="change-indicator ${this._comparisonData.thisMonth > this._comparisonData.lastMonth ? 'change-up' : 'change-down'}">
-                ${this._comparisonData.thisMonth > this._comparisonData.lastMonth ? '📈' : '📉'}
+                ${this._comparisonData.thisMonth > this._comparisonData.lastMonth ? 'đź“' : 'đź“‰'}
                 ${Math.abs(((this._comparisonData.thisMonth - this._comparisonData.lastMonth) / this._comparisonData.lastMonth * 100)).toFixed(1)}%
               </div>
             </div>
@@ -1035,24 +1084,59 @@ canvas {
       });
     });
   }
+  async _loadChartJS() {
+    if (this._chartJsLoaded) {
+      return window.Chart;
+    }
+
+    return new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
+      script.async = true;
+      script.onload = () => {
+        this._chartJsLoaded = true;
+        resolve(window.Chart);
+      };
+      script.onerror = () => {
+        reject(new Error('Failed to load Chart.js'));
+      };
+      document.head.appendChild(script);
+    });
+  }
+
+  _destroyChart(chartKey) {
+    if (this._charts[chartKey]) {
+      this._charts[chartKey].destroy();
+      delete this._charts[chartKey];
+    }
+  }
+
+  _destroyAllCharts() {
+    Object.keys(this._charts).forEach(key => {
+      this._destroyChart(key);
+    });
+  }
 
   _showTab(tabName) {
     const tabs = this.shadowRoot.querySelectorAll('.tab-content');
     tabs.forEach(tab => tab.classList.remove('active'));
-    this.shadowRoot.getElementById(tabName).classList.add('active');
+    const tabEl = this.shadowRoot.getElementById(tabName);
+    if (tabEl) {
+      tabEl.classList.add('active');
+    }
 
     // Draw charts after showing tab (needed for canvas sizing)
     setTimeout(() => {
       if (tabName === 'dashboard') {
-        this._drawDashboardChart();
+        this._drawDashboardChart().catch(err => console.error('Dashboard chart error:', err));
       } else if (tabName === 'patterns') {
         this._drawHeatmap();
-        this._drawTrendChart();
-        this._drawWeekdayChart();
+        this._drawTrendChart().catch(err => console.error('Trend chart error:', err));
+        this._drawWeekdayChart().catch(err => console.error('Weekday chart error:', err));
       } else if (tabName === 'recommendations') {
         this._renderRecommendations();
       } else if (tabName === 'compare') {
-        this._drawComparisonChart();
+        this._drawComparisonChart().catch(err => console.error('Comparison chart error:', err));
       }
     }, 100);
   }
@@ -1061,72 +1145,81 @@ canvas {
     setTimeout(() => this._showTab('dashboard'), 100);
   }
 
-  _drawDashboardChart() {
-    const canvas = this.shadowRoot.getElementById('dashboard-chart');
-    if (!canvas) return;
+  async _drawDashboardChart() {
+    try {
+      await this._loadChartJS();
+      const canvas = this.shadowRoot.getElementById('dashboard-chart');
+      if (!canvas) return;
 
-    this._fixCanvasSize(canvas);
-    const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+      this._destroyChart('dashboard');
 
-    canvas.width = rect.width * dpr;
-    canvas.height = 200 * dpr;
-    ctx.scale(dpr, dpr);
+      const ctx = canvas.getContext('2d');
+      const labels = Array.from({ length: 24 }, (_, i) => ${i}:00);
+      const data = this._energyData || Array(24).fill(0);
 
-    const width = rect.width;
-    const height = 200;
-    const padding = { top: 20, right: 20, bottom: 30, left: 40 };
-    const chartWidth = width - padding.left - padding.right;
-    const chartHeight = height - padding.top - padding.bottom;
+      const chartConfig = {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Energy Usage (kWh)',
+            data: data,
+            backgroundColor: data.map((val, hour) => {
+              const isPeak = hour >= (this._config?.peak_hours?.start || 6) && hour < (this._config?.peak_hours?.end || 22);
+              return isPeak ? 'rgba(59, 130, 246, 0.7)' : 'rgba(100, 200, 100, 0.7)';
+            }),
+            borderColor: data.map((val, hour) => {
+              const isPeak = hour >= (this._config?.peak_hours?.start || 6) && hour < (this._config?.peak_hours?.end || 22);
+              return isPeak ? 'rgb(59, 130, 246)' : 'rgb(100, 200, 100)';
+            }),
+            borderWidth: 1,
+            borderRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: undefined,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'top'
+            },
+            tooltip: {
+              callbacks: {
+                label: (context) => {
+                  return ${context.formattedValue} kWh;
+                },
+                title: (context) => {
+                  return context[0].label;
+                }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Energy (kWh)'
+              }
+            },
+            x: {
+              title: {
+                display: true,
+                text: 'Hour of Day'
+              }
+            }
+          }
+        }
+      };
 
-    const maxUsage = Math.max(...this._energyData) * 1.1;
-    const barWidth = chartWidth / 24;
-
-    // Background grid
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.05)';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = padding.top + (chartHeight / 4) * i;
-      ctx.beginPath();
-      ctx.moveTo(padding.left, y);
-      ctx.lineTo(width - padding.right, y);
-      ctx.stroke();
-    }
-
-    // Draw bars
-    this._energyData.forEach((value, hour) => {
-      const x = padding.left + hour * barWidth;
-      const barHeight = (value / maxUsage) * chartHeight;
-      const y = padding.top + chartHeight - barHeight;
-
-      const isPeakHour = hour >= (this._config.peak_hours?.start || 6) && hour < (this._config.peak_hours?.end || 22);
-      const color = isPeakHour ? 'rgba(244, 67, 54, 0.7)' : 'rgba(52, 152, 219, 0.7)';
-
-      ctx.fillStyle = color;
-      ctx.fillRect(x + 2, y, barWidth - 4, barHeight);
-    });
-
-    // Y-axis labels
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.font = '12px sans-serif';
-    ctx.textAlign = 'right';
-    for (let i = 0; i <= 4; i++) {
-      const label = (maxUsage / 4 * i).toFixed(1);
-      const y = padding.top + chartHeight - (chartHeight / 4) * i;
-      ctx.fillText(label, padding.left - 8, y + 4);
-    }
-
-    // X-axis labels
-    ctx.textAlign = 'center';
-    for (let hour = 0; hour < 24; hour += 3) {
-      const x = padding.left + hour * barWidth + barWidth / 2;
-      const y = padding.top + chartHeight + 20;
-      ctx.fillText(`${hour}h`, x, y);
+      this._charts['dashboard'] = new window.Chart(ctx, chartConfig);
+    } catch (error) {
+      console.error('Error drawing dashboard chart:', error);
     }
   }
-
-  _drawHeatmap() {
+_drawHeatmap() {
     const canvas = this.shadowRoot.getElementById('heatmap-canvas');
     if (!canvas) return;
 
@@ -1147,267 +1240,301 @@ canvas {
     const cellHeight = (height - padding * 2) / 7;
 
     // Find min/max for color scaling
-    const allValues = this._weeklyData.flat();
-    const minVal = Math.min(...allValues);
-    const maxVal = Math.max(...allValues);
+    const allValues = (this._weeklyData || []).flat();
+    const minVal = allValues.length > 0 ? Math.min(...allValues) : 0;
+    const maxVal = allValues.length > 0 ? Math.max(...allValues) : 1;
+    const range = maxVal - minVal || 1;
 
-    const getColor = (value) => {
-      const normalized = (value - minVal) / (maxVal - minVal);
-      if (normalized < 0.25) return '#1e3a8a';
-      if (normalized < 0.5) return '#3b82f6';
-      if (normalized < 0.75) return '#fbbf24';
-      return '#dc2626';
+    // Helper to get color from value (blue to red gradient)
+    const getColor = (val) => {
+      const normalized = (val - minVal) / range;
+      const hue = (1 - normalized) * 240; // 240 = blue, 0 = red
+      return \hsl(\, 70%, 50%)\;
     };
 
-    // Draw heatmap
-    this._weeklyData.forEach((dayData, dayIndex) => {
+    // Draw cells
+    (this._weeklyData || []).forEach((dayData, dayIndex) => {
       dayData.forEach((value, hourIndex) => {
         const x = padding + hourIndex * cellWidth;
         const y = padding + dayIndex * cellHeight;
 
         ctx.fillStyle = getColor(value);
         ctx.fillRect(x, y, cellWidth - 1, cellHeight - 1);
+
+        // Draw cell border
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x, y, cellWidth - 1, cellHeight - 1);
       });
     });
 
-    // Y-axis labels (days)
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
-    ctx.font = 'bold 12px sans-serif';
+    // Day labels (Y-axis)
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    ctx.font = '12px sans-serif';
     ctx.textAlign = 'right';
+    ctx.textBaseline = 'middle';
     days.forEach((day, i) => {
-      ctx.fillText(day, padding - 8, padding + i * cellHeight + cellHeight / 2 + 4);
+      const y = padding + (i + 0.5) * cellHeight;
+      ctx.fillText(day, padding - 10, y);
     });
 
-    // X-axis labels (hours)
+    // Hour labels (X-axis)
     ctx.textAlign = 'center';
-    ctx.font = '11px sans-serif';
-    for (let hour = 0; hour < 24; hour += 3) {
-      ctx.fillText(`${hour}h`, padding + hour * cellWidth + cellWidth / 2, height - 8);
+    ctx.textBaseline = 'top';
+    for (let h = 0; h < 24; h += 3) {
+      const x = padding + (h + 0.5) * cellWidth;
+      ctx.fillText(h + ':00', x, height - padding + 5);
     }
-  }
-
-  _drawTrendChart() {
-    const canvas = this.shadowRoot.getElementById('trend-chart');
-    if (!canvas) return;
-
-    this._fixCanvasSize(canvas);
-    const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-
-    canvas.width = rect.width * dpr;
-    canvas.height = 150 * dpr;
-    ctx.scale(dpr, dpr);
-
-    const width = rect.width;
-    const height = 150;
-    const padding = { top: 20, right: 20, bottom: 30, left: 40 };
-    const chartWidth = width - padding.left - padding.right;
-    const chartHeight = height - padding.top - padding.bottom;
-
-    const dailyTotals = this._weeklyData.map(day => day.reduce((a, b) => a + b, 0));
-    const maxUsage = Math.max(...dailyTotals) * 1.1;
-    const pointSpacing = chartWidth / (dailyTotals.length - 1);
-
-    // Background grid
-    ctx.strokeStyle = 'rgba(0, 0, 0, 0.05)';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 3; i++) {
-      const y = padding.top + (chartHeight / 3) * i;
-      ctx.beginPath();
-      ctx.moveTo(padding.left, y);
-      ctx.lineTo(width - padding.right, y);
-      ctx.stroke();
-    }
-
-    // Draw line
-    ctx.strokeStyle = 'rgba(52, 152, 219, 0.8)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    dailyTotals.forEach((value, index) => {
-      const x = padding.left + index * pointSpacing;
-      const y = padding.top + chartHeight - (value / maxUsage) * chartHeight;
-      if (index === 0) {
-        ctx.moveTo(x, y);
-      } else {
-        ctx.lineTo(x, y);
-      }
-    });
-    ctx.stroke();
-
-    // Draw points
-    ctx.fillStyle = 'rgba(52, 152, 219, 1)';
-    dailyTotals.forEach((value, index) => {
-      const x = padding.left + index * pointSpacing;
-      const y = padding.top + chartHeight - (value / maxUsage) * chartHeight;
-      ctx.fillRect(x - 2, y - 2, 4, 4);
-    });
-
-    // Y-axis labels
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.font = '12px sans-serif';
-    ctx.textAlign = 'right';
-    for (let i = 0; i <= 3; i++) {
-      const label = (maxUsage / 3 * i).toFixed(0);
-      const y = padding.top + chartHeight - (chartHeight / 3) * i;
-      ctx.fillText(label, padding.left - 8, y + 4);
-    }
-
-    // X-axis labels
-    ctx.textAlign = 'center';
-    const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    dayLabels.forEach((label, index) => {
-      const x = padding.left + index * pointSpacing;
-      const y = padding.top + chartHeight + 20;
-      ctx.fillText(label, x, y);
-    });
-  }
-
-  _drawWeekdayChart() {
-    const canvas = this.shadowRoot.getElementById('weekday-chart');
-    if (!canvas) return;
-
-    this._fixCanvasSize(canvas);
-    const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-
-    canvas.width = rect.width * dpr;
-    canvas.height = 150 * dpr;
-    ctx.scale(dpr, dpr);
-
-    const width = rect.width;
-    const height = 150;
-    const padding = { top: 20, right: 20, bottom: 30, left: 40 };
-    const chartWidth = width - padding.left - padding.right;
-    const chartHeight = height - padding.top - padding.bottom;
-
-    const dailyTotals = this._weeklyData.map(day => day.reduce((a, b) => a + b, 0));
-    const maxUsage = Math.max(...dailyTotals) * 1.1;
-    const barWidth = chartWidth / 14;
-
-    // Use real data from this week
-    const lastWeekData = dailyTotals.map(v => v * 0.95);
-
-    const drawBars = (data, offset, color) => {
-      data.forEach((value, index) => {
-        const x = padding.left + (index * 2 + offset) * barWidth;
-        const barHeight = (value / maxUsage) * chartHeight;
-        const y = padding.top + chartHeight - barHeight;
-
-        ctx.fillStyle = color;
-        ctx.fillRect(x, y, barWidth - 2, barHeight);
-      });
-    };
-
-    drawBars(dailyTotals, 0, 'rgba(52, 152, 219, 0.8)');
-    drawBars(lastWeekData, 1, 'rgba(100, 100, 100, 0.5)');
-
-    // Y-axis labels
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.font = '12px sans-serif';
-    ctx.textAlign = 'right';
-    for (let i = 0; i <= 3; i++) {
-      const label = (maxUsage / 3 * i).toFixed(0);
-      const y = padding.top + chartHeight - (chartHeight / 3) * i;
-      ctx.fillText(label, padding.left - 8, y + 4);
-    }
-
-    // X-axis labels
-    ctx.textAlign = 'center';
-    const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    dayLabels.forEach((label, index) => {
-      const x = padding.left + (index * 2 + 0.5) * barWidth;
-      const y = padding.top + chartHeight + 20;
-      ctx.fillText(label, x, y);
-    });
 
     // Legend
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
     ctx.font = '11px sans-serif';
     ctx.textAlign = 'left';
-    ctx.fillStyle = 'rgba(52, 152, 219, 0.8)';
-    ctx.fillRect(padding.left, padding.top - 20, 12, 12);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillText('This week', padding.left + 16, padding.top - 10);
-
-    ctx.fillStyle = 'rgba(100, 100, 100, 0.5)';
-    ctx.fillRect(padding.left + 120, padding.top - 20, 12, 12);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillText('Last week', padding.left + 136, padding.top - 10);
+    const legendX = padding;
+    const legendY = height - 15;
+    ctx.fillText(\Min: \ kWh\, legendX, legendY);
+    ctx.fillText(\Max: \ kWh\, legendX + 120, legendY);
   }
 
-  _drawComparisonChart() {
-    const canvas = this.shadowRoot.getElementById('comparison-chart');
-    if (!canvas) return;
 
-    this._fixCanvasSize(canvas);
-    const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+  async _drawTrendChart() {
+    try {
+      await this._loadChartJS();
+      const canvas = this.shadowRoot.getElementById('trend-chart');
+      if (!canvas) return;
 
-    canvas.width = rect.width * dpr;
-    canvas.height = 180 * dpr;
-    ctx.scale(dpr, dpr);
+      this._destroyChart('trend');
 
-    const width = rect.width;
-    const height = 180;
-    const padding = { top: 20, right: 20, bottom: 30, left: 40 };
-    const chartWidth = width - padding.left - padding.right;
-    const chartHeight = height - padding.top - padding.bottom;
+      const ctx = canvas.getContext('2d');
+      const dailyTotals = this._weeklyData?.map(day => (day || []).reduce((a, b) => a + b, 0)) || [0, 0, 0, 0, 0, 0, 0];
+      const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
-    const dailyTotals = this._weeklyData.map(day => day.reduce((a, b) => a + b, 0));
-    const maxUsage = Math.max(...dailyTotals) * 1.1;
-    const barWidth = chartWidth / 14;
+      const chartConfig = {
+        type: 'line',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Daily Total Usage (kWh)',
+            data: dailyTotals,
+            borderColor: 'rgb(59, 130, 246)',
+            backgroundColor: 'rgba(59, 130, 246, 0.1)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.4,
+            pointRadius: 5,
+            pointBackgroundColor: 'rgb(59, 130, 246)',
+            pointBorderColor: 'white',
+            pointBorderWidth: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'top'
+            },
+            tooltip: {
+              callbacks: {
+                label: (context) => {
+                  return ${context.formattedValue} kWh;
+                }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Daily Total (kWh)'
+              }
+            },
+            x: {
+              title: {
+                display: true,
+                text: 'Day of Week'
+              }
+            }
+          }
+        }
+      };
 
-    // Use real data from this week
-    const lastWeekData = dailyTotals.map(v => v * 0.95);
-
-    const drawBars = (data, offset, color) => {
-      data.forEach((value, index) => {
-        const x = padding.left + (index * 2 + offset) * barWidth;
-        const barHeight = (value / maxUsage) * chartHeight;
-        const y = padding.top + chartHeight - barHeight;
-
-        ctx.fillStyle = color;
-        ctx.fillRect(x, y, barWidth - 2, barHeight);
-      });
-    };
-
-    drawBars(dailyTotals, 0, 'rgba(52, 152, 219, 0.8)');
-    drawBars(lastWeekData, 1, 'rgba(100, 100, 100, 0.5)');
-
-    // Y-axis labels
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-    ctx.font = '12px sans-serif';
-    ctx.textAlign = 'right';
-    for (let i = 0; i <= 3; i++) {
-      const label = (maxUsage / 3 * i).toFixed(0);
-      const y = padding.top + chartHeight - (chartHeight / 3) * i;
-      ctx.fillText(label, padding.left - 8, y + 4);
+      this._charts['trend'] = new window.Chart(ctx, chartConfig);
+    } catch (error) {
+      console.error('Error drawing trend chart:', error);
     }
-
-    // X-axis labels
-    ctx.textAlign = 'center';
-    const dayLabels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    dayLabels.forEach((label, index) => {
-      const x = padding.left + (index * 2 + 0.5) * barWidth;
-      const y = padding.top + chartHeight + 20;
-      ctx.fillText(label, x, y);
-    });
-
-    // Legend
-    ctx.font = '11px sans-serif';
-    ctx.textAlign = 'left';
-    ctx.fillStyle = 'rgba(52, 152, 219, 0.8)';
-    ctx.fillRect(padding.left, padding.top - 20, 12, 12);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillText('This week', padding.left + 16, padding.top - 10);
-
-    ctx.fillStyle = 'rgba(100, 100, 100, 0.5)';
-    ctx.fillRect(padding.left + 120, padding.top - 20, 12, 12);
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.fillText('Last week', padding.left + 136, padding.top - 10);
   }
+async _drawWeekdayChart() {
+    try {
+      await this._loadChartJS();
+      const canvas = this.shadowRoot.getElementById('weekday-chart');
+      if (!canvas) return;
+
+      this._destroyChart('weekday');
+
+      const ctx = canvas.getContext('2d');
+      const dailyTotals = this._weeklyData?.map(day => (day || []).reduce((a, b) => a + b, 0)) || [0, 0, 0, 0, 0, 0, 0];
+      const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+      const chartConfig = {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: 'Daily Total Usage (kWh)',
+            data: dailyTotals,
+            backgroundColor: [
+              'rgba(100, 200, 100, 0.7)',
+              'rgba(100, 200, 100, 0.7)',
+              'rgba(100, 200, 100, 0.7)',
+              'rgba(100, 200, 100, 0.7)',
+              'rgba(100, 200, 100, 0.7)',
+              'rgba(59, 130, 246, 0.7)',
+              'rgba(59, 130, 246, 0.7)'
+            ],
+            borderColor: [
+              'rgb(100, 200, 100)',
+              'rgb(100, 200, 100)',
+              'rgb(100, 200, 100)',
+              'rgb(100, 200, 100)',
+              'rgb(100, 200, 100)',
+              'rgb(59, 130, 246)',
+              'rgb(59, 130, 246)'
+            ],
+            borderWidth: 1,
+            borderRadius: 4
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'top'
+            },
+            tooltip: {
+              callbacks: {
+                label: (context) => {
+                  return ${context.formattedValue} kWh;
+                }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Daily Total (kWh)'
+              }
+            },
+            x: {
+              title: {
+                display: true,
+                text: 'Day of Week'
+              }
+            }
+          }
+        }
+      };
+
+      this._charts['weekday'] = new window.Chart(ctx, chartConfig);
+    } catch (error) {
+      console.error('Error drawing weekday chart:', error);
+    }
+  }
+async _drawComparisonChart() {
+    try {
+      await this._loadChartJS();
+      const canvas = this.shadowRoot.getElementById('comparison-chart');
+      if (!canvas) return;
+
+      this._destroyChart('comparison');
+
+      const ctx = canvas.getContext('2d');
+      
+      const compData = this._comparisonData || {
+        thisWeek: [0, 0, 0, 0, 0, 0, 0],
+        lastWeek: [0, 0, 0, 0, 0, 0, 0],
+        average: [0, 0, 0, 0, 0, 0, 0]
+      };
+
+      const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+      const chartConfig = {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'This Week (kWh)',
+              data: compData.thisWeek,
+              backgroundColor: 'rgba(59, 130, 246, 0.7)',
+              borderColor: 'rgb(59, 130, 246)',
+              borderWidth: 1,
+              borderRadius: 4
+            },
+            {
+              label: 'Last Week (kWh)',
+              data: compData.lastWeek,
+              backgroundColor: 'rgba(200, 200, 200, 0.7)',
+              borderColor: 'rgb(200, 200, 200)',
+              borderWidth: 1,
+              borderRadius: 4
+            },
+            {
+              label: 'Average (kWh)',
+              data: compData.average,
+              backgroundColor: 'rgba(100, 200, 100, 0.7)',
+              borderColor: 'rgb(100, 200, 100)',
+              borderWidth: 1,
+              borderRadius: 4
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: true,
+              position: 'top'
+            },
+            tooltip: {
+              callbacks: {
+                label: (context) => {
+                  return ${context.dataset.label}:  kWh;
+                }
+              }
+            }
+          },
+          scales: {
+            y: {
+              beginAtZero: true,
+              title: {
+                display: true,
+                text: 'Daily Total (kWh)'
+              }
+            },
+            x: {
+              title: {
+                display: true,
+                text: 'Day of Week'
+              }
+            }
+          }
+        }
+      };
+
+      this._charts['comparison'] = new window.Chart(ctx, chartConfig);
+    } catch (error) {
+      console.error('Error drawing comparison chart:', error);
+    }
+  }
+
 
   _renderRecommendations() {
     const container = this.shadowRoot.getElementById('recommendations-list');
