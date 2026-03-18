@@ -1295,8 +1295,8 @@ _drawHeatmap() {
     ctx.textAlign = 'left';
     const legendX = padding;
     const legendY = height - 15;
-    ctx.fillText(\Min: \ kWh\, legendX, legendY);
-    ctx.fillText(\Max: \ kWh\, legendX + 120, legendY);
+    ctx.fillText(`Min: ${minVal.toFixed(2)} kWh`, legendX, legendY);
+    ctx.fillText(`Max: ${maxVal.toFixed(2)} kWh`, legendX + 120, legendY);
   }
 
 
