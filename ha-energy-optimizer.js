@@ -1252,7 +1252,7 @@ _drawHeatmap() {
     const getColor = (val) => {
       const normalized = (val - minVal) / range;
       const hue = (1 - normalized) * 240; // 240 = blue, 0 = red
-      return \hsl(\, 70%, 50%)\;
+      return `hsl(${hue}, 70%, 50%)`;
     };
 
     // Draw cells
