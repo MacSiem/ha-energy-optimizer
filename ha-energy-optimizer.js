@@ -1157,7 +1157,7 @@ canvas {
       this._destroyChart('dashboard');
 
       const ctx = canvas.getContext('2d');
-      const labels = Array.from({ length: 24 }, (_, i) => ${i}:00);
+      const labels = Array.from({ length: 24 }, (_, i) => `${i}:00`);
       const data = this._energyData || Array(24).fill(0);
 
       const chartConfig = {
