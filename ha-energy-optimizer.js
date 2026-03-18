@@ -1191,7 +1191,7 @@ canvas {
             tooltip: {
               callbacks: {
                 label: (context) => {
-                  return ${context.formattedValue} kWh;
+                  return `${context.formattedValue} kWh`;
                 },
                 title: (context) => {
                   return context[0].label;
@@ -1341,7 +1341,7 @@ _drawHeatmap() {
             tooltip: {
               callbacks: {
                 label: (context) => {
-                  return ${context.formattedValue} kWh;
+                  return `${context.formattedValue} kWh`;
                 }
               }
             }
@@ -1421,7 +1421,7 @@ async _drawWeekdayChart() {
             tooltip: {
               callbacks: {
                 label: (context) => {
-                  return ${context.formattedValue} kWh;
+                  return `${context.formattedValue} kWh`;
                 }
               }
             }
@@ -1509,7 +1509,7 @@ async _drawComparisonChart() {
             tooltip: {
               callbacks: {
                 label: (context) => {
-                  return ${context.dataset.label}:  kWh;
+                  return `${context.dataset.label}: ${context.formattedValue} kWh`;
                 }
               }
             }
