@@ -1,4 +1,4 @@
-﻿class HaEnergyOptimizer extends HTMLElement {
+class HaEnergyOptimizer extends HTMLElement {
   constructor() {
     super();
     this.attachShadow({ mode: 'open' });
@@ -902,7 +902,7 @@ canvas {
         <h2 class="card-title">${this._config.title || 'Energy Optimizer'}</h2>
 
         <div class="data-source-badge">
-          ${this._hasRealData ? 'đź“Š Dane z ' + (this._energySensorIds || []).length + ' sensorĂłw energii' : 'âš ď¸Ź Demo data â€” brak sensorĂłw kWh'}
+          ${this._hasRealData ? '\u{1F4CA} Dane z ' + (this._energySensorIds || []).length + ' sensor\u00F3w energii' : '\u26A0\uFE0F Demo data \u2014 brak sensor\u00F3w kWh'}
         </div>
 
         <div class="tabs">
