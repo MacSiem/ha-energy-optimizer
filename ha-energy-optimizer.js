@@ -102,7 +102,7 @@ class HaEnergyOptimizer extends HTMLElement {
 
       if (kwhIds.length === 0) {
         this._statsLoading = false;
-        return; // No energy sensors, keep demo data
+        this._hasRealData = false; this._recommendations = []; return; // No energy sensors
       }
 
       this._energySensorIds = kwhIds;
@@ -212,6 +212,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
 
   _generateRecommendations() {
+    if (!this._hasRealData) { this._recommendations = []; return; }
     const peakHourStart = this._config.peak_hours?.start || 6;
     const peakHourEnd = this._config.peak_hours?.end || 22;
     const avgPeakUsage = this._energyData.slice(peakHourStart, peakHourEnd).reduce((a, b) => a + b, 0) / (peakHourEnd - peakHourStart);
@@ -220,7 +221,7 @@ class HaEnergyOptimizer extends HTMLElement {
     this._recommendations = [
       {
         id: 1,
-        icon: 'đź§ş',
+        icon: '🧺',
         title: `Shift laundry to off-peak hours`,
         description: `Your peak usage is ${peakHourStart}-${peakHourEnd}. Running laundry at night saves up to 30% on that load.`,
         savings: 12.5,
@@ -229,7 +230,7 @@ class HaEnergyOptimizer extends HTMLElement {
       },
       {
         id: 2,
-        icon: 'đźŤ˝ď¸Ź',
+        icon: '🍽️',
         title: 'Use dishwasher in off-peak time',
         description: 'Schedule dishwasher runs for morning or late evening when rates are lower.',
         savings: 8.3,
@@ -238,16 +239,16 @@ class HaEnergyOptimizer extends HTMLElement {
       },
       {
         id: 3,
-        icon: 'đźŚˇď¸Ź',
+        icon: '🌡️',
         title: 'Optimize thermostat settings',
-        description: `Reduce heating by 1Â°C during peak hours (${peakHourStart}-${peakHourEnd}) for consistent savings.`,
+        description: `Reduce heating by 1°C during peak hours (${peakHourStart}-${peakHourEnd}) for consistent savings.`,
         savings: 15.0,
         difficulty: 'medium',
         impact: 'high'
       },
       {
         id: 4,
-        icon: 'đź’ˇ',
+        icon: '💡',
         title: 'Replace with LED lighting',
         description: 'Your evening usage spikes significantly. LED bulbs reduce lighting energy by 75%.',
         savings: 6.2,
@@ -256,7 +257,7 @@ class HaEnergyOptimizer extends HTMLElement {
       },
       {
         id: 5,
-        icon: 'đź“±',
+        icon: '🔌',
         title: 'Reduce standby power consumption',
         description: 'Use smart power strips to eliminate phantom loads from devices in standby mode.',
         savings: 4.5,
@@ -333,25 +334,6 @@ class HaEnergyOptimizer extends HTMLElement {
   --bento-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
-@media (prefers-color-scheme: dark) {
-  :host {
-    --bento-bg: #1a1a2e;
-    --bento-card: #16213e;
-    --bento-text: #e2e8f0;
-    --bento-text-secondary: #94a3b8;
-    --bento-border: #334155;
-    --bento-success: #34d399;
-    --bento-warning: #fbbf24;
-    --bento-error: #f87171;
-  }
-}
-:host-context([data-themes]) {
-  --bento-bg: var(--lovelace-background, var(--primary-background-color, #F8FAFC));
-  --bento-card: var(--card-background-color, var(--ha-card-background, #FFFFFF));
-  --bento-text: var(--primary-text-color, #1E293B);
-  --bento-text-secondary: var(--secondary-text-color, #64748B);
-  --bento-border: var(--divider-color, #E2E8F0);
-}
 
 /* Card */
 .card, .ha-card, ha-card, .main-card, .exporter-card, .security-card, .reports-card, .storage-card, .chore-card, .cry-card, .backup-card, .network-card, .sentence-card, .energy-card, .panel-card {
@@ -362,7 +344,6 @@ class HaEnergyOptimizer extends HTMLElement {
   font-family: 'Inter', sans-serif !important;
   color: var(--bento-text) !important;
   overflow: hidden;
-  padding: 20px !important;
 }
 
 /* Headers */
@@ -1051,7 +1032,7 @@ canvas {
               <div class="comparison-title">Last Week</div>
               <div class="comparison-value">${this._comparisonData.lastWeek.toFixed(2)}</div>
               <div class="change-indicator ${this._comparisonData.thisWeek > this._comparisonData.lastWeek ? 'change-up' : 'change-down'}">
-                ${this._comparisonData.thisWeek > this._comparisonData.lastWeek ? 'đź“' : 'đź“‰'}
+                ${this._comparisonData.thisWeek > this._comparisonData.lastWeek ? '📈' : '📉'}
                 ${Math.abs(((this._comparisonData.thisWeek - this._comparisonData.lastWeek) / this._comparisonData.lastWeek * 100)).toFixed(1)}%
               </div>
             </div>
@@ -1067,7 +1048,7 @@ canvas {
               <div class="comparison-title">Last Month</div>
               <div class="comparison-value">${this._comparisonData.lastMonth.toFixed(0)}</div>
               <div class="change-indicator ${this._comparisonData.thisMonth > this._comparisonData.lastMonth ? 'change-up' : 'change-down'}">
-                ${this._comparisonData.thisMonth > this._comparisonData.lastMonth ? 'đź“' : 'đź“‰'}
+                ${this._comparisonData.thisMonth > this._comparisonData.lastMonth ? '📈' : '📉'}
                 ${Math.abs(((this._comparisonData.thisMonth - this._comparisonData.lastMonth) / this._comparisonData.lastMonth * 100)).toFixed(1)}%
               </div>
             </div>
