@@ -1,3 +1,6 @@
+// HTML escape helper — wrap any user-derived string before interpolation into innerHTML.
+const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
 class HaEnergyOptimizer extends HTMLElement {
   constructor() {
     super();
@@ -307,7 +310,6 @@ class HaEnergyOptimizer extends HTMLElement {
     return `
       <style>
 /* ===== BENTO LIGHT MODE DESIGN SYSTEM ===== */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :host {
   --bento-primary: #3B82F6;
@@ -900,7 +902,7 @@ canvas {
   _getTemplate() {
     return `
       <div class="card-container">
-        <h2 class="card-title">${this._config.title || 'Energy Optimizer'}</h2>
+        <h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>
 
         <div class="data-source-badge">
           ${this._hasRealData ? '\u{1F4CA} Dane z ' + (this._energySensorIds || []).length + ' sensor\u00F3w energii' : '\u26A0\uFE0F Demo data \u2014 brak sensor\u00F3w kWh'}
@@ -923,13 +925,13 @@ canvas {
             <div class="summary-card alt">
               <span class="summary-label">Cost Estimate</span>
               <div class="summary-value">${this._calculateTodayCost().toFixed(2)}</div>
-              <span class="summary-label">${this._config.currency || 'PLN'}${(this._config.off_peak_rate && this._config.peak_rate !== this._config.off_peak_rate) ? ' (dual-tariff)' : ''}</span>
+              <span class="summary-label">${_esc(this._config.currency || 'PLN')}${(this._config.off_peak_rate && this._config.peak_rate !== this._config.off_peak_rate) ? ' (dual-tariff)' : ''}</span>
             </div>
             ${(this._config.off_peak_rate && this._config.peak_rate !== this._config.off_peak_rate) ? `
             <div class="summary-card" style="border-left:3px solid var(--success)">
               <span class="summary-label">Potential Savings</span>
               <div class="summary-value">${this._calculatePotentialSavings().toFixed(2)}</div>
-              <span class="summary-label">${this._config.currency || 'PLN'}/day by shifting to off-peak</span>
+              <span class="summary-label">${_esc(this._config.currency || 'PLN')}/day by shifting to off-peak</span>
             </div>` : `
             <div class="summary-card warn">
               <span class="summary-label">Peak Hour</span>
@@ -1549,7 +1551,7 @@ async _drawComparisonChart() {
           <div class="rec-title">${rec.title}</div>
           <div class="rec-description">${rec.description}</div>
           <div class="rec-footer">
-            <div class="savings-badge">Save ~${rec.savings}${this._config.currency || 'PLN'}/mo</div>
+            <div class="savings-badge">Save ~${rec.savings}${_esc(this._config.currency || 'PLN')}/mo</div>
             <div class="difficulty-badge">${rec.difficulty}</div>
           </div>
         </div>
