@@ -30,6 +30,8 @@ Part of the [HA Tools](https://github.com/MacSiem/ha-tools-panel) collection for
 
 ## Usage
 
+This repo bundles **three cards** (since v3.3.0) — install once, use any of them:
+
 ```yaml
 type: custom:ha-energy-optimizer
 # Optional settings:
@@ -41,6 +43,18 @@ off_peak_rate: 0.45
 peak_hours:
   start: 6
   end: 22
+```
+
+```yaml
+# Historical breakdowns (24h / 7d / 30d), top consumers, trends:
+type: custom:ha-energy-insights
+```
+
+```yaml
+# Energy e-mail reports — manual send works with the optional
+# ha-tools-email-integration backend (SMTP); without it the card
+# shows previews and configuration only:
+type: custom:ha-energy-email
 ```
 
 ## Privacy
