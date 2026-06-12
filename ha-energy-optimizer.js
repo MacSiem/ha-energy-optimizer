@@ -13,7 +13,8 @@ class HaEnergyOptimizer extends HTMLElement {
     this._currentPage = {};
     this._pageSize = 15;
     this._hass = null;
-    this._config = null;
+    // Default config so the card works in panel/sidebar mode where setConfig() is never called.
+    this._config = { title: 'Energy Optimizer' };
     this._currentTab = 'dashboard';
     this._energyData = [];
     this._weeklyData = [];
@@ -46,7 +47,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
 
   setConfig(config) {
-    this._config = config;
+    this._config = config || { title: 'Energy Optimizer' };
     this._generateFallbackData();
     this._generateRecommendations();
     this._generateComparisonData();
@@ -1676,7 +1677,11 @@ async _drawComparisonChart() {
     }
   }
 
+  getCardSize() { return 10; }
 
+  getGridOptions() { return { rows: 10, columns: 12, min_rows: 3, min_columns: 6 }; }
+
+  static getStubConfig() { return { type: 'custom:ha-energy-optimizer', title: 'Energy Optimizer' }; }
 
 }
 
