@@ -12,12 +12,15 @@ Part of the [HA Tools](https://github.com/MacSiem/ha-tools-panel) collection for
 
 ## Installation
 
-### HACS (custom repository)
+### HACS
 
-1. Open HACS in Home Assistant.
-2. Go to **Frontend** → ⋮ → **Custom repositories**.
-3. Add `https://github.com/MacSiem/ha-energy-optimizer` with category **Lovelace**.
-4. Install **Energy Optimizer** and restart Home Assistant.
+**Energy Optimizer is in the HACS default store** — no custom repository needed:
+
+1. Open **HACS** in Home Assistant.
+2. Search for **Energy Optimizer**.
+3. Install and refresh your browser.
+
+[![Open in HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=MacSiem&repository=ha-energy-optimizer&category=plugin)
 
 ### Manual
 
