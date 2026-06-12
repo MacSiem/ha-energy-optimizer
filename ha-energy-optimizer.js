@@ -27,6 +27,10 @@ class HaEnergyOptimizer extends HTMLElement {
     this._lastStatsFetch = 0;
     this._energySensorIds = [];    this._charts = {};
     this._chartJsLoaded = false;
+    // Initialize data structures so panel/sidebar mode (no setConfig) renders without crashing.
+    this._generateFallbackData();
+    this._generateRecommendations();
+    this._generateComparisonData();
   }
   disconnectedCallback() {
     this._destroyAllCharts();
@@ -56,33 +60,51 @@ class HaEnergyOptimizer extends HTMLElement {
   set hass(hass) {
     this._hass = hass;
     if (!hass) return;
-    const now = Date.now();
-    if (!this._firstHassRender) {
-      this._firstHassRender = true;
+    try {
+      const now = Date.now();
+      if (!this._firstHassRender) {
+        this._firstHassRender = true;
+        this._updateEnergyData();
+        this._fetchEnergyStats();
+        this._render();
+        this._lastRenderTime = now;
+        return;
+      }
+      if (now - (this._lastRenderTime || 0) < 10000) {
+        if (!this._renderScheduled) {
+          this._renderScheduled = true;
+          setTimeout(() => {
+            this._renderScheduled = false;
+            try {
+              const newHash = Object.keys(hass.states).length + '_' + (hass.states['sun.sun'] ? hass.states['sun.sun'].state : '');
+              if (newHash === this._lastStateHash) return;
+              this._lastStateHash = newHash;
+              this._updateEnergyData();
+              this._render();
+              this._lastRenderTime = Date.now();
+            } catch (e) { this._renderError(e); }
+          }, 5000 - (now - (this._lastRenderTime || 0)));
+        }
+        return;
+      }
       this._updateEnergyData();
-      this._fetchEnergyStats();
       this._render();
       this._lastRenderTime = now;
-      return;
+    } catch (e) {
+      this._renderError(e);
     }
-    if (now - (this._lastRenderTime || 0) < 10000) {
-      if (!this._renderScheduled) {
-        this._renderScheduled = true;
-        setTimeout(() => {
-          this._renderScheduled = false;
-          const newHash = Object.keys(hass.states).length + '_' + (hass.states['sun.sun'] ? hass.states['sun.sun'].state : '');
-          if (newHash === this._lastStateHash) return;
-          this._lastStateHash = newHash;
-      this._updateEnergyData();
-          this._render();
-          this._lastRenderTime = Date.now();
-        }, 5000 - (now - (this._lastRenderTime || 0)));
-      }
-      return;
+  }
+
+  _renderError(e) {
+    console.error('[ha-energy-optimizer] render error:', e);
+    const msg = (e && e.message) ? e.message : String(e);
+    if (this.shadowRoot) {
+      this.shadowRoot.innerHTML =
+        '<div style="padding:16px;font-family:system-ui,sans-serif;color:#b91c1c;">' +
+        '<strong>Energy Optimizer — render error.</strong><br>' +
+        msg.replace(/[<>&]/g, c => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;' }[c])) +
+        '</div>';
     }
-      this._updateEnergyData();
-    this._render();
-    this._lastRenderTime = now;
   }
 
   async _fetchEnergyStats() {
