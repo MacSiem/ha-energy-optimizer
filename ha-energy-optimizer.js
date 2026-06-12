@@ -991,7 +991,7 @@ canvas {
           <div class="stats-row">
             <div class="stat-item">
               <div class="stat-label">Peak Usage</div>
-              <div class="stat-value">${(this._energyData.reduce((a, b) => Math.max(a, b))).toFixed(2)} kWh</div>
+              <div class="stat-value">${(this._energyData.reduce((a, b) => Math.max(a, b), 0)).toFixed(2)} kWh</div>
             </div>
             <div class="stat-item">
               <div class="stat-label">Off-Peak Usage</div>
