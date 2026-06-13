@@ -10,6 +10,26 @@ All notable changes to **Energy Optimizer** are documented here.
 ### Changed
 - Legacy service/manual send, input_text recipient discovery, and localStorage schedule fallback remain available when the websocket backend is unavailable.
 
+## [3.3.0] - 2026-06-12
+
+### Added
+- Bundled the **Energy Insights** and **Energy Email** cards into this repo (IIFE-scoped, panel-mode safe) — ships three custom elements from one repo.
+
+## [3.2.2] - 2026-06-12
+
+### Fixed
+- Initialise data structures in the constructor + render-error panel — full panel/sidebar mode support.
+
+## [3.2.1] - 2026-06-12
+
+### Fixed
+- Guard `reduce` on empty energy data (panel crashed before render with default config).
+
+## [3.2.0] - 2026-06-12
+
+### Added
+- `getGridOptions()` + panel-mode config defaults (works without `setConfig`).
+
 ## [3.1.2] - 2026-05-12
 
 ### Fixed
