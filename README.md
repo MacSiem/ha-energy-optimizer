@@ -52,8 +52,9 @@ type: custom:ha-energy-insights
 
 ```yaml
 # Energy e-mail reports — manual send works with the optional
-# ha-tools-email-integration backend (SMTP); without it the card
-# shows previews and configuration only:
+# ha-tools-email-integration backend (SMTP). With HA Tools Email v2.0.0,
+# schedules are stored server-side; without it the card keeps legacy local
+# schedule/config behavior:
 type: custom:ha-energy-email
 ```
 

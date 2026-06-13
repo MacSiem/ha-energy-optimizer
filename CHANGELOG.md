@@ -2,6 +2,14 @@
 
 All notable changes to **Energy Optimizer** are documented here.
 
+## [3.4.0] - 2026-06-13
+
+### Added
+- `ha-energy-email` now progressively uses the HA Tools Email v2.0.0 websocket API for SMTP status, server-side `energy_report` schedules, and backend `send_now`.
+
+### Changed
+- Legacy service/manual send, input_text recipient discovery, and localStorage schedule fallback remain available when the websocket backend is unavailable.
+
 ## [3.1.2] - 2026-05-12
 
 ### Fixed

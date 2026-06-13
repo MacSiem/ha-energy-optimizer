@@ -1,4 +1,4 @@
-// HA Energy Optimizer Bundle v3.3.0
+// HA Energy Optimizer Bundle v3.4.0
 // HTML escape helper — wrap any user-derived string before interpolation into innerHTML.
 const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -2671,10 +2671,11 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
   window._haToolsPersistence = window._haToolsPersistence || { _cache: {}, _hass: null, setHass(h) { this._hass = h; }, async save(k, d) { try { localStorage.setItem('ha-tools-' + k, JSON.stringify(d)); } catch(e) { console.debug('[ha-energy-email] caught:', e); } }, async load(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } }, loadSync(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } } };
 
   /**
-   * HA Energy Email Card v4.0.0
+   * HA Energy Email Card v3.4.0
    * Send daily/weekly/monthly energy usage reports as HTML email.
-   * v4.0.0: HA-native persistent storage (input_text helpers) for cross-device sync.
-   *         Auto-creation of report automations with configurable schedule.
+   * v3.4.0: HA Tools Email v2.0.0 websocket backend for SMTP status, schedules, and send_now.
+   *         HA-native persistent storage (input_text helpers) for cross-device sync.
+   *         Legacy automation creation remains available when backend WS is unavailable.
    *         Auto-discovery of energy sensors and notify services.
    *         Falls back to manual config (sensor.energy_report_devices) if available.
    *
@@ -2731,11 +2732,49 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
       this._devicesPerPage = 20;
       // Default schedule times
       this._scheduleDefaults = { daily: '07:30', weekly_day: 'mon', weekly_time: '08:00', monthly_time: '08:00' };
+      this._emailBackendChecked = false;
+      this._emailBackendAvailable = false;
+      this._emailBackendConfig = null;
+      this._emailBackendError = null;
+      this._emailSchedules = [];
+      this._scheduleBusy = {};
+      this._legacySchedules = this._loadLegacySchedules();
+      this._smtpTesting = false;
+      this._smtpStatus = null;
     }
 
     _sanitize(str) {
       if (!str) return str;
       try { return decodeURIComponent(escape(str)); } catch(e) { return str; }
+    }
+
+    _loadLegacySchedules() {
+      const defaults = {
+        daily: { kind: 'energy_report', cadence: 'daily', time: '07:30', recipients: [], enabled: false },
+        weekly: { kind: 'energy_report', cadence: 'weekly', time: '08:00', recipients: [], enabled: false },
+        monthly: { kind: 'energy_report', cadence: 'monthly', time: '08:00', recipients: [], enabled: false }
+      };
+      try {
+        const raw = localStorage.getItem('ha-energy-email-schedules');
+        if (!raw) return defaults;
+        const saved = JSON.parse(raw);
+        return {
+          daily: { ...defaults.daily, ...(saved.daily || {}) },
+          weekly: { ...defaults.weekly, ...(saved.weekly || {}) },
+          monthly: { ...defaults.monthly, ...(saved.monthly || {}) }
+        };
+      } catch (e) {
+        console.debug('[ha-energy-email] legacy schedule load failed:', e);
+        return defaults;
+      }
+    }
+
+    _saveLegacySchedules() {
+      try {
+        localStorage.setItem('ha-energy-email-schedules', JSON.stringify(this._legacySchedules || {}));
+      } catch (e) {
+        this._showToast(this._lang === 'pl' ? 'Nie udało się zapisać harmonogramu lokalnie' : 'Could not save local schedule');
+      }
     }
 
     _renderError(e) {
@@ -2759,6 +2798,7 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
           this._lastRenderTime = now;
           return;
         }
+        if (!this._emailBackendChecked) this._loadEmailBackendConfig().catch(e => this._showToast('⚠️ ' + (e?.message || e)));
         if (now - this._lastRenderTime < 10000) {
           if (!this._renderScheduled) {
             this._renderScheduled = true;
@@ -2922,6 +2962,7 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
     // --- auto-discovery ---
 
     async _discoverAll() {
+      await this._loadEmailBackendConfig();
       await this._ensureHelpers();
       this._discoverEnergySensors();
       this._discoverRecipient();
@@ -3109,8 +3150,85 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
       try { return localStorage.getItem(`ha-energy-email-${key}`) || ''; } catch(e) { return ''; }
     }
 
+    async _emailWs(command, payload = {}) {
+      const hass = this._hass;
+      if (!hass?.callWS) throw new Error('Home Assistant websocket API is unavailable');
+      return hass.callWS({ type: 'ha_tools_email/' + command, ...payload });
+    }
+
+    async _loadEmailBackendConfig(options = {}) {
+      const showErrors = !!options.showErrors;
+      const hass = this._hass;
+      if (!hass?.callWS) {
+        this._emailBackendChecked = true;
+        this._emailBackendAvailable = false;
+        return null;
+      }
+      try {
+        const resp = await hass.callWS({ type: 'ha_tools_email/get_config' });
+        this._emailBackendChecked = true;
+        this._emailBackendAvailable = true;
+        this._emailBackendConfig = resp || {};
+        this._emailSchedules = Array.isArray(resp?.schedules) ? resp.schedules : [];
+        this._emailBackendError = null;
+        if (resp?.default_recipient && !this._config.recipient) this._detectedRecipient = resp.default_recipient;
+        this._render();
+        return resp;
+      } catch (e) {
+        this._emailBackendChecked = true;
+        this._emailBackendAvailable = false;
+        this._emailBackendConfig = null;
+        this._emailSchedules = [];
+        this._emailBackendError = e?.message || String(e);
+        if (showErrors) this._showToast('⚠️ ' + (this._lang === 'pl' ? 'Backend email niedostępny: ' : 'Email backend unavailable: ') + this._emailBackendError);
+        this._render();
+        return null;
+      }
+    }
+
+    async _refreshBackendSchedules(showErrors = false) {
+      if (!this._emailBackendAvailable) return;
+      try {
+        const resp = await this._emailWs('list_schedules');
+        this._emailSchedules = Array.isArray(resp?.schedules) ? resp.schedules : [];
+        this._emailBackendError = null;
+        this._render();
+      } catch (e) {
+        this._emailBackendError = e?.message || String(e);
+        if (showErrors) this._showToast('❌ ' + (this._lang === 'pl' ? 'Nie udało się pobrać harmonogramów: ' : 'Could not load schedules: ') + this._emailBackendError);
+      }
+    }
+
+    _getEnergySchedule(cadence) {
+      return (this._emailSchedules || []).find(s => s && s.kind === 'energy_report' && s.cadence === cadence) || null;
+    }
+
+    _defaultScheduleTime(cadence) {
+      if (cadence === 'weekly') return this._scheduleDefaults.weekly_time || '08:00';
+      if (cadence === 'monthly') return this._scheduleDefaults.monthly_time || '08:00';
+      return this._scheduleDefaults.daily || '07:30';
+    }
+
+    _splitRecipients(value) {
+      return String(value || '').split(',').map(v => v.trim()).filter(Boolean);
+    }
+
+    _scheduleRecipients(cadence) {
+      const input = this.shadowRoot?.getElementById('schedule-recipients-' + cadence);
+      if (input) return this._splitRecipients(input.value);
+      const schedule = this._getEnergySchedule(cadence) || this._legacySchedules?.[cadence];
+      const recipients = Array.isArray(schedule?.recipients) ? schedule.recipients : [];
+      if (recipients.length) return recipients;
+      const recipient = this._getRecipient();
+      return recipient ? [recipient] : [];
+    }
+
     _discoverRecipient() {
       if (!this._hass) return;
+      if (!this._config.recipient && !this._detectedRecipient && this._emailBackendConfig?.default_recipient) {
+        this._detectedRecipient = this._emailBackendConfig.default_recipient;
+        return;
+      }
       // Try to get SMTP recipient from HA helper first
       if (!this._config.recipient && !this._detectedRecipient) {
         const savedRecipient = this._readHelper('recipient');
@@ -3791,6 +3909,77 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
 
     _tabSchedule() {
       const L = this._lang === 'pl';
+      const cadences = ['daily', 'weekly', 'monthly'];
+      if (this._emailBackendAvailable) {
+        return `
+          ${this._renderSmtpSection()}
+          <div class="info-row">\u{1F4BE}\u00A0 ${L ? 'Harmonogramy s\u0105 zapisywane po stronie integracji HA Tools Email v2.0.0.' : 'Schedules are stored server-side by the HA Tools Email v2.0.0 integration.'}</div>
+          ${cadences.map(c => this._renderBackendScheduleCard(c)).join('')}
+        `;
+      }
+      return this._renderLegacyScheduleTab();
+    }
+
+    _renderBackendScheduleCard(cadence) {
+      const L = this._lang === 'pl';
+      const labels = {
+        daily: ['\u2600\uFE0F', L ? 'Raport dzienny' : 'Daily Report', L ? 'Codziennie' : 'Daily'],
+        weekly: ['\u{1F4C6}', L ? 'Raport tygodniowy' : 'Weekly Report', L ? 'Co tydzie\u0144' : 'Weekly'],
+        monthly: ['\u{1F4C8}', L ? 'Raport miesi\u0119czny' : 'Monthly Report', L ? 'Co miesi\u0105c' : 'Monthly']
+      };
+      const [icon, title, cadenceLabel] = labels[cadence] || labels.daily;
+      const schedule = this._getEnergySchedule(cadence);
+      const time = schedule?.time || this._defaultScheduleTime(cadence);
+      const recipients = Array.isArray(schedule?.recipients) && schedule.recipients.length ? schedule.recipients.join(', ') : this._getRecipient();
+      const enabled = schedule ? schedule.enabled !== false : true;
+      const busy = !!this._scheduleBusy[cadence];
+      const status = schedule
+        ? (enabled ? '<span class="badge badge-ok">\u2705 Active</span>' : '<span class="badge badge-er">\u274C Disabled</span>')
+        : '<span class="badge badge-wa">\u2795 ' + (L ? 'Nie utworzony' : 'Not Created') + '</span>';
+      return `<div class="schedule-card" data-schedule-card="${cadence}">
+        <div class="schedule-row"><div class="schedule-name">${icon} ${title}</div>${status}</div>
+        <div class="schedule-meta"><span>${cadenceLabel}</span><span>kind: energy_report</span>${schedule?.id ? `<span>${_esc(schedule.id)}</span>` : ''}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;align-items:end;margin-top:10px">
+          <label style="font-size:12px;color:var(--bento-text-secondary);font-weight:500">${L ? 'Godzina' : 'Time'}<input class="config-input" type="time" id="schedule-time-${cadence}" value="${_esc(time)}" style="width:100%;margin-top:4px"></label>
+          <label style="font-size:12px;color:var(--bento-text-secondary);font-weight:500">${L ? 'Odbiorcy' : 'Recipients'}<input class="config-input" type="text" id="schedule-recipients-${cadence}" value="${_esc(recipients || '')}" placeholder="name@example.com, other@example.com" style="width:100%;margin-top:4px"></label>
+          <label style="font-size:12px;color:var(--bento-text-secondary);font-weight:600;white-space:nowrap"><input type="checkbox" id="schedule-enabled-${cadence}" ${enabled ? 'checked' : ''}> ${L ? 'W\u0142\u0105czony' : 'Enabled'}</label>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary schedule-save" data-cadence="${cadence}" ${busy ? 'disabled' : ''}>${schedule ? (L ? 'Aktualizuj' : 'Update') : (L ? 'Utw\u00F3rz' : 'Create')}</button>
+          <button class="btn schedule-send" data-cadence="${cadence}" ${busy || !this._emailBackendConfig?.smtp_configured ? 'disabled' : ''}>${L ? 'Wy\u015Blij teraz' : 'Send now'}</button>
+          <button class="btn schedule-delete" data-cadence="${cadence}" ${busy || !schedule ? 'disabled' : ''}>${L ? 'Usu\u0144' : 'Delete'}</button>
+        </div>
+      </div>`;
+    }
+
+    _renderLegacyScheduleCard(cadence) {
+      const L = this._lang === 'pl';
+      const labels = {
+        daily: ['\u2600\uFE0F', L ? 'Raport dzienny' : 'Daily Report'],
+        weekly: ['\u{1F4C6}', L ? 'Raport tygodniowy' : 'Weekly Report'],
+        monthly: ['\u{1F4C8}', L ? 'Raport miesi\u0119czny' : 'Monthly Report']
+      };
+      const [icon, title] = labels[cadence] || labels.daily;
+      const schedule = this._legacySchedules?.[cadence] || { kind: 'energy_report', cadence, time: this._defaultScheduleTime(cadence), recipients: [], enabled: false };
+      const recipients = Array.isArray(schedule.recipients) && schedule.recipients.length ? schedule.recipients.join(', ') : this._getRecipient();
+      return `<div class="schedule-card" data-schedule-card="${cadence}">
+        <div class="schedule-row"><div class="schedule-name">${icon} ${title}</div><span class="badge ${schedule.enabled ? 'badge-ok' : 'badge-wa'}">${schedule.enabled ? '\u2705 localStorage' : '\u26AB localStorage'}</span></div>
+        <div class="schedule-meta">${L ? 'Fallback lokalny. Nie tworzy harmonogramu po stronie HA.' : 'Local fallback. Does not create a Home Assistant server schedule.'}</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;align-items:end;margin-top:10px">
+          <label style="font-size:12px;color:var(--bento-text-secondary);font-weight:500">${L ? 'Godzina' : 'Time'}<input class="config-input" type="time" id="schedule-time-${cadence}" value="${_esc(schedule.time || this._defaultScheduleTime(cadence))}" style="width:100%;margin-top:4px"></label>
+          <label style="font-size:12px;color:var(--bento-text-secondary);font-weight:500">${L ? 'Odbiorcy' : 'Recipients'}<input class="config-input" type="text" id="schedule-recipients-${cadence}" value="${_esc(recipients || '')}" placeholder="name@example.com" style="width:100%;margin-top:4px"></label>
+          <label style="font-size:12px;color:var(--bento-text-secondary);font-weight:600;white-space:nowrap"><input type="checkbox" id="schedule-enabled-${cadence}" ${schedule.enabled ? 'checked' : ''}> ${L ? 'W\u0142\u0105czony lokalnie' : 'Enabled locally'}</label>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary schedule-save" data-cadence="${cadence}">${L ? 'Zapisz lokalnie' : 'Save locally'}</button>
+          <button class="btn schedule-send" data-cadence="${cadence}">${L ? 'Wy\u015Blij teraz' : 'Send now'}</button>
+          <button class="btn schedule-delete" data-cadence="${cadence}">${L ? 'Wyczy\u015B\u0107' : 'Clear'}</button>
+        </div>
+      </div>`;
+    }
+
+    _renderLegacyScheduleTab() {
+      const L = this._lang === 'pl';
       const recipient = this._getRecipient();
       const service = this._detectedService || this._config?.notify_service || '';
       const dailyId = 'automation.send_daily_energy_report';
@@ -3833,9 +4022,14 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
       };
       return `
         ${this._renderSmtpSection()}
+        <div class="info-row info-warn">\u26A0\uFE0F\u00A0 ${L
+          ? 'Tryb legacy: harmonogramy lokalne zapisuj\u0105 si\u0119 tylko w tej przegl\u0105darce. Stare automatyzacje HA pozostaj\u0105 dost\u0119pne poni\u017Cej.'
+          : 'Legacy mode: local schedules are saved only in this browser. Existing HA automation controls remain available below.'}</div>
         ${!recipient && !service ? `<div class="info-row info-warn">\u26A0\uFE0F\u00A0 ${L
           ? '<b>Brak adresu email.</b> Ustaw email w polu powy\u017Cej lub skonfiguruj serwis notify z SMTP.'
           : '<b>No email recipient.</b> Set email in the field above or configure an SMTP notify service.'}</div>` : ''}
+        ${['daily', 'weekly', 'monthly'].map(c => this._renderLegacyScheduleCard(c)).join('')}
+        <div class="section-title">${L ? 'Starsze automatyzacje HA' : 'Legacy HA Automations'}</div>
         ${scheduleCard(
           '\u2600\uFE0F', 'Raport dzienny', 'Daily Report', dailyState,
           `${L ? 'Codziennie o' : 'Every day at'} ${sd.daily}`,
@@ -3926,31 +4120,37 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
     _tabSend() {
       const L = this._lang === 'pl';
       const smtpConfig = this._renderSmtpSection();
-      const service = this._detectedService || this._config?.notify_service || '';
+      const canSend = this._hasHaToolsEmail();
+      const quickDisabled = this._sending || (this._emailBackendAvailable ? true : !canSend);
+      const modeText = this._emailBackendAvailable
+        ? (L ? 'R\u0119cznie wy\u015Blij raport energii przez backend HA Tools Email v2.0.0.' : 'Manually trigger an energy report through the HA Tools Email v2.0.0 backend.')
+        : (L ? 'R\u0119cznie wy\u015Blij raport energii poprzez ha_tools_email.' : 'Manually trigger an energy report via ha_tools_email.');
       return `
-        <div class="info-row">\u{1F4E4}\u00A0 ${L ? 'R\u0119cznie wy\u015Blij raport energii poprzez ha_tools_email.' : 'Manually trigger an energy report via ha_tools_email.'}</div>
+        <div class="info-row">\u{1F4E4}\u00A0 ${modeText}</div>
         ${smtpConfig}
         <div style="font-size:12px;color:var(--bento-text-secondary);margin:16px 0 12px;padding:10px;background:var(--bento-primary-light);border-radius:var(--bento-radius-xs)">${L ? '💡 Konfiguracja SMTP w: HA Tools Panel → Settings → Log Email' : '💡 SMTP configuration in: HA Tools Panel → Settings → Log Email'}</div>
         <div class="schedule-card">
           <div class="schedule-row"><div class="schedule-name">\u2600\uFE0F ${L ? 'Wy\u015Blij raport dzienny' : 'Send Daily Report Now'}</div><span class="badge badge-pr">Manual</span></div>
           <div id="last-daily" class="last-sent">${this._lastSent.daily ? 'Last sent: ' + this._lastSent.daily : ''}</div>
-          <div class="btn-row"><button class="btn btn-primary" id="send-daily" ${this._sending ? 'disabled' : ''}>${this._sending ? '<span class="spinner"></span>Sending...' : '\u2600\uFE0F Send Daily'}</button></div>
+          <div class="btn-row"><button class="btn btn-primary" id="send-daily" ${this._sending || !canSend ? 'disabled' : ''}>${this._sending ? '<span class="spinner"></span>Sending...' : '\u2600\uFE0F Send Daily'}</button></div>
         </div>
         <div class="schedule-card">
           <div class="schedule-row"><div class="schedule-name">\u{1F4C6} ${L ? 'Wy\u015Blij raport tygodniowy' : 'Send Weekly Report Now'}</div><span class="badge badge-pr">Manual</span></div>
           <div id="last-weekly" class="last-sent">${this._lastSent.weekly ? 'Last sent: ' + this._lastSent.weekly : ''}</div>
-          <div class="btn-row"><button class="btn btn-primary" id="send-weekly" ${this._sending ? 'disabled' : ''}>${this._sending ? '<span class="spinner"></span>Sending...' : '\u{1F4E4} Send Weekly'}</button></div>
+          <div class="btn-row"><button class="btn btn-primary" id="send-weekly" ${this._sending || !canSend ? 'disabled' : ''}>${this._sending ? '<span class="spinner"></span>Sending...' : '\u{1F4E4} Send Weekly'}</button></div>
         </div>
         <div class="schedule-card">
           <div class="schedule-row"><div class="schedule-name">\u{1F4C8} ${L ? 'Wy\u015Blij raport miesi\u0119czny' : 'Send Monthly Report Now'}</div><span class="badge badge-pr">Manual</span></div>
           <div id="last-monthly" class="last-sent">${this._lastSent.monthly ? 'Last sent: ' + this._lastSent.monthly : ''}</div>
-          <div class="btn-row"><button class="btn btn-primary" id="send-monthly" ${this._sending ? 'disabled' : ''}>${this._sending ? '<span class="spinner"></span>Sending...' : '\u{1F4C8} Send Monthly'}</button></div>
+          <div class="btn-row"><button class="btn btn-primary" id="send-monthly" ${this._sending || !canSend ? 'disabled' : ''}>${this._sending ? '<span class="spinner"></span>Sending...' : '\u{1F4C8} Send Monthly'}</button></div>
         </div>
         <div class="schedule-card">
           <div class="schedule-row"><div class="schedule-name">\u{1F4E7} ${L ? 'Szybkie podsumowanie' : 'Quick Summary'}</div><span class="badge badge-ok">Instant</span></div>
-          <div class="schedule-meta">${L ? 'Tekstowe podsumowanie aktualnych danych energii.' : 'Plain-text summary of current energy stats.'}</div>
+          <div class="schedule-meta">${this._emailBackendAvailable
+            ? (L ? 'Tryb backendu u\u017Cywa wysy\u0142ki daily/weekly/monthly przez send_now.' : 'Backend mode uses daily/weekly/monthly send_now actions.')
+            : (L ? 'Tekstowe podsumowanie aktualnych danych energii.' : 'Plain-text summary of current energy stats.')}</div>
           <div id="last-quick" class="last-sent">${this._lastSent.quick ? 'Last sent: ' + this._lastSent.quick : ''}</div>
-          <div class="btn-row"><button class="btn btn-ok" id="send-quick" ${this._sending || !service ? 'disabled' : ''}>\u26A1 ${L ? 'Wy\u015Blij' : 'Send Quick Summary'}</button></div>
+          <div class="btn-row"><button class="btn btn-ok" id="send-quick" ${quickDisabled ? 'disabled' : ''}>\u26A1 ${L ? 'Wy\u015Blij' : 'Send Quick Summary'}</button></div>
         </div>`;
     }
 
@@ -4099,6 +4299,9 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
       const root = this.shadowRoot;
       const btnSmtpTest = root.getElementById('btn-smtp-test');
       if (btnSmtpTest) { btnSmtpTest.addEventListener('click', () => this._testSmtp()); }
+      root.querySelectorAll('.schedule-save').forEach(btn => btn.addEventListener('click', () => this._saveSchedule(btn.dataset.cadence)));
+      root.querySelectorAll('.schedule-delete').forEach(btn => btn.addEventListener('click', () => this._deleteSchedule(btn.dataset.cadence)));
+      root.querySelectorAll('.schedule-send').forEach(btn => btn.addEventListener('click', () => this._sendScheduleNow(btn.dataset.cadence)));
       // Time inputs — save on change
       const timeInputs = [
         ['time-daily', 'daily_time', 'daily'],
@@ -4146,6 +4349,83 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
         const btn = root.getElementById(id);
         if (btn) btn.addEventListener('click', () => this._createAutomation(type, true));
       });
+    }
+
+    async _saveSchedule(cadence) {
+      if (this._emailBackendAvailable) return this._saveBackendSchedule(cadence);
+      return this._saveLegacySchedule(cadence);
+    }
+
+    async _deleteSchedule(cadence) {
+      if (this._emailBackendAvailable) return this._deleteBackendSchedule(cadence);
+      return this._deleteLegacySchedule(cadence);
+    }
+
+    async _sendScheduleNow(cadence) {
+      if (this._emailBackendAvailable) return this._sendReportViaBackend(cadence);
+      return this._sendReport(cadence);
+    }
+
+    async _saveBackendSchedule(cadence) {
+      if (!cadence) return;
+      const existing = this._getEnergySchedule(cadence);
+      const time = this.shadowRoot?.getElementById('schedule-time-' + cadence)?.value || this._defaultScheduleTime(cadence);
+      const recipients = this._scheduleRecipients(cadence);
+      const enabled = !!this.shadowRoot?.getElementById('schedule-enabled-' + cadence)?.checked;
+      this._scheduleBusy[cadence] = true;
+      this._render();
+      try {
+        const resp = await this._emailWs('set_schedule', {
+          action: 'upsert',
+          schedule: { id: existing?.id, kind: 'energy_report', cadence, time, recipients, enabled }
+        });
+        this._emailSchedules = Array.isArray(resp?.schedules) ? resp.schedules : (resp?.schedule ? [...this._emailSchedules.filter(s => s.id !== resp.schedule.id), resp.schedule] : this._emailSchedules);
+        this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Harmonogram zapisany' : 'Schedule saved'));
+      } catch (e) {
+        this._showToast('\u274C ' + (this._lang === 'pl' ? 'Nie uda\u0142o si\u0119 zapisa\u0107 harmonogramu: ' : 'Could not save schedule: ') + (e?.message || 'Unknown error'));
+      } finally {
+        this._scheduleBusy[cadence] = false;
+        await this._refreshBackendSchedules(false);
+        this._render();
+      }
+    }
+
+    async _deleteBackendSchedule(cadence) {
+      const existing = this._getEnergySchedule(cadence);
+      if (!existing?.id) return;
+      this._scheduleBusy[cadence] = true;
+      this._render();
+      try {
+        const resp = await this._emailWs('set_schedule', { action: 'delete', schedule_id: existing.id });
+        this._emailSchedules = Array.isArray(resp?.schedules) ? resp.schedules : this._emailSchedules.filter(s => s.id !== existing.id);
+        this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Harmonogram usuni\u0119ty' : 'Schedule deleted'));
+      } catch (e) {
+        this._showToast('\u274C ' + (this._lang === 'pl' ? 'Nie uda\u0142o si\u0119 usun\u0105\u0107 harmonogramu: ' : 'Could not delete schedule: ') + (e?.message || 'Unknown error'));
+      } finally {
+        this._scheduleBusy[cadence] = false;
+        this._render();
+      }
+    }
+
+    _saveLegacySchedule(cadence) {
+      if (!cadence) return;
+      const time = this.shadowRoot?.getElementById('schedule-time-' + cadence)?.value || this._defaultScheduleTime(cadence);
+      const recipients = this._scheduleRecipients(cadence);
+      const enabled = !!this.shadowRoot?.getElementById('schedule-enabled-' + cadence)?.checked;
+      this._legacySchedules = this._legacySchedules || {};
+      this._legacySchedules[cadence] = { kind: 'energy_report', cadence, time, recipients, enabled };
+      this._saveLegacySchedules();
+      this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Harmonogram zapisany lokalnie' : 'Schedule saved locally'));
+      this._render();
+    }
+
+    _deleteLegacySchedule(cadence) {
+      if (!cadence) return;
+      this._legacySchedules = this._legacySchedules || {};
+      this._legacySchedules[cadence] = { kind: 'energy_report', cadence, time: this._defaultScheduleTime(cadence), recipients: [], enabled: false };
+      this._saveLegacySchedules();
+      this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Harmonogram lokalny wyczyszczony' : 'Local schedule cleared'));
+      this._render();
     }
 
     // --- Automation creation ---
@@ -4268,8 +4548,37 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
       } catch (e) { this._showToast('\u274C Error: ' + (e.message || 'Unknown error')); }
     }
 
+    async _sendReportViaBackend(cadence) {
+      if (!this._hass || this._sending) return;
+      const L = this._lang === 'pl';
+      if (!['daily', 'weekly', 'monthly'].includes(cadence)) return;
+      if (!this._emailBackendConfig?.smtp_configured) {
+        this._showToast('\u274C ' + (L ? 'SMTP nie skonfigurowany w backendzie ha_tools_email' : 'SMTP is not configured in ha_tools_email backend'));
+        return;
+      }
+      const recipients = this._scheduleRecipients(cadence);
+      this._sending = true;
+      this._scheduleBusy[cadence] = true;
+      this._renderTab(); this._attachSendEvents();
+      try {
+        await this._emailWs('send_now', { kind: 'energy_report', cadence, recipients });
+        this._lastSent[cadence] = new Date().toLocaleString((this._lang === 'pl' ? 'pl-PL' : 'en-US'), { hour12: false });
+        this._showToast('\u2705 ' + (L ? 'Raport wys\u0142any przez backend' : 'Report sent by backend'));
+      } catch (e) {
+        this._showToast('\u274C Send failed: ' + (e?.message || 'Unknown error'));
+      } finally {
+        this._sending = false;
+        this._scheduleBusy[cadence] = false;
+        this._renderTab(); this._attachSendEvents();
+      }
+    }
+
     async _sendReport(type) {
       if (!this._hass || this._sending) return;
+      if (this._emailBackendAvailable && ['daily', 'weekly', 'monthly'].includes(type)) {
+        await this._sendReportViaBackend(type);
+        return;
+      }
       this._sending = true;
       this._renderTab(); this._attachSendEvents();
       const L = this._lang === 'pl';
@@ -4368,29 +4677,69 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
 
     // --- HA Tools Email (built-in SMTP) ---
 
-    _hasHaToolsEmail() {
+    _hasLegacyHaToolsEmail() {
       return !!this._hass?.services?.ha_tools_email?.send;
     }
 
+    _hasHaToolsEmail() {
+      if (this._emailBackendAvailable) return !!this._emailBackendConfig?.smtp_configured;
+      return this._hasLegacyHaToolsEmail();
+    }
+
     async _sendViaHaToolsEmail(to, subject, body, html) {
+      const hass = this._hass;
+      if (!hass) throw new Error('Home Assistant is not ready');
+      if (!this._hasLegacyHaToolsEmail()) throw new Error(this._lang === 'pl' ? 'Brak us\u0142ugi ha_tools_email.send' : 'ha_tools_email.send service is unavailable');
       const data = { subject, body };
       if (html) data.html = html;
       if (to) data.to = to;
-      await this._hass.callService('ha_tools_email', 'send', data);
+      await hass.callService('ha_tools_email', 'send', data);
     }
 
     // --- SMTP Configuration via ha_tools_email ---
 
     _renderSmtpSection() {
       const L = this._lang === 'pl';
-      if (this._hasHaToolsEmail()) {
+      const statusBadge = this._smtpStatus
+        ? (this._smtpStatus.ok
+          ? `<span class="badge badge-ok">\u2705 Test OK ${_esc(this._smtpStatus.time || '')}</span>`
+          : `<span class="badge badge-er">\u274C ${_esc(this._smtpStatus.error || '')}</span>`)
+        : '';
+      if (this._emailBackendAvailable) {
+        const cfg = this._emailBackendConfig || {};
+        const scheduleCount = (this._emailSchedules || []).filter(s => s.kind === 'energy_report').length;
+        if (cfg.smtp_configured) {
+          const server = cfg.server ? `${_esc(cfg.server)}:${_esc(cfg.port || '')}` : (L ? 'serwer SMTP skonfigurowany' : 'SMTP server configured');
+          const sender = cfg.sender ? _esc(cfg.sender) : (L ? 'nadawca z konfiguracji' : 'configured sender');
+          const recipient = cfg.default_recipient ? _esc(cfg.default_recipient) : (L ? 'brak domy\u015Blnego odbiorcy' : 'no default recipient');
+          return `<div class="smtp-section">
+            <div class="smtp-header"><div class="smtp-icon">\u2705</div><div>
+              <div class="smtp-title">${L ? 'SMTP skonfigurowany (ha_tools_email v2)' : 'SMTP Configured (ha_tools_email v2)'}</div>
+              <div class="smtp-detail">${server} \u2022 ${sender} \u2022 ${recipient}</div>
+              <div class="smtp-detail">${L ? 'Harmonogramy na backendzie: ' : 'Server schedules: '}${scheduleCount}</div>
+            </div></div>
+            <div class="smtp-actions" style="margin-top:12px">
+              <button class="btn btn-primary" id="btn-smtp-test" ${this._smtpTesting ? 'disabled' : ''}>${this._smtpTesting ? (L ? 'Wysy\u0142am...' : 'Sending...') : (L ? 'Test SMTP' : 'Test SMTP')}</button>
+              ${statusBadge}
+            </div>
+          </div>`;
+        }
+        return `<div class="smtp-section smtp-missing">
+          <div class="smtp-header"><div class="smtp-icon">\u26A0\uFE0F</div><div>
+            <div class="smtp-title">${L ? 'SMTP nie skonfigurowany w ha_tools_email' : 'SMTP Not Configured in ha_tools_email'}</div>
+            <div class="smtp-detail">${L ? 'Backend jest dost\u0119pny, ale smtp_configured=false. Has\u0142o nie jest zwracane przez API.' : 'Backend is available, but smtp_configured=false. Password is never returned by the API.'}</div>
+          </div></div>
+        </div>`;
+      }
+      if (this._hasLegacyHaToolsEmail()) {
         return `<div class="smtp-section">
           <div class="smtp-header"><div class="smtp-icon">\u2705</div><div>
-            <div class="smtp-title">${L ? 'SMTP skonfigurowany (ha_tools_email)' : 'SMTP Configured (ha_tools_email)'}</div>
-            <div class="smtp-detail">${L ? 'Konfiguracja w' : 'Configure in'} <b>${L ? 'Ustawienia \u2192 Email/SMTP' : 'Settings \u2192 Email/SMTP'}</b></div>
+            <div class="smtp-title">${L ? 'SMTP skonfigurowany (legacy ha_tools_email)' : 'SMTP Configured (legacy ha_tools_email)'}</div>
+            <div class="smtp-detail">${L ? 'U\u017Cywam us\u0142ug Home Assistant ha_tools_email.send/test.' : 'Using Home Assistant ha_tools_email.send/test services.'}</div>
           </div></div>
           <div class="smtp-actions" style="margin-top:12px">
-            <button class="btn btn-primary" id="btn-smtp-test">\uD83D\uDCE7 ${L ? 'Wy\u015Blij testowy email' : 'Send Test Email'}</button>
+            <button class="btn btn-primary" id="btn-smtp-test" ${this._smtpTesting ? 'disabled' : ''}>${this._smtpTesting ? (L ? 'Wysy\u0142am...' : 'Sending...') : (L ? 'Wy\u015Blij testowy email' : 'Send Test Email')}</button>
+            ${statusBadge}
           </div>
         </div>`;
       }
@@ -4403,11 +4752,34 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
     }
 
     async _testSmtp() {
-      if (!this._hasHaToolsEmail()) { this._showToast('\u274C ' + (this._lang === 'pl' ? 'ha_tools_email nie zainstalowany' : 'ha_tools_email not installed')); return; }
+      if (!this._hass) return;
+      if (this._emailBackendAvailable && !this._emailBackendConfig?.smtp_configured) {
+        this._smtpStatus = { ok: false, error: (this._lang === 'pl' ? 'SMTP nie skonfigurowany' : 'SMTP not configured') };
+        this._showToast('\u274C ' + this._smtpStatus.error);
+        this._render();
+        return;
+      }
+      if (this._emailBackendAvailable && !this._hasLegacyHaToolsEmail()) {
+        this._smtpStatus = { ok: true, service: 'ha_tools_email/ws', time: new Date().toLocaleTimeString((this._lang === 'pl' ? 'pl-PL' : 'en-US')) };
+        this._showToast('\u2139\uFE0F ' + (this._lang === 'pl' ? 'Backend SMTP jest skonfigurowany. U\u017Cyj Send Now, aby wys\u0142a\u0107 raport testowy.' : 'Backend SMTP is configured. Use Send Now to send a test report.'));
+        this._render();
+        return;
+      }
+      if (!this._hasLegacyHaToolsEmail()) { this._showToast('\u274C ' + (this._lang === 'pl' ? 'ha_tools_email nie zainstalowany' : 'ha_tools_email not installed')); return; }
+      this._smtpTesting = true;
+      this._render();
       try {
-        await this._hass.callService('ha_tools_email', 'test', {});
+        const hass = this._hass;
+        await hass.callService('ha_tools_email', 'test', {});
+        this._smtpStatus = { ok: true, service: 'ha_tools_email', time: new Date().toLocaleTimeString((this._lang === 'pl' ? 'pl-PL' : 'en-US')) };
         this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Testowy email wysy\u0142any!' : 'Test email sent!'));
-      } catch (e) { this._showToast('\u274C SMTP test failed: ' + (e.message || 'Check HA logs')); }
+      } catch (e) {
+        this._smtpStatus = { ok: false, error: e.message || 'Check HA logs' };
+        this._showToast('\u274C SMTP test failed: ' + this._smtpStatus.error);
+      } finally {
+        this._smtpTesting = false;
+        this._render();
+      }
     }
 
     _showToast(msg) {
