@@ -59,6 +59,17 @@ class HaEnergyOptimizer extends HTMLElement {
   }
 
   set hass(hass) {
+    try {
+      var _bg = (getComputedStyle(this).getPropertyValue('--card-background-color') || getComputedStyle(this).getPropertyValue('--primary-background-color') || '').trim();
+      var _d = false;
+      if (_bg) {
+        var _h, _r, _g, _b, _m;
+        if (_bg.charAt(0) === '#') { _h = _bg.slice(1); if (_h.length === 3) _h = _h.replace(/(.)/g, '$1$1'); _r = parseInt(_h.slice(0,2),16); _g = parseInt(_h.slice(2,4),16); _b = parseInt(_h.slice(4,6),16); }
+        else { _m = _bg.match(/[\d.]+/g); if (_m) { _r = +_m[0]; _g = +_m[1]; _b = +_m[2]; } }
+        if (_r != null) _d = (0.2126*_r + 0.7152*_g + 0.0722*_b) / 255 < 0.5;
+      } else if (hass && hass.themes) { _d = !!hass.themes.darkMode; }
+      this.classList.toggle('bento-dark', _d);
+    } catch (e) {}
     this._hass = hass;
     if (!hass) return;
     try {
@@ -2220,8 +2231,7 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
             color: var(--bento-text);
           }
 
-  @media (prefers-color-scheme: dark) {
-    :host {
+  :host(.bento-dark) {
       --bento-bg: var(--primary-background-color, #1a1a2e);
       --bento-card: var(--card-background-color, #16213e);
       --bento-text: var(--primary-text-color, #e2e8f0);
@@ -2230,7 +2240,6 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
       --bento-shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
       --bento-shadow-md: 0 4px 12px rgba(0,0,0,0.4);
     }
-  }
           @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
           @keyframes spin { to { transform: rotate(360deg); } }
           .panel-root { display: flex; flex-direction: column; height: 100%; background: var(--bento-bg); border-radius: var(--bento-radius-md); overflow: hidden; }
@@ -3481,8 +3490,7 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
             font-family: 'Inter', sans-serif;
           }
 
-  @media (prefers-color-scheme: dark) {
-    :host {
+  :host(.bento-dark) {
       --bento-bg: var(--primary-background-color, #1a1a2e);
       --bento-card: var(--card-background-color, #16213e);
       --bento-text: var(--primary-text-color, #e2e8f0);
@@ -3491,7 +3499,6 @@ if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-ener
       --bento-shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
       --bento-shadow-md: 0 4px 12px rgba(0,0,0,0.4);
     }
-  }
           .card { background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-md); padding: 20px; box-shadow: var(--bento-shadow-sm); box-sizing: border-box; max-width: 100%; overflow: hidden; }
           .header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
           .header-icon { font-size: 24px; }
