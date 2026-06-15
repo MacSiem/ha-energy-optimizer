@@ -1,4 +1,4 @@
-// HA Energy Optimizer Bundle v3.4.1
+// HA Energy Optimizer Bundle v3.4.2
 // HTML escape helper — wrap any user-derived string before interpolation into innerHTML.
 const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -1720,6 +1720,8 @@ async _drawComparisonChart() {
 }
 
 if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-energy-optimizer', HaEnergyOptimizer); }
+window.customCards = window.customCards || [];
+if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.customCards.push({ type: 'ha-energy-optimizer', name: 'Energy Optimizer', description: 'Optimize energy usage, schedules and costs for Home Assistant', preview: false }); }
 
 // --- Bundled card: ha-energy-insights (v3.3.0 bundle)
 (function() {
