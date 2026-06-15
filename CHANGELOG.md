@@ -1,5 +1,10 @@
 # Changelog — Energy Optimizer
 
+## [3.4.3] - 2026-06-15
+
+- Theme: dark/light now follows the active Home Assistant theme (luminance of --card-background-color) instead of OS prefers-color-scheme.
+
+
 ## [3.4.2] - 2026-06-15
 
 - Theme: dark/light now follows the active Home Assistant theme (luminance of --card-background-color) instead of OS prefers-color-scheme.

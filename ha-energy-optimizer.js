@@ -1,4 +1,4 @@
-// HA Energy Optimizer Bundle v3.4.2
+// HA Energy Optimizer Bundle v3.4.3
 // HTML escape helper — wrap any user-derived string before interpolation into innerHTML.
 const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -345,6 +345,9 @@ class HaEnergyOptimizer extends HTMLElement {
     return `
       <style>
 /* ===== BENTO LIGHT MODE DESIGN SYSTEM ===== */
+
+/* keyboard a11y */
+:focus-visible { outline: 2px solid var(--bento-primary, #6366f1); outline-offset: 2px; border-radius: 3px; }
 
 :host {
   --bento-primary: #3B82F6;
@@ -943,11 +946,11 @@ canvas {
           ${this._hasRealData ? '\u{1F4CA} Dane z ' + (this._energySensorIds || []).length + ' sensor\u00F3w energii' : '\u26A0\uFE0F Demo data \u2014 brak sensor\u00F3w kWh'}
         </div>
 
-        <div class="tabs">
-          <button class="tab-button active" data-tab="dashboard">Dashboard</button>
-          <button class="tab-button" data-tab="patterns">Patterns</button>
-          <button class="tab-button" data-tab="recommendations">Recommendations</button>
-          <button class="tab-button" data-tab="compare">Compare</button>
+        <div class="tabs" role="tablist">
+          <button class="tab-button active" data-tab="dashboard" role="tab" aria-selected="${this._currentTab === 'dashboard'}">Dashboard</button>
+          <button class="tab-button" data-tab="patterns" role="tab" aria-selected="${this._currentTab === 'patterns'}">Patterns</button>
+          <button class="tab-button" data-tab="recommendations" role="tab" aria-selected="${this._currentTab === 'recommendations'}">Recommendations</button>
+          <button class="tab-button" data-tab="compare" role="tab" aria-selected="${this._currentTab === 'compare'}">Compare</button>
         </div>
 
         <div id="dashboard" class="tab-content active">
