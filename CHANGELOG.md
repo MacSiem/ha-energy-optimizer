@@ -1,5 +1,11 @@
 # Changelog — Energy Optimizer
 
+## [3.4.4] - 2026-06-27
+
+- Fix: dashboard summary tiles and the power-draw banner used an invalid CSS gradient (`var(--primary)cc`) that resolved to no background, so tiles rendered as white text on a transparent background and looked blank. Replaced with `color-mix()` so the cards render correctly (fixes #1 "Screenshot doesn't show card").
+- Fix: the data-source badge was hardcoded in Polish; it now renders in English ("Demo data — no kWh sensors" / "Data from N kWh sensor(s)").
+- Docs: refreshed README screenshot to show the fully rendered card (summary tiles + 24-hour usage chart).
+
 ## [3.4.3] - 2026-06-15
 
 - Theme: dark/light now follows the active Home Assistant theme (luminance of --card-background-color) instead of OS prefers-color-scheme.

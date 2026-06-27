@@ -637,7 +637,7 @@ canvas {
         }
 
         .summary-card {
-          background: linear-gradient(135deg, var(--primary) 0%, var(--primary)cc 100%);
+          background: linear-gradient(135deg, var(--primary) 0%, color-mix(in srgb, var(--primary), #000 12%) 100%);
           color: white;
           padding: 16px;
           border-radius: 8px;
@@ -647,11 +647,11 @@ canvas {
         }
 
         .summary-card.alt {
-          background: linear-gradient(135deg, var(--success) 0%, var(--success)cc 100%);
+          background: linear-gradient(135deg, var(--success) 0%, color-mix(in srgb, var(--success), #000 12%) 100%);
         }
 
         .summary-card.warn {
-          background: linear-gradient(135deg, var(--warning) 0%, var(--warning)cc 100%);
+          background: linear-gradient(135deg, var(--warning) 0%, color-mix(in srgb, var(--warning), #000 12%) 100%);
         }
 
         .summary-value {
@@ -848,7 +848,7 @@ canvas {
         }
 
         .power-draw {
-          background: linear-gradient(135deg, var(--primary) 0%, var(--primary)cc 100%);
+          background: linear-gradient(135deg, var(--primary) 0%, color-mix(in srgb, var(--primary), #000 12%) 100%);
           color: white;
           padding: 16px;
           border-radius: 8px;
@@ -943,7 +943,7 @@ canvas {
         <h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>
 
         <div class="data-source-badge">
-          ${this._hasRealData ? '\u{1F4CA} Dane z ' + (this._energySensorIds || []).length + ' sensor\u00F3w energii' : '\u26A0\uFE0F Demo data \u2014 brak sensor\u00F3w kWh'}
+          ${this._hasRealData ? '📊 Data from ' + (this._energySensorIds || []).length + ' kWh sensor(s)' : '⚠️ Demo data — no kWh sensors'}
         </div>
 
         <div class="tabs" role="tablist">
