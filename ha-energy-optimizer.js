@@ -1142,17 +1142,18 @@ canvas {
     }
 
     return new Promise((resolve, reject) => {
-      const script = document.createElement('script');
-      script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
-      script.async = true;
-      script.onload = () => {
-        this._chartJsLoaded = true;
-        resolve(window.Chart);
+      // Privacy/offline: prefer the locally-vendored Chart.js; fall back to the CDN only if it is absent.
+      const LOCAL = '/local/community/ha-tools/vendor/chart.umd.min.js';
+      const CDN = 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
+      const load = (src, onFail) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.async = true;
+        script.onload = () => { this._chartJsLoaded = true; resolve(window.Chart); };
+        script.onerror = onFail;
+        document.head.appendChild(script);
       };
-      script.onerror = () => {
-        reject(new Error('Failed to load Chart.js'));
-      };
-      document.head.appendChild(script);
+      load(LOCAL, () => load(CDN, () => reject(new Error('Failed to load Chart.js'))));
     });
   }
 
@@ -1962,14 +1963,18 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
         this._chartJsReady = true;
         return;
       }
-      const script = document.createElement('script');
-      script.src = '/local/community/ha-tools/vendor/chart.umd.min.js';
-      script.onload = () => {
-        this._chartJsReady = true;
-        if (this._data) this._renderCharts();
+      const ok = () => { this._chartJsReady = true; if (this._data) this._renderCharts(); };
+      const add = (src, onFail) => {
+        const script = document.createElement('script');
+        script.src = src;
+        script.onload = ok;
+        script.onerror = onFail;
+        document.head.appendChild(script);
       };
-      script.onerror = () => console.warn('[ha-energy-insights] Chart.js failed to load');
-      document.head.appendChild(script);
+      // Privacy/offline: local vendor first, CDN fallback only if absent.
+      add('/local/community/ha-tools/vendor/chart.umd.min.js',
+        () => add('https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js',
+          () => console.warn('[ha-energy-insights] Chart.js failed to load')));
     }
 
     async _fetchData() {

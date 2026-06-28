@@ -1,5 +1,9 @@
 # Changelog — Energy Optimizer
 
+## [3.4.6] - 2026-06-28
+
+- Privacy/offline: both chart loaders now prefer the locally-vendored Chart.js (`/local/community/ha-tools/vendor/chart.umd.min.js`) and fall back to the CDN only if the local copy is absent, instead of loading from the CDN unconditionally. Consistent with the rest of the HA Tools suite; no chart breakage if the local copy is missing.
+
 ## [3.4.5] - 2026-06-27
 
 - Fix: in dark themes the card title and header text rendered dark-on-dark — the main card stylesheet had no `:host(.bento-dark)` token override (the dark overrides existed only in the bundled panel/insights styles). Added the dark token mapping to the main styles so `--bento-text` and related tokens follow the active HA theme.
