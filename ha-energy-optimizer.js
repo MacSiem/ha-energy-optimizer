@@ -374,6 +374,14 @@ class HaEnergyOptimizer extends HTMLElement {
   --bento-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
+:host(.bento-dark) {
+  --bento-bg: var(--primary-background-color, #1a1a2e);
+  --bento-card: var(--card-background-color, #16213e);
+  --bento-text: var(--primary-text-color, #e2e8f0);
+  --bento-text-secondary: var(--secondary-text-color, #94a3b8);
+  --bento-text-muted: var(--disabled-text-color, #64748b);
+  --bento-border: var(--divider-color, #334155);
+}
 
 /* Card */
 .card, .ha-card, ha-card, .main-card, .exporter-card, .security-card, .reports-card, .storage-card, .chore-card, .cry-card, .backup-card, .network-card, .sentence-card, .energy-card, .panel-card {

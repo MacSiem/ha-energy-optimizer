@@ -1,5 +1,9 @@
 # Changelog — Energy Optimizer
 
+## [3.4.5] - 2026-06-27
+
+- Fix: in dark themes the card title and header text rendered dark-on-dark — the main card stylesheet had no `:host(.bento-dark)` token override (the dark overrides existed only in the bundled panel/insights styles). Added the dark token mapping to the main styles so `--bento-text` and related tokens follow the active HA theme.
+
 ## [3.4.4] - 2026-06-27
 
 - Fix: dashboard summary tiles and the power-draw banner used an invalid CSS gradient (`var(--primary)cc`) that resolved to no background, so tiles rendered as white text on a transparent background and looked blank. Replaced with `color-mix()` so the cards render correctly (fixes #1 "Screenshot doesn't show card").
