@@ -1,4 +1,4 @@
-// HA Energy Optimizer Bundle v3.4.3
+// HA Energy Optimizer Bundle v3.4.7
 // HTML escape helper — wrap any user-derived string before interpolation into innerHTML.
 const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -1273,80 +1273,85 @@ canvas {
     }
   }
 _drawHeatmap() {
-    const canvas = this.shadowRoot.getElementById('heatmap-canvas');
-    if (!canvas) return;
+    try {
+      const canvas = this.shadowRoot.getElementById('heatmap-canvas');
+      if (!canvas) return;
 
-    this._fixCanvasSize(canvas);
-    const ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
+      this._fixCanvasSize(canvas);
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const rect = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
 
-    canvas.width = rect.width * dpr;
-    canvas.height = 200 * dpr;
-    ctx.scale(dpr, dpr);
+      canvas.width = rect.width * dpr;
+      canvas.height = 200 * dpr;
+      ctx.scale(dpr, dpr);
 
-    const width = rect.width;
-    const height = 200;
-    const padding = 40;
-    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    const cellWidth = (width - padding * 2) / 24;
-    const cellHeight = (height - padding * 2) / 7;
+      const width = rect.width;
+      const height = 200;
+      const padding = 40;
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const cellWidth = (width - padding * 2) / 24;
+      const cellHeight = (height - padding * 2) / 7;
 
-    // Find min/max for color scaling
-    const allValues = (this._weeklyData || []).flat();
-    const minVal = allValues.length > 0 ? Math.min(...allValues) : 0;
-    const maxVal = allValues.length > 0 ? Math.max(...allValues) : 1;
-    const range = maxVal - minVal || 1;
+      // Find min/max for color scaling
+      const allValues = (this._weeklyData || []).flat();
+      const minVal = allValues.length > 0 ? Math.min(...allValues) : 0;
+      const maxVal = allValues.length > 0 ? Math.max(...allValues) : 1;
+      const range = maxVal - minVal || 1;
 
-    // Helper to get color from value (blue to red gradient)
-    const getColor = (val) => {
-      const normalized = (val - minVal) / range;
-      const hue = (1 - normalized) * 240; // 240 = blue, 0 = red
-      return `hsl(${hue}, 70%, 50%)`;
-    };
+      // Helper to get color from value (blue to red gradient)
+      const getColor = (val) => {
+        const normalized = (val - minVal) / range;
+        const hue = (1 - normalized) * 240; // 240 = blue, 0 = red
+        return `hsl(${hue}, 70%, 50%)`;
+      };
 
-    // Draw cells
-    (this._weeklyData || []).forEach((dayData, dayIndex) => {
-      dayData.forEach((value, hourIndex) => {
-        const x = padding + hourIndex * cellWidth;
-        const y = padding + dayIndex * cellHeight;
+      // Draw cells
+      (this._weeklyData || []).forEach((dayData, dayIndex) => {
+        dayData.forEach((value, hourIndex) => {
+          const x = padding + hourIndex * cellWidth;
+          const y = padding + dayIndex * cellHeight;
 
-        ctx.fillStyle = getColor(value);
-        ctx.fillRect(x, y, cellWidth - 1, cellHeight - 1);
+          ctx.fillStyle = getColor(value);
+          ctx.fillRect(x, y, cellWidth - 1, cellHeight - 1);
 
-        // Draw cell border
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(x, y, cellWidth - 1, cellHeight - 1);
+          // Draw cell border
+          ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(x, y, cellWidth - 1, cellHeight - 1);
+        });
       });
-    });
 
-    // Day labels (Y-axis)
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.font = '12px sans-serif';
-    ctx.textAlign = 'right';
-    ctx.textBaseline = 'middle';
-    days.forEach((day, i) => {
-      const y = padding + (i + 0.5) * cellHeight;
-      ctx.fillText(day, padding - 10, y);
-    });
+      // Day labels (Y-axis)
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.font = '12px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      days.forEach((day, i) => {
+        const y = padding + (i + 0.5) * cellHeight;
+        ctx.fillText(day, padding - 10, y);
+      });
 
-    // Hour labels (X-axis)
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'top';
-    for (let h = 0; h < 24; h += 3) {
-      const x = padding + (h + 0.5) * cellWidth;
-      ctx.fillText(h + ':00', x, height - padding + 5);
+      // Hour labels (X-axis)
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      for (let h = 0; h < 24; h += 3) {
+        const x = padding + (h + 0.5) * cellWidth;
+        ctx.fillText(h + ':00', x, height - padding + 5);
+      }
+
+      // Legend
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'left';
+      const legendX = padding;
+      const legendY = height - 15;
+      ctx.fillText(`Min: ${minVal.toFixed(2)} kWh`, legendX, legendY);
+      ctx.fillText(`Max: ${maxVal.toFixed(2)} kWh`, legendX + 120, legendY);
+    } catch (err) {
+      console.error('Heatmap error:', err);
     }
-
-    // Legend
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
-    ctx.font = '11px sans-serif';
-    ctx.textAlign = 'left';
-    const legendX = padding;
-    const legendY = height - 15;
-    ctx.fillText(`Min: ${minVal.toFixed(2)} kWh`, legendX, legendY);
-    ctx.fillText(`Max: ${maxVal.toFixed(2)} kWh`, legendX + 120, legendY);
   }
 
 

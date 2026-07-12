@@ -1,5 +1,11 @@
 # Changelog — Energy Optimizer
 
+## [3.4.7] - 2026-07-12
+
+- Fix: `_drawHeatmap` is now wrapped in try/catch (errors logged via `console.error`, matching the other chart routines) and guards against a null 2D canvas context, so a heatmap drawing error can no longer break the whole render pass.
+- Docs: README now documents that cost estimates fall back to a built-in 0.65/kWh rate until `peak_rate`/`energy_price` is configured, and that "current power" sums all W-unit sensors without de-duplication (overlapping sensors are double-counted).
+- Chore: aligned bundle version header (was stale at 3.4.3).
+
 ## [3.4.6] - 2026-06-28
 
 - Privacy/offline: both chart loaders now prefer the locally-vendored Chart.js (`/local/community/ha-tools/vendor/chart.umd.min.js`) and fall back to the CDN only if the local copy is absent, instead of loading from the CDN unconditionally. Consistent with the rest of the HA Tools suite; no chart breakage if the local copy is missing.

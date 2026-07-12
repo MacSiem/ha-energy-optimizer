@@ -24,8 +24,13 @@ energy sensors by itself — no `entities:` list to maintain.
 3. **Computes cost, efficiency and savings.** Today's usage, cost estimate,
    efficiency score and the savings recommendations are all derived from that
    real data — dual-tariff aware if you set `peak_rate` / `off_peak_rate`.
+   Note: until you configure a rate (`peak_rate` or `energy_price`), cost
+   figures fall back to a built-in default of 0.65 per kWh, so set your real
+   tariff for accurate costs.
 4. **Current power draw** is read live from any entity with
-   `device_class: power` or unit `W`.
+   `device_class: power` or unit `W`. Note: this sums **all** matching sensors
+   without de-duplication, so overlapping sensors (e.g. a smart plug and a
+   phase meter measuring the same load) are double-counted in the total.
 5. **No sensors yet? No crash.** Until kWh statistics exist, the card shows
    seeded demo data labeled "⚠️ Demo data — no kWh sensors" instead of
    breaking on first install.
