@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Energy Optimizer screenshot harness</title>
+<style>
+  html, body { margin: 0; padding: 24px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  body.light { background: #f4f5f7; }
+  body.light ha-energy-optimizer { --card-background-color: #ffffff; --primary-background-color: #f4f5f7; }
+  body.dark { background: #111318; }
+  body.dark ha-energy-optimizer { --card-background-color: #1c1e26; --primary-background-color: #111318; }
+  ha-energy-optimizer { display: block; width: 480px; }
+  /* Chart.js responsive canvas grows unbounded without a sized parent in a
+     bare harness — the shadow-root style injected below clamps it. */
+</style>
+</head>
+<body>
+<ha-energy-optimizer id="card"></ha-energy-optimizer>
+<script>
+  try { localStorage.setItem('ha-intro-dismissed-ha-energy-optimizer', '1'); } catch (e) {}
+</script>
+<script src="../../ha-energy-optimizer.js"></script>
+<script>
+(function () {
+  const params = new URLSearchParams(location.search);
+  const theme = params.get('theme') === 'dark' ? 'dark' : 'light';
+  document.body.className = theme;
+  const tabParam = params.get('tab');
+  const now = Date.now(); const h = 3600000;
+
+  // Seeded PRNG so demo numbers are stable across re-renders (same shape as the
+  // card's own _seededRandom helper) — keeps screenshots reproducible.
+  function seededRandom(seed) {
+    let hVal = 0;
+    for (let i = 0; i < seed.length; i++) hVal = Math.imul(31, hVal) + seed.charCodeAt(i) | 0;
+    return function () {
+      hVal = Math.imul(hVal ^ (hVal >>> 16), 2246822507);
+      hVal = Math.imul(hVal ^ (hVal >>> 13), 3266489909);
+      hVal ^= hVal >>> 16;
+      return (hVal >>> 0) / 4294967296;
+    };
+  }
+  const rng = seededRandom('ha-energy-optimizer-demo');
+
+  function hourlyUsage(hour, isWeekend) {
+    let usage = 0.5;
+    if (hour >= 6 && hour <= 9) usage += isWeekend ? 0.8 : 1.2;   // morning peak
+    if (hour >= 18 && hour <= 21) usage += isWeekend ? 1.0 : 1.8; // evening peak
+    if (hour >= 23 || hour <= 5) usage -= 0.3;                    // night low
+    usage += rng() * 0.3 - 0.15;
+    return Math.max(0.1, usage);
+  }
+
+  // Two kWh "sum" statistics — mirrors what the card discovers via
+  // recorder/list_statistic_ids (filtered to statistics_unit_of_measurement === 'kWh').
+  const statisticIds = ['sensor.energy_total', 'sensor.energy_grid'];
+  const HOURS_BACK = 24 * 8; // 8-day buffer so any 7-day window the card asks for is covered
+  const series = {};
+  statisticIds.forEach((id, idx) => {
+    series[id] = [];
+    for (let i = HOURS_BACK; i >= 0; i--) {
+      const end = now - i * h;
+      const start = end - h;
+      const d = new Date(end);
+      const day = d.getDay(); // 0 = Sun .. 6 = Sat
+      const isWeekend = day === 0 || day === 6;
+      const base = hourlyUsage(d.getHours(), isWeekend);
+      const share = idx === 0 ? 1 : 0.65; // "grid" sensor is a subset of "total"
+      series[id].push({
+        start: new Date(start).toISOString(),
+        end: new Date(end).toISOString(),
+        change: +(base * share).toFixed(3),
+      });
+    }
+  });
+
+  const states = {
+    'sun.sun': {
+      entity_id: 'sun.sun', state: 'above_horizon', attributes: {},
+      last_changed: new Date(now - h).toISOString(), last_updated: new Date(now - h).toISOString(),
+    },
+    'sensor.house_power': {
+      entity_id: 'sensor.house_power', state: '1840',
+      attributes: { device_class: 'power', unit_of_measurement: 'W', friendly_name: 'House Power' },
+      last_changed: new Date(now - 60000).toISOString(), last_updated: new Date(now - 60000).toISOString(),
+    },
+    'sensor.ev_charger_power': {
+      entity_id: 'sensor.ev_charger_power', state: '0',
+      attributes: { device_class: 'power', unit_of_measurement: 'W', friendly_name: 'EV Charger Power' },
+      last_changed: new Date(now - 120000).toISOString(), last_updated: new Date(now - 120000).toISOString(),
+    },
+  };
+
+  const hass = {
+    language: 'en',
+    themes: { darkMode: theme === 'dark' },
+    states,
+    services: {},
+    connection: { subscribeEvents: () => Promise.resolve(() => {}) },
+    callWS: async (msg) => {
+      const t = String(msg && msg.type || '');
+      if (t === 'recorder/list_statistic_ids') {
+        return statisticIds.map((id) => ({
+          statistic_id: id,
+          statistics_unit_of_measurement: 'kWh',
+          unit_class: 'energy',
+          has_sum: true,
+          has_mean: false,
+          source: 'recorder',
+        }));
+      }
+      if (t === 'recorder/statistics_during_period') {
+        const startMs = msg.start_time ? new Date(msg.start_time).getTime() : 0;
+        const endMs = msg.end_time ? new Date(msg.end_time).getTime() : now;
+        const ids = msg.statistic_ids || statisticIds;
+        const out = {};
+        ids.forEach((id) => {
+          out[id] = (series[id] || []).filter((entry) => {
+            const st = new Date(entry.start).getTime();
+            return st >= startMs && st <= endMs;
+          });
+        });
+        return out;
+      }
+      // Any other WS type (e.g. optional ha_tools_email/* backend probes) — respond empty.
+      return {};
+    },
+    callApi: async () => ({}),
+    callService: async () => ({}),
+  };
+
+  const card = document.getElementById('card');
+  card.setConfig({
+    type: 'custom:ha-energy-optimizer',
+    title: 'Energy Optimizer',
+    currency: 'USD',
+    peak_rate: 0.32,
+    off_peak_rate: 0.14,
+    peak_hours: { start: 6, end: 22 },
+  });
+  card.hass = hass;
+
+  // The card's `set hass()` kicks off _fetchEnergyStats() asynchronously and does not
+  // re-render itself once the recorder stats resolve — force one extra render shortly
+  // after so the real (mocked) recorder data replaces the card's own seeded fallback.
+  setTimeout(() => { try { card._render(); } catch (e) {} }, 300);
+
+  function selectTab(name) {
+    try {
+      const btn = card.shadowRoot && card.shadowRoot.querySelector('.tab-button[data-tab="' + name + '"]');
+      if (btn) btn.click();
+    } catch (e) {}
+  }
+  if (tabParam && tabParam !== 'dashboard') {
+    setTimeout(() => selectTab(tabParam), 600);
+  }
+
+  const scrub = () => {
+    try {
+      card.shadowRoot && card.shadowRoot.querySelectorAll('#tip-banner, [class*="banner"], .donate-section').forEach((n) => n.remove());
+      // Clamp Chart.js responsive canvas (grows unbounded without a sized
+      // parent in a bare harness).
+      if (card.shadowRoot && !card.shadowRoot.getElementById('harness-chart-clamp')) {
+        const st = document.createElement('style');
+        st.id = 'harness-chart-clamp';
+        st.textContent = 'canvas { max-height: 260px !important; } canvas + *, .chart-container { max-height: 300px; overflow: hidden; }';
+        card.shadowRoot.appendChild(st);
+      }
+    } catch (e) {}
+  };
+  setInterval(scrub, 150);
+
+  setTimeout(() => { scrub(); document.title = 'READY'; }, 1500);
+})();
+</script>
+</body>
+</html>
