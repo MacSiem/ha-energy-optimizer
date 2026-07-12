@@ -1,5 +1,7 @@
 # ⚡ Energy Optimizer
 
+![Preview](banner.png)
+
 Energy usage analysis and optimization card for Home Assistant. Dual-tariff
 aware, with Chart.js visualizations and actionable savings recommendations —
 built on your existing energy statistics, zero setup required.
