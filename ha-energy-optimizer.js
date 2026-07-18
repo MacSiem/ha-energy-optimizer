@@ -37,9 +37,10 @@ class HaEnergyOptimizer extends HTMLElement {
     this._destroyAllCharts();
   }
 
-  static getConfigElement() {
-    return document.createElement('ha-energy-optimizer-editor');
-  }
+  // No visual editor is advertised: 'ha-energy-optimizer-editor' was never
+  // registered, so returning it here handed Home Assistant an unknown element
+  // and the card's visual editor came up blank. Falling back to HA's built-in
+  // editor is correct until a real editor element ships.
 
   static getStubConfig() {
     return {
