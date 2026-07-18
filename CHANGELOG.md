@@ -1,8 +1,8 @@
+# Changelog — Energy Optimizer
+
 ## 3.4.8 (2026-07-18)
 
 - Fix: the visual card editor no longer opens blank. The card advertised an editor element (ha-energy-optimizer-editor) that was never registered; Home Assistant now falls back to its built-in editor.
-
-# Changelog — Energy Optimizer
 
 ## [3.4.7] - 2026-07-12
 
