@@ -1,5 +1,14 @@
 # Changelog — Energy Optimizer
 
+## 3.4.9 (2026-08-28)
+
+- Isolation: persistence is now card-local per bundled IIFE, removing `window._haToolsPersistence` load-order coupling while retaining existing localStorage keys.
+- Security: normalize values before inherited escaping and harden card, persisted schedule, device, preview and email HTML sinks against arrays/objects.
+- Lifecycle: cancel deferred renders, chart work and toasts when bundled cards disconnect.
+- Isolation: all three maintained cards render their own support footer inside their own shadow root instead of relying on the retired panel injector.
+- Isolation: Energy Insights and Energy Email use component-local Bento CSS and ignore any pre-existing `window.HAToolsBentoCSS` value.
+- Test: seed the legacy global helper and exercise all three bundled cards with hostile non-string configuration.
+
 ## 3.4.8 (2026-07-18)
 
 - Fix: the visual card editor no longer opens blank. The card advertised an editor element (ha-energy-optimizer-editor) that was never registered; Home Assistant now falls back to its built-in editor.

@@ -1,6 +1,9 @@
-// HA Energy Optimizer Bundle v3.4.8
+// HA Energy Optimizer Bundle v3.4.9
 // HTML escape helper — wrap any user-derived string before interpolation into innerHTML.
 const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+// Card-owned support footer; never mutate sibling cards or the document.
+const ENERGY_OPTIMIZER_DONATE_HTML = `<div class="donate-section" data-source="own-card"><div class="donate-text"><strong>❤️ Support HA Tools Development</strong><span>If this tool makes your Home Assistant life easier, consider supporting the project.</span></div><div class="donate-buttons"><a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer">☕ Buy Me a Coffee</a><a href="https://www.paypal.com/donate/?hosted_button_id=Y967H4PLRBN8W" target="_blank" rel="noopener noreferrer">💳 PayPal</a></div></div>`;
 
 class HaEnergyOptimizer extends HTMLElement {
   constructor() {
@@ -9,6 +12,7 @@ class HaEnergyOptimizer extends HTMLElement {
     // --- Throttle fields ---
     this._lastRenderTime = 0;
     this._renderScheduled = false;
+    this._timers = new Set();
     this._firstHassRender = false;
     // --- Pagination ---
     this._currentPage = {};
@@ -34,7 +38,19 @@ class HaEnergyOptimizer extends HTMLElement {
     this._generateComparisonData();
   }
   disconnectedCallback() {
+    this._timers.forEach(timer => clearTimeout(timer));
+    this._timers.clear();
+    this._renderScheduled = false;
     this._destroyAllCharts();
+  }
+
+  _schedule(callback, delay) {
+    const timer = setTimeout(() => {
+      this._timers.delete(timer);
+      if (this.isConnected) callback();
+    }, delay);
+    this._timers.add(timer);
+    return timer;
   }
 
   // No visual editor is advertised: 'ha-energy-optimizer-editor' was never
@@ -86,7 +102,7 @@ class HaEnergyOptimizer extends HTMLElement {
       if (now - (this._lastRenderTime || 0) < 10000) {
         if (!this._renderScheduled) {
           this._renderScheduled = true;
-          setTimeout(() => {
+          this._schedule(() => {
             this._renderScheduled = false;
             try {
               const newHash = Object.keys(hass.states).length + '_' + (hass.states['sun.sun'] ? hass.states['sun.sun'].state : '');
@@ -345,6 +361,11 @@ class HaEnergyOptimizer extends HTMLElement {
   _getStyles() {
     return `
       <style>
+/* Card-owned support footer; never depends on or mutates another component. */
+.donate-section[data-source="own-card"] { margin:24px 0 4px; padding:18px 20px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px; border:1px solid var(--bento-border); border-radius:var(--bento-radius-sm); background:var(--bento-primary-light); color:var(--bento-text); }
+.donate-section[data-source="own-card"] .donate-text { display:flex; flex-direction:column; gap:4px; flex:1; min-width:220px; }
+.donate-section[data-source="own-card"] .donate-buttons { display:flex; flex-wrap:wrap; gap:8px; }
+.donate-section[data-source="own-card"] a { color:var(--bento-primary); font-weight:700; text-decoration:none; }
 /* ===== BENTO LIGHT MODE DESIGN SYSTEM ===== */
 
 /* keyboard a11y */
@@ -1114,14 +1135,15 @@ canvas {
           <div class="stats-row">
             <div class="stat-item">
               <div class="stat-label">Cost Difference (Week)</div>
-              <div class="stat-value" style="${this._comparisonData.thisWeek > this._comparisonData.lastWeek ? 'color: var(--danger)' : 'color: var(--success)'}">${((this._comparisonData.thisWeek - this._comparisonData.lastWeek) * this._comparisonData.costPerKwh).toFixed(2)} ${this._config.currency}</div>
+              <div class="stat-value" style="${this._comparisonData.thisWeek > this._comparisonData.lastWeek ? 'color: var(--danger)' : 'color: var(--success)'}">${((this._comparisonData.thisWeek - this._comparisonData.lastWeek) * this._comparisonData.costPerKwh).toFixed(2)} ${_esc(this._config.currency)}</div>
             </div>
             <div class="stat-item">
               <div class="stat-label">Weekly Average Cost</div>
-              <div class="stat-value">${(this._comparisonData.thisWeek * this._comparisonData.costPerKwh).toFixed(2)} ${this._config.currency}</div>
+              <div class="stat-value">${(this._comparisonData.thisWeek * this._comparisonData.costPerKwh).toFixed(2)} ${_esc(this._config.currency)}</div>
             </div>
           </div>
         </div>
+        ${ENERGY_OPTIMIZER_DONATE_HTML}
       </div>
     `;
   }
@@ -1138,24 +1160,19 @@ canvas {
     });
   }
   async _loadChartJS() {
-    if (this._chartJsLoaded) {
+    if (this._chartJsLoaded && window.Chart) return window.Chart;
+    if (window.Chart) {
+      this._chartJsLoaded = true;
       return window.Chart;
     }
-
-    return new Promise((resolve, reject) => {
-      // Privacy/offline: prefer the locally-vendored Chart.js; fall back to the CDN only if it is absent.
-      const LOCAL = '/local/community/ha-tools/vendor/chart.umd.min.js';
-      const CDN = 'https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js';
-      const load = (src, onFail) => {
-        const script = document.createElement('script');
-        script.src = src;
-        script.async = true;
-        script.onload = () => { this._chartJsLoaded = true; resolve(window.Chart); };
-        script.onerror = onFail;
-        document.head.appendChild(script);
-      };
-      load(LOCAL, () => load(CDN, () => reject(new Error('Failed to load Chart.js'))));
+    this.shadowRoot.querySelectorAll('canvas').forEach(canvas => {
+      const fallback = document.createElement('div');
+      fallback.className = 'chart-unavailable';
+      fallback.setAttribute('role', 'status');
+      fallback.textContent = 'Chart unavailable — numeric analysis remains available.';
+      canvas.replaceWith(fallback);
     });
+    return null;
   }
 
   _destroyChart(chartKey) {
@@ -1180,7 +1197,7 @@ canvas {
     }
 
     // Draw charts after showing tab (needed for canvas sizing)
-    setTimeout(() => {
+    this._schedule(() => {
       if (tabName === 'dashboard') {
         this._drawDashboardChart().catch(err => console.error('Dashboard chart error:', err));
       } else if (tabName === 'patterns') {
@@ -1196,7 +1213,7 @@ canvas {
   }
 
   _renderCurrentTab() {
-    setTimeout(() => this._showTab('dashboard'), 100);
+    this._schedule(() => this._showTab('dashboard'), 100);
   }
 
   async _drawDashboardChart() {
@@ -1598,14 +1615,14 @@ async _drawComparisonChart() {
   _renderRecommendations() {
     const container = this.shadowRoot.getElementById('recommendations-list');
     container.innerHTML = this._recommendations.map(rec => `
-      <div class="recommendation ${rec.impact}">
-        <div class="rec-icon">${rec.icon}</div>
+      <div class="recommendation ${_esc(rec.impact)}">
+        <div class="rec-icon">${_esc(rec.icon)}</div>
         <div class="rec-content">
-          <div class="rec-title">${rec.title}</div>
-          <div class="rec-description">${rec.description}</div>
+          <div class="rec-title">${_esc(rec.title)}</div>
+          <div class="rec-description">${_esc(rec.description)}</div>
           <div class="rec-footer">
-            <div class="savings-badge">Save ~${rec.savings}${_esc(this._config.currency || 'PLN')}/mo</div>
-            <div class="difficulty-badge">${rec.difficulty}</div>
+            <div class="savings-badge">Save ~${_esc(rec.savings)}${_esc(this._config.currency || 'PLN')}/mo</div>
+            <div class="difficulty-badge">${_esc(rec.difficulty)}</div>
           </div>
         </div>
       </div>
@@ -1745,11 +1762,14 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 (function() {
   'use strict';
 
-  // -- HA Tools Persistence (stub -- full impl in ha-tools-panel.js) --
-  window._haToolsPersistence = window._haToolsPersistence || { _cache: {}, _hass: null, setHass(h) { this._hass = h; }, async save(k, d) { try { localStorage.setItem('ha-tools-' + k, JSON.stringify(d)); } catch(e) { console.debug('[ha-energy-insights] caught:', e); } }, async load(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } }, loadSync(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } } };
+  // Component-local persistence retains this card's existing localStorage keys.
+  const haToolsPersistence = { _cache: {}, _hass: null, setHass(h) { this._hass = h; }, async save(k, d) { try { localStorage.setItem('ha-tools-' + k, JSON.stringify(d)); } catch(e) { console.debug('[ha-energy-insights] caught:', e); } }, async load(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } }, loadSync(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } } };
 
-  // -- HA Tools Escape helper (fallback) --
-  const _esc = window._haToolsEsc || ((s) => String(s == null ? '' : s).replace(/[&<>"\']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])));
+  const OWN_SUPPORT_FOOTER = `<div class="donate-section" data-source="own-card"><div class="donate-text"><strong>❤️ Support HA Tools Development</strong><span>If this tool makes your Home Assistant life easier, consider supporting the project.</span></div><div class="donate-buttons"><a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer">☕ Buy Me a Coffee</a><a href="https://www.paypal.com/donate/?hosted_button_id=Y967H4PLRBN8W" target="_blank" rel="noopener noreferrer">💳 PayPal</a></div></div>`;
+  const LOCAL_BENTO_CSS = `.donate-section[data-source="own-card"]{margin:16px 20px 20px;padding:16px 18px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--bento-border);border-radius:var(--bento-radius-sm);background:var(--bento-primary-light);color:var(--bento-text)}.donate-section[data-source="own-card"] .donate-text{display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px}.donate-section[data-source="own-card"] .donate-buttons{display:flex;flex-wrap:wrap;gap:8px}.donate-section[data-source="own-card"] a{color:var(--bento-primary);font-weight:700;text-decoration:none}`;
+
+  // Component-local XSS protection: never reads from or publishes a global helper.
+  const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"\']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
   /**
    * HA Energy Insights - Bento Light Mode Panel Tool
@@ -1780,6 +1800,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
       this._domBuilt = false;
       this._lastDataHash = '';
       this._lastDataFetch = 0;
+      this._timers = new Set();
 
       // Configuration
       this._config = {
@@ -1954,10 +1975,21 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     }
 
     disconnectedCallback() {
+      this._timers.forEach(timer => clearTimeout(timer));
+      this._timers.clear();
       Object.values(this._charts).forEach(c => {
         try { c.destroy(); } catch(e) { console.debug('[ha-energy-insights] caught:', e); }
       });
       this._charts = {};
+    }
+
+    _schedule(callback, delay) {
+      const timer = setTimeout(() => {
+        this._timers.delete(timer);
+        if (this.isConnected) callback();
+      }, delay);
+      this._timers.add(timer);
+      return timer;
     }
 
     _sanitize(s) { try { return decodeURIComponent(escape(s)); } catch(e) { return s; } }
@@ -1969,18 +2001,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
         this._chartJsReady = true;
         return;
       }
-      const ok = () => { this._chartJsReady = true; if (this._data) this._renderCharts(); };
-      const add = (src, onFail) => {
-        const script = document.createElement('script');
-        script.src = src;
-        script.onload = ok;
-        script.onerror = onFail;
-        document.head.appendChild(script);
-      };
-      // Privacy/offline: local vendor first, CDN fallback only if absent.
-      add('/local/community/ha-tools/vendor/chart.umd.min.js',
-        () => add('https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js',
-          () => console.warn('[ha-energy-insights] Chart.js failed to load')));
+      this._chartJsReady = false;
     }
 
     async _fetchData() {
@@ -2208,6 +2229,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
             ${!this._loading && !this._error ? this._renderTabContent() : ''}
           </div>
           ${this._renderToolsBanner()}
+          ${OWN_SUPPORT_FOOTER}
         </div>
       `
       this._domBuilt = true;
@@ -2216,7 +2238,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
     _getStyles() {
       return `
-        <style>${window.HAToolsBentoCSS || ""}
+        <style>${LOCAL_BENTO_CSS}
 
           * { box-sizing: border-box; }
 
@@ -2428,17 +2450,17 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           <div class="stat-card">
             <div class="stat-label">${this._t('today')}</div>
             <div class="stat-value highlight">${fmt(d.todayKwh)}</div>
-            <div class="stat-sub">kWh • ${fmt(d.todayCost)} ${cur}</div>
+            <div class="stat-sub">kWh • ${fmt(d.todayCost)} ${_esc(cur)}</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">${this._t('thisWeek')}</div>
             <div class="stat-value">${fmt(d.thisWeekKwh)}</div>
-            <div class="stat-sub">kWh • ${fmt(d.weekCost)} ${cur}</div>
+            <div class="stat-sub">kWh • ${fmt(d.weekCost)} ${_esc(cur)}</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">${this._t('thisMonth')}</div>
             <div class="stat-value">${fmt(d.monthKwh)}</div>
-            <div class="stat-sub">kWh • ${fmt(d.monthCost)} ${cur}</div>
+            <div class="stat-sub">kWh • ${fmt(d.monthCost)} ${_esc(cur)}</div>
           </div>
           <div class="stat-card">
             <div class="stat-label">${this._t('trend')}</div>
@@ -2464,7 +2486,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           html += `
             <div class="device-row">
               <div class="device-rank">#${i + 1}</div>
-              <div class="device-name" title="${dev.entity_id}">${dev.name}</div>
+              <div class="device-name" title="${_esc(dev.entity_id)}">${_esc(dev.name)}</div>
               <div class="device-bar-wrap"><div class="device-bar" style="width:${pct}%"></div></div>
               <div class="device-value">${valStr}</div>
             </div>
@@ -2485,9 +2507,9 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
       return `
         <div class="section-title">${this._t(labels[period] || 'overview')}</div>
         <div class="chart-container">
-          <canvas id="chart-${period}"></canvas>
+          ${this._chartJsReady ? `<canvas id="chart-${period}"></canvas>` : '<div class="chart-unavailable" role="status">Chart unavailable — numeric analysis remains available.</div>'}
         </div>
-        <div class="chart-label">kWh • ${this._getTariffLabel()}</div>
+        <div class="chart-label">kWh • ${_esc(this._getTariffLabel())}</div>
       `;
     }
 
@@ -2617,7 +2639,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           // Update tab content only (no full DOM rebuild)
           this._updateContent();
           if (this._chartJsReady && this._data && this._activeTab !== 'overview' && this._activeTab !== 'tips') {
-            setTimeout(() => this._renderCharts(), 0);
+            this._schedule(() => this._renderCharts(), 0);
           }
         });
       });
@@ -2696,12 +2718,14 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 (function() {
   'use strict';
 
-  // XSS protection helper (global singleton — tools reuse via window._haToolsEsc)
-  window._haToolsEsc = window._haToolsEsc || ((s) => typeof s === 'string' ? s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]) : (s ?? ''));
-  const _esc = window._haToolsEsc;
+  // Component-local XSS protection: never reads from or publishes a global helper.
+const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 
-  // -- HA Tools Persistence (stub -- full impl in ha-tools-panel.js) --
-  window._haToolsPersistence = window._haToolsPersistence || { _cache: {}, _hass: null, setHass(h) { this._hass = h; }, async save(k, d) { try { localStorage.setItem('ha-tools-' + k, JSON.stringify(d)); } catch(e) { console.debug('[ha-energy-email] caught:', e); } }, async load(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } }, loadSync(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } } };
+  // Component-local persistence retains this card's existing localStorage keys.
+  const haToolsPersistence = { _cache: {}, _hass: null, setHass(h) { this._hass = h; }, async save(k, d) { try { localStorage.setItem('ha-tools-' + k, JSON.stringify(d)); } catch(e) { console.debug('[ha-energy-email] caught:', e); } }, async load(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } }, loadSync(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } } };
+
+  const OWN_SUPPORT_FOOTER = `<div class="donate-section" data-source="own-card"><div class="donate-text"><strong>❤️ Support HA Tools Development</strong><span>If this tool makes your Home Assistant life easier, consider supporting the project.</span></div><div class="donate-buttons"><a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer">☕ Buy Me a Coffee</a><a href="https://www.paypal.com/donate/?hosted_button_id=Y967H4PLRBN8W" target="_blank" rel="noopener noreferrer">💳 PayPal</a></div></div>`;
+  const LOCAL_BENTO_CSS = `.donate-section[data-source="own-card"]{margin:24px 0 4px;padding:18px 20px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--bento-border);border-radius:var(--bento-radius-sm);background:var(--bento-primary-light);color:var(--bento-text)}.donate-section[data-source="own-card"] .donate-text{display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px}.donate-section[data-source="own-card"] .donate-buttons{display:flex;flex-wrap:wrap;gap:8px}.donate-section[data-source="own-card"] a{color:var(--bento-primary);font-weight:700;text-decoration:none}`;
 
   /**
    * HA Energy Email Card v3.4.0
@@ -2752,6 +2776,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
       this._firstRender = false;
       this._lastRenderTime = 0;
       this._renderScheduled = false;
+      this._timers = new Set();
       this._reportPeriod = 'week';
       this._overviewPeriod = 'total';
       this._discoveredDevices = null;
@@ -2835,8 +2860,9 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
         if (now - this._lastRenderTime < 10000) {
           if (!this._renderScheduled) {
             this._renderScheduled = true;
-            setTimeout(() => {
+            this._schedule(() => {
               this._renderScheduled = false;
+              if (!this.isConnected) return;
               try {
                 this._updateLiveData();
                 this._lastRenderTime = Date.now();
@@ -3480,7 +3506,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
         ? `To: ${_esc(recipient)}`
         : (L ? 'Nie ustawiono odbiorcy' : 'No recipient set');
       this.shadowRoot.innerHTML = `
-        <style>${window.HAToolsBentoCSS || ""}
+        <style>${LOCAL_BENTO_CSS}
 
 
   /* ===== BENTO DESIGN SYSTEM (local fallback) ===== */
@@ -3672,7 +3698,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
             <div class="header-icon">\u{1F4E7}</div>
             <div>
               <div class="header-title">${_esc(this._config.title)}</div>
-              <div class="header-sub">${recipientDisplay} \u00A0\u2022\u00A0 <span id="price-display" style="cursor:pointer;color:var(--bento-primary);border-bottom:1px dashed var(--bento-primary)" title="${L ? 'Kliknij aby zmieni\u0107' : 'Click to change'}">${_esc(this._config.currency)} ${this._getTariffLabel()} \u270E</span></div>
+              <div class="header-sub">${recipientDisplay} \u00A0\u2022\u00A0 <span id="price-display" style="cursor:pointer;color:var(--bento-primary);border-bottom:1px dashed var(--bento-primary)" title="${L ? 'Kliknij aby zmieni\u0107' : 'Click to change'}">${_esc(this._config.currency)} ${_esc(this._getTariffLabel())} \u270E</span></div>
             </div>
           </div>
           <div class="tabs">
@@ -3683,6 +3709,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
             <button class="tab-btn ${this._activeTab === 'config' ? 'active' : ''}" data-tab="config">\u2699\uFE0F Config</button>
           </div>
           <div id="tab-content"></div>
+          ${OWN_SUPPORT_FOOTER}
         </div>
         <div class="toast" id="toast"></div>
       `
@@ -3696,23 +3723,8 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
         });
       });
       this._renderTab();
-      this._injectDiscovery();
       this._bindEmailEvents();
       this._bindPriceEdit();
-    }
-
-    _injectDiscovery() {
-      if (customElements.get('ha-tools-panel')) return;
-      const container = this.shadowRoot.querySelector('.card');
-      if (!container) return;
-      if (container.querySelector('ha-tools-discovery-banner')) return;
-      const _inj = () => { if (window.HAToolsDiscovery) window.HAToolsDiscovery.inject(container, 'energy-email', true); };
-      if (window.HAToolsDiscovery) { _inj(); return; }
-      const s = document.createElement('script');
-      s.src = '/local/community/ha-tools-panel/ha-tools-discovery.js?_=' + Date.now();
-      s.async = true;
-      s.onload = _inj;
-      document.head.appendChild(s);
     }
 
     _bindEmailEvents() {
@@ -3902,10 +3914,10 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           <div class="stat">
             <div class="stat-value" style="color:#3B82F6">${totalCost.toFixed(2)}</div>
             <div class="stat-label">${_esc(this._config.currency)} ${L ? 'Koszt' : 'Cost'}</div>
-            <div class="stat-sub">@ ${this._getTariffLabel()}</div>
+            <div class="stat-sub">@ ${_esc(this._getTariffLabel())}</div>
           </div>
           <div class="stat">
-            <div class="stat-value" style="color:#10B981">${displayData.length > 0 ? displayData[0].name.split(' ').slice(0,2).join(' ') : '-'}</div>
+            <div class="stat-value" style="color:#10B981">${displayData.length > 0 ? _esc(displayData[0].name.split(' ').slice(0,2).join(' ')) : '-'}</div>
             <div class="stat-label">${L ? 'Najwi\u0119ksze zu\u017Cycie' : 'Top Consumer'}</div>
             <div class="stat-sub">${displayData.length > 0 ? displayData[0].month.toFixed(1) + ' kWh' : ''}</div>
           </div>
@@ -3920,9 +3932,9 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
             const pct = maxVal > 0 ? (d.month / maxVal * 100) : 0;
             const diff = d.month - d.lastMonth;
             const diffStr = d.lastMonth > 0 && diff !== 0 ? `<span class="${diff > 0 ? 'trend-up' : 'trend-down'}">${diff > 0 ? '+' : ''}${diff.toFixed(1)} kWh</span>` : '';
-            const entityInfo = d.entity_id ? `<span style="font-size:10px;color:var(--bento-text-muted)" title="${d.entity_id}">${d.entity_id.split('.')[1].substring(0,20)}</span>` : '';
-            return `<div class="device-row" title="${d.entity_id || d.name}">
-              <div class="device-name">${d.name} ${entityInfo}</div>
+            const entityInfo = d.entity_id ? `<span style="font-size:10px;color:var(--bento-text-muted)" title="${_esc(d.entity_id)}">${_esc((d.entity_id.split('.')[1] || d.entity_id).substring(0,20))}</span>` : '';
+            return `<div class="device-row" title="${_esc(d.entity_id || d.name)}">
+              <div class="device-name">${_esc(d.name)} ${entityInfo}</div>
               <div class="device-bar-wrap"><div class="device-bar" style="width:${pct}%"></div></div>
               <div class="device-val">${d.month.toFixed(1)} kWh</div>
               <div style="font-size:11px;color:var(--bento-text-secondary);min-width:60px;text-align:right">${diffStr}</div>
@@ -4129,14 +4141,14 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
         return `<div class="preview-box" style="margin-bottom:14px">
           <h3 style="margin:0 0 8px">${p.icon} ${title} \u2013 ${today}</h3>
           ${periodNote}
-          <div style="font-size:12px;color:var(--bento-text-secondary);margin-bottom:10px">\u{1F4E7} ${recipientLine} \u00A0\u2022\u00A0 ${range} \u00A0\u2022\u00A0 ${devData.length} ${L ? 'urz.' : 'dev.'}</div>
+          <div style="font-size:12px;color:var(--bento-text-secondary);margin-bottom:10px">\u{1F4E7} ${_esc(recipientLine)} \u00A0\u2022\u00A0 ${range} \u00A0\u2022\u00A0 ${devData.length} ${L ? 'urz.' : 'dev.'}</div>
           <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">
             <div><span style="font-size:18px;font-weight:700;color:#F59E0B">${totalEnergy.toFixed(1)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">kWh</span></div>
             <div><span style="font-size:18px;font-weight:700;color:#3B82F6">${totalCost.toFixed(2)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">${_esc(this._config.currency)}</span></div>
           </div>
           <table class="preview-table">
             <thead><tr><th>${L ? 'Urz\u0105dzenie' : 'Device'}</th><th>kWh</th><th>${L ? 'Koszt' : 'Cost'} (${_esc(this._config.currency)})</th></tr></thead>
-            <tbody>${top5.map(d => `<tr><td>${d.name}</td><td>${d.current.toFixed(2)}</td><td>${d.cost.toFixed(2)}</td></tr>`).join('')}
+            <tbody>${top5.map(d => `<tr><td>${_esc(d.name)}</td><td>${d.current.toFixed(2)}</td><td>${d.cost.toFixed(2)}</td></tr>`).join('')}
             ${devData.length > 5 ? `<tr><td colspan="3" style="text-align:center;color:var(--bento-text-secondary);font-size:11px">+ ${devData.length - 5} ${L ? 'wi\u0119cej urz\u0105dze\u0144' : 'more devices'}...</td></tr>` : ''}</tbody>
           </table>
         </div>`;
@@ -4224,7 +4236,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           <div class="config-input-row">
             <label>${L ? 'Stawka' : 'Price'}:</label>
             <input type="number" id="cfg-price" class="config-input" value="${_esc(price)}" step="0.01" min="0" style="width:80px">
-            <span style="font-size:12px;color:var(--bento-text-secondary)">${currency}/kWh</span>
+            <span style="font-size:12px;color:var(--bento-text-secondary)">${_esc(currency)}/kWh</span>
             <button class="btn btn-primary" id="cfg-price-save" style="padding:6px 14px;font-size:12px">${L ? 'Zapisz' : 'Save'}</button>
           </div>
         </div>
@@ -4240,10 +4252,10 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
               const checked = !excluded.has(d.key);
               return `<div class="device-toggle">
                 <div class="toggle-switch">
-                  <input type="checkbox" id="dev-${d.key}" data-key="${d.key}" ${checked ? 'checked' : ''}>
+                  <input type="checkbox" id="dev-${_esc(d.key)}" data-key="${_esc(d.key)}" ${checked ? 'checked' : ''}>
                   <span class="toggle-slider"></span>
                 </div>
-                <label for="dev-${d.key}">${d.name}</label>
+                <label for="dev-${_esc(d.key)}">${_esc(d.name)}</label>
                 <div class="dt-val">${d.value.toFixed(1)} kWh</div>
               </div>`;
             }).join('')}
@@ -4562,7 +4574,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
         });
         this._showToast(`\u2705 ${update ? (L ? 'Automatyzacja zaktualizowana' : 'Automation updated') : (L ? 'Automatyzacja utworzona' : 'Automation created')}!`);
         // Wait for HA to register the automation, then refresh
-        setTimeout(() => this._renderTab(), 2000);
+        this._schedule(() => this._renderTab(), 2000);
       } catch (e) {
         this._showToast('\u274C Error: ' + (e.message || 'Failed to create automation'));
       }
@@ -4575,7 +4587,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
       try {
         await this._hass.callService('automation', enable ? 'turn_on' : 'turn_off', { entity_id });
         this._showToast(`\u2705 Automation ${enable ? 'enabled' : 'disabled'}`);
-        setTimeout(() => this._renderTab(), 800);
+        this._schedule(() => this._renderTab(), 800);
       } catch (e) { this._showToast('\u274C Error: ' + (e.message || 'Unknown error')); }
     }
 
@@ -4656,7 +4668,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           const cost = (d.cost || d.month * price).toFixed(2);
           const pct = totalKwh > 0 ? ((d.month / totalKwh) * 100).toFixed(0) : 0;
           const bg = i % 2 === 0 ? '#f8fafc' : '#ffffff';
-          return `<tr style="background:${bg}"><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:14px">${d.name}</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600">${kwh}</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:right">${cost}</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:right;color:#64748b">${pct}%</td></tr>`;
+          return `<tr style="background:${bg}"><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:14px">${_esc(d.name)}</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600">${kwh}</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:right">${cost}</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:right;color:#64748b">${pct}%</td></tr>`;
         }).join('');
         const html = `<div style="font-family:'Segoe UI',Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0">
           <div style="background:linear-gradient(135deg,#1e40af,#3b82f6);padding:24px 28px;color:#fff">
@@ -4671,10 +4683,10 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
               </div>
               <div style="flex:1;background:#dbeafe;border-radius:10px;padding:16px;text-align:center">
                 <div style="font-size:28px;font-weight:700;color:#1d4ed8">${totalCost.toFixed(2)}</div>
-                <div style="font-size:12px;color:#1e40af;margin-top:2px">${currency}</div>
+                <div style="font-size:12px;color:#1e40af;margin-top:2px">${_esc(currency)}</div>
               </div>
               <div style="flex:1;background:#d1fae5;border-radius:10px;padding:16px;text-align:center">
-                <div style="font-size:16px;font-weight:700;color:#047857">${topDevice ? topDevice.name.split(' ').slice(0,2).join(' ') : '-'}</div>
+                <div style="font-size:16px;font-weight:700;color:#047857">${topDevice ? _esc(topDevice.name.split(' ').slice(0,2).join(' ')) : '-'}</div>
                 <div style="font-size:12px;color:#065f46;margin-top:2px">${L ? 'Top' : 'Top'}: ${topDevice ? topDevice.month.toFixed(1) : 0} kWh</div>
               </div>
             </div>
@@ -4682,7 +4694,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
               <thead><tr style="background:#f1f5f9">
                 <th style="padding:10px 14px;text-align:left;font-size:12px;text-transform:uppercase;color:#64748b;letter-spacing:.5px">${L ? 'Urz\u0105dzenie' : 'Device'}</th>
                 <th style="padding:10px 14px;text-align:right;font-size:12px;text-transform:uppercase;color:#64748b;letter-spacing:.5px">kWh</th>
-                <th style="padding:10px 14px;text-align:right;font-size:12px;text-transform:uppercase;color:#64748b;letter-spacing:.5px">${currency}</th>
+                <th style="padding:10px 14px;text-align:right;font-size:12px;text-transform:uppercase;color:#64748b;letter-spacing:.5px">${_esc(currency)}</th>
                 <th style="padding:10px 14px;text-align:right;font-size:12px;text-transform:uppercase;color:#64748b;letter-spacing:.5px">%</th>
               </tr></thead>
               <tbody>${deviceRows}
@@ -4693,7 +4705,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
                 <td style="padding:12px 14px;text-align:right">100%</td>
               </tr></tbody>
             </table>
-            <p style="margin:16px 0 0;font-size:11px;color:#94a3b8;text-align:center">${this._getTariffLabel()} \u2022 HA Energy Email Card</p>
+            <p style="margin:16px 0 0;font-size:11px;color:#94a3b8;text-align:center">${_esc(this._getTariffLabel())} \u2022 HA Energy Email Card</p>
           </div>
         </div>`;
         const title = `\u26A1 ${typeName} ${L ? 'raport energii' : 'Energy Report'} \u2013 ${dateStr}`;
@@ -4818,11 +4830,22 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
       if (!toast) return;
       toast.textContent = msg;
       toast.classList.add('show');
-      setTimeout(() => toast.classList.remove('show'), 3500);
+      this._schedule(() => toast.classList.remove('show'), 3500);
     }
 
     disconnectedCallback() {
-      // Cleanup any active event listeners or timers
+      this._timers.forEach(timer => clearTimeout(timer));
+      this._timers.clear();
+      this._renderScheduled = false;
+    }
+
+    _schedule(callback, delay) {
+      const timer = setTimeout(() => {
+        this._timers.delete(timer);
+        if (this.isConnected) callback();
+      }, delay);
+      this._timers.add(timer);
+      return timer;
     }
 
     setActiveTab(tabId) {
