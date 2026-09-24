@@ -49,7 +49,7 @@ once, use any of them:
 |---|---|
 | `custom:ha-energy-optimizer` | Dashboard, patterns (heat map/trend), recommendations and week-over-week compare — described above. |
 | `custom:ha-energy-insights` | A separate 30-day breakdown across Overview / Daily / Weekly / Monthly / Tips tabs, also driven by `recorder/list_statistic_ids` + `recorder/statistics_during_period`. |
-| `custom:ha-energy-email` | Sends the usage report by e-mail. Manual "Send now" always works via `ha_tools_email.send`; scheduled sends are server-side if the optional **HA Tools Email v2.0.0** integration is installed, otherwise schedule config falls back to browser `localStorage`. |
+| `custom:ha-energy-email` | Sends the usage report by e-mail. Manual "Send now" always works via `ha_tools_email.send`; scheduled sends are server-side if the optional **HA Tools Email v2.0.0** integration is installed, otherwise schedule config falls back to browser `localStorage`. SMTP is set in **Settings → Devices & services → HA Tools Email → Configure**. This is the only maintained copy of the card; HA Tools Email & Reports 4.5.0+ just forwards to it. |
 
 ### What is automatic vs. manual
 

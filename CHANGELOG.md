@@ -1,5 +1,12 @@
 # Changelog — Energy Optimizer
 
+## 3.5.0 (2026-09-24)
+
+- Energy Email: Energy Optimizer is now the single maintained source of `custom:ha-energy-email`. HA Tools Email & Reports 4.5.0 no longer ships its own copy; it keeps a thin wrapper that renders this card, so existing dashboards keep working in either load order.
+- Energy Email: new always-free alias `ha-energy-optimizer-email` that the Email & Reports wrapper delegates to.
+- Energy Email: SMTP hints now link to **Settings → Devices & services → HA Tools Email → Configure** (HA Tools Email 2.1.0) instead of the retired HA Tools panel, and the "not configured" state says what to set.
+- Energy Email: the card-picker entry is registered once.
+
 ## 3.4.9 (2026-08-28)
 
 - Isolation: persistence is now card-local per bundled IIFE, removing `window._haToolsPersistence` load-order coupling while retaining existing localStorage keys.
