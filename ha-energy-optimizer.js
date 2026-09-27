@@ -177,11 +177,13 @@ class HaEnergyOptimizer extends HTMLElement {
       const todayKey = [todayParts.year, todayParts.month, todayParts.day].join('-');
       const hourlyToday = new Array(24).fill(0);
       const daily = new Map();
+      let referenceTodayBuckets = null;
       for (const id of ids) {
         const series = stats?.[id];
         if (!Array.isArray(series) || !series.length) throw new Error('Missing Energy Dashboard statistic series');
         let todayCount = 0;
         const seenBuckets = new Set();
+        const todayBuckets = new Set();
         for (const bucket of series) {
           const rawStart = bucket?.start;
           const date = new Date(typeof rawStart === 'number' ? (rawStart > 1e11 ? rawStart : rawStart * 1000) : rawStart);
@@ -196,11 +198,16 @@ class HaEnergyOptimizer extends HTMLElement {
           const parts = partsFor(date);
           const key = [parts.year, parts.month, parts.day].join('-');
           const hour = Number(parts.hour);
-          if (key === todayKey) { hourlyToday[hour] += kwh; todayCount++; }
+          if (key === todayKey) { hourlyToday[hour] += kwh; todayCount++; todayBuckets.add(date.getTime()); }
           if (!daily.has(key)) daily.set(key, new Array(24).fill(0));
           daily.get(key)[hour] += kwh;
         }
         if (!todayCount) throw new Error('No complete statistic bucket for today');
+        if (referenceTodayBuckets && (todayBuckets.size !== referenceTodayBuckets.size ||
+          [...todayBuckets].some(startTime => !referenceTodayBuckets.has(startTime)))) {
+          throw new Error('Incomplete Energy Dashboard grid import series');
+        }
+        referenceTodayBuckets = todayBuckets;
       }
       const keys = [...daily.keys()].sort().slice(-14);
       this._energySensorIds = ids;
