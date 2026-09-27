@@ -24,6 +24,7 @@ class HaEnergyOptimizer extends HTMLElement {
     this._config = { title: 'Energy Optimizer' };
     this._currentTab = 'dashboard';
     this._energyData = [];
+    this._hourlyBucketCounts = [];
     this._weeklyData = [];
     this._recommendations = [];
     this._comparisonData = null;
@@ -152,6 +153,7 @@ class HaEnergyOptimizer extends HTMLElement {
       if (!ids.length) {
         this._hasRealData = false;
         this._energyData = [];
+        this._hourlyBucketCounts = [];
         this._weeklyData = [];
         return;
       }
@@ -210,8 +212,13 @@ class HaEnergyOptimizer extends HTMLElement {
         referenceTodayBuckets = todayBuckets;
       }
       const keys = [...daily.keys()].sort().slice(-14);
+      const hourlyBucketCounts = new Array(24).fill(0);
+      for (const startTime of referenceTodayBuckets) {
+        hourlyBucketCounts[Number(partsFor(new Date(startTime)).hour)]++;
+      }
       this._energySensorIds = ids;
-      this._energyData = hourlyToday;
+      this._hourlyBucketCounts = hourlyBucketCounts;
+      this._energyData = hourlyToday.map((kwh, hour) => hourlyBucketCounts[hour] ? kwh : null);
       this._weeklyData = keys.slice(-7).map(key => daily.get(key));
       this._dailyTotals = keys.map(key => daily.get(key).reduce((sum, value) => sum + value, 0));
       this._hasRealData = true;
@@ -221,6 +228,7 @@ class HaEnergyOptimizer extends HTMLElement {
       this._energyError = err;
       this._hasRealData = false;
       this._energyData = [];
+      this._hourlyBucketCounts = [];
       this._weeklyData = [];
       this._recommendations = [];
       this._comparisonData = null;
@@ -254,7 +262,7 @@ class HaEnergyOptimizer extends HTMLElement {
     if (!Number.isFinite(peakRate) || !Number.isFinite(offPeakRate) || peakRate <= offPeakRate) return;
     const start = this._config.peak_hours?.start ?? 6;
     const end = this._config.peak_hours?.end ?? 22;
-    const peakKwh = this._energyData.slice(start, end).reduce((sum, value) => sum + value, 0);
+    const peakKwh = this._energyData.slice(start, end).reduce((sum, value) => sum + (value ?? 0), 0);
     if (peakKwh <= 0) return;
     this._recommendations = [{
       id: 1, icon: '↘', title: 'Consider shifting flexible loads to off-peak',
@@ -936,7 +944,7 @@ canvas {
             </div>` : `
             <div class="summary-card warn">
               <span class="summary-label">Peak Hour</span>
-              <div class="summary-value">${this._getPeakHour()}:00</div>
+              <div class="summary-value">${this._getPeakHour() === null ? 'N/A' : this._getPeakHour() + ':00'}</div>
               <span class="summary-label">Highest consumption</span>
             </div>`}
             <div class="summary-card">
@@ -995,11 +1003,11 @@ canvas {
             </div>
             <div class="stat-item">
               <div class="stat-label">Off-Peak Usage</div>
-              <div class="stat-value">${(this._energyData.slice(0, this._config.peak_hours?.start || 6).reduce((a, b) => a + b, 0) / (this._config.peak_hours?.start || 6)).toFixed(2)} kWh/h</div>
+              <div class="stat-value">${this._calculateOffPeakAverage() === null ? 'N/A' : this._calculateOffPeakAverage().toFixed(2) + ' kWh/h'}</div>
             </div>
             <div class="stat-item">
               <div class="stat-label">Ratio</div>
-              <div class="stat-value">${this._calculatePeakRatio().toFixed(1)}:1</div>
+              <div class="stat-value">${this._calculatePeakRatio() === null ? 'N/A' : this._calculatePeakRatio().toFixed(1) + ':1'}</div>
             </div>
           </div>
 
@@ -1520,7 +1528,7 @@ async _drawComparisonChart() {
   }
 
   _calculateTodayUsage() {
-    return this._energyData.reduce((a, b) => a + b, 0);
+    return this._energyData.reduce((a, b) => a + (b ?? 0), 0);
   }
 
   _calculateTodayCost() {
@@ -1533,7 +1541,7 @@ async _drawComparisonChart() {
     let cost = 0;
     this._energyData.forEach((kwh, hour) => {
       const rate = (hour >= peakStart && hour < peakEnd) ? peakRate : offPeakRate;
-      cost += kwh * rate;
+      cost += (kwh ?? 0) * rate;
     });
     return cost;
   }
@@ -1547,18 +1555,20 @@ async _drawComparisonChart() {
     let savings = 0;
     this._energyData.forEach((kwh, hour) => {
       if (hour >= peakStart && hour < peakEnd) {
-        savings += kwh * (peakRate - offPeakRate) * 0.3;
+        savings += (kwh ?? 0) * (peakRate - offPeakRate) * 0.3;
       }
     });
     return savings;
   }
 
   _getPeakHour() {
-    return this._energyData.indexOf(Math.max(...this._energyData));
+    const maximum = Math.max(0, ...this._energyData.map(value => value ?? 0));
+    return maximum > 0 ? this._energyData.indexOf(maximum) : null;
   }
 
   _calculateEfficiencyScore() {
     const peakRatio = this._calculatePeakRatio();
+    if (peakRatio === null) return 'N/A';
     const baseScore = 100;
     const peakPenalty = Math.min(30, peakRatio * 5);
     return Math.max(30, baseScore - peakPenalty).toFixed(0);
@@ -1567,9 +1577,20 @@ async _drawComparisonChart() {
   _calculatePeakRatio() {
     const peakStart = this._config.peak_hours?.start || 6;
     const peakEnd = this._config.peak_hours?.end || 22;
-    const peakUsage = this._energyData.slice(peakStart, peakEnd).reduce((a, b) => a + b, 0) / (peakEnd - peakStart);
-    const offPeakUsage = this._energyData.slice(0, peakStart).concat(this._energyData.slice(peakEnd)).reduce((a, b) => a + b, 0) / (24 - (peakEnd - peakStart));
-    return peakUsage / offPeakUsage;
+    const peakBuckets = this._hourlyBucketCounts.slice(peakStart, peakEnd).reduce((a, b) => a + b, 0);
+    const offPeakBuckets = this._hourlyBucketCounts.slice(0, peakStart).concat(this._hourlyBucketCounts.slice(peakEnd)).reduce((a, b) => a + b, 0);
+    if (!peakBuckets || !offPeakBuckets) return null;
+    const peakUsage = this._energyData.slice(peakStart, peakEnd).reduce((a, b) => a + (b ?? 0), 0) / peakBuckets;
+    const offPeakUsage = this._calculateOffPeakAverage();
+    return offPeakUsage > 0 ? peakUsage / offPeakUsage : null;
+  }
+
+  _calculateOffPeakAverage() {
+    const peakStart = this._config.peak_hours?.start || 6;
+    const peakEnd = this._config.peak_hours?.end || 22;
+    const hours = Array.from({ length: 24 }, (_, hour) => hour).filter(hour => hour < peakStart || hour >= peakEnd);
+    const buckets = hours.reduce((sum, hour) => sum + (this._hourlyBucketCounts[hour] || 0), 0);
+    return buckets ? hours.reduce((sum, hour) => sum + (this._energyData[hour] ?? 0), 0) / buckets : null;
   }
   // --- Pagination helper ---
   _renderPagination(tabName, totalItems) {
