@@ -1739,6 +1739,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           vsLastWeek: 'vs previous 7 days',
           topDevices: 'Top 5 Devices',
           noSensors: 'No supported grid import statistics in Energy Dashboard. Configure an energy source in Home Assistant.',
+          noSeries: 'One or more configured grid import sources have no recent Recorder statistics. Totals are unavailable until every source has data.',
           hourlyConsumption: 'Hourly Consumption (today)',
           dailyConsumption: 'Daily Consumption (7 days)',
           monthlyConsumption: 'Daily Consumption (30 days)',
@@ -1778,6 +1779,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           vsLastWeek: 'vs poprzednie 7 dni',
           topDevices: 'Top 5 Urządzeń',
           noSensors: 'Brak obsługiwanych statystyk importu sieciowego w panelu Energia. Skonfiguruj źródło energii w HA.',
+          noSeries: 'Co najmniej jedno skonfigurowane źródło importu nie ma aktualnych statystyk Recorder. Sumy będą dostępne, gdy każde źródło dostarczy dane.',
           hourlyConsumption: 'Zużycie Godzinowe (dzisiaj)',
           dailyConsumption: 'Zużycie Dzienne (7 dni)',
           monthlyConsumption: 'Zużycie Dzienne (30 dni)',
@@ -1941,6 +1943,13 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           types: ['change']
         });
 
+        if (sensorIds.some(id => !Array.isArray(stats?.[id]) || stats[id].length === 0)) {
+          this._data = { sensors: sensorIds, noSeries: true };
+          this._loading = false;
+          this._updateContent();
+          return;
+        }
+
         // Step 3: Aggregate data
         const timeZone = this._hass?.config?.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone;
         const dateFormatter = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
@@ -1971,7 +1980,6 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
         sensorIds.forEach(id => {
           const entries = stats[id] || [];
-          if (!entries.length) throw new Error('Missing Energy Dashboard statistic series');
           const unit = sensorUnits[id];
           let sensorMonthTotal = 0;
 
@@ -2310,6 +2318,9 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
       if (this._data.noSensors) {
         return `<div class="no-sensors">${this._t('noSensors')}</div>`;
+      }
+      if (this._data.noSeries) {
+        return `<div class="no-sensors" role="status">${this._t('noSeries')}</div>`;
       }
 
       switch (this._activeTab) {

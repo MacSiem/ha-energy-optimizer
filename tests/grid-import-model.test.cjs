@@ -178,6 +178,32 @@ test('Insights ignores unconfigured power sensors and omits cost without a tarif
   } finally { dom.window.close(); }
 });
 
+test('Insights shows an honest empty state when one configured grid source has no series', async () => {
+  const { dom } = cardWith({});
+  try {
+    const insights = dom.window.document.createElement('ha-energy-insights');
+    insights._updateContent = () => {};
+    insights._hass = { config: { currency: 'EUR' }, states: {}, callWS: async msg => ({
+      'energy/get_prefs': { energy_sources: [
+        { type: 'grid', stat_energy_from: 'sensor.grid_a' },
+        { type: 'grid', stat_energy_from: 'sensor.grid_b' },
+      ] },
+      'recorder/get_statistics_metadata': {
+        'sensor.grid_a': { has_sum: true, statistics_unit_of_measurement: 'kWh' },
+        'sensor.grid_b': { has_sum: true, statistics_unit_of_measurement: 'kWh' },
+      },
+      'recorder/statistics_during_period': {
+        'sensor.grid_a': [{ start: Math.floor(Date.now() / 1000), change: 2 }],
+      },
+    })[msg.type] };
+    await insights._fetchData();
+    assert.equal(insights._error, null);
+    assert.equal(insights._data.noSeries, true);
+    assert.match(insights._renderTabContent(), /Totals are unavailable/);
+    assert.doesNotMatch(insights._renderTabContent(), /2\.00 kWh/);
+  } finally { dom.window.close(); }
+});
+
 test('Energy Email has no assumed price or currency and preserves an explicit zero tariff', () => {
   const { dom } = cardWith({});
   try {
