@@ -182,7 +182,7 @@ class HaEnergyOptimizer extends HTMLElement {
         const seenBuckets = new Set();
         for (const bucket of series) {
           const rawStart = bucket?.start;
-          const date = new Date(typeof rawStart === 'number' ? rawStart * 1000 : rawStart);
+          const date = new Date(typeof rawStart === 'number' ? (rawStart > 1e11 ? rawStart : rawStart * 1000) : rawStart);
           const change = bucket?.change;
           if (!Number.isFinite(date.getTime()) || typeof change !== 'number' || !Number.isFinite(change) || change < 0) {
             throw new Error('Invalid or incomplete Energy Dashboard statistic bucket');
@@ -1945,7 +1945,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
             if (typeof entry.change !== 'number' || !Number.isFinite(entry.change) || entry.change < 0) throw new Error('Invalid or incomplete energy change bucket');
             let change = entry.change * (unit === 'Wh' ? 0.001 : unit === 'MWh' ? 1000 : 1);
 
-            const entryDate = new Date(typeof entry.start === 'number' ? entry.start * 1000 : entry.start);
+            const entryDate = new Date(typeof entry.start === 'number' ? (entry.start > 1e11 ? entry.start : entry.start * 1000) : entry.start);
             if (!Number.isFinite(entryDate.getTime())) throw new Error('Invalid energy bucket timestamp');
             const hour = hourInZone(entryDate);
             const bucketDay = dateKey(entryDate);

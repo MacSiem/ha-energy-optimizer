@@ -61,6 +61,20 @@ test('negative change fails closed instead of becoming zero energy', async () =>
   } finally { dom.window.close(); }
 });
 
+test('Recorder millisecond timestamps are interpreted as milliseconds', async () => {
+  const start = Date.now() - 60000;
+  const { dom, card } = cardWith({
+    'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+    'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+    'recorder/statistics_during_period': { 'sensor.grid': [{ start, change: 1.25 }] },
+  });
+  try {
+    await card._fetchEnergyStats();
+    assert.equal(card._hasRealData, true);
+    assert.equal(card._calculateTodayUsage(), 1.25);
+  } finally { dom.window.close(); }
+});
+
 test('Insights ignores unconfigured power sensors and omits cost without a tariff', async () => {
   const start = Math.floor((Date.now() - 3600000) / 1000);
   const { dom, card: unused } = cardWith({});
