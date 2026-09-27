@@ -42,9 +42,9 @@ once, use any of them:
 |---|---|
 | ![Dashboard tab, light theme](docs/screenshots/card-dashboard-light.png) | ![Dashboard tab, dark theme](docs/screenshots/card-dashboard-dark.png) |
 
-*The Dashboard tab (the default view): today's usage, cost estimate,
-efficiency score, current power draw and the 24-hour usage chart. Dark mode
-follows your Home Assistant theme automatically.*
+*The Dashboard tab on a fresh installation without a supported Energy
+Dashboard grid-import statistic. It explains how to configure a source instead
+of inventing usage or cost. Dark mode follows your Home Assistant theme.*
 
 ## Installation
 
