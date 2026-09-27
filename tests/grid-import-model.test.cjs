@@ -109,3 +109,19 @@ test('Insights ignores unconfigured power sensors and omits cost without a tarif
     assert.match(insights._renderOverview(), /N\/A/);
   } finally { dom.window.close(); }
 });
+
+test('Energy Email has no assumed price or currency and preserves an explicit zero tariff', () => {
+  const { dom } = cardWith({});
+  try {
+    const email = dom.window.document.createElement('ha-energy-email');
+    email._hass = { config: { currency: 'EUR' } };
+    assert.equal(email._getAvgRate(), null);
+    assert.equal(email._cost(5), null);
+    assert.equal(email._formatCost(email._cost(5)), 'N/A');
+    assert.match(email._getTariffLabel(), /not configured/);
+    email.setConfig({ energy_price: 0 });
+    assert.equal(email._getAvgRate(), 0);
+    assert.equal(email._cost(5), 0);
+    assert.match(email._getTariffLabel(), /EUR/);
+  } finally { dom.window.close(); }
+});

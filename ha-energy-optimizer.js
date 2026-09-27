@@ -239,8 +239,8 @@ class HaEnergyOptimizer extends HTMLElement {
   _generateRecommendations() {
     this._recommendations = [];
     if (!this._hasRealData) return;
-    const peakRate = Number(this._config.peak_rate);
-    const offPeakRate = Number(this._config.off_peak_rate);
+    const peakRate = this._config.peak_rate == null || this._config.peak_rate === '' ? NaN : Number(this._config.peak_rate);
+    const offPeakRate = this._config.off_peak_rate == null || this._config.off_peak_rate === '' ? NaN : Number(this._config.off_peak_rate);
     if (!Number.isFinite(peakRate) || !Number.isFinite(offPeakRate) || peakRate <= offPeakRate) return;
     const start = this._config.peak_hours?.start ?? 6;
     const end = this._config.peak_hours?.end ?? 22;
@@ -258,7 +258,8 @@ class HaEnergyOptimizer extends HTMLElement {
     const totals = this._dailyTotals || [];
     const thisWeek = totals.length >= 7 ? totals.slice(-7).reduce((sum, value) => sum + value, 0) : null;
     const lastWeek = totals.length >= 14 ? totals.slice(-14, -7).reduce((sum, value) => sum + value, 0) : null;
-    const peakRate = Number(this._config.peak_rate ?? this._config.energy_price);
+    const configuredPeak = this._config.peak_rate ?? this._config.energy_price;
+    const peakRate = configuredPeak == null || configuredPeak === '' ? NaN : Number(configuredPeak);
     const offPeakRate = Number(this._config.off_peak_rate ?? peakRate);
     this._comparisonData = {
       thisWeek, lastWeek, thisMonth: null, lastMonth: null,
@@ -1512,7 +1513,8 @@ async _drawComparisonChart() {
   }
 
   _calculateTodayCost() {
-    const peakRate = Number(this._config.peak_rate ?? this._config.energy_price);
+    const configuredPeak = this._config.peak_rate ?? this._config.energy_price;
+    const peakRate = configuredPeak == null || configuredPeak === '' ? NaN : Number(configuredPeak);
     const offPeakRate = Number(this._config.off_peak_rate ?? peakRate);
     if (!Number.isFinite(peakRate) || !Number.isFinite(offPeakRate) || peakRate < 0 || offPeakRate < 0 || !(this._config.currency || this._hass?.config?.currency)) return null;
     const peakStart = this._config.peak_hours?.start || 6;
@@ -1526,8 +1528,8 @@ async _drawComparisonChart() {
   }
 
   _calculatePotentialSavings() {
-    const peakRate = Number(this._config.peak_rate);
-    const offPeakRate = Number(this._config.off_peak_rate);
+    const peakRate = this._config.peak_rate == null || this._config.peak_rate === '' ? NaN : Number(this._config.peak_rate);
+    const offPeakRate = this._config.off_peak_rate == null || this._config.off_peak_rate === '' ? NaN : Number(this._config.off_peak_rate);
     if (!Number.isFinite(peakRate) || !Number.isFinite(offPeakRate) || peakRate <= offPeakRate) return null;
     const peakStart = this._config.peak_hours?.start || 6;
     const peakEnd = this._config.peak_hours?.end || 22;
@@ -2539,7 +2541,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
               </div>
               <div style="margin-bottom:12px;">
                 <label style="display:block;font-weight:500;margin-bottom:4px;font-size:13px;">Currency</label>
-                <input type="text" id="cf_currency" value="${_esc(this._config?.currency || 'PLN')}"
+                <input type="text" id="cf_currency" value="${_esc(this._config?.currency || this._hass?.config?.currency || '')}"
                   style="width:100%;padding:8px 12px;border:1px solid var(--divider-color,#e2e8f0);border-radius:8px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#1e293b);font-size:14px;box-sizing:border-box;">
               </div>
       `;
@@ -2589,8 +2591,8 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
    *   type: custom:ha-energy-email
    *   title: Energy Email Reports          (optional)
    *   recipient: your@email.com            (optional, auto-detected from notify service)
-   *   currency: PLN                        (optional, default PLN)
-   *   energy_price: 0.65                   (optional PLN/kWh)
+   *   currency: EUR                        (optional, defaults to Home Assistant currency)
+   *   energy_price: 0.30                   (optional tariff; no assumed default)
    *   notify_service: email_report         (optional, auto-detected)
    */
   class HAEnergyEmail extends HTMLElement {
@@ -2604,17 +2606,17 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       this._config = {
         title: 'Energy Email Reports',
         recipient: '',
-        currency: 'PLN',
-        energy_price: 0.65,
+        currency: '',
+        energy_price: null,
         energy_tariff_mode: 'flat',
-        energy_price_day: 0.65,
-        energy_price_night: 0.45,
-        energy_price_weekday: 0.65,
-        energy_price_weekend: 0.50,
-        energy_price_wd_day: 0.65,
-        energy_price_wd_night: 0.45,
-        energy_price_we_day: 0.55,
-        energy_price_we_night: 0.40,
+        energy_price_day: null,
+        energy_price_night: null,
+        energy_price_weekday: null,
+        energy_price_weekend: null,
+        energy_price_wd_day: null,
+        energy_price_wd_night: null,
+        energy_price_we_day: null,
+        energy_price_we_night: null,
         energy_day_hour_start: 6,
         energy_night_hour_start: 22,
         notify_service: '',
@@ -2762,24 +2764,31 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 
     setConfig(config) {
       const cfg = config || {};
+      const price = (key) => {
+        const value = cfg[key];
+        if (value === undefined) return this._config[key];
+        if (value === null || value === '') return null;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+      };
       this._config = {
         ...this._config,
         ...cfg,
         title: cfg.title || this._config.title || 'Energy Email Reports',
         recipient: cfg.recipient || this._config.recipient || '',
-        currency: cfg.currency || this._config.currency || 'PLN',
-        energy_price: parseFloat(cfg.energy_price) || this._config.energy_price || 0.65,
+        currency: cfg.currency || this._config.currency || '',
+        energy_price: price('energy_price'),
         energy_tariff_mode: cfg.energy_tariff_mode || this._config.energy_tariff_mode || 'flat',
-        energy_price_day: parseFloat(cfg.energy_price_day) || this._config.energy_price_day || 0.65,
-        energy_price_night: parseFloat(cfg.energy_price_night) || this._config.energy_price_night || 0.45,
-        energy_price_weekday: parseFloat(cfg.energy_price_weekday) || this._config.energy_price_weekday || 0.65,
-        energy_price_weekend: parseFloat(cfg.energy_price_weekend) || this._config.energy_price_weekend || 0.50,
-        energy_price_wd_day: parseFloat(cfg.energy_price_wd_day) || this._config.energy_price_wd_day || 0.65,
-        energy_price_wd_night: parseFloat(cfg.energy_price_wd_night) || this._config.energy_price_wd_night || 0.45,
-        energy_price_we_day: parseFloat(cfg.energy_price_we_day) || this._config.energy_price_we_day || 0.55,
-        energy_price_we_night: parseFloat(cfg.energy_price_we_night) || this._config.energy_price_we_night || 0.40,
-        energy_day_hour_start: parseInt(cfg.energy_day_hour_start) || this._config.energy_day_hour_start || 6,
-        energy_night_hour_start: parseInt(cfg.energy_night_hour_start) || this._config.energy_night_hour_start || 22,
+        energy_price_day: price('energy_price_day'),
+        energy_price_night: price('energy_price_night'),
+        energy_price_weekday: price('energy_price_weekday'),
+        energy_price_weekend: price('energy_price_weekend'),
+        energy_price_wd_day: price('energy_price_wd_day'),
+        energy_price_wd_night: price('energy_price_wd_night'),
+        energy_price_we_day: price('energy_price_we_day'),
+        energy_price_we_night: price('energy_price_we_night'),
+        energy_day_hour_start: Number.isInteger(Number(cfg.energy_day_hour_start)) ? Number(cfg.energy_day_hour_start) : this._config.energy_day_hour_start,
+        energy_night_hour_start: Number.isInteger(Number(cfg.energy_night_hour_start)) ? Number(cfg.energy_night_hour_start) : this._config.energy_night_hour_start,
         notify_service: cfg.notify_service || this._config.notify_service || '',
       };
     }
@@ -2792,47 +2801,60 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     _getRate(hour, dayOfWeek) {
       const c = this._config;
       const mode = c.energy_tariff_mode || 'flat';
-      const dayStart = c.energy_day_hour_start || 6;
-      const nightStart = c.energy_night_hour_start || 22;
+      const dayStart = c.energy_day_hour_start ?? 6;
+      const nightStart = c.energy_night_hour_start ?? 22;
       const isDay = (dayStart < nightStart) ? (hour >= dayStart && hour < nightStart) : (hour >= dayStart || hour < nightStart);
       const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+      let value;
       switch (mode) {
         case 'day_night':
-          return isDay ? (c.energy_price_day || 0.65) : (c.energy_price_night || 0.45);
+          value = isDay ? c.energy_price_day : c.energy_price_night; break;
         case 'weekday_weekend':
-          return isWeekend ? (c.energy_price_weekend || 0.50) : (c.energy_price_weekday || 0.65);
+          value = isWeekend ? c.energy_price_weekend : c.energy_price_weekday; break;
         case 'mixed':
-          if (isWeekend) return isDay ? (c.energy_price_we_day || 0.55) : (c.energy_price_we_night || 0.40);
-          return isDay ? (c.energy_price_wd_day || 0.65) : (c.energy_price_wd_night || 0.45);
+          value = isWeekend ? (isDay ? c.energy_price_we_day : c.energy_price_we_night) : (isDay ? c.energy_price_wd_day : c.energy_price_wd_night); break;
         default:
-          return c.energy_price || 0.65;
+          value = c.energy_price;
       }
+      return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
     }
 
     _getAvgRate() {
       const mode = this._config.energy_tariff_mode || 'flat';
-      if (mode === 'flat') return this._config.energy_price || 0.65;
+      if (mode === 'flat') return this._getRate(12, 1);
       let sum = 0;
       for (let dow = 0; dow < 7; dow++) {
         for (let h = 0; h < 24; h++) {
-          sum += this._getRate(h, dow);
+          const rate = this._getRate(h, dow);
+          if (rate === null) return null;
+          sum += rate;
         }
       }
       return sum / 168;
     }
 
+    _cost(kwh) {
+      const rate = this._getAvgRate();
+      return rate === null || !Number.isFinite(kwh) ? null : kwh * rate;
+    }
+
+    _formatCost(value) {
+      return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : 'N/A';
+    }
+
     _getTariffLabel() {
       const c = this._config;
       const mode = c.energy_tariff_mode || 'flat';
-      const cur = c.currency || 'PLN';
+      const cur = c.currency || this._hass?.config?.currency || '';
+      if (this._getAvgRate() === null) return this._lang === 'pl' ? 'Taryfa nieskonfigurowana' : 'Tariff not configured';
       const suffix = this._lang === 'pl' ?
         { 'day_night': '/kWh (dzień/noc)', 'weekday_weekend': '/kWh (roboczy/weekend)' } :
         { 'day_night': '/kWh (day/night)', 'weekday_weekend': '/kWh (weekday/weekend)' };
       switch (mode) {
-        case 'day_night': return (c.energy_price_day || 0.65) + '/' + (c.energy_price_night || 0.45) + ' ' + cur + (suffix['day_night'] || '');
-        case 'weekday_weekend': return (c.energy_price_weekday || 0.65) + '/' + (c.energy_price_weekend || 0.50) + ' ' + cur + (suffix['weekday_weekend'] || '');
-        case 'mixed': return 'mix: ' + (c.energy_price_wd_day || 0.65) + '/' + (c.energy_price_wd_night || 0.45) + '/' + (c.energy_price_we_day || 0.55) + '/' + (c.energy_price_we_night || 0.40) + ' ' + cur;
-        default: return (c.energy_price || 0.65) + ' ' + cur + '/kWh';
+        case 'day_night': return c.energy_price_day + '/' + c.energy_price_night + ' ' + cur + (suffix['day_night'] || '');
+        case 'weekday_weekend': return c.energy_price_weekday + '/' + c.energy_price_weekend + ' ' + cur + (suffix['weekday_weekend'] || '');
+        case 'mixed': return 'mix: ' + c.energy_price_wd_day + '/' + c.energy_price_wd_night + '/' + c.energy_price_we_day + '/' + c.energy_price_we_night + ' ' + cur;
+        default: return c.energy_price + ' ' + cur + '/kWh';
       }
     }
 
@@ -2841,8 +2863,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       return {
         type: 'custom:ha-energy-email',
         title: 'Energy Email Reports',
-        currency: 'PLN',
-        energy_price: 0.65
+        title: 'Energy Email Reports'
       };
     }
 
@@ -3201,7 +3222,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           name: d.name,
           month: this._float(this._state(d.energy_day || d.energy_week, '0')),
           lastMonth: 0,
-          cost: this._float(this._state(d.energy_day || d.energy_week, '0')) * this._getAvgRate(),
+          cost: this._cost(this._float(this._state(d.energy_day || d.energy_week, '0'))),
           source: 'manual'
         })).sort((a, b) => b.month - a.month);
       }
@@ -3225,7 +3246,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           result.push({
             name: dev.name, key: dev.key || dev.entity_id,
             month: match.value, lastMonth: 0,
-            cost: match.value * this._getAvgRate(),
+            cost: this._cost(match.value),
             entity_id: match.entity_id, source: 'auto'
           });
         }
@@ -3280,7 +3301,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           result.push({
             name: dev.name, key: dev.key || dev.entity_id,
             month: kwh, lastMonth: 0,
-            cost: kwh * this._getAvgRate(),
+            cost: this._cost(kwh),
             entity_id: entityId, source: 'auto'
           });
         }
@@ -3326,7 +3347,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           name: d.name, key: d.key || d.entity_id,
           month: d.value_kwh,
           lastMonth: 0,
-          cost: d.value_kwh * this._getAvgRate(),
+          cost: this._cost(d.value_kwh),
           entity_id: d.entity_id,
           sensor_count: d.sensor_count,
           source: 'auto'
@@ -3547,7 +3568,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
             <div class="header-icon">\u{1F4E7}</div>
             <div>
               <div class="header-title">${_esc(this._config.title)}</div>
-              <div class="header-sub">${recipientDisplay} \u00A0\u2022\u00A0 <span id="price-display" style="cursor:pointer;color:var(--bento-primary);border-bottom:1px dashed var(--bento-primary)" title="${L ? 'Kliknij aby zmieni\u0107' : 'Click to change'}">${_esc(this._config.currency)} ${_esc(this._getTariffLabel())} \u270E</span></div>
+              <div class="header-sub">${recipientDisplay} \u00A0\u2022\u00A0 <span id="price-display" style="cursor:pointer;color:var(--bento-primary);border-bottom:1px dashed var(--bento-primary)" title="${L ? 'Kliknij aby zmieni\u0107' : 'Click to change'}">${_esc(this._config.currency || this._hass?.config?.currency || '')} ${_esc(this._getTariffLabel())} \u270E</span></div>
             </div>
           </div>
           <div class="tabs">
@@ -3617,8 +3638,8 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         const container = priceEl.parentElement;
         const origHtml = container.innerHTML;
         const inputHtml = `<span style="display:inline-flex;align-items:center;gap:4px">
-          <span>${_esc(this._config.currency)}</span>
-          <input type="number" id="price-input" value="${cur}" step="0.01" min="0" style="width:70px;padding:3px 6px;border:1.5px solid var(--bento-primary);border-radius:4px;font-size:12px;background:var(--bento-card);color:var(--bento-text);font-family:'Inter',sans-serif;text-align:center">
+          <span>${_esc(this._config.currency || this._hass?.config?.currency || '')}</span>
+          <input type="number" id="price-input" value="${cur ?? ''}" step="0.01" min="0" style="width:70px;padding:3px 6px;border:1.5px solid var(--bento-primary);border-radius:4px;font-size:12px;background:var(--bento-card);color:var(--bento-text);font-family:'Inter',sans-serif;text-align:center">
           <span>/kWh</span>
           <button id="price-save" class="btn btn-primary" style="padding:3px 10px;font-size:11px;margin:0" aria-label="Save">\u2714</button>
           <button id="price-cancel" class="btn" style="padding:3px 8px;font-size:11px;margin:0" aria-label="Cancel">\u2716</button>
@@ -3742,7 +3763,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         displayData = devData;
       }
       const totalEnergy = displayData.reduce((s, d) => s + d.month, 0);
-      const totalCost = isAuto ? totalEnergy * this._getAvgRate() : displayData.reduce((s, d) => s + d.cost, 0);
+      const totalCost = isAuto ? this._cost(totalEnergy) : displayData.every(d => typeof d.cost === 'number' && Number.isFinite(d.cost)) ? displayData.reduce((s, d) => s + d.cost, 0) : null;
       const maxVal = Math.max(...displayData.map(x => x.month)) || 1;
       const periodBtns = ['day', 'week', 'month', 'total'].map(p => {
         const lb = p === 'total' ? (L ? 'Wszystko' : 'All') : p === 'day' ? '24h' : p === 'week' ? '7d' : '30d';
@@ -3761,8 +3782,8 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
             <div class="stat-sub">${displayData.length} ${L ? 'urz\u0105dze\u0144' : 'devices'}</div>
           </div>
           <div class="stat">
-            <div class="stat-value" style="color:#3B82F6">${totalCost.toFixed(2)}</div>
-            <div class="stat-label">${_esc(this._config.currency)} ${L ? 'Koszt' : 'Cost'}</div>
+            <div class="stat-value" style="color:#3B82F6">${this._formatCost(totalCost)}</div>
+            <div class="stat-label">${_esc(this._config.currency || this._hass?.config?.currency || '')} ${L ? 'Koszt' : 'Cost'}</div>
             <div class="stat-sub">@ ${_esc(this._getTariffLabel())}</div>
           </div>
           <div class="stat">
@@ -3966,7 +3987,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         if (devices.length > 0) {
           return devices.map(d => {
             let current = 0, previous = 0, cost = 0;
-            if (period === 'day') { current = this._float(this._state(d.energy_day || d.energy_week, '0')); cost = current * this._getAvgRate(); }
+            if (period === 'day') { current = this._float(this._state(d.energy_day || d.energy_week, '0')); cost = this._cost(current); }
             else if (period === 'month') { current = this._float(this._state(d.energy_month, '0')); previous = this._float(this._state(d.energy_last_month, '0')); cost = this._float(this._state(d.cost_month || d.cost_week, '0')); }
             else { current = this._float(this._state(d.energy_week, '0')); previous = this._float(this._state(d.energy_last_week, '0')); cost = this._float(this._state(d.cost_week, '0')); }
             return { name: d.name, current, previous, cost };
@@ -3974,16 +3995,16 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         }
         try { var periodData = this._getAutoDataForPeriod(period); } catch(e) { var periodData = []; }
         if (periodData && periodData.length > 0 && periodData.some(d => d.month > 0)) {
-          return periodData.map(d => ({ name: d.name, current: d.month, previous: d.lastMonth || 0, cost: d.cost || d.month * this._getAvgRate(), hasPeriod: true })).sort((a, b) => b.current - a.current);
+          return periodData.map(d => ({ name: d.name, current: d.month, previous: d.lastMonth || 0, cost: d.cost ?? this._cost(d.month), hasPeriod: true })).sort((a, b) => b.current - a.current);
         }
-        return autoDevices.map(d => ({ name: d.name, current: d.value_kwh, previous: 0, cost: d.value_kwh * this._getAvgRate(), hasPeriod: false })).sort((a, b) => b.current - a.current);
+        return autoDevices.map(d => ({ name: d.name, current: d.value_kwh, previous: 0, cost: this._cost(d.value_kwh), hasPeriod: false })).sort((a, b) => b.current - a.current);
       };
       const renderReport = (p) => {
         const title = L ? p.titleL : p.titleE;
         const range = L ? p.rangeL : p.rangeE;
         const devData = getDevData(p.key);
         const totalEnergy = devData.reduce((s, d) => s + d.current, 0);
-        const totalCost = devData.reduce((s, d) => s + d.cost, 0);
+        const totalCost = devData.every(d => typeof d.cost === 'number' && Number.isFinite(d.cost)) ? devData.reduce((s, d) => s + d.cost, 0) : null;
         const top5 = devData.slice(0, 5);
         const isPeriodData = devData.length > 0 && devData[0].hasPeriod;
         const periodNote = !isPeriodData && isAuto ? `<div style="font-size:11px;color:var(--bento-text-secondary);margin-bottom:6px;font-style:italic">\u26A0 ${L ? 'Brak sensor\u00F3w dla tego okresu \u2014 pokazano dane total' : 'No period-specific sensors found \u2014 showing total data'}</div>` : '';
@@ -3993,11 +4014,11 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           <div style="font-size:12px;color:var(--bento-text-secondary);margin-bottom:10px">\u{1F4E7} ${_esc(recipientLine)} \u00A0\u2022\u00A0 ${range} \u00A0\u2022\u00A0 ${devData.length} ${L ? 'urz.' : 'dev.'}</div>
           <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">
             <div><span style="font-size:18px;font-weight:700;color:#F59E0B">${totalEnergy.toFixed(1)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">kWh</span></div>
-            <div><span style="font-size:18px;font-weight:700;color:#3B82F6">${totalCost.toFixed(2)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">${_esc(this._config.currency)}</span></div>
+            <div><span style="font-size:18px;font-weight:700;color:#3B82F6">${this._formatCost(totalCost)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">${_esc(this._config.currency || this._hass?.config?.currency || '')}</span></div>
           </div>
           <table class="preview-table">
-            <thead><tr><th>${L ? 'Urz\u0105dzenie' : 'Device'}</th><th>kWh</th><th>${L ? 'Koszt' : 'Cost'} (${_esc(this._config.currency)})</th></tr></thead>
-            <tbody>${top5.map(d => `<tr><td>${_esc(d.name)}</td><td>${d.current.toFixed(2)}</td><td>${d.cost.toFixed(2)}</td></tr>`).join('')}
+            <thead><tr><th>${L ? 'Urz\u0105dzenie' : 'Device'}</th><th>kWh</th><th>${L ? 'Koszt' : 'Cost'} (${_esc(this._config.currency || this._hass?.config?.currency || '')})</th></tr></thead>
+            <tbody>${top5.map(d => `<tr><td>${_esc(d.name)}</td><td>${d.current.toFixed(2)}</td><td>${this._formatCost(d.cost)}</td></tr>`).join('')}
             ${devData.length > 5 ? `<tr><td colspan="3" style="text-align:center;color:var(--bento-text-secondary);font-size:11px">+ ${devData.length - 5} ${L ? 'wi\u0119cej urz\u0105dze\u0144' : 'more devices'}...</td></tr>` : ''}</tbody>
           </table>
         </div>`;
@@ -4072,7 +4093,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 
       const recipient = this._getRecipient();
       const price = this._getAvgRate();
-      const currency = this._config.currency || 'PLN';
+      const currency = this._config.currency || this._hass?.config?.currency || '';
 
       return `
         <div class="config-section">
@@ -4084,7 +4105,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           </div>
           <div class="config-input-row">
             <label>${L ? 'Stawka' : 'Price'}:</label>
-            <input type="number" id="cfg-price" class="config-input" value="${_esc(price)}" step="0.01" min="0" style="width:80px">
+            <input type="number" id="cfg-price" class="config-input" value="${_esc(price ?? '')}" step="0.01" min="0" style="width:80px">
             <span style="font-size:12px;color:var(--bento-text-secondary)">${_esc(currency)}/kWh</span>
             <button class="btn btn-primary" id="cfg-price-save" style="padding:6px 14px;font-size:12px">${L ? 'Zapisz' : 'Save'}</button>
           </div>
@@ -4359,7 +4380,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       if (!cfg) return;
       // Build email with actual sensor data via Jinja templates
       const price = this._getAvgRate();
-      const currency = this._config.currency || 'PLN';
+      const currency = this._config.currency || this._hass?.config?.currency || '';
       const typeName = type.charAt(0).toUpperCase() + type.slice(1);
       const periodMap = { daily: 'day', weekly: 'week', monthly: 'month' };
       const periodKey = periodMap[type] || 'day';
@@ -4476,7 +4497,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       const L = this._lang === 'pl';
       const recipient = this._getRecipient();
       const price = this._getAvgRate();
-      const currency = this._config.currency || 'PLN';
+      const currency = this._config.currency || this._hass?.config?.currency || '';
       const dateStr = new Date().toISOString().split('T')[0];
       const nowStr = new Date().toLocaleString((this._lang === 'pl' ? 'pl-PL' : 'en-US'), { hour12: false });
       try {
@@ -4503,18 +4524,19 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           if (manual.length > 0) {
             devices = manual.map(d => ({ name: d.name, month: this._float(this._state(d.energy_month || d.energy_week, '0')), cost: this._float(this._state(d.cost_month || d.cost_week, '0')) }));
           } else {
-            devices = this._filterExcluded(auto.map(d => ({ name: d.name, month: d.value_kwh, cost: d.value_kwh * price }))).sort((a, b) => b.month - a.month);
+            devices = this._filterExcluded(auto.map(d => ({ name: d.name, month: d.value_kwh, cost: this._cost(d.value_kwh) }))).sort((a, b) => b.month - a.month);
           }
         }
         if (devices.length === 0) throw new Error(L ? 'Brak danych o energii' : 'No energy data available');
         const totalKwh = devices.reduce((s, d) => s + (d.month || 0), 0);
-        const totalCost = devices.reduce((s, d) => s + (d.cost || d.month * price), 0);
+        const rowCosts = devices.map(d => d.cost ?? this._cost(d.month));
+        const totalCost = rowCosts.every(cost => typeof cost === 'number' && Number.isFinite(cost)) ? rowCosts.reduce((sum, cost) => sum + cost, 0) : null;
         const topDevice = devices[0];
         // Build HTML email
         const typeName = { daily: L ? 'Dzienny' : 'Daily', weekly: L ? 'Tygodniowy' : 'Weekly', monthly: L ? 'Miesi\u0119czny' : 'Monthly', quick: L ? 'Podsumowanie' : 'Summary' }[type] || type;
         const deviceRows = devices.map((d, i) => {
           const kwh = (d.month || 0).toFixed(2);
-          const cost = (d.cost || d.month * price).toFixed(2);
+          const cost = this._formatCost(d.cost ?? this._cost(d.month));
           const pct = totalKwh > 0 ? ((d.month / totalKwh) * 100).toFixed(0) : 0;
           const bg = i % 2 === 0 ? '#f8fafc' : '#ffffff';
           return `<tr style="background:${bg}"><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:14px">${_esc(d.name)}</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600">${kwh}</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:right">${cost}</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:right;color:#64748b">${pct}%</td></tr>`;
@@ -4531,7 +4553,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
                 <div style="font-size:12px;color:#92400e;margin-top:2px">kWh</div>
               </div>
               <div style="flex:1;background:#dbeafe;border-radius:10px;padding:16px;text-align:center">
-                <div style="font-size:28px;font-weight:700;color:#1d4ed8">${totalCost.toFixed(2)}</div>
+                <div style="font-size:28px;font-weight:700;color:#1d4ed8">${this._formatCost(totalCost)}</div>
                 <div style="font-size:12px;color:#1e40af;margin-top:2px">${_esc(currency)}</div>
               </div>
               <div style="flex:1;background:#d1fae5;border-radius:10px;padding:16px;text-align:center">
@@ -4550,7 +4572,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
               <tr style="background:#f1f5f9;font-weight:700">
                 <td style="padding:12px 14px;font-size:14px">${L ? '\u0141\u0105cznie' : 'Total'}</td>
                 <td style="padding:12px 14px;text-align:right">${totalKwh.toFixed(2)}</td>
-                <td style="padding:12px 14px;text-align:right">${totalCost.toFixed(2)}</td>
+                <td style="padding:12px 14px;text-align:right">${this._formatCost(totalCost)}</td>
                 <td style="padding:12px 14px;text-align:right">100%</td>
               </tr></tbody>
             </table>
@@ -4558,7 +4580,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           </div>
         </div>`;
         const title = `\u26A1 ${typeName} ${L ? 'raport energii' : 'Energy Report'} \u2013 ${dateStr}`;
-        const plainText = `${typeName} ${L ? 'raport energii' : 'Energy Report'} - ${dateStr}\n${L ? '\u0141\u0105cznie' : 'Total'}: ${totalKwh.toFixed(2)} kWh / ${totalCost.toFixed(2)} ${currency}\n${devices.map(d => `${d.name}: ${(d.month||0).toFixed(2)} kWh`).join('\n')}`;
+        const plainText = `${typeName} ${L ? 'raport energii' : 'Energy Report'} - ${dateStr}\n${L ? '\u0141\u0105cznie' : 'Total'}: ${totalKwh.toFixed(2)} kWh / ${this._formatCost(totalCost)} ${currency}\n${devices.map(d => `${d.name}: ${(d.month||0).toFixed(2)} kWh`).join('\n')}`;
         // Built-in SMTP via ha_tools_email
         await this._sendViaHaToolsEmail(recipient || '', title, plainText, html);
         this._lastSent[type] = nowStr;
@@ -4739,12 +4761,12 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
               </div>
               <div style="margin-bottom:12px;">
                 <label style="display:block;font-weight:500;margin-bottom:4px;font-size:13px;">Currency</label>
-                <input type="text" id="cf_currency" value="${_esc(this._config?.currency || 'PLN')}"
+                <input type="text" id="cf_currency" value="${_esc(this._config?.currency || this._hass?.config?.currency || '')}"
                   style="width:100%;padding:8px 12px;border:1px solid var(--divider-color,#e2e8f0);border-radius:8px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#1e293b);font-size:14px;box-sizing:border-box;">
               </div>
               <div style="margin-bottom:12px;">
                 <label style="display:block;font-weight:500;margin-bottom:4px;font-size:13px;">Energy price</label>
-                <input type="text" id="cf_energy_price" value="${_esc(this._config?.energy_price || '0.65')}"
+                <input type="text" id="cf_energy_price" value="${_esc(this._config?.energy_price ?? '')}"
                   style="width:100%;padding:8px 12px;border:1px solid var(--divider-color,#e2e8f0);border-radius:8px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#1e293b);font-size:14px;box-sizing:border-box;">
               </div>
       `;
