@@ -63,8 +63,7 @@ class HaEnergyOptimizer extends HTMLElement {
     return {
       type: 'custom:ha-energy-optimizer',
       title: 'Energy Optimizer',
-      peak_hours: { start: 6, end: 22 },
-      entities: []
+      peak_hours: { start: 6, end: 22 }
     };
   }
 
@@ -889,7 +888,7 @@ canvas {
   }
 
   _getTemplate() {
-    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2><div class="empty-state" role="status">${this._statsLoading ? 'Loading Energy Dashboard statistics…' : this._energyError ? 'Energy statistics could not be loaded.' : 'No supported Energy Dashboard grid import statistics found.'} <a href="/energy">Open Energy Dashboard</a></div>${ENERGY_OPTIMIZER_DONATE_HTML}</div>`;
+    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2><div class="empty-state" role="status">${this._statsLoading ? 'Loading Energy Dashboard statistics…' : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? 'No recent Recorder statistics for the configured grid import.' : this._energyError ? 'Energy statistics could not be loaded.' : 'No supported Energy Dashboard grid import statistics found.'} <a href="/energy">Open Energy Dashboard</a></div>${ENERGY_OPTIMIZER_DONATE_HTML}</div>`;
     return `
       <div class="card-container">
         <h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>

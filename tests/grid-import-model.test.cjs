@@ -75,6 +75,19 @@ test('Recorder millisecond timestamps are interpreted as milliseconds', async ()
   } finally { dom.window.close(); }
 });
 
+test('configured grid without recent Recorder buckets stays empty', async () => {
+  const { dom, card } = cardWith({
+    'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+    'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+    'recorder/statistics_during_period': {},
+  });
+  try {
+    await card._fetchEnergyStats();
+    assert.equal(card._hasRealData, false);
+    assert.match(card._getTemplate(), /No recent Recorder statistics/);
+  } finally { dom.window.close(); }
+});
+
 test('Insights ignores unconfigured power sensors and omits cost without a tariff', async () => {
   const start = Math.floor((Date.now() - 3600000) / 1000);
   const { dom, card: unused } = cardWith({});
