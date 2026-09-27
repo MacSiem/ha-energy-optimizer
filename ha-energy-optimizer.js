@@ -3,7 +3,9 @@
 const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
 // Card-owned support footer; never mutate sibling cards or the document.
-const ENERGY_OPTIMIZER_DONATE_HTML = `<div class="donate-section" data-source="own-card"><div class="donate-text"><strong>❤️ Support HA Tools Development</strong><span>If this tool makes your Home Assistant life easier, consider supporting the project.</span></div><div class="donate-buttons"><a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer">☕ Buy Me a Coffee</a><a href="https://www.paypal.com/donate/?hosted_button_id=Y967H4PLRBN8W" target="_blank" rel="noopener noreferrer">💳 PayPal</a></div></div>`;
+const ENERGY_OPTIMIZER_DONATE_HTML = `<div class="donate-section" data-source="own-card" style="margin:8px 0;padding:8px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12px"><span>❤️ Support HA Tools:</span><a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer">Buy Me a Coffee</a><a href="https://www.paypal.com/donate/?hosted_button_id=Y967H4PLRBN8W" target="_blank" rel="noopener noreferrer">PayPal</a><button type="button" class="support-dismiss" aria-label="Dismiss support link" style="margin-left:auto">×</button></div>`;
+const energySupportDismissed = key => { try { return localStorage.getItem(key + '-support-dismissed') === '1'; } catch (_) { return false; } };
+const bindEnergySupport = (root, key) => root.querySelector('.support-dismiss')?.addEventListener('click', () => { try { localStorage.setItem(key + '-support-dismissed', '1'); } catch (_) {} root.querySelector('.donate-section[data-source="own-card"]')?.remove(); });
 
 class HaEnergyOptimizer extends HTMLElement {
   constructor() {
@@ -71,6 +73,7 @@ class HaEnergyOptimizer extends HTMLElement {
     this._config = config || { title: 'Energy Optimizer' };
     this._generateRecommendations();
     this._generateComparisonData();
+    if (this._hass) this._render();
   }
 
   set hass(hass) {
@@ -275,6 +278,7 @@ class HaEnergyOptimizer extends HTMLElement {
   _render() {
     this._destroyAllCharts();
     this.shadowRoot.innerHTML = this._getStyles() + this._getTemplate();
+    bindEnergySupport(this.shadowRoot, 'ha-energy-optimizer');
     this._setupEventListeners();
     this._renderCurrentTab();
   }
@@ -889,7 +893,7 @@ canvas {
   }
 
   _getTemplate() {
-    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2><div class="empty-state" role="status">${this._statsLoading ? 'Loading Energy Dashboard statistics…' : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? 'No recent Recorder statistics for the configured grid import.' : this._energyError ? 'Energy statistics could not be loaded.' : 'No supported Energy Dashboard grid import statistics found.'} <a href="/energy">Open Energy Dashboard</a></div>${ENERGY_OPTIMIZER_DONATE_HTML}</div>`;
+    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2><div class="empty-state" role="status">${this._statsLoading ? 'Loading Energy Dashboard statistics…' : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? 'No recent Recorder statistics for the configured grid import.' : this._energyError ? 'Energy statistics could not be loaded.' : 'No supported Energy Dashboard grid import statistics found.'} <a href="/energy">Open Energy Dashboard</a></div>${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
     return `
       <div class="card-container">
         <h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>
@@ -1020,7 +1024,7 @@ canvas {
           </div>
           <p>Only recorded periods are shown. Monthly and cost comparisons need complete source and tariff data.</p>
         </div>
-        ${ENERGY_OPTIMIZER_DONATE_HTML}
+        ${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}
       </div>
     `;
   }
@@ -1646,7 +1650,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
   // Component-local persistence retains this card's existing localStorage keys.
   const haToolsPersistence = { _cache: {}, _hass: null, setHass(h) { this._hass = h; }, async save(k, d) { try { localStorage.setItem('ha-tools-' + k, JSON.stringify(d)); } catch(e) { console.debug('[ha-energy-insights] caught:', e); } }, async load(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } }, loadSync(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } } };
 
-  const OWN_SUPPORT_FOOTER = `<div class="donate-section" data-source="own-card"><div class="donate-text"><strong>❤️ Support HA Tools Development</strong><span>If this tool makes your Home Assistant life easier, consider supporting the project.</span></div><div class="donate-buttons"><a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer">☕ Buy Me a Coffee</a><a href="https://www.paypal.com/donate/?hosted_button_id=Y967H4PLRBN8W" target="_blank" rel="noopener noreferrer">💳 PayPal</a></div></div>`;
+  const OWN_SUPPORT_FOOTER = ENERGY_OPTIMIZER_DONATE_HTML;
   const LOCAL_BENTO_CSS = `.donate-section[data-source="own-card"]{margin:16px 20px 20px;padding:16px 18px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--bento-border);border-radius:var(--bento-radius-sm);background:var(--bento-primary-light);color:var(--bento-text)}.donate-section[data-source="own-card"] .donate-text{display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px}.donate-section[data-source="own-card"] .donate-buttons{display:flex;flex-wrap:wrap;gap:8px}.donate-section[data-source="own-card"] a{color:var(--bento-primary);font-weight:700;text-decoration:none}`;
 
   // Component-local XSS protection: never reads from or publishes a global helper.
@@ -1782,6 +1786,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
     setConfig(config) {
       this._config = { ...this._config, ...(config || {}) };
+      this._syncSupport();
     }
     _getRate(hour, dayOfWeek) {
       const c = this._config;
@@ -2063,9 +2068,15 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
       });
     }
 
+    _syncSupport() {
+      const footer = this.shadowRoot.querySelector('.donate-section[data-source="own-card"]');
+      if (footer) footer.style.display = this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-insights') ? '' : 'none';
+    }
+
     _render() {
       if (!this._hass) return;
       if (this._domBuilt) {
+        this._syncSupport();
         this._updateContent();
         return;
       }
@@ -2085,6 +2096,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
       `
       this._domBuilt = true;
       this._bindEvents();
+      this._syncSupport();
     }
 
     _getStyles() {
@@ -2481,6 +2493,10 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
     _bindEvents() {
       const shadow = this.shadowRoot;
+      shadow.querySelector('.support-dismiss')?.addEventListener('click', () => {
+        try { localStorage.setItem('ha-energy-insights-support-dismissed', '1'); } catch (_) {}
+        this._syncSupport();
+      });
 
       shadow.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -2575,7 +2591,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
   // Component-local persistence retains this card's existing localStorage keys.
   const haToolsPersistence = { _cache: {}, _hass: null, setHass(h) { this._hass = h; }, async save(k, d) { try { localStorage.setItem('ha-tools-' + k, JSON.stringify(d)); } catch(e) { console.debug('[ha-energy-email] caught:', e); } }, async load(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } }, loadSync(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } } };
 
-  const OWN_SUPPORT_FOOTER = `<div class="donate-section" data-source="own-card"><div class="donate-text"><strong>❤️ Support HA Tools Development</strong><span>If this tool makes your Home Assistant life easier, consider supporting the project.</span></div><div class="donate-buttons"><a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer">☕ Buy Me a Coffee</a><a href="https://www.paypal.com/donate/?hosted_button_id=Y967H4PLRBN8W" target="_blank" rel="noopener noreferrer">💳 PayPal</a></div></div>`;
+  const OWN_SUPPORT_FOOTER = ENERGY_OPTIMIZER_DONATE_HTML;
   const LOCAL_BENTO_CSS = `.donate-section[data-source="own-card"]{margin:24px 0 4px;padding:18px 20px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--bento-border);border-radius:var(--bento-radius-sm);background:var(--bento-primary-light);color:var(--bento-text)}.donate-section[data-source="own-card"] .donate-text{display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px}.donate-section[data-source="own-card"] .donate-buttons{display:flex;flex-wrap:wrap;gap:8px}.donate-section[data-source="own-card"] a{color:var(--bento-primary);font-weight:700;text-decoration:none}`;
 
   /**
@@ -2791,6 +2807,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         energy_night_hour_start: Number.isInteger(Number(cfg.energy_night_hour_start)) ? Number(cfg.energy_night_hour_start) : this._config.energy_night_hour_start,
         notify_service: cfg.notify_service || this._config.notify_service || '',
       };
+      if (this._hass) this._render();
     }
 
 
@@ -3579,10 +3596,11 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
             <button class="tab-btn ${this._activeTab === 'config' ? 'active' : ''}" data-tab="config">\u2699\uFE0F Config</button>
           </div>
           <div id="tab-content"></div>
-          ${OWN_SUPPORT_FOOTER}
+          ${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-email') ? OWN_SUPPORT_FOOTER : ''}
         </div>
         <div class="toast" id="toast"></div>
       `
+      bindEnergySupport(this.shadowRoot, 'ha-energy-email');
       this.shadowRoot.querySelectorAll('.tab-btn').forEach(t => {
         t.addEventListener('click', () => {
           this._activeTab = t.dataset.tab;

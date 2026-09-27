@@ -165,6 +165,30 @@ const delay = (ms) => new Promise(r => setTimeout(r, ms));
         const paypal = footer && footer.querySelector('a[href="https://www.paypal.com/donate/?hosted_button_id=Y967H4PLRBN8W"][target="_blank"][rel="noopener noreferrer"]');
         if (!footer || !coffee || !paypal) problem = 'card-owned support footer contract is incomplete';
       }
+      if (!problem && ['ha-energy-optimizer', 'ha-energy-insights', 'ha-energy-email'].includes(t.tag)) {
+        const supportVisible = card => {
+          const footer = card.shadowRoot.querySelector('.donate-section[data-source="own-card"]');
+          return Boolean(footer && footer.style.display !== 'none' && !footer.hidden);
+        };
+        if (!supportVisible(el)) problem = 'admin support link missing';
+        const dismiss = el.shadowRoot.querySelector('.support-dismiss');
+        if (!dismiss) problem = 'support dismiss button missing';
+        else {
+          dismiss.click();
+          if (supportVisible(el) || window.localStorage.getItem(t.tag + '-support-dismissed') !== '1') problem = 'support dismissal was not persisted';
+        }
+        window.localStorage.removeItem(t.tag + '-support-dismissed');
+        for (const mode of ['optout', 'guest']) {
+          if (problem) break;
+          const card = window.document.createElement(t.tag);
+          card.setConfig({ type: 'custom:' + t.tag, show_support: mode === 'optout' ? false : true });
+          const scopedHass = mockHass(); scopedHass.user.is_admin = mode !== 'guest';
+          card.hass = scopedHass; window.document.body.appendChild(card); card.hass = scopedHass;
+          await delay(350);
+          if (supportVisible(card)) problem = mode + ' saw the support link';
+          card.remove();
+        }
+      }
       if (!problem && localIntroTags.has(t.tag)) {
         const intro = el.shadowRoot.querySelector('.intro-banner[data-intro="' + t.tag + '"]');
         const dismiss = intro && intro.querySelector('.intro-dismiss');
