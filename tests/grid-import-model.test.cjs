@@ -68,6 +68,27 @@ test('fall DST repeated local hour counts both distinct Recorder buckets once', 
     assert.equal(card._hasRealData, true);
     assert.equal(card._calculateTodayUsage(), 3);
     assert.equal(card._energyData[2], 3);
+    assert.equal(card._hourlyBucketCounts[2], 2);
+    assert.equal(card._calculateOffPeakAverage(), 1.5);
+  } finally { dom.window.close(); }
+});
+
+test('spring DST skipped hour and future hours are not displayed as measured zeroes', async () => {
+  const { dom, card } = cardWith({
+    'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+    'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+    'recorder/statistics_during_period': { 'sensor.grid': [
+      { start: '2026-03-29T00:00:00Z', change: 1 },
+      { start: '2026-03-29T01:00:00Z', change: 2 },
+    ] },
+  }, { now: '2026-03-29T04:30:00Z', timeZone: 'Europe/Warsaw' });
+  try {
+    await card._fetchEnergyStats();
+    assert.equal(card._hasRealData, true);
+    assert.equal(card._calculateTodayUsage(), 3);
+    assert.equal(card._energyData[2], null);
+    assert.equal(card._energyData[23], null);
+    assert.equal(card._calculatePeakRatio(), null);
   } finally { dom.window.close(); }
 });
 
