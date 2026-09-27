@@ -2807,7 +2807,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         energy_night_hour_start: Number.isInteger(Number(cfg.energy_night_hour_start)) ? Number(cfg.energy_night_hour_start) : this._config.energy_night_hour_start,
         notify_service: cfg.notify_service || this._config.notify_service || '',
       };
-      if (this._hass) this._render();
+      if (this._hass?.states) this._render();
     }
 
 
