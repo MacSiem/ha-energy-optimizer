@@ -2,9 +2,7 @@
 
 ![Preview](banner.png)
 
-Energy usage analysis and optimization card for Home Assistant. Dual-tariff
-aware, with Chart.js visualizations and actionable savings recommendations —
-built on your existing energy statistics, zero setup required.
+Energy usage analysis for Home Assistant based on grid import configured in the Energy Dashboard. The card displays measured usage, local Chart.js charts and a tariff scenario when you provide prices. It needs Energy Dashboard grid import statistics to show numbers.
 
 [![Version](https://img.shields.io/github/v/release/MacSiem/ha-energy-optimizer)](https://github.com/MacSiem/ha-energy-optimizer/releases) [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -12,33 +10,11 @@ Part of the [HA Tools](https://github.com/MacSiem/ha-tools-panel) collection for
 
 ## How it works
 
-**Short version: it works automatically.** Add the card and it discovers your
-energy sensors by itself — no `entities:` list to maintain.
-
-1. **Auto-discovers kWh sensors.** On load, the card asks Home Assistant's
-   recorder for every "sum" statistic (`recorder/list_statistic_ids`) and
-   keeps the ones measured in kWh — your energy/grid/solar meters, whatever
-   they're named.
-2. **Pulls 7 days of hourly history.** It fetches hourly recorder statistics
-   for those sensors (`recorder/statistics_during_period`) and aggregates
-   them into today's 24-hour usage profile and a 7-day-by-24-hour dataset for
-   the weekly heat map, trend and day-of-week charts.
-3. **Computes cost, efficiency and savings.** Today's usage, cost estimate,
-   efficiency score and the savings recommendations are all derived from that
-   real data — dual-tariff aware if you set `peak_rate` / `off_peak_rate`.
-   Note: until you configure a rate (`peak_rate` or `energy_price`), cost
-   figures fall back to a built-in default of 0.65 per kWh, so set your real
-   tariff for accurate costs.
-4. **Current power draw** is read live from any entity with
-   `device_class: power` or unit `W`. Note: this sums **all** matching sensors
-   without de-duplication, so overlapping sensors (e.g. a smart plug and a
-   phase meter measuring the same load) are double-counted in the total.
-5. **No sensors yet? No crash.** Until kWh statistics exist, the card shows
-   seeded demo data labeled "⚠️ Demo data — no kWh sensors" instead of
-   breaking on first install.
-6. **Charts** are drawn with Chart.js, loaded from a locally-vendored copy
-   first (`/local/community/ha-tools/vendor/chart.umd.min.js`) and only from
-   the `cdn.jsdelivr.net` CDN if that local copy is missing.
+1. The Dashboard and Insights cards read the **grid import statistics selected in your Energy Dashboard** using `energy/get_prefs`. They validate Recorder metadata and use the hourly `change` series. Solar production, grid export, power sensors in watts, and unrelated statistics are excluded.
+2. Usage appears when valid measured buckets are available. Missing or invalid data produces an explicit empty or error state. No demo numbers are shown.
+3. Costs appear only when a tariff is configured. They are estimates based on measured import and your rate, not a bill or a measured appliance saving. The currency comes from Home Assistant unless set in the card.
+4. Live power is shown only if you set `power_entity`; the card does not sum overlapping power sensors.
+5. Chart.js is bundled in the single HACS JavaScript file. There is no CDN request or extra Lovelace resource.
 
 ### One repo, three cards
 
@@ -53,13 +29,12 @@ once, use any of them:
 
 ### What is automatic vs. manual
 
-| Automatic | Manual (optional) |
+| Automatic | Manual |
 |---|---|
-| Discovering kWh energy sensors via recorder statistics | Nothing required to start |
-| 24h usage chart, weekly heat map, trend and day-of-week charts | Setting `peak_rate` / `off_peak_rate` / `peak_hours` for accurate dual-tariff costs |
-| Current power draw from any `device_class: power` / unit `W` sensor | Setting `currency` (defaults to `PLN`) |
-| Cost estimate, efficiency score and savings recommendations, once real data exists | Adding `ha-energy-insights` for a 30-day breakdown, or `ha-energy-email` for scheduled reports |
-| Theme (light/dark) follows your active Home Assistant theme | Self-hosting Chart.js instead of relying on the CDN fallback |
+| Grid import discovery from Energy Dashboard | Configure a grid import source in Energy Dashboard |
+| Measured hourly charts when Recorder data is available | Set `energy_price` or peak/off-peak rates for cost estimates |
+| Home Assistant theme and currency | Set `power_entity` for live power; add Insights or Email cards if wanted |
+| Bundled charts | Configure the optional HA Tools Email integration and SMTP before sending mail |
 
 ## Screenshots
 
@@ -120,34 +95,22 @@ type: custom:ha-energy-email
 ## FAQ
 
 **Do I have to configure anything?**
-No. Add the card and it discovers your kWh energy sensors from Home
-Assistant's recorder by itself. Until it finds any, it shows clearly-labeled
-demo data instead of crashing.
+The usage cards need at least one grid import source configured in Home Assistant's Energy Dashboard, with valid Recorder sum statistics. A tariff is optional; costs show N/A until one is configured.
 
-**Why does it say "Demo data — no kWh sensors"?**
-The card only found "sum" statistics that aren't measured in kWh (or none at
-all). Once a sensor with `state_class: total_increasing` and unit `kWh` has
-recorder history, the badge switches to "Data from N kWh sensor(s))" and the
-demo numbers are replaced.
+**Why are usage values unavailable?**
+Check the Energy Dashboard grid import source and its Recorder statistics. The card does not replace missing data with sample values.
 
 **Does it support day/night or weekday/weekend tariffs?**
-Yes — set `peak_rate` and `off_peak_rate` (and optionally `peak_hours`) and
-the Dashboard tab shows a "Potential Savings" tile instead of just the peak
-hour.
+Yes. Configure the relevant rates and hours. Savings are displayed as scenarios, not promises.
 
 **Does this send data anywhere?**
 No telemetry or analytics. All energy figures come from your own Home
-Assistant recorder/statistics — nothing leaves your instance. The only
-external network request the card makes is loading the Chart.js library from
-`cdn.jsdelivr.net`, and only as a fallback if a locally-vendored copy isn't
-present. If you use `ha-energy-email` with the optional HA Tools Email
+Assistant recorder/statistics — nothing leaves your instance. Chart.js is included in the card file; charts make no external library request. If you use `ha-energy-email` with the optional HA Tools Email
 integration, mail is sent through the SMTP server *you* configure — not
 through any MacSiem-operated service.
 
 **What happened to the `entities:` option?**
-Older stub configs mention an `entities` list, but the card never reads it —
-sensors are always auto-discovered from recorder statistics, so it's safe to
-leave out.
+Older stub configs mention an `entities` list. The Dashboard and Insights cards use Energy Dashboard grid import sources instead, so remove that list.
 
 ## Changelog
 

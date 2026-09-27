@@ -30,10 +30,11 @@ class HaEnergyOptimizer extends HTMLElement {
     this._currentPowerW = 0;
     this._statsLoading = false;
     this._lastStatsFetch = 0;
-    this._energySensorIds = [];    this._charts = {};
+    this._energySensorIds = [];
+    this._energyError = null;
+    this._charts = {};
     this._chartJsLoaded = false;
     // Initialize data structures so panel/sidebar mode (no setConfig) renders without crashing.
-    this._generateFallbackData();
     this._generateRecommendations();
     this._generateComparisonData();
   }
@@ -62,15 +63,13 @@ class HaEnergyOptimizer extends HTMLElement {
     return {
       type: 'custom:ha-energy-optimizer',
       title: 'Energy Optimizer',
-      currency: 'PLN',
       peak_hours: { start: 6, end: 22 },
-      entities: ['sensor.energy_total', 'sensor.energy_grid']
+      entities: []
     };
   }
 
   setConfig(config) {
     this._config = config || { title: 'Energy Optimizer' };
-    this._generateFallbackData();
     this._generateRecommendations();
     this._generateComparisonData();
   }
@@ -140,92 +139,95 @@ class HaEnergyOptimizer extends HTMLElement {
     if (!this._hass || !this._hass.callWS) return;
     if (this._statsLoading) return;
     this._statsLoading = true;
-
+    this._energyError = null;
     try {
-      // Step 1: Find all kWh statistic IDs
-      const allStats = await this._hass.callWS({
-        type: 'recorder/list_statistic_ids',
-        statistic_type: 'sum'
-      });
-      const kwhIds = allStats
-        .filter(s => s.statistics_unit_of_measurement === 'kWh')
-        .filter(s => {
-          const id = s.statistic_id;
-          return !id.includes('_daily') && !id.includes('_weekly') && !id.includes('_monthly') && !id.includes('_last_') && !id.includes('_cost');
-        })
-        .map(s => s.statistic_id);
-
-      if (kwhIds.length === 0) {
-        this._statsLoading = false;
-        this._hasRealData = false; this._recommendations = []; return; // No energy sensors
+      const prefs = await this._hass.callWS({ type: 'energy/get_prefs' });
+      const ids = [...new Set((prefs?.energy_sources || [])
+        .filter(source => source?.type === 'grid')
+        .flatMap(source => source.stat_energy_from
+          ? [source.stat_energy_from]
+          : (source.flow_from || []).map(flow => flow?.stat_energy_from || flow?.stat_energy).filter(Boolean)))];
+      if (!ids.length) {
+        this._hasRealData = false;
+        this._energyData = [];
+        this._weeklyData = [];
+        return;
       }
-
-      this._energySensorIds = kwhIds;
-
-      // Step 2: Fetch 7 days of hourly statistics
+      const metadata = await this._hass.callWS({ type: 'recorder/get_statistics_metadata', statistic_ids: ids });
+      const byId = Array.isArray(metadata) ? Object.fromEntries(metadata.map(item => [item.statistic_id, item])) : metadata || {};
+      for (const id of ids) {
+        const row = byId[id];
+        const unit = row?.statistics_unit_of_measurement;
+        if (row?.has_sum !== true || !['Wh', 'kWh', 'MWh'].includes(unit) || (row.unit_class && row.unit_class !== 'energy')) {
+          throw new Error('Unsupported Energy Dashboard statistic metadata');
+        }
+      }
       const now = new Date();
-      const weekAgo = new Date(now.getTime() - 7 * 24 * 3600000);
+      const start = new Date(now.getTime() - 15 * 86400000);
       const stats = await this._hass.callWS({
-        type: 'recorder/statistics_during_period',
-        start_time: weekAgo.toISOString(),
-        end_time: now.toISOString(),
-        statistic_ids: kwhIds,
-        period: 'hour'
+        type: 'recorder/statistics_during_period', start_time: start.toISOString(),
+        end_time: now.toISOString(), statistic_ids: ids, period: 'hour', types: ['change']
       });
-
-      // Step 3: Aggregate all sensors into hourly totals for today (24h)
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      const zone = this._hass.config?.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+      const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' });
+      const partsFor = date => Object.fromEntries(formatter.formatToParts(date).map(part => [part.type, part.value]));
+      const todayParts = partsFor(now);
+      const todayKey = [todayParts.year, todayParts.month, todayParts.day].join('-');
       const hourlyToday = new Array(24).fill(0);
-
-      // Step 4: Aggregate into weekly data (7 days x 24 hours)
-      const weeklyHourly = Array.from({length: 7}, () => new Array(24).fill(0));
-
-      kwhIds.forEach(id => {
-        const sensorData = stats[id] || [];
-        sensorData.forEach(entry => {
-          const change = Math.max(0, entry.change || 0); // ignore negative (meter resets)
-          const entryDate = new Date(entry.start);
-          const hour = entryDate.getHours();
-
-          // Today's data
-          if (entryDate >= todayStart) {
-            hourlyToday[hour] += change;
+      const daily = new Map();
+      for (const id of ids) {
+        const series = stats?.[id];
+        if (!Array.isArray(series) || !series.length) throw new Error('Missing Energy Dashboard statistic series');
+        let todayCount = 0;
+        const seenBuckets = new Set();
+        for (const bucket of series) {
+          const rawStart = bucket?.start;
+          const date = new Date(typeof rawStart === 'number' ? rawStart * 1000 : rawStart);
+          const change = bucket?.change;
+          if (!Number.isFinite(date.getTime()) || typeof change !== 'number' || !Number.isFinite(change) || change < 0) {
+            throw new Error('Invalid or incomplete Energy Dashboard statistic bucket');
           }
-
-          // Weekly data - find which day (0=oldest, 6=today)
-          const dayDiff = Math.floor((now - entryDate) / 86400000);
-          const dayIndex = 6 - dayDiff;
-          if (dayIndex >= 0 && dayIndex < 7) {
-            weeklyHourly[dayIndex][hour] += change;
-          }
-        });
-      });
-
+          if (seenBuckets.has(date.getTime())) throw new Error('Duplicate Energy Dashboard statistic bucket');
+          seenBuckets.add(date.getTime());
+          const unit = byId[id].statistics_unit_of_measurement;
+          const kwh = change * (unit === 'Wh' ? 0.001 : unit === 'MWh' ? 1000 : 1);
+          const parts = partsFor(date);
+          const key = [parts.year, parts.month, parts.day].join('-');
+          const hour = Number(parts.hour);
+          if (key === todayKey) { hourlyToday[hour] += kwh; todayCount++; }
+          if (!daily.has(key)) daily.set(key, new Array(24).fill(0));
+          daily.get(key)[hour] += kwh;
+        }
+        if (!todayCount) throw new Error('No complete statistic bucket for today');
+      }
+      const keys = [...daily.keys()].sort().slice(-14);
+      this._energySensorIds = ids;
       this._energyData = hourlyToday;
-      this._weeklyData = weeklyHourly;
+      this._weeklyData = keys.slice(-7).map(key => daily.get(key));
+      this._dailyTotals = keys.map(key => daily.get(key).reduce((sum, value) => sum + value, 0));
       this._hasRealData = true;
-
-      // Recalculate dependent data
       this._generateRecommendations();
       this._generateComparisonData();
-
     } catch (err) {
-      console.warn('Energy Optimizer: Failed to fetch stats, using demo fallback:', err.message);
-      // Keep existing demo data as fallback
+      this._energyError = err;
+      this._hasRealData = false;
+      this._energyData = [];
+      this._weeklyData = [];
+      this._recommendations = [];
+      this._comparisonData = null;
+      console.warn('Energy Optimizer: Energy statistics unavailable');
+    } finally {
+      this._statsLoading = false;
+      if (this.isConnected) this._render();
     }
-    this._statsLoading = false;
   }
 
   _updateEnergyData() {
     if (!this._hass) return;
-    // Update current power draw from power sensors
-    const powerSensors = Object.entries(this._hass.states)
-      .filter(([id, s]) => {
-        const dc = s.attributes.device_class;
-        const unit = s.attributes.unit_of_measurement;
-        return (dc === 'power' || unit === 'W') && !isNaN(parseFloat(s.state));
-      });
-    this._currentPowerW = powerSensors.reduce((sum, [, s]) => sum + parseFloat(s.state), 0);
+    const configured = this._config.power_entity && this._hass.states[this._config.power_entity];
+    const unit = configured?.attributes?.unit_of_measurement;
+    const value = configured ? Number(configured.state) : NaN;
+    this._currentPowerW = Number.isFinite(value) && (unit === 'W' || unit === 'kW') ? value * (unit === 'kW' ? 1000 : 1) : null;
 
     // Fetch stats every 5 minutes (not on every hass update)
     const now = Date.now();
@@ -235,119 +237,38 @@ class HaEnergyOptimizer extends HTMLElement {
     }
   }
 
-  _generateFallbackData() {
-    if (this._energyData && this._energyData.length > 0) return; // Use cached data
-    // Generate 24-hour energy data
-    const rng = this._seededRandom('energy-demo-data');
-    this._energyData = [];
-    const baseUsage = 0.5;
-    for (let hour = 0; hour < 24; hour++) {
-      let usage = baseUsage;
-      if (hour >= 6 && hour <= 9) usage += 1.2; // Morning peak
-      if (hour >= 18 && hour <= 21) usage += 1.8; // Evening peak
-      if (hour >= 23 || hour <= 5) usage -= 0.3; // Night low
-      usage += rng() * 0.3 - 0.15; // Random variation
-      this._energyData.push(Math.max(0.1, usage));
-    }
-
-    // Generate weekly data (7 days x 24 hours)
-    this._weeklyData = [];
-    for (let day = 0; day < 7; day++) {
-      const dayData = [];
-      for (let hour = 0; hour < 24; hour++) {
-        let usage = baseUsage;
-        if (hour >= 6 && hour <= 9) usage += (day < 5 ? 1.2 : 0.8); // Weekday vs weekend
-        if (hour >= 18 && hour <= 21) usage += (day < 5 ? 1.8 : 1.0);
-        if (hour >= 23 || hour <= 5) usage -= 0.3;
-        usage += rng() * 0.3 - 0.15;
-        dayData.push(Math.max(0.1, usage));
-      }
-      this._weeklyData.push(dayData);
-    }
-  }
-
   _generateRecommendations() {
-    if (!this._hasRealData) { this._recommendations = []; return; }
-    const peakHourStart = this._config.peak_hours?.start || 6;
-    const peakHourEnd = this._config.peak_hours?.end || 22;
-    const avgPeakUsage = this._energyData.slice(peakHourStart, peakHourEnd).reduce((a, b) => a + b, 0) / (peakHourEnd - peakHourStart);
-    const avgOffPeakUsage = this._energyData.slice(0, peakHourStart).concat(this._energyData.slice(peakHourEnd)).reduce((a, b) => a + b, 0) / (24 - (peakHourEnd - peakHourStart));
-
-    this._recommendations = [
-      {
-        id: 1,
-        icon: '🧺',
-        title: `Shift laundry to off-peak hours`,
-        description: `Your peak usage is ${peakHourStart}-${peakHourEnd}. Running laundry at night saves up to 30% on that load.`,
-        savings: 12.5,
-        difficulty: 'easy',
-        impact: 'high'
-      },
-      {
-        id: 2,
-        icon: '🍽️',
-        title: 'Use dishwasher in off-peak time',
-        description: 'Schedule dishwasher runs for morning or late evening when rates are lower.',
-        savings: 8.3,
-        difficulty: 'easy',
-        impact: 'medium'
-      },
-      {
-        id: 3,
-        icon: '🌡️',
-        title: 'Optimize thermostat settings',
-        description: `Reduce heating by 1°C during peak hours (${peakHourStart}-${peakHourEnd}) for consistent savings.`,
-        savings: 15.0,
-        difficulty: 'medium',
-        impact: 'high'
-      },
-      {
-        id: 4,
-        icon: '💡',
-        title: 'Replace with LED lighting',
-        description: 'Your evening usage spikes significantly. LED bulbs reduce lighting energy by 75%.',
-        savings: 6.2,
-        difficulty: 'medium',
-        impact: 'medium'
-      },
-      {
-        id: 5,
-        icon: '🔌',
-        title: 'Reduce standby power consumption',
-        description: 'Use smart power strips to eliminate phantom loads from devices in standby mode.',
-        savings: 4.5,
-        difficulty: 'easy',
-        impact: 'low'
-      }
-    ];
+    this._recommendations = [];
+    if (!this._hasRealData) return;
+    const peakRate = Number(this._config.peak_rate);
+    const offPeakRate = Number(this._config.off_peak_rate);
+    if (!Number.isFinite(peakRate) || !Number.isFinite(offPeakRate) || peakRate <= offPeakRate) return;
+    const start = this._config.peak_hours?.start ?? 6;
+    const end = this._config.peak_hours?.end ?? 22;
+    const peakKwh = this._energyData.slice(start, end).reduce((sum, value) => sum + value, 0);
+    if (peakKwh <= 0) return;
+    this._recommendations = [{
+      id: 1, icon: '↘', title: 'Consider shifting flexible loads to off-peak',
+      description: `Measured grid import during configured peak hours: ${peakKwh.toFixed(2)} kWh today. This is a scenario, not a measured appliance saving.`,
+      savings: peakKwh * 0.3 * (peakRate - offPeakRate),
+      difficulty: 'manual', impact: 'medium'
+    }];
   }
 
   _generateComparisonData() {
-    if (!this._energyData || this._energyData.length === 0) return;
-    const todayTotal = this._energyData.reduce((a, b) => a + b, 0);
-    const dailyTotals = this._weeklyData.map(day => day.reduce((a, b) => a + b, 0));
-    const thisWeekTotal = dailyTotals.reduce((a, b) => a + b, 0);
-    // For "last week", if we have real data the weeklyData IS this week
-    // Use average * 7 as estimate for comparison
-    const avgDaily = thisWeekTotal / Math.max(1, dailyTotals.filter(d => d > 0).length);
-    const lastWeekEstimate = thisWeekTotal * 0.95; // Conservative estimate
-
-    const peakRate = this._config.peak_rate || this._config.energy_price || 0.65;
-    const offPeakRate = this._config.off_peak_rate || peakRate;
-    const hasDualTariff = peakRate !== offPeakRate;
-
+    const totals = this._dailyTotals || [];
+    const thisWeek = totals.length >= 7 ? totals.slice(-7).reduce((sum, value) => sum + value, 0) : null;
+    const lastWeek = totals.length >= 14 ? totals.slice(-14, -7).reduce((sum, value) => sum + value, 0) : null;
+    const peakRate = Number(this._config.peak_rate ?? this._config.energy_price);
+    const offPeakRate = Number(this._config.off_peak_rate ?? peakRate);
     this._comparisonData = {
-      thisWeek: thisWeekTotal,
-      lastWeek: lastWeekEstimate,
-      thisMonth: thisWeekTotal * 4.3,
-      lastMonth: lastWeekEstimate * 4.3,
-      dailyBreakdown: dailyTotals,
-      costCurrency: this._config.currency || 'PLN',
-      costPerKwh: peakRate,
-      offPeakRate: offPeakRate,
-      hasDualTariff: hasDualTariff,
-      peakCostWeekly: hasDualTariff ? thisWeekTotal * 0.65 * peakRate : thisWeekTotal * peakRate,
-      offPeakCostWeekly: hasDualTariff ? thisWeekTotal * 0.35 * offPeakRate : 0
+      thisWeek, lastWeek, thisMonth: null, lastMonth: null,
+      dailyBreakdown: this._weeklyData.map(day => day.reduce((sum, value) => sum + value, 0)),
+      costCurrency: this._config.currency || this._hass?.config?.currency || null,
+      costPerKwh: Number.isFinite(peakRate) && peakRate >= 0 ? peakRate : null,
+      offPeakRate: Number.isFinite(offPeakRate) && offPeakRate >= 0 ? offPeakRate : null,
+      hasDualTariff: Number.isFinite(peakRate) && Number.isFinite(offPeakRate) && peakRate !== offPeakRate,
+      peakCostWeekly: null, offPeakCostWeekly: null
     };
   }
 
@@ -968,12 +889,13 @@ canvas {
   }
 
   _getTemplate() {
+    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2><div class="empty-state" role="status">${this._statsLoading ? 'Loading Energy Dashboard statistics…' : this._energyError ? 'Energy statistics could not be loaded.' : 'No supported Energy Dashboard grid import statistics found.'} <a href="/energy">Open Energy Dashboard</a></div>${ENERGY_OPTIMIZER_DONATE_HTML}</div>`;
     return `
       <div class="card-container">
         <h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>
 
         <div class="data-source-badge">
-          ${this._hasRealData ? '📊 Data from ' + (this._energySensorIds || []).length + ' kWh sensor(s)' : '⚠️ Demo data — no kWh sensors'}
+          📊 Grid import from ${(this._energySensorIds || []).length} Energy Dashboard source(s)
         </div>
 
         <div class="tabs" role="tablist">
@@ -992,14 +914,14 @@ canvas {
             </div>
             <div class="summary-card alt">
               <span class="summary-label">Cost Estimate</span>
-              <div class="summary-value">${this._calculateTodayCost().toFixed(2)}</div>
-              <span class="summary-label">${_esc(this._config.currency || 'PLN')}${(this._config.off_peak_rate && this._config.peak_rate !== this._config.off_peak_rate) ? ' (dual-tariff)' : ''}</span>
+              <div class="summary-value">${this._calculateTodayCost() === null ? 'N/A' : this._calculateTodayCost().toFixed(2)}</div>
+              <span class="summary-label">${_esc(this._config.currency || this._hass?.config?.currency || '')}${(this._config.off_peak_rate && this._config.peak_rate !== this._config.off_peak_rate) ? ' (configured dual tariff)' : ''}</span>
             </div>
             ${(this._config.off_peak_rate && this._config.peak_rate !== this._config.off_peak_rate) ? `
             <div class="summary-card" style="border-left:3px solid var(--success)">
               <span class="summary-label">Potential Savings</span>
-              <div class="summary-value">${this._calculatePotentialSavings().toFixed(2)}</div>
-              <span class="summary-label">${_esc(this._config.currency || 'PLN')}/day by shifting to off-peak</span>
+              <div class="summary-value">${this._calculatePotentialSavings() === null ? 'N/A' : this._calculatePotentialSavings().toFixed(2)}</div>
+              <span class="summary-label">${_esc(this._config.currency || this._hass?.config?.currency || '')}/day scenario for 30% shifted</span>
             </div>` : `
             <div class="summary-card warn">
               <span class="summary-label">Peak Hour</span>
@@ -1008,14 +930,14 @@ canvas {
             </div>`}
             <div class="summary-card">
               <span class="summary-label">Efficiency Score</span>
-              <div class="summary-value">${this._calculateEfficiencyScore()}</div>
+              <div class="summary-value">N/A</div>
               <span class="summary-label">/ 100</span>
             </div>
           </div>
 
           <div class="power-draw">
             <div class="power-draw-unit">Current Power Draw</div>
-            <div class="power-draw-value">${(this._currentPowerW / 1000).toFixed(2)}</div>
+            <div class="power-draw-value">${this._currentPowerW === null ? 'N/A' : (this._currentPowerW / 1000).toFixed(2)}</div>
             <div class="power-draw-unit">kW</div>
           </div>
 
@@ -1093,55 +1015,10 @@ canvas {
 
         <div id="compare" class="tab-content">
           <div class="comparison-grid">
-            <div class="comparison-card">
-              <div class="comparison-title">This Week</div>
-              <div class="comparison-value">${this._comparisonData.thisWeek.toFixed(2)}</div>
-              <div class="comparison-title">kWh</div>
-            </div>
-            <div class="comparison-card">
-              <div class="comparison-title">Last Week</div>
-              <div class="comparison-value">${this._comparisonData.lastWeek.toFixed(2)}</div>
-              <div class="change-indicator ${this._comparisonData.thisWeek > this._comparisonData.lastWeek ? 'change-up' : 'change-down'}">
-                ${this._comparisonData.thisWeek > this._comparisonData.lastWeek ? '📈' : '📉'}
-                ${Math.abs(((this._comparisonData.thisWeek - this._comparisonData.lastWeek) / this._comparisonData.lastWeek * 100)).toFixed(1)}%
-              </div>
-            </div>
+            <div class="comparison-card"><div class="comparison-title">Last 7 available days</div><div class="comparison-value">${this._comparisonData.thisWeek === null ? 'N/A' : this._comparisonData.thisWeek.toFixed(2)}</div><div class="comparison-title">kWh grid import</div></div>
+            <div class="comparison-card"><div class="comparison-title">Previous 7 available days</div><div class="comparison-value">${this._comparisonData.lastWeek === null ? 'N/A' : this._comparisonData.lastWeek.toFixed(2)}</div><div class="comparison-title">kWh grid import</div></div>
           </div>
-
-          <div class="comparison-grid">
-            <div class="comparison-card">
-              <div class="comparison-title">This Month</div>
-              <div class="comparison-value">${this._comparisonData.thisMonth.toFixed(0)}</div>
-              <div class="comparison-title">kWh</div>
-            </div>
-            <div class="comparison-card">
-              <div class="comparison-title">Last Month</div>
-              <div class="comparison-value">${this._comparisonData.lastMonth.toFixed(0)}</div>
-              <div class="change-indicator ${this._comparisonData.thisMonth > this._comparisonData.lastMonth ? 'change-up' : 'change-down'}">
-                ${this._comparisonData.thisMonth > this._comparisonData.lastMonth ? '📈' : '📉'}
-                ${Math.abs(((this._comparisonData.thisMonth - this._comparisonData.lastMonth) / this._comparisonData.lastMonth * 100)).toFixed(1)}%
-              </div>
-            </div>
-          </div>
-
-          <div class="chart-container">
-            <div class="chart-title">
-              <span>Weekly Comparison</span>
-              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">This week vs last week</span>
-            </div>
-            <canvas id="comparison-chart"></canvas>
-          </div>
-
-          <div class="stats-row">
-            <div class="stat-item">
-              <div class="stat-label">Cost Difference (Week)</div>
-              <div class="stat-value" style="${this._comparisonData.thisWeek > this._comparisonData.lastWeek ? 'color: var(--danger)' : 'color: var(--success)'}">${((this._comparisonData.thisWeek - this._comparisonData.lastWeek) * this._comparisonData.costPerKwh).toFixed(2)} ${_esc(this._config.currency)}</div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">Weekly Average Cost</div>
-              <div class="stat-value">${(this._comparisonData.thisWeek * this._comparisonData.costPerKwh).toFixed(2)} ${_esc(this._config.currency)}</div>
-            </div>
-          </div>
+          <p>Only recorded periods are shown. Monthly and cost comparisons need complete source and tariff data.</p>
         </div>
         ${ENERGY_OPTIMIZER_DONATE_HTML}
       </div>
@@ -1160,10 +1037,10 @@ canvas {
     });
   }
   async _loadChartJS() {
-    if (this._chartJsLoaded && window.Chart) return window.Chart;
-    if (window.Chart) {
+    if (this._chartJsLoaded && HA_ENERGY_CHART) return HA_ENERGY_CHART;
+    if (HA_ENERGY_CHART) {
       this._chartJsLoaded = true;
-      return window.Chart;
+      return HA_ENERGY_CHART;
     }
     this.shadowRoot.querySelectorAll('canvas').forEach(canvas => {
       const fallback = document.createElement('div');
@@ -1285,7 +1162,7 @@ canvas {
         }
       };
 
-      this._charts['dashboard'] = new window.Chart(ctx, chartConfig);
+      this._charts['dashboard'] = new HA_ENERGY_CHART(ctx, chartConfig);
     } catch (error) {
       console.error('Error drawing dashboard chart:', error);
     }
@@ -1437,7 +1314,7 @@ _drawHeatmap() {
         }
       };
 
-      this._charts['trend'] = new window.Chart(ctx, chartConfig);
+      this._charts['trend'] = new HA_ENERGY_CHART(ctx, chartConfig);
     } catch (error) {
       console.error('Error drawing trend chart:', error);
     }
@@ -1517,7 +1394,7 @@ async _drawWeekdayChart() {
         }
       };
 
-      this._charts['weekday'] = new window.Chart(ctx, chartConfig);
+      this._charts['weekday'] = new HA_ENERGY_CHART(ctx, chartConfig);
     } catch (error) {
       console.error('Error drawing weekday chart:', error);
     }
@@ -1605,7 +1482,7 @@ async _drawComparisonChart() {
         }
       };
 
-      this._charts['comparison'] = new window.Chart(ctx, chartConfig);
+      this._charts['comparison'] = new HA_ENERGY_CHART(ctx, chartConfig);
     } catch (error) {
       console.error('Error drawing comparison chart:', error);
     }
@@ -1614,6 +1491,8 @@ async _drawComparisonChart() {
 
   _renderRecommendations() {
     const container = this.shadowRoot.getElementById('recommendations-list');
+    if (!container) return;
+    if (!this._recommendations.length) { container.textContent = 'No evidence-based savings scenario available. Configure a tariff to compare peak and off-peak hours.'; return; }
     container.innerHTML = this._recommendations.map(rec => `
       <div class="recommendation ${_esc(rec.impact)}">
         <div class="rec-icon">${_esc(rec.icon)}</div>
@@ -1621,7 +1500,7 @@ async _drawComparisonChart() {
           <div class="rec-title">${_esc(rec.title)}</div>
           <div class="rec-description">${_esc(rec.description)}</div>
           <div class="rec-footer">
-            <div class="savings-badge">Save ~${_esc(rec.savings)}${_esc(this._config.currency || 'PLN')}/mo</div>
+            <div class="savings-badge">Scenario: ${_esc(rec.savings.toFixed(2))} ${_esc(this._config.currency || this._hass?.config?.currency || '')}/day</div>
             <div class="difficulty-badge">${_esc(rec.difficulty)}</div>
           </div>
         </div>
@@ -1634,8 +1513,9 @@ async _drawComparisonChart() {
   }
 
   _calculateTodayCost() {
-    const peakRate = this._config.peak_rate || this._config.energy_price || 0.65;
-    const offPeakRate = this._config.off_peak_rate || peakRate;
+    const peakRate = Number(this._config.peak_rate ?? this._config.energy_price);
+    const offPeakRate = Number(this._config.off_peak_rate ?? peakRate);
+    if (!Number.isFinite(peakRate) || !Number.isFinite(offPeakRate) || peakRate < 0 || offPeakRate < 0 || !(this._config.currency || this._hass?.config?.currency)) return null;
     const peakStart = this._config.peak_hours?.start || 6;
     const peakEnd = this._config.peak_hours?.end || 22;
     let cost = 0;
@@ -1647,9 +1527,9 @@ async _drawComparisonChart() {
   }
 
   _calculatePotentialSavings() {
-    const peakRate = this._config.peak_rate || this._config.energy_price || 0.65;
-    const offPeakRate = this._config.off_peak_rate || peakRate;
-    if (peakRate === offPeakRate) return 0;
+    const peakRate = Number(this._config.peak_rate);
+    const offPeakRate = Number(this._config.off_peak_rate);
+    if (!Number.isFinite(peakRate) || !Number.isFinite(offPeakRate) || peakRate <= offPeakRate) return null;
     const peakStart = this._config.peak_hours?.start || 6;
     const peakEnd = this._config.peak_hours?.end || 22;
     let savings = 0;
@@ -1779,7 +1659,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
   class HAEnergyInsights extends HTMLElement {
     static getConfigElement() { return document.createElement('ha-energy-insights-editor'); }
-    static getStubConfig() { return { type: 'custom:ha-energy-insights', title: 'Energy Insights', currency: 'PLN' }; }
+    static getStubConfig() { return { type: 'custom:ha-energy-insights', title: 'Energy Insights' }; }
     constructor() {
       super();
       this._lang = (navigator.language || '').startsWith('pl') ? 'pl' : 'en';
@@ -1805,8 +1685,6 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
       // Configuration
       this._config = {
         title: 'Energy Insights',
-        energy_price: 0.65,
-        currency: 'PLN',
         days_history: 7
       };
     }
@@ -1822,12 +1700,12 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           monthly: 'Monthly',
           tips: 'Tips',
           today: 'Today',
-          thisWeek: 'This Week',
-          thisMonth: 'This Month',
+          thisWeek: 'Last 7 days',
+          thisMonth: 'Last 30 days',
           trend: 'Trend',
-          vsLastWeek: 'vs last week',
+          vsLastWeek: 'vs previous 7 days',
           topDevices: 'Top 5 Devices',
-          noSensors: 'No energy sensors found. Add energy sensors (kWh/W) to Home Assistant.',
+          noSensors: 'No supported grid import statistics in Energy Dashboard. Configure an energy source in Home Assistant.',
           hourlyConsumption: 'Hourly Consumption (today)',
           dailyConsumption: 'Daily Consumption (7 days)',
           monthlyConsumption: 'Daily Consumption (30 days)',
@@ -1861,12 +1739,12 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           monthly: 'Miesiąc',
           tips: 'Porady',
           today: 'Dzisiaj',
-          thisWeek: 'Ten Tydzień',
-          thisMonth: 'Ten Miesiąc',
+          thisWeek: 'Ostatnie 7 dni',
+          thisMonth: 'Ostatnie 30 dni',
           trend: 'Trend',
-          vsLastWeek: 'vs poprzedni tydzień',
+          vsLastWeek: 'vs poprzednie 7 dni',
           topDevices: 'Top 5 Urządzeń',
-          noSensors: 'Brak czujników energii. Dodaj sensory energii (kWh/W) do HA.',
+          noSensors: 'Brak obsługiwanych statystyk importu sieciowego w panelu Energia. Skonfiguruj źródło energii w HA.',
           hourlyConsumption: 'Zużycie Godzinowe (dzisiaj)',
           dailyConsumption: 'Zużycie Dzienne (7 dni)',
           monthlyConsumption: 'Zużycie Dzienne (30 dni)',
@@ -1907,40 +1785,22 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     _getRate(hour, dayOfWeek) {
       const c = this._config;
       const mode = c.energy_tariff_mode || 'flat';
-      const dayStart = c.energy_day_hour_start || 6;
-      const nightStart = c.energy_night_hour_start || 22;
-      const isDay = (dayStart < nightStart) ? (hour >= dayStart && hour < nightStart) : (hour >= dayStart || hour < nightStart);
-      const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
-      switch (mode) {
-        case 'day_night':
-          return isDay ? (c.energy_price_day || 0.65) : (c.energy_price_night || 0.45);
-        case 'weekday_weekend':
-          return isWeekend ? (c.energy_price_weekend || 0.50) : (c.energy_price_weekday || 0.65);
-        case 'mixed':
-          if (isWeekend) return isDay ? (c.energy_price_we_day || 0.55) : (c.energy_price_we_night || 0.40);
-          return isDay ? (c.energy_price_wd_day || 0.65) : (c.energy_price_wd_night || 0.45);
-        default:
-          return c.energy_price || 0.65;
-      }
+      const dayStart = c.energy_day_hour_start ?? 6;
+      const nightStart = c.energy_night_hour_start ?? 22;
+      const isDay = dayStart < nightStart ? (hour >= dayStart && hour < nightStart) : (hour >= dayStart || hour < nightStart);
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      let raw;
+      if (mode === 'day_night') raw = isDay ? c.energy_price_day : c.energy_price_night;
+      else if (mode === 'weekday_weekend') raw = isWeekend ? c.energy_price_weekend : c.energy_price_weekday;
+      else if (mode === 'mixed') raw = isWeekend ? (isDay ? c.energy_price_we_day : c.energy_price_we_night) : (isDay ? c.energy_price_wd_day : c.energy_price_wd_night);
+      else raw = c.energy_price;
+      return typeof raw === 'number' && Number.isFinite(raw) && raw >= 0 ? raw : null;
     }
 
     _getTariffLabel() {
-      const c = this._config;
-      const mode = c.energy_tariff_mode || 'flat';
-      const cur = c.currency || 'PLN';
-      const suffix = this._lang === 'pl' ?
-        { 'day_night': ' (dzień/noc)', 'weekday_weekend': ' (roboczy/weekend)' } :
-        { 'day_night': ' (day/night)', 'weekday_weekend': ' (weekday/weekend)' };
-      switch (mode) {
-        case 'day_night':
-          return cur + ' ' + (c.energy_price_day || 0.65) + '/' + (c.energy_price_night || 0.45) + (suffix['day_night'] || '');
-        case 'weekday_weekend':
-          return cur + ' ' + (c.energy_price_weekday || 0.65) + '/' + (c.energy_price_weekend || 0.50) + (suffix['weekday_weekend'] || '');
-        case 'mixed':
-          return cur + ' mix: ' + (c.energy_price_wd_day || 0.65) + '/' + (c.energy_price_wd_night || 0.45) + '/' + (c.energy_price_we_day || 0.55) + '/' + (c.energy_price_we_night || 0.40);
-        default:
-          return cur + ' @ ' + (c.energy_price || 0.65) + '/kWh';
-      }
+      const currency = this._config.currency || this._hass?.config?.currency || '';
+      const rate = this._getRate(12, 1);
+      return rate === null ? 'Cost unavailable: configure a tariff' : `${currency} / kWh (configured tariff)`;
     }
 
     set hass(hass) {
@@ -1997,7 +1857,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     // ===== DATA LOADING =====
 
     _loadChartJs() {
-      if (window.Chart) {
+      if (HA_ENERGY_CHART) {
         this._chartJsReady = true;
         return;
       }
@@ -2011,28 +1871,27 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
       if (this._domBuilt) this._updateLoadingState();
 
       try {
-        // Step 1: Discover energy sensors via recorder statistic IDs
-        const allStats = await this._hass.callWS({
-          type: 'recorder/list_statistic_ids',
-          statistic_type: 'sum'
-        });
-        const kwhIds = allStats
-          .filter(s => s.statistics_unit_of_measurement === 'kWh' || s.statistics_unit_of_measurement === 'Wh')
-          .filter(s => {
-            const id = s.statistic_id;
-            return !id.includes('_daily') && !id.includes('_weekly') && !id.includes('_monthly') && !id.includes('_last_') && !id.includes('_cost');
-          });
+        const prefs = await this._hass.callWS({ type: 'energy/get_prefs' });
+        const sensorIds = [...new Set((prefs?.energy_sources || [])
+          .filter(source => source?.type === 'grid')
+          .flatMap(source => source.stat_energy_from ? [source.stat_energy_from] : (source.flow_from || []).map(flow => flow?.stat_energy_from || flow?.stat_energy).filter(Boolean)))];
 
-        if (kwhIds.length === 0) {
+        if (sensorIds.length === 0) {
           this._data = { sensors: [], noSensors: true };
           this._loading = false;
           this._updateContent();
           return;
         }
 
-        const sensorIds = kwhIds.map(s => s.statistic_id);
+        const metadata = await this._hass.callWS({ type: 'recorder/get_statistics_metadata', statistic_ids: sensorIds });
+        const byId = Array.isArray(metadata) ? Object.fromEntries(metadata.map(item => [item.statistic_id, item])) : metadata || {};
         const sensorUnits = {};
-        kwhIds.forEach(s => { sensorUnits[s.statistic_id] = s.statistics_unit_of_measurement; });
+        sensorIds.forEach(id => {
+          const row = byId[id];
+          const unit = row?.statistics_unit_of_measurement;
+          if (row?.has_sum !== true || !['Wh', 'kWh', 'MWh'].includes(unit) || (row.unit_class && row.unit_class !== 'energy')) throw new Error('Unsupported Energy Dashboard statistic metadata');
+          sensorUnits[id] = unit;
+        });
 
         // Step 2: Fetch 30 days of hourly statistics via recorder
         const now = new Date();
@@ -2049,7 +1908,17 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
         });
 
         // Step 3: Aggregate data
-        const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const timeZone = this._hass?.config?.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const dateFormatter = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
+        const dateKey = value => {
+          const parts = Object.fromEntries(dateFormatter.formatToParts(value).map(part => [part.type, part.value]));
+          return `${parts.year}-${parts.month}-${parts.day}`;
+        };
+        const hourInZone = value => Number(new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', hourCycle: 'h23' }).format(value));
+        const weekdayInZone = value => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' }).format(value));
+        const todayKey = dateKey(now);
+        const [year, month, day] = todayKey.split('-').map(Number);
+        const dayKeys = Array.from({ length: 30 }, (_, i) => new Date(Date.UTC(year, month - 1, day - (29 - i))).toISOString().slice(0, 10));
         const weekStart = new Date(now.getTime() - 7 * 24 * 3600000);
         const prevWeekStart = new Date(now.getTime() - 14 * 24 * 3600000);
 
@@ -2061,31 +1930,41 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
         const dailyWeek = new Array(7).fill(0);
         const dailyMonth = new Array(30).fill(0);
         const deviceTotals = {};
+        let todayCost = 0;
+        let weekCost = 0;
+        let monthCost = 0;
+        let costReady = Boolean(this._config.currency || this._hass?.config?.currency);
 
         sensorIds.forEach(id => {
           const entries = stats[id] || [];
-          const isWh = sensorUnits[id] === 'Wh';
+          if (!entries.length) throw new Error('Missing Energy Dashboard statistic series');
+          const unit = sensorUnits[id];
           let sensorMonthTotal = 0;
 
           entries.forEach(entry => {
-            let change = Math.max(0, entry.change ?? 0);
-            if (isWh) change /= 1000;
+            if (typeof entry.change !== 'number' || !Number.isFinite(entry.change) || entry.change < 0) throw new Error('Invalid or incomplete energy change bucket');
+            let change = entry.change * (unit === 'Wh' ? 0.001 : unit === 'MWh' ? 1000 : 1);
 
-            const entryDate = new Date(entry.start);
-            const hour = entryDate.getHours();
-            const daysAgo = Math.floor((now - entryDate) / 86400000);
+            const entryDate = new Date(typeof entry.start === 'number' ? entry.start * 1000 : entry.start);
+            if (!Number.isFinite(entryDate.getTime())) throw new Error('Invalid energy bucket timestamp');
+            const hour = hourInZone(entryDate);
+            const bucketDay = dateKey(entryDate);
+            const dayIdx = dayKeys.indexOf(bucketDay);
+            const rate = this._getRate(hour, weekdayInZone(entryDate));
+            if (rate === null) costReady = false;
 
             // Today hourly
-            if (entryDate >= todayStart) {
+            if (bucketDay === todayKey) {
               hourlyToday[hour] += change;
               todayKwh += change;
+              if (rate !== null) todayCost += change * rate;
             }
 
             // This week
             if (entryDate >= weekStart) {
               thisWeekKwh += change;
-              const dayIdx = 6 - daysAgo;
-              if (dayIdx >= 0 && dayIdx < 7) dailyWeek[dayIdx] += change;
+              if (dayIdx >= 23 && dayIdx < 30) dailyWeek[dayIdx - 23] += change;
+              if (rate !== null) weekCost += change * rate;
             }
 
             // Previous week
@@ -2095,8 +1974,8 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
             // Monthly
             monthKwh += change;
-            const monthDayIdx = 29 - daysAgo;
-            if (monthDayIdx >= 0 && monthDayIdx < 30) dailyMonth[monthDayIdx] += change;
+            if (rate !== null) monthCost += change * rate;
+            if (dayIdx >= 0) dailyMonth[dayIdx] += change;
 
             sensorMonthTotal += change;
           });
@@ -2104,8 +1983,8 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           // Track per-device totals for Top Devices
           const friendlyName = this._hass.states?.[id]?.attributes?.friendly_name
             || id.replace('sensor.', '').replace(/_/g, ' ');
-          const uom = this._hass.states?.[id]?.attributes?.unit_of_measurement || 'kWh';
-          const rawVal = parseFloat(this._hass.states?.[id]?.state) || 0;
+          const uom = 'kWh';
+          const rawVal = null;
           deviceTotals[id] = {
             name: this._sanitize(friendlyName),
             kwh: sensorMonthTotal,
@@ -2116,40 +1995,16 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
         });
 
         // Top 5 devices by month consumption
-        const topDevices = Object.values(deviceTotals)
-          .filter(d => d.kwh > 0)
-          .sort((a, b) => b.kwh - a.kwh)
-          .slice(0, 5);
+        const topDevices = [];
 
         // Round values
         const r2 = v => Math.round(v * 100) / 100;
 
-        // Calculate tariff-aware costs
-        let todayCost = 0;
-        hourlyToday.forEach((kwh, hour) => {
-          const dow = todayStart.getDay();
-          todayCost += kwh * this._getRate(hour, dow);
-        });
-
-        let weekCost = 0;
-        dailyWeek.forEach((dayKwh, dayIdx) => {
-          const dayDate = new Date(now.getTime() - (6 - dayIdx) * 86400000);
-          const dow = dayDate.getDay();
-          weekCost += dayKwh * this._getRate(12, dow);
-        });
-
-        let monthCost = 0;
-        dailyMonth.forEach((dayKwh, dayIdx) => {
-          const dayDate = new Date(now.getTime() - (29 - dayIdx) * 86400000);
-          const dow = dayDate.getDay();
-          monthCost += dayKwh * this._getRate(12, dow);
-        });
-
         this._data = {
-          sensors: kwhIds,
+          sensors: sensorIds,
           noSensors: false,
           todayKwh: r2(todayKwh),
-          todayCost: r2(todayCost),
+          todayCost: costReady ? r2(todayCost) : null,
           topDevices,
           weeklyData: dailyWeek.map(r2),
           monthlyData: dailyMonth.map(r2),
@@ -2157,8 +2012,8 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           thisWeekKwh: r2(thisWeekKwh),
           prevWeekKwh: r2(prevWeekKwh),
           monthKwh: r2(monthKwh),
-          weekCost: r2(weekCost),
-          monthCost: r2(monthCost),
+          weekCost: costReady ? r2(weekCost) : null,
+          monthCost: costReady ? r2(monthCost) : null,
         };
 
         this._loading = false;
@@ -2173,12 +2028,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     }
 
     _getRecommendation(trendDiff, todayKwh) {
-      if (trendDiff > 20) return this._t('highConsumption');
-      if (trendDiff > 5)  return this._t('slightlyHigher');
-      if (trendDiff < -10) return this._t('lowerThanUsual');
-      if (todayKwh > 20)  return this._t('highToday');
-      if (todayKwh < 1)   return this._t('veryLow');
-      return this._t('normalUsage');
+      return this._lang === 'pl' ? 'Pokazano wyłącznie zarejestrowany import z sieci; bez pomiaru urządzeń nie można przypisać zużycia konkretnym odbiornikom.' : 'Only recorded grid import is shown; without device measurements, usage cannot be attributed to appliances.';
     }
 
     // ===== RENDERING =====
@@ -2434,15 +2284,15 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     _renderOverview() {
       if (!this._data) return '';
       const d = this._data;
-      const cur = this._config.currency || 'PLN';
-      const fmt = v => v.toFixed(2);
+      const cur = this._config.currency || this._hass?.config?.currency || '';
+      const fmt = v => typeof v === 'number' && Number.isFinite(v) ? v.toFixed(2) : 'N/A';
 
       const trendDiff = d.prevWeekKwh > 0
         ? ((d.thisWeekKwh - d.prevWeekKwh) / d.prevWeekKwh * 100)
-        : 0;
+        : null;
       const trendClass = trendDiff > 5 ? 'trend-up' : trendDiff < -5 ? 'trend-down' : 'trend-neutral';
       const trendIcon = trendDiff > 5 ? '↑' : trendDiff < -5 ? '↓' : '→';
-      const trendLabel = trendDiff > 0 ? `+${fmt(trendDiff)}%` : `${fmt(trendDiff)}%`;
+      const trendLabel = trendDiff === null ? 'N/A' : trendDiff > 0 ? `+${fmt(trendDiff)}%` : `${fmt(trendDiff)}%`;
       const rec = this._getRecommendation(trendDiff, d.todayKwh);
 
       let html = `
@@ -2541,7 +2391,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     // ===== CHARTS =====
 
     _renderCharts() {
-      if (!window.Chart || !this._data) return;
+      if (!HA_ENERGY_CHART || !this._data) return;
 
       const chartDefs = {
         daily:   { data: this._data.dailyData,   labels: this._buildHourLabels(24) },
@@ -2561,7 +2411,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
         const primaryColor = getComputedStyle(this).getPropertyValue('--bento-primary').trim() || '#4A90D9';
 
-        this._charts[this._activeTab] = new window.Chart(canvas, {
+        this._charts[this._activeTab] = new HA_ENERGY_CHART(canvas, {
           type: 'bar',
           data: {
             labels: def.labels,
@@ -2585,8 +2435,8 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
                     const kwh = ctx.raw || 0;
                     const hour = ctx.dataIndex || 0;
                     const rate = this._getRate(hour, new Date().getDay());
-                    const cost = (kwh * rate).toFixed(2);
-                    return ` ${kwh.toFixed(2)} kWh  (${cost} ${this._config.currency || 'PLN'})`;
+                    const cost = rate === null ? 'N/A' : (kwh * rate).toFixed(2);
+                    return ` ${kwh.toFixed(2)} kWh  (${cost} ${this._config.currency || this._hass?.config?.currency || ''})`;
                   }
                 }
               }
