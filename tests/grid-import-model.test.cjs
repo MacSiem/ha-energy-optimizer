@@ -4,12 +4,20 @@ const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { JSDOM } = require('jsdom');
 
-function cardWith(responses) {
+function cardWith(responses, options = {}) {
   const dom = new JSDOM('', { runScripts: 'dangerously', url: 'http://localhost/' });
+  if (options.now) {
+    const NativeDate = dom.window.Date;
+    const fixed = new NativeDate(options.now).getTime();
+    dom.window.Date = class extends NativeDate {
+      constructor(...args) { super(...(args.length ? args : [fixed])); }
+      static now() { return fixed; }
+    };
+  }
   dom.window.eval(readFileSync(join(__dirname, '..', 'ha-energy-optimizer.js'), 'utf8'));
   const card = dom.window.document.createElement('ha-energy-optimizer');
   const calls = [];
-  card._hass = { config: { currency: 'EUR', time_zone: Intl.DateTimeFormat().resolvedOptions().timeZone }, states: {}, callWS: async message => {
+  card._hass = { config: { currency: 'EUR', time_zone: options.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone }, states: {}, callWS: async message => {
     calls.push(message);
     const response = responses[message.type];
     return typeof response === 'function' ? response(message) : response;
@@ -43,6 +51,45 @@ test('grid import uses unique configured roots and converts Wh without counting 
     assert.match(card._getTemplate(), /Grid import from 2 Energy Dashboard source/);
     assert.doesNotMatch(card._getTemplate(), /Demo data/);
     assert.deepEqual(Array.from(calls.find(call => call.type === 'recorder/statistics_during_period').statistic_ids), ['sensor.grid_a', 'sensor.grid_b']);
+  } finally { dom.window.close(); }
+});
+
+test('fall DST repeated local hour counts both distinct Recorder buckets once', async () => {
+  const { dom, card } = cardWith({
+    'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+    'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+    'recorder/statistics_during_period': { 'sensor.grid': [
+      { start: '2026-10-25T00:00:00Z', change: 1 },
+      { start: '2026-10-25T01:00:00Z', change: 2 },
+    ] },
+  }, { now: '2026-10-25T04:30:00Z', timeZone: 'Europe/Warsaw' });
+  try {
+    await card._fetchEnergyStats();
+    assert.equal(card._hasRealData, true);
+    assert.equal(card._calculateTodayUsage(), 3);
+    assert.equal(card._energyData[2], 3);
+  } finally { dom.window.close(); }
+});
+
+test('misaligned grid source hours fail closed instead of undercounting', async () => {
+  const { dom, card } = cardWith({
+    'energy/get_prefs': { energy_sources: [
+      { type: 'grid', stat_energy_from: 'sensor.grid_a' },
+      { type: 'grid', stat_energy_from: 'sensor.grid_b' },
+    ] },
+    'recorder/get_statistics_metadata': {
+      'sensor.grid_a': { has_sum: true, statistics_unit_of_measurement: 'kWh' },
+      'sensor.grid_b': { has_sum: true, statistics_unit_of_measurement: 'kWh' },
+    },
+    'recorder/statistics_during_period': {
+      'sensor.grid_a': [{ start: '2026-09-27T09:00:00Z', change: 1 }],
+      'sensor.grid_b': [{ start: '2026-09-27T08:00:00Z', change: 2 }],
+    },
+  }, { now: '2026-09-27T12:00:00Z', timeZone: 'Europe/Warsaw' });
+  try {
+    await card._fetchEnergyStats();
+    assert.equal(card._hasRealData, false);
+    assert.match(card._getTemplate(), /statistics could not be loaded/);
   } finally { dom.window.close(); }
 });
 
