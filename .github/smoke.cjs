@@ -71,7 +71,7 @@ const delay = (ms) => new Promise(r => setTimeout(r, ms));
     for (const t of tagsIn(code)) targets.push({ file: f, tag: t });
   }
   const optimizerSource = fs.readFileSync(path.join(ROOT, 'ha-energy-optimizer.js'), 'utf8');
-  for (const token of ['ENERGY_OPTIMIZER_DONATE_HTML', 'data-source="own-card"', 'buymeacoffee.com/macsiem', 'paypal.com/donate']) {
+  for (const token of ['ENERGY_OPTIMIZER_DONATE_HTML', 'data-source="own-card"', 'buymeacoffee.com/macsiem', 'Optional support for HA Tools']) {
     if (!optimizerSource.includes(token)) {
       console.error('smoke: optimizer support footer missing token: ' + token);
       process.exit(1);
@@ -162,8 +162,7 @@ const delay = (ms) => new Promise(r => setTimeout(r, ms));
       if (!problem && localDonateTags.has(t.tag)) {
         const footer = el.shadowRoot.querySelector('.donate-section[data-source="own-card"]');
         const coffee = footer && footer.querySelector('a[href="https://buymeacoffee.com/macsiem"][target="_blank"][rel="noopener noreferrer"]');
-        const paypal = footer && footer.querySelector('a[href="https://www.paypal.com/donate/?hosted_button_id=Y967H4PLRBN8W"][target="_blank"][rel="noopener noreferrer"]');
-        if (!footer || !coffee || !paypal) problem = 'card-owned support footer contract is incomplete';
+        if (!footer || !coffee || footer.querySelectorAll('a').length !== 1) problem = 'card-owned support footer contract is incomplete';
       }
       if (!problem && ['ha-energy-optimizer', 'ha-energy-insights', 'ha-energy-email'].includes(t.tag)) {
         const supportVisible = card => {
