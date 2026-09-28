@@ -1661,7 +1661,7 @@ async _drawComparisonChart() {
 
   getCardSize() { return 10; }
 
-  getGridOptions() { return { rows: 10, columns: 12, min_rows: 3, min_columns: 6 }; }
+  getGridOptions() { return { columns: 12, min_rows: 3, min_columns: 6 }; }
 
   static getStubConfig() { return { type: 'custom:ha-energy-optimizer', title: 'Energy Optimizer' }; }
 
@@ -2558,7 +2558,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
     getCardSize() { return 8; }
 
-    getGridOptions() { return { rows: 8, columns: 12, min_rows: 3, min_columns: 6 }; }
+    getGridOptions() { return { columns: 12, min_rows: 3, min_columns: 6 }; }
   }
 
   if (!customElements.get('ha-energy-insights')) {
@@ -2852,7 +2852,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 
     getCardSize() { return 4; }
 
-    getGridOptions() { return { rows: 7, columns: 12, min_rows: 3, min_columns: 6 }; }
+    getGridOptions() { return { columns: 12, min_rows: 3, min_columns: 6 }; }
 
     _getRate(hour, dayOfWeek) {
       const c = this._config;
