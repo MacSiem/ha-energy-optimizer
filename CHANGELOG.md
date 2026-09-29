@@ -1,5 +1,11 @@
 # Changelog — Energy Optimizer
 
+## 3.5.1 (2026-09-29)
+
+- Use measured grid-import statistics with explicit empty/partial states, including missing and daylight-saving hours; never invent a rate or currency for Energy Email.
+- Bundle pinned Chart.js locally and keep Energy Insights honest when recent Recorder statistics are absent.
+- Let all three cards grow naturally in Sections and use compact administrator-only support links.
+
 ## 3.5.0 (2026-09-24)
 
 - Energy Email: Energy Optimizer is now the single maintained source of `custom:ha-energy-email`. HA Tools Email & Reports 4.5.0 no longer ships its own copy; it keeps a thin wrapper that renders this card, so existing dashboards keep working in either load order.
