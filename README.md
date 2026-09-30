@@ -141,3 +141,5 @@ sources and the exact completed-hour Recorder window shown in the preview.
 Missing or incomplete data withholds the total; missing tariff withholds cost.
 Older backends show an unavailable server preview until updated. Local period
 previews never use a lifetime reading as daily, weekly or monthly consumption.
+
+The legacy direct-send path also requires complete hourly Recorder data for the configured grid-import sources. Missing data stops period sending; measured zero remains a valid report. The exact completed-hour window is included in its email content.

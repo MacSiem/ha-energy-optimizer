@@ -5,6 +5,7 @@
 - Energy Email previews no longer substitute lifetime counters for daily, weekly or monthly energy, or missing measurements with zero.
 - With HA Tools Email 2.1.2+, preview reads the server composer model used by manual sends and schedules, including exact Recorder windows and configured grid sources. Unavailable server previews stay unavailable.
 - Keep measured zero and escape source names in the preview. Tariff absence remains explicit.
+- Without the new backend, period previews and manual sends also use configured grid sources, complete hourly Recorder coverage and exact windows; incomplete data stops the send.
 
 ## 3.5.1 (2026-09-29)
 
