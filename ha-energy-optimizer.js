@@ -2700,6 +2700,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       this._emailBackendAvailable = false;
       this._emailBackendConfig = null;
       this._emailBackendError = null;
+      this._backendReportPreviews = {};
       this._emailSchedules = [];
       this._scheduleBusy = {};
       this._legacySchedules = this._loadLegacySchedules();
@@ -3157,6 +3158,13 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         this._emailSchedules = Array.isArray(resp?.schedules) ? resp.schedules : [];
         this._emailBackendError = null;
         if (resp?.default_recipient && !this._config.recipient) this._detectedRecipient = resp.default_recipient;
+        await Promise.all(['daily', 'weekly', 'monthly'].map(async cadence => {
+          try {
+            this._backendReportPreviews[cadence] = await this._emailWs('preview_energy_report', { cadence });
+          } catch (e) {
+            this._backendReportPreviews[cadence] = null;
+          }
+        }));
         this._render();
         return resp;
       } catch (e) {
@@ -4024,11 +4032,38 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         </div>`;
     }
 
+    _backendPreviewHtml() {
+      const L = this._lang === 'pl';
+      const labels = L ? ['Raport dzienny', 'Raport tygodniowy', 'Raport miesięczny'] : ['Daily Report', 'Weekly Report', 'Monthly Report'];
+      return `<div class="section-title">${L ? 'Podgląd raportów email' : 'Email Report Previews'}</div>` +
+        ['daily', 'weekly', 'monthly'].map((cadence, index) => {
+          const data = this._backendReportPreviews?.[cadence];
+          if (!data) return `<div class="preview-box"><h3>${labels[index]}</h3><div role="status">${L ? 'Podgląd serwera niedostępny. Zaktualizuj HA Tools Email.' : 'Server preview unavailable. Update HA Tools Email.'}</div></div>`;
+          const ready = data.status === 'ready' && typeof data.total_kwh === 'number' && Number.isFinite(data.total_kwh);
+          const rows = ready && Array.isArray(data.devices) ? data.devices : [];
+          const message = data.status === 'partial'
+            ? (L ? 'Niepełne dane — suma okresu niedostępna.' : 'Incomplete data — period total unavailable.')
+            : (L ? 'Brak danych energii dla tego okresu.' : 'No energy data available for this period.');
+          return `<div class="preview-box" style="margin-bottom:14px">
+            <h3>${labels[index]}</h3>
+            <div>${L ? 'Import z sieci: źródła Energy Dashboard' : 'Grid import: Energy Dashboard sources'}</div>
+            <div style="overflow-wrap:anywhere">${_esc(data.period?.start || '—')} → ${_esc(data.period?.end || '—')}</div>
+            <div>${L ? 'Ukończone godziny Recorder; ten sam model co wysyłka i harmonogram.' : 'Completed Recorder hours; same model as sending and schedules.'}</div>
+            ${ready ? '' : `<div role="status">${message}</div>`}
+            <div>${ready ? data.total_kwh.toFixed(1) : 'N/A'} kWh · ${this._formatCost(data.total_cost)} ${_esc(this._config.currency || this._hass?.config?.currency || '')}</div>
+            ${data.total_cost === null ? `<div>${L ? 'Taryfa nieskonfigurowana' : 'Tariff not configured'}</div>` : ''}
+            <table class="preview-table"><thead><tr><th>${L ? 'Źródło' : 'Source'}</th><th>kWh</th><th>${L ? 'Koszt' : 'Cost'}</th></tr></thead>
+            <tbody>${rows.map(row => `<tr><td>${_esc(row.name)}</td><td>${typeof row.kwh === 'number' && Number.isFinite(row.kwh) ? row.kwh.toFixed(2) : 'N/A'}</td><td>${this._formatCost(row.cost)}</td></tr>`).join('')}</tbody></table>
+          </div>`;
+        }).join('');
+    }
+
     _tabPreview() {
       const L = this._lang === 'pl';
       if (!this._discoveryDone) {
         return `<div class="empty-state"><div class="big"><span class="spinner" style="width:32px;height:32px;border-width:3px;border-color:var(--bento-primary);border-top-color:transparent;"></span></div><div class="title">${L ? '\u0141adowanie danych...' : 'Loading data...'}</div></div>`;
       }
+      if (this._emailBackendAvailable) return this._backendPreviewHtml();
       const devices = this._devices();
       const autoDevices = this._discoveredDevices || [];
       const isAuto = devices.length === 0 && autoDevices.length > 0;
