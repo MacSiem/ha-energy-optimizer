@@ -40,3 +40,26 @@ test('a zero Recorder period remains measured zero without falling back to lifet
     assert.doesNotMatch(output.textContent, /9876/);
   } finally { dom.window.close(); }
 });
+
+test('backend preview uses the same sources and window as the server report rather than card totals', async () => {
+  const { dom, card, output } = preview({ devices: [{ name: 'Lifetime meter', value_kwh: 9876 }] });
+  card._hass.callWS = async msg => {
+    if (msg.type === 'ha_tools_email/get_config') return { schedules: [] };
+    if (msg.type === 'ha_tools_email/preview_energy_report') return {
+      status: 'ready', total_kwh: 23, total_cost: null,
+      source_ids: ['sensor.configured_grid'],
+      period: { start: '2026-09-29T10:00:00+00:00', end: '2026-09-30T10:00:00+00:00', cadence: msg.cadence },
+      devices: [{ name: '<Grid source>', entity_id: 'sensor.configured_grid', kwh: 23, cost: null }],
+    };
+    throw new Error('Unexpected command');
+  };
+  try {
+    await card._loadEmailBackendConfig();
+    output.innerHTML = card._tabPreview();
+    assert.match(output.textContent, /23\.0\s+kWh/);
+    assert.match(output.textContent, /2026-09-29T10:00:00/);
+    assert.match(output.textContent, /<Grid source>/);
+    assert.doesNotMatch(output.textContent, /9876/);
+    assert.equal(output.querySelector('grid'), null);
+  } finally { dom.window.close(); }
+});
