@@ -60,6 +60,17 @@ for (const [scenario, expected] of [['complete', 24], ['zero', 0], ['gap', null]
         assert.match(output.textContent, /Configured grid/);
         assert.match(output.textContent, new RegExp(expected.toFixed(1).replace('.', '\\.') + '\\s+kWh'));
       }
+      const sent = [];
+      card._hass.services = { ha_tools_email: { send: {} } };
+      card._hass.callService = async (domain, service, payload) => { sent.push(payload); };
+      await card._sendReport('daily');
+      if (expected === null) assert.equal(sent.length, 0);
+      else {
+        assert.equal(sent.length, 1);
+        assert.match(sent[0].body, new RegExp(expected.toFixed(2).replace('.', '\\.') + '\\s+kWh'));
+        assert.match(sent[0].body, /2026-09-29T12:00:00\.000Z/);
+        assert.match(sent[0].body, /2026-09-30T12:00:00\.000Z/);
+      }
     } finally { dom.window.close(); }
   });
 }
