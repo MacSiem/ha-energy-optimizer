@@ -2891,8 +2891,32 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     _cost(kwh) {
-      const rate = this._getAvgRate();
+      // Aggregate consumption cannot price a time-dependent tariff.
+      if ((this._config.energy_tariff_mode || 'flat') !== 'flat') return null;
+      const rate = this._getRate(12, 1);
       return rate === null || !Number.isFinite(kwh) ? null : kwh * rate;
+    }
+
+    _bucketCost(buckets, unit) {
+      const divisor = unit === 'Wh' ? 1000 : 1;
+      if ((this._config.energy_tariff_mode || 'flat') === 'flat') {
+        return this._cost([...buckets.values()].reduce((sum, value) => sum + value, 0) / divisor);
+      }
+      const timeZone = this._hass?.config?.time_zone;
+      if (!timeZone) return null;
+      try {
+        const hourFormat = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', hourCycle: 'h23' });
+        const dayFormat = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' });
+        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        let cost = 0;
+        for (const [stamp, change] of buckets) {
+          const date = new Date(stamp);
+          const rate = this._getRate(Number(hourFormat.format(date)), days.indexOf(dayFormat.format(date)));
+          if (rate === null) return null;
+          cost += change / divisor * rate;
+        }
+        return Number.isFinite(cost) ? cost : null;
+      } catch (e) { return null; }
     }
 
     _formatCost(value) {
@@ -3262,35 +3286,20 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 
     _getOverviewDataForPeriod(period) {
       const manual = this._devices();
-      if (manual.length === 0) return this._getOverviewData();
-      if (period === 'total' || period === 'month') {
-        return manual.map(d => ({
-          name: d.name,
-          month: this._float(this._state(period === 'total' ? (d.energy_month || d.energy_week) : d.energy_month, '0')),
-          lastMonth: this._float(this._state(d.energy_last_month, '0')),
-          cost: this._float(this._state(d.cost_month || d.cost_week, '0')),
-          source: 'manual'
-        })).sort((a, b) => b.month - a.month);
-      }
-      if (period === 'week') {
-        return manual.map(d => ({
-          name: d.name,
-          month: this._float(this._state(d.energy_week, '0')),
-          lastMonth: this._float(this._state(d.energy_last_week, '0')),
-          cost: this._float(this._state(d.cost_week, '0')),
-          source: 'manual'
-        })).sort((a, b) => b.month - a.month);
-      }
-      if (period === 'day') {
-        return manual.map(d => ({
-          name: d.name,
-          month: this._float(this._state(d.energy_day || d.energy_week, '0')),
-          lastMonth: 0,
-          cost: this._cost(this._float(this._state(d.energy_day || d.energy_week, '0'))),
-          source: 'manual'
-        })).sort((a, b) => b.month - a.month);
-      }
-      return this._getOverviewData();
+      if (!manual.length) return this._getAutoDataForPeriod(period);
+      const field = { day: 'energy_day', week: 'energy_week', month: 'energy_month', total: 'energy_month' }[period];
+      const costField = { day: 'cost_day', week: 'cost_week', month: 'cost_month', total: 'cost_month' }[period];
+      const read = id => {
+        const raw = id ? this._hass?.states?.[id]?.state : undefined;
+        if (raw === undefined || raw === null || raw === '' || !Number.isFinite(Number(raw))) return null;
+        return Number(raw);
+      };
+      return this._filterExcluded(manual.map(d => {
+        const month = read(d[field]);
+        const measuredCost = read(d[costField]);
+        return { name: d.name, key: d.name, month, lastMonth: null,
+          cost: measuredCost === null ? this._cost(month) : measuredCost, source: 'manual' };
+      }).filter(d => d.month !== null && d.month >= 0)).sort((a, b) => b.month - a.month);
     }
 
     _getAutoDataForPeriod(period) {
@@ -3338,7 +3347,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           if (buckets.size !== hours) { this[statusKey] = hasSamples ? 'partial' : 'no_data'; return; }
           const kwh = [...buckets.values()].reduce((sum, value) => sum + value, 0) / (unit === 'Wh' ? 1000 : 1);
           result.push({ name: this._hass.states?.[id]?.attributes?.friendly_name || id,
-            key: id, entity_id: id, month: kwh, lastMonth: null, cost: this._cost(kwh), source: 'recorder' });
+            key: id, entity_id: id, month: kwh, lastMonth: null, cost: this._bucketCost(buckets, unit), source: 'recorder' });
         }
         this[cacheKey] = result;
         this[statusKey] = 'ready';
@@ -3367,15 +3376,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 
     _getOverviewData() {
       const manual = this._devices();
-      if (manual.length > 0) {
-        return this._filterExcluded(manual.map(d => ({
-          name: d.name, key: d.name,
-          month: this._float(this._state(d.energy_month, '0')),
-          lastMonth: this._float(this._state(d.energy_last_month, '0')),
-          cost: this._float(this._state(d.cost_month, '0')),
-          source: 'manual'
-        }))).sort((a, b) => b.month - a.month);
-      }
+      if (manual.length > 0) return this._getOverviewDataForPeriod('month');
       if (this._discoveredDevices && this._discoveredDevices.length > 0) {
         return this._filterExcluded(this._discoveredDevices.map(d => ({
           name: d.name, key: d.key || d.entity_id,
@@ -3754,7 +3755,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       const devData = this._getOverviewData();
       const isAuto = devData.length > 0 && devData[0].source === 'auto';
       const L = this._lang === 'pl';
-      if (devData.length === 0 && !this._discoveryDone) {
+      if (devData.length === 0 && !this._discoveryDone && !(this._periodCache_day?.length)) {
         return `<div class="empty-state">
           <div class="big"><span class="spinner" style="width:32px;height:32px;border-width:3px;border-color:var(--bento-primary);border-top-color:transparent;"></span></div>
           <div class="title">${L ? 'Wyszukiwanie czujnik\u00F3w energii...' : 'Discovering energy sensors...'}</div>
@@ -3763,7 +3764,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
             : 'Scanning Home Assistant devices and configuring settings. This will take a moment.'}</div>
         </div>`;
       }
-      if (devData.length === 0) {
+      if (devData.length === 0 && (this._overviewPeriod || 'total') === 'total') {
         return `<div class="empty-state">
           <div class="big">\u{1F50C}</div>
           <div class="title">${L ? 'Nie znaleziono czujnik\u00F3w energii' : 'No Energy Sensors Found'}</div>
@@ -3776,35 +3777,28 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       const period = this._overviewPeriod || 'total';
       const periodLabels = {
         total: { lbl: 'Total', lblPl: '\u0141\u0105cznie', sub: '', subPl: '' },
-        day:   { lbl: 'Today', lblPl: 'Dzisiaj', sub: 'Last 24h', subPl: 'Ostatnie 24h' },
-        week:  { lbl: 'This Week', lblPl: 'Ten tydzie\u0144', sub: 'Last 7 days', subPl: 'Ostatnie 7 dni' },
-        month: { lbl: 'This Month', lblPl: 'Ten miesi\u0105c', sub: 'Last 30 days', subPl: 'Ostatnie 30 dni' },
+        day:   { lbl: 'Last 24h', lblPl: 'Ostatnie 24h', sub: 'Last 24h', subPl: 'Ostatnie 24h' },
+        week:  { lbl: 'Last 7 days', lblPl: 'Ostatnie 7 dni', sub: 'Last 7 days', subPl: 'Ostatnie 7 dni' },
+        month: { lbl: 'Last 30 days', lblPl: 'Ostatnie 30 dni', sub: 'Last 30 days', subPl: 'Ostatnie 30 dni' },
       };
       const pl = periodLabels[period];
       const periodLabel = L ? pl.lblPl : pl.lbl;
-      let displayData;
-      let periodNote = '';
-      if (!isAuto && devData.length > 0 && devData[0].source === 'manual') {
-        displayData = this._getOverviewDataForPeriod(period);
-      } else if (isAuto && period !== 'total') {
-        // Try to find period-specific sensors for auto-discovered devices
-        try { displayData = this._getAutoDataForPeriod(period); } catch(e) { displayData = []; }
-        const hasRealData = displayData.length > 0 && displayData.some(d => d.month > 0);
-        if (!hasRealData) {
-          displayData = devData;
-          periodNote = L ? '(dane total \u2014 brak sensor\u00F3w per okres)' : '(total data \u2014 no per-period sensors)';
-        }
-      } else {
-        displayData = devData;
-      }
-      const totalEnergy = displayData.reduce((s, d) => s + d.month, 0);
-      const totalCost = isAuto ? this._cost(totalEnergy) : displayData.every(d => typeof d.cost === 'number' && Number.isFinite(d.cost)) ? displayData.reduce((s, d) => s + d.cost, 0) : null;
+      const displayData = period === 'total' ? devData : this._getOverviewDataForPeriod(period);
+      const window = this[`_periodWindow_${period}`];
+      const periodNote = window ? `${window.start} — ${window.end}` : '';
+      const totalEnergy = displayData.length ? displayData.reduce((sum, d) => sum + d.month, 0) : null;
+      const totalCost = displayData.length && displayData.every(d => typeof d.cost === 'number' && Number.isFinite(d.cost))
+        ? displayData.reduce((sum, d) => sum + d.cost, 0) : null;
       const maxVal = Math.max(...displayData.map(x => x.month)) || 1;
       const periodBtns = ['day', 'week', 'month', 'total'].map(p => {
         const lb = p === 'total' ? (L ? 'Wszystko' : 'All') : p === 'day' ? '24h' : p === 'week' ? '7d' : '30d';
         return `<button class="overview-period-btn" data-period="${p}" style="padding:5px 12px;font-size:11px;border-radius:6px;cursor:pointer;border:1px solid var(--bento-border);background:${period === p ? 'var(--bento-primary)' : 'var(--bento-bg)'};color:${period === p ? '#fff' : 'var(--bento-text)'};font-weight:${period === p ? '600' : '400'};">${lb}</button>`;
       }).join('');
+      if (!displayData.length) return `<div class="section-title">${periodLabel}</div><div>${periodBtns}</div>
+        <div class="empty-state">${L ? 'Dane okresu niedostępne' : 'Period data unavailable'} (${_esc(this[`_periodStatus_${period}`] || 'no_data')})</div>
+        ${periodNote ? `<div class="info-row">${_esc(periodNote)}</div>` : ''}`;
       return `
+        ${periodNote ? `<div class="info-row">${_esc(periodNote)}</div>` : ''}
         ${isAuto ? `<div class="info-row">\u{1F50D}\u00A0 ${L ? 'Auto-discovery: znaleziono <b>' + displayData.length + '</b> urz\u0105dze\u0144 z czujnikami energii.' : 'Auto-discovery: found <b>' + displayData.length + '</b> devices with energy sensors.'} <span class="source-badge source-auto">AUTO</span>${periodNote ? `<br><span style="font-size:11px;color:var(--bento-warning)">${periodNote}</span>` : ''}</div>` : ''}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <div class="section-title" style="margin:0;">\u{1F4CA} ${periodLabel}</div>
@@ -3812,7 +3806,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         </div>
         <div class="grid3">
           <div class="stat">
-            <div class="stat-value" style="color:#F59E0B">${totalEnergy.toFixed(1)}</div>
+            <div class="stat-value" style="color:#F59E0B">${totalEnergy === null ? 'N/A' : totalEnergy.toFixed(1)}</div>
             <div class="stat-label">kWh ${periodLabel}</div>
             <div class="stat-sub">${displayData.length} ${L ? 'urz\u0105dze\u0144' : 'devices'}</div>
           </div>

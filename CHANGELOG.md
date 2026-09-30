@@ -2,6 +2,9 @@
 
 ## 3.5.2 (2026-09-30)
 
+- Period overview preserves measured zero and keeps missing daily/weekly/monthly data unavailable instead of using lifetime or another period. Recorder windows are explicit.
+- Time-dependent tariff costs weight actual hourly consumption in the Home Assistant timezone; aggregate usage alone has no estimated time-tariff cost.
+
 - Energy Email previews no longer substitute lifetime counters for daily, weekly or monthly energy, or missing measurements with zero.
 - With HA Tools Email 2.1.2+, preview reads the server composer model used by manual sends and schedules, including exact Recorder windows and configured grid sources. Unavailable server previews stay unavailable.
 - Keep measured zero and escape source names in the preview. Tariff absence remains explicit.
