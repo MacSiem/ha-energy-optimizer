@@ -3294,87 +3294,57 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     _getAutoDataForPeriod(period) {
-      // Return cached recorder stats if available
-      const cacheKey = `_periodCache_${period}`;
-      if (this[cacheKey] && this[cacheKey].length > 0) return this._filterExcluded(this[cacheKey]).sort((a, b) => b.month - a.month);
-      // Fallback: try suffix-based sensors
-      if (!this._discoveredDevices) return [];
-      const suffixMap = { day: /daily|_day|_24h/i, week: /weekly|_week|_7d/i, month: /monthly|_month|_30d/i };
-      const regex = suffixMap[period];
-      if (!regex) return [];
-      const result = [];
-      for (const dev of this._discoveredDevices) {
-        if (!dev.all_sensors) continue;
-        const match = dev.all_sensors.find(s => regex.test(s.entity_id) || regex.test(s.friendly_name));
-        if (match) {
-          result.push({
-            name: dev.name, key: dev.key || dev.entity_id,
-            month: match.value, lastMonth: 0,
-            cost: this._cost(match.value),
-            entity_id: match.entity_id, source: 'auto'
-          });
-        }
-      }
-      return this._filterExcluded(result).sort((a, b) => b.month - a.month);
+      const cached = this[`_periodCache_${period}`];
+      return Array.isArray(cached) ? [...cached].sort((a, b) => b.month - a.month) : [];
     }
 
-    // Fetch energy consumption from HA recorder statistics (same as Energy Dashboard)
     async _fetchRecorderStats(period) {
-      if (!this._hass || !this._discoveredDevices || this._discoveredDevices.length === 0) return;
-      const now = new Date();
-      const periodConfig = {
-        day:   { hours: 24, statPeriod: 'hour' },
-        week:  { hours: 168, statPeriod: 'day' },
-        month: { hours: 720, statPeriod: 'day' }
-      };
-      const pc = periodConfig[period];
-      if (!pc) return;
-      const startTime = new Date(now.getTime() - pc.hours * 3600000);
-      // Collect all total_increasing sensor entity_ids
-      const sensorIds = [];
-      const devMap = {};
-      for (const dev of this._discoveredDevices) {
-        // Pick the best total_increasing sensor per device
-        const best = dev.all_sensors
-          ? dev.all_sensors.find(s => s.state_class === 'total_increasing') || dev.all_sensors[0]
-          : { entity_id: dev.entity_id };
-        if (best && best.entity_id) {
-          sensorIds.push(best.entity_id);
-          devMap[best.entity_id] = dev;
-        }
-      }
-      if (sensorIds.length === 0) return;
+      const hours = { day: 24, week: 168, month: 720 }[period];
+      if (!hours || !this._hass?.callWS) return;
+      const cacheKey = `_periodCache_${period}`;
+      const statusKey = `_periodStatus_${period}`;
+      this[cacheKey] = [];
+      this[statusKey] = 'no_data';
+      const end = new Date(Math.floor(Date.now() / 3600000) * 3600000);
+      const start = new Date(end.getTime() - hours * 3600000);
+      this[`_periodWindow_${period}`] = { start: start.toISOString(), end: end.toISOString() };
       try {
-        const stats = await this._hass.callWS({
-          type: 'recorder/statistics_during_period',
-          start_time: startTime.toISOString(),
-          end_time: now.toISOString(),
-          statistic_ids: sensorIds,
-          period: pc.statPeriod,
-          types: ['change']
-        });
+        const prefs = await this._hass.callWS({ type: 'energy/get_prefs' });
+        const ids = [...new Set((prefs?.energy_sources || []).filter(source => source.type === 'grid').map(source => source.stat_energy_from).filter(Boolean))];
+        if (!ids.length) return;
+        const rawMetadata = await this._hass.callWS({ type: 'recorder/get_statistics_metadata', statistic_ids: ids });
+        const metadata = Array.isArray(rawMetadata) ? Object.fromEntries(rawMetadata.map(row => [row.statistic_id, row])) : (rawMetadata || {});
+        const stats = await this._hass.callWS({ type: 'recorder/statistics_during_period',
+          start_time: start.toISOString(), end_time: end.toISOString(), statistic_ids: ids,
+          period: 'hour', types: ['change'] });
         const result = [];
-        for (const [entityId, dataPoints] of Object.entries(stats || {})) {
-          const dev = devMap[entityId];
-          if (!dev || !dataPoints || dataPoints.length === 0) continue;
-          const totalChange = dataPoints.reduce((sum, dp) => sum + (dp.change || 0), 0);
-          // Convert Wh to kWh if needed
-          const attrs = this._hass.states?.[entityId]?.attributes || {};
-          const kwh = attrs.unit_of_measurement === 'Wh' ? totalChange / 1000 : totalChange;
-          if (kwh <= 0) continue;
-          result.push({
-            name: dev.name, key: dev.key || dev.entity_id,
-            month: kwh, lastMonth: 0,
-            cost: this._cost(kwh),
-            entity_id: entityId, source: 'auto'
-          });
+        const hasSamples = ids.some(id => stats?.[id]?.length);
+        for (const id of ids) {
+          const meta = metadata[id];
+          const unit = meta?.statistics_unit_of_measurement || meta?.unit_of_measurement;
+          if (!meta?.has_sum || !['Wh', 'kWh'].includes(unit) || (meta.unit_class && meta.unit_class !== 'energy')) {
+            this[statusKey] = 'unsupported'; return;
+          }
+          const buckets = new Map();
+          for (const point of stats?.[id] || []) {
+            const stamp = typeof point.start === 'number' ? point.start * 1000 : Date.parse(point.start);
+            const change = point.change === null || point.change === undefined ? NaN : Number(point.change);
+            if (!Number.isFinite(stamp) || stamp < start.getTime() || stamp >= end.getTime() ||
+                (stamp - start.getTime()) % 3600000 !== 0 || buckets.has(stamp) || !Number.isFinite(change) || change < 0) {
+              this[statusKey] = 'partial'; return;
+            }
+            buckets.set(stamp, change);
+          }
+          if (buckets.size !== hours) { this[statusKey] = hasSamples ? 'partial' : 'no_data'; return; }
+          const kwh = [...buckets.values()].reduce((sum, value) => sum + value, 0) / (unit === 'Wh' ? 1000 : 1);
+          result.push({ name: this._hass.states?.[id]?.attributes?.friendly_name || id,
+            key: id, entity_id: id, month: kwh, lastMonth: null, cost: this._cost(kwh), source: 'recorder' });
         }
-        // Cache results
-        this[`_periodCache_${period}`] = result;
+        this[cacheKey] = result;
+        this[statusKey] = 'ready';
         this[`_periodCacheTime_${period}`] = Date.now();
       } catch (e) {
-        // recorder/statistics_during_period may not be available on older HA versions
-        console.warn('Energy Email: recorder stats fetch failed:', e.message);
+        console.warn('Energy Email: complete Recorder period data unavailable');
       }
     }
 
@@ -4075,31 +4045,13 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         { key: 'week', icon: '\u{1F4C6}', titleL: 'Raport tygodniowy', titleE: 'Weekly Report', rangeL: 'Ostatnie 7 dni', rangeE: 'Last 7 days' },
         { key: 'month', icon: '\u{1F4C8}', titleL: 'Raport miesi\u0119czny', titleE: 'Monthly Report', rangeL: 'Ostatnie 30 dni', rangeE: 'Last 30 days' },
       ];
-      const getDevData = (period) => {
-        if (devices.length > 0) {
-          return devices.map(d => {
-            let current = null, previous = null, cost = null;
-            const measured = id => {
-              const raw = id && this._hass?.states?.[id]?.state;
-              if (raw === undefined || raw === null || raw === '') return null;
-              const value = Number(raw);
-              return Number.isFinite(value) && value >= 0 ? value : null;
-            };
-            if (period === 'day') { current = measured(d.energy_day); cost = this._cost(current); }
-            else if (period === 'month') { current = measured(d.energy_month); previous = measured(d.energy_last_month); cost = measured(d.cost_month); }
-            else { current = measured(d.energy_week); previous = measured(d.energy_last_week); cost = measured(d.cost_week); }
-            return { name: d.name, current, previous, cost };
-          }).sort((a, b) => b.current - a.current);
-        }
-        try { var periodData = this._getAutoDataForPeriod(period); } catch(e) { var periodData = []; }
-        if (periodData && periodData.length > 0 && periodData.every(d => typeof d.month === 'number' && Number.isFinite(d.month) && d.month >= 0)) {
-          return periodData.map(d => ({ name: d.name, current: d.month, previous: d.lastMonth || 0, cost: d.cost ?? this._cost(d.month), hasPeriod: true })).sort((a, b) => b.current - a.current);
-        }
-        return [];
-      };
+      const getDevData = period => this._getAutoDataForPeriod(period).map(d => ({
+        name: d.name, current: d.month, previous: null, cost: d.cost, hasPeriod: true
+      }));
       const renderReport = (p) => {
         const title = L ? p.titleL : p.titleE;
-        const range = L ? p.rangeL : p.rangeE;
+        const window = this[`_periodWindow_${p.key}`];
+        const range = window ? `${_esc(window.start)} → ${_esc(window.end)}` : (L ? p.rangeL : p.rangeE);
         const devData = getDevData(p.key);
         const hasData = devData.length > 0 && devData.every(d => typeof d.current === 'number' && Number.isFinite(d.current));
         const totalEnergy = hasData ? devData.reduce((s, d) => s + d.current, 0) : null;
@@ -4126,7 +4078,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 
         <div class="section-title" style="margin-top:0">\u{1F4CB} ${L ? 'Podgl\u0105d raport\u00F3w email' : 'Email Report Previews'}</div>
         ${periods.map(p => renderReport(p)).join('')}
-        <div style="font-size:11px;color:var(--bento-text-secondary);margin-top:4px">${L ? 'Podgl\u0105d tre\u015Bci emaila. Rzeczywisty email zawiera pe\u0142n\u0105 tabel\u0119 HTML.' : 'Preview of email content. Actual email contains full HTML table.'}</div>`;
+        <div style="font-size:11px;color:var(--bento-text-secondary);margin-top:4px">${L ? 'Podgląd skonfigurowanych źródeł Energy Dashboard; ukończone godziny Recorder.' : 'Configured Energy Dashboard source preview; completed Recorder hours.'}</div>`;
     }
 
     _tabSend() {
@@ -4612,21 +4564,12 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         };
         // Fetch fresh recorder stats
         await this._fetchRecorderStats(periodKey);
-        let devices = [];
         const cached = this[`_periodCache_${periodKey}`];
-        if (cached && cached.length > 0) {
-          devices = this._filterExcluded(cached).sort((a, b) => b.month - a.month);
-        } else {
-          // Fallback to total data
-          const auto = this._discoveredDevices || [];
-          const manual = this._devices();
-          if (manual.length > 0) {
-            devices = manual.map(d => ({ name: d.name, month: this._float(this._state(d.energy_month || d.energy_week, '0')), cost: this._float(this._state(d.cost_month || d.cost_week, '0')) }));
-          } else {
-            devices = this._filterExcluded(auto.map(d => ({ name: d.name, month: d.value_kwh, cost: this._cost(d.value_kwh) }))).sort((a, b) => b.month - a.month);
-          }
+        if (this[`_periodStatus_${periodKey}`] !== 'ready' || !cached?.length) {
+          throw new Error(L ? 'Brak kompletnych danych Recorder dla tego okresu.' : 'Complete Recorder data is unavailable for this period.');
         }
-        if (devices.length === 0) throw new Error(L ? 'Brak danych o energii' : 'No energy data available');
+        const devices = [...cached].sort((a, b) => b.month - a.month);
+
         const totalKwh = devices.reduce((s, d) => s + (d.month || 0), 0);
         const rowCosts = devices.map(d => d.cost ?? this._cost(d.month));
         const totalCost = rowCosts.every(cost => typeof cost === 'number' && Number.isFinite(cost)) ? rowCosts.reduce((sum, cost) => sum + cost, 0) : null;
