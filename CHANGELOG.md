@@ -1,5 +1,11 @@
 # Changelog — Energy Optimizer
 
+## 3.5.2 (2026-09-30)
+
+- Energy Email previews no longer substitute lifetime counters for daily, weekly or monthly energy, or missing measurements with zero.
+- With HA Tools Email 2.1.2+, preview reads the server composer model used by manual sends and schedules, including exact Recorder windows and configured grid sources. Unavailable server previews stay unavailable.
+- Keep measured zero and escape source names in the preview. Tariff absence remains explicit.
+
 ## 3.5.1 (2026-09-29)
 
 - Use measured grid-import statistics with explicit empty/partial states, including missing and daylight-saving hours; never invent a rate or currency for Energy Email.

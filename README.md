@@ -132,3 +132,12 @@ MIT — see [LICENSE](LICENSE).
 Energy analysis reads configured Energy Dashboard sources and Recorder statistics from Home Assistant. Consumption patterns can reveal household activity. Treat exported reports and screenshots as private; use synthetic series when sharing a reproduction.
 
 See [SECURITY.md](SECURITY.md) for safe vulnerability reporting and [NOTICE](NOTICE) for licensing notices.
+
+### Energy Email report preview
+
+With HA Tools Email 2.1.2 or newer, Energy Email reads the server report composer
+for each cadence. Preview and sending use configured Energy Dashboard grid-import
+sources and the exact completed-hour Recorder window shown in the preview.
+Missing or incomplete data withholds the total; missing tariff withholds cost.
+Older backends show an unavailable server preview until updated. Local period
+previews never use a lifetime reading as daily, weekly or monthly consumption.
