@@ -147,7 +147,7 @@ for (const zero of [false, true]) {
 
 test('manual daily overview does not borrow a weekly meter when the daily meter is missing', () => {
   const { dom, card } = preview();
-  card._config.devices = [{ name: 'Manual meter', energy_week: 'sensor.week' }];
+  card._hass.states['sensor.energy_report_devices'] = { state: '1', attributes: { devices: [{ name: 'Manual meter', energy_week: 'sensor.week' }] } };
   card._hass.states['sensor.week'] = { state: '77', attributes: {} };
   try { assert.equal(card._getOverviewDataForPeriod('day').length, 0); }
   finally { dom.window.close(); }
