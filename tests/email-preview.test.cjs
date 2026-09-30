@@ -6,6 +6,14 @@ const { JSDOM } = require('jsdom');
 
 function preview(options = {}) {
   const dom = new JSDOM('', { runScripts: 'dangerously', url: 'http://localhost/' });
+  if (options.now) {
+    const NativeDate = dom.window.Date;
+    const fixed = new NativeDate(options.now).getTime();
+    dom.window.Date = class extends NativeDate {
+      constructor(...args) { super(...(args.length ? args : [fixed])); }
+      static now() { return fixed; }
+    };
+  }
   dom.window.eval(readFileSync(join(__dirname, '..', 'ha-energy-optimizer.js'), 'utf8'));
   const card = dom.window.document.createElement('ha-energy-email');
   card._hass = { config: { currency: 'EUR' }, states: {} };
@@ -25,6 +33,36 @@ test('missing period data is not rendered as measured zero in email preview', ()
     assert.match(output.textContent, /No.*data|unavailable|not available/i);
   } finally { dom.window.close(); }
 });
+
+for (const [scenario, expected] of [['complete', 24], ['zero', 0], ['gap', null]]) {
+  test(`without the email backend, ${scenario} Recorder data uses configured roots and honest coverage`, async () => {
+    const { dom, card, output } = preview({ now: '2026-09-30T12:30:00Z', devices: [
+      { name: 'Unrelated lifetime meter', entity_id: 'sensor.unrelated', value_kwh: 9876,
+        all_sensors: [{ entity_id: 'sensor.unrelated', state_class: 'total_increasing' }] },
+    ] });
+    const start = Date.parse('2026-09-29T12:00:00Z');
+    const points = Array.from({ length: 24 }, (_, i) => ({ start: (start + i * 3600000)/1000,
+      end: (start + (i+1)*3600000)/1000, change: scenario === 'zero' ? 0 : 1 }))
+      .filter((_, i) => scenario !== 'gap' || i !== 8);
+    card._hass.states = { 'sensor.grid': { state: '8888', attributes: { friendly_name: 'Configured grid', unit_of_measurement: 'kWh' } },
+      'sensor.unrelated': { state: '9876', attributes: { unit_of_measurement: 'kWh' } } };
+    card._hass.callWS = async msg => ({
+      'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+      'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, unit_class: 'energy', statistics_unit_of_measurement: 'kWh' } },
+      'recorder/statistics_during_period': { 'sensor.grid': points, 'sensor.unrelated': points.map(p => ({ ...p, change: 100 })) },
+    })[msg.type];
+    try {
+      await card._fetchRecorderStats('day');
+      output.innerHTML = card._tabPreview();
+      assert.doesNotMatch(output.textContent, /9876|2400\.0|Unrelated lifetime/);
+      if (expected === null) assert.doesNotMatch(output.querySelector('.preview-box').textContent, /23\.0\s+kWh/);
+      else {
+        assert.match(output.textContent, /Configured grid/);
+        assert.match(output.textContent, new RegExp(expected.toFixed(1).replace('.', '\\.') + '\\s+kWh'));
+      }
+    } finally { dom.window.close(); }
+  });
+}
 
 test('a lifetime meter reading is never used as daily, weekly or monthly consumption', () => {
   const { dom, output } = preview({ devices: [{ name: 'Lifetime meter', entity_id: 'sensor.meter', value_kwh: 9876 }] });
