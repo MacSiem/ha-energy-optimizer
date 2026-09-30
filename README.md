@@ -126,3 +126,9 @@ The optional support link in Energy Optimizer, Insights and Email is shown only 
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Privacy and data
+
+Energy analysis reads configured Energy Dashboard sources and Recorder statistics from Home Assistant. Consumption patterns can reveal household activity. Treat exported reports and screenshots as private; use synthetic series when sharing a reproduction.
+
+See [SECURITY.md](SECURITY.md) for safe vulnerability reporting and [NOTICE](NOTICE) for licensing notices.
