@@ -26,7 +26,7 @@ function cardWith(responses, options = {}) {
 }
 
 test('grid import uses unique configured roots and converts Wh without counting arbitrary sensors', async () => {
-  const start = Math.floor((Date.now() - 3600000) / 1000);
+  const start = Date.parse('2026-09-30T11:00:00Z') / 1000;
   const { dom, card, calls } = cardWith({
     'energy/get_prefs': { energy_sources: [
       { type: 'grid', stat_energy_from: 'sensor.grid_a' },
@@ -42,7 +42,7 @@ test('grid import uses unique configured roots and converts Wh without counting 
       'sensor.grid_b': [{ start, change: 500 }],
       'sensor.unrelated': [{ start, change: 999 }],
     },
-  });
+  }, { now: '2026-09-30T12:30:00Z', timeZone: 'UTC' });
   try {
     await card._fetchEnergyStats();
     assert.equal(card._hasRealData, true);
@@ -157,12 +157,12 @@ test('configured grid without recent Recorder buckets stays empty', async () => 
 });
 
 test('Insights ignores unconfigured power sensors and omits cost without a tariff', async () => {
-  const start = Math.floor((Date.now() - 3600000) / 1000);
-  const { dom, card: unused } = cardWith({});
+  const start = Date.parse('2026-09-30T11:00:00Z') / 1000;
+  const { dom, card: unused } = cardWith({}, { now: '2026-09-30T12:30:00Z', timeZone: 'UTC' });
   try {
     const insights = dom.window.document.createElement('ha-energy-insights');
     insights._updateContent = () => {};
-    insights._hass = { config: { currency: 'EUR' }, states: {
+    insights._hass = { config: { currency: 'EUR', time_zone: 'UTC' }, states: {
       'sensor.power': { state: '1500', attributes: { unit_of_measurement: 'W' } },
     }, callWS: async msg => ({
       'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },

@@ -153,16 +153,17 @@ test('manual daily overview does not borrow a weekly meter when the daily meter 
   finally { dom.window.close(); }
 });
 
-test('Recorder tariff cost weights consumption at the HA local hour instead of averaging rates', async () => {
+for (const [timeZone, unit, dayHour, nightHour] of [['UTC', 'kWh', 12, 23], ['Europe/Warsaw', 'Wh', 4, 20]]) {
+test(`Recorder tariff cost weights consumption at HA local hours (${timeZone}, ${unit})`, async () => {
   const { dom, card } = preview({ now: '2026-09-30T00:30:00Z' });
-  card._hass.config.time_zone = 'UTC';
+  card._hass.config.time_zone = timeZone;
   Object.assign(card._config, { energy_tariff_mode: 'day_night', energy_price_day: 2, energy_price_night: 1 });
   const start = Date.parse('2026-09-29T00:00:00Z');
   const points = Array.from({ length: 24 }, (_, hour) => ({ start: (start + hour * 3600000) / 1000,
-    change: hour === 12 ? 10 : hour === 23 ? 1 : 0 }));
+    change: (hour === dayHour ? 10 : hour === nightHour ? 1 : 0) * (unit === 'Wh' ? 1000 : 1) }));
   card._hass.callWS = async msg => ({
     'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
-    'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+    'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: unit } },
     'recorder/statistics_during_period': { 'sensor.grid': points },
   })[msg.type];
   try {
@@ -172,3 +173,4 @@ test('Recorder tariff cost weights consumption at the HA local hour instead of a
     assert.equal(card._cost(11), null, 'aggregate usage cannot price time tariffs without hourly consumption');
   } finally { dom.window.close(); }
 });
+}
