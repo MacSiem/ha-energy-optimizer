@@ -4043,45 +4043,52 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       const getDevData = (period) => {
         if (devices.length > 0) {
           return devices.map(d => {
-            let current = 0, previous = 0, cost = 0;
-            if (period === 'day') { current = this._float(this._state(d.energy_day || d.energy_week, '0')); cost = this._cost(current); }
-            else if (period === 'month') { current = this._float(this._state(d.energy_month, '0')); previous = this._float(this._state(d.energy_last_month, '0')); cost = this._float(this._state(d.cost_month || d.cost_week, '0')); }
-            else { current = this._float(this._state(d.energy_week, '0')); previous = this._float(this._state(d.energy_last_week, '0')); cost = this._float(this._state(d.cost_week, '0')); }
+            let current = null, previous = null, cost = null;
+            const measured = id => {
+              const raw = id && this._hass?.states?.[id]?.state;
+              if (raw === undefined || raw === null || raw === '') return null;
+              const value = Number(raw);
+              return Number.isFinite(value) && value >= 0 ? value : null;
+            };
+            if (period === 'day') { current = measured(d.energy_day); cost = this._cost(current); }
+            else if (period === 'month') { current = measured(d.energy_month); previous = measured(d.energy_last_month); cost = measured(d.cost_month); }
+            else { current = measured(d.energy_week); previous = measured(d.energy_last_week); cost = measured(d.cost_week); }
             return { name: d.name, current, previous, cost };
           }).sort((a, b) => b.current - a.current);
         }
         try { var periodData = this._getAutoDataForPeriod(period); } catch(e) { var periodData = []; }
-        if (periodData && periodData.length > 0 && periodData.some(d => d.month > 0)) {
+        if (periodData && periodData.length > 0 && periodData.every(d => typeof d.month === 'number' && Number.isFinite(d.month) && d.month >= 0)) {
           return periodData.map(d => ({ name: d.name, current: d.month, previous: d.lastMonth || 0, cost: d.cost ?? this._cost(d.month), hasPeriod: true })).sort((a, b) => b.current - a.current);
         }
-        return autoDevices.map(d => ({ name: d.name, current: d.value_kwh, previous: 0, cost: this._cost(d.value_kwh), hasPeriod: false })).sort((a, b) => b.current - a.current);
+        return [];
       };
       const renderReport = (p) => {
         const title = L ? p.titleL : p.titleE;
         const range = L ? p.rangeL : p.rangeE;
         const devData = getDevData(p.key);
-        const totalEnergy = devData.reduce((s, d) => s + d.current, 0);
-        const totalCost = devData.every(d => typeof d.cost === 'number' && Number.isFinite(d.cost)) ? devData.reduce((s, d) => s + d.cost, 0) : null;
+        const hasData = devData.length > 0 && devData.every(d => typeof d.current === 'number' && Number.isFinite(d.current));
+        const totalEnergy = hasData ? devData.reduce((s, d) => s + d.current, 0) : null;
+        const totalCost = hasData && devData.every(d => typeof d.cost === 'number' && Number.isFinite(d.cost)) ? devData.reduce((s, d) => s + d.cost, 0) : null;
         const top5 = devData.slice(0, 5);
         const isPeriodData = devData.length > 0 && devData[0].hasPeriod;
-        const periodNote = !isPeriodData && isAuto ? `<div style="font-size:11px;color:var(--bento-text-secondary);margin-bottom:6px;font-style:italic">\u26A0 ${L ? 'Brak sensor\u00F3w dla tego okresu \u2014 pokazano dane total' : 'No period-specific sensors found \u2014 showing total data'}</div>` : '';
+        const periodNote = !hasData ? `<div role="status">${L ? 'Brak kompletnych danych dla tego okresu.' : 'No complete data available for this period.'}</div>` : '';
         return `<div class="preview-box" style="margin-bottom:14px">
           <h3 style="margin:0 0 8px">${p.icon} ${title} \u2013 ${today}</h3>
           ${periodNote}
           <div style="font-size:12px;color:var(--bento-text-secondary);margin-bottom:10px">\u{1F4E7} ${_esc(recipientLine)} \u00A0\u2022\u00A0 ${range} \u00A0\u2022\u00A0 ${devData.length} ${L ? 'urz.' : 'dev.'}</div>
           <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">
-            <div><span style="font-size:18px;font-weight:700;color:#F59E0B">${totalEnergy.toFixed(1)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">kWh</span></div>
+            <div><span style="font-size:18px;font-weight:700;color:#F59E0B">${totalEnergy === null ? 'N/A' : totalEnergy.toFixed(1)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">kWh</span></div>
             <div><span style="font-size:18px;font-weight:700;color:#3B82F6">${this._formatCost(totalCost)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">${_esc(this._config.currency || this._hass?.config?.currency || '')}</span></div>
           </div>
           <table class="preview-table">
             <thead><tr><th>${L ? 'Urz\u0105dzenie' : 'Device'}</th><th>kWh</th><th>${L ? 'Koszt' : 'Cost'} (${_esc(this._config.currency || this._hass?.config?.currency || '')})</th></tr></thead>
-            <tbody>${top5.map(d => `<tr><td>${_esc(d.name)}</td><td>${d.current.toFixed(2)}</td><td>${this._formatCost(d.cost)}</td></tr>`).join('')}
+            <tbody>${top5.map(d => `<tr><td>${_esc(d.name)}</td><td>${d.current === null ? 'N/A' : d.current.toFixed(2)}</td><td>${this._formatCost(d.cost)}</td></tr>`).join('')}
             ${devData.length > 5 ? `<tr><td colspan="3" style="text-align:center;color:var(--bento-text-secondary);font-size:11px">+ ${devData.length - 5} ${L ? 'wi\u0119cej urz\u0105dze\u0144' : 'more devices'}...</td></tr>` : ''}</tbody>
           </table>
         </div>`;
       };
       return `
-        ${isAuto ? `<div class="info-row">\u{1F50D}\u00A0 ${L ? 'Auto-discovery: dane z sensor\u00F3w total.' : 'Auto-discovery: showing total sensor data.'}</div>` : ''}
+
         <div class="section-title" style="margin-top:0">\u{1F4CB} ${L ? 'Podgl\u0105d raport\u00F3w email' : 'Email Report Previews'}</div>
         ${periods.map(p => renderReport(p)).join('')}
         <div style="font-size:11px;color:var(--bento-text-secondary);margin-top:4px">${L ? 'Podgl\u0105d tre\u015Bci emaila. Rzeczywisty email zawiera pe\u0142n\u0105 tabel\u0119 HTML.' : 'Preview of email content. Actual email contains full HTML table.'}</div>`;
