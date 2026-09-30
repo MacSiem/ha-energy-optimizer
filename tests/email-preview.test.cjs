@@ -70,6 +70,19 @@ test('a lifetime meter reading is never used as daily, weekly or monthly consump
   finally { dom.window.close(); }
 });
 
+test('legacy sending with missing Recorder data does not send lifetime totals as a daily report', async () => {
+  const { dom, card } = preview({ devices: [{ name: 'Lifetime meter', entity_id: 'sensor.meter', value_kwh: 9876 }] });
+  const sent = [];
+  card._config.energy_price = 0.8;
+  card._hass.services = { ha_tools_email: { send: {} } };
+  card._hass.callWS = async () => ({});
+  card._hass.callService = async (domain, service, payload) => { sent.push(payload); };
+  try {
+    await card._sendReport('daily');
+    assert.equal(sent.length, 0);
+  } finally { dom.window.close(); }
+});
+
 test('a zero Recorder period remains measured zero without falling back to lifetime totals', () => {
   const { dom, output } = preview({ zero: true, devices: [{ name: 'Lifetime meter', value_kwh: 9876 }] });
   try {
