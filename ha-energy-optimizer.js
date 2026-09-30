@@ -4569,6 +4569,8 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           throw new Error(L ? 'Brak kompletnych danych Recorder dla tego okresu.' : 'Complete Recorder data is unavailable for this period.');
         }
         const devices = [...cached].sort((a, b) => b.month - a.month);
+        const window = this[`_periodWindow_${periodKey}`];
+        const windowText = `${window.start} → ${window.end}`;
 
         const totalKwh = devices.reduce((s, d) => s + (d.month || 0), 0);
         const rowCosts = devices.map(d => d.cost ?? this._cost(d.month));
@@ -4586,7 +4588,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         const html = `<div style="font-family:'Segoe UI',Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0">
           <div style="background:linear-gradient(135deg,#1e40af,#3b82f6);padding:24px 28px;color:#fff">
             <h1 style="margin:0;font-size:22px;font-weight:700">\u26A1 ${L ? 'Raport energii' : 'Energy Report'} \u2014 ${typeName}</h1>
-            <p style="margin:6px 0 0;opacity:.85;font-size:14px">${dateStr} \u2022 ${periodLabels[type]} \u2022 ${devices.length} ${L ? 'urz.' : 'dev.'}</p>
+            <p style="margin:6px 0 0;opacity:.85;font-size:14px">${dateStr} \u2022 ${_esc(windowText)} \u2022 ${devices.length} ${L ? 'urz.' : 'dev.'}</p>
           </div>
           <div style="padding:20px 28px">
             <div style="display:flex;gap:16px;margin-bottom:20px">
@@ -4622,7 +4624,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           </div>
         </div>`;
         const title = `\u26A1 ${typeName} ${L ? 'raport energii' : 'Energy Report'} \u2013 ${dateStr}`;
-        const plainText = `${typeName} ${L ? 'raport energii' : 'Energy Report'} - ${dateStr}\n${L ? '\u0141\u0105cznie' : 'Total'}: ${totalKwh.toFixed(2)} kWh / ${this._formatCost(totalCost)} ${currency}\n${devices.map(d => `${d.name}: ${(d.month||0).toFixed(2)} kWh`).join('\n')}`;
+        const plainText = `${typeName} ${L ? 'raport energii' : 'Energy Report'} - ${dateStr}\n${windowText}\n${L ? '\u0141\u0105cznie' : 'Total'}: ${totalKwh.toFixed(2)} kWh / ${this._formatCost(totalCost)} ${currency}\n${devices.map(d => `${d.name}: ${(d.month||0).toFixed(2)} kWh`).join('\n')}`;
         // Built-in SMTP via ha_tools_email
         await this._sendViaHaToolsEmail(recipient || '', title, plainText, html);
         this._lastSent[type] = nowStr;
