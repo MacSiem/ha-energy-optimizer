@@ -125,3 +125,50 @@ test('backend preview uses the same sources and window as the server report rath
     assert.equal(output.querySelector('grid'), null);
   } finally { dom.window.close(); }
 });
+
+for (const zero of [false, true]) {
+  test(`overview selected period ${zero ? 'preserves measured zero' : 'does not substitute lifetime when unavailable'}`, () => {
+    const { dom, card, output } = preview({ zero, devices: [{ name: 'Lifetime meter', value_kwh: 9876 }] });
+    try {
+      card._overviewPeriod = 'day';
+      output.innerHTML = card._tabOverview();
+      assert.doesNotMatch(output.textContent, /9876/);
+      if (zero) {
+        assert.match(output.textContent, /Measured zero source/);
+        assert.match(output.textContent, /0\.0\s+kWh/);
+      } else {
+        assert.match(output.textContent, /unavailable|No.*data|not available/i);
+        assert.doesNotMatch(output.textContent, /0\.0\s+kWh/);
+      }
+      assert.equal(output.querySelectorAll('.overview-period-btn').length, 4);
+    } finally { dom.window.close(); }
+  });
+}
+
+test('manual daily overview does not borrow a weekly meter when the daily meter is missing', () => {
+  const { dom, card } = preview();
+  card._config.devices = [{ name: 'Manual meter', energy_week: 'sensor.week' }];
+  card._hass.states['sensor.week'] = { state: '77', attributes: {} };
+  try { assert.equal(card._getOverviewDataForPeriod('day').length, 0); }
+  finally { dom.window.close(); }
+});
+
+test('Recorder tariff cost weights consumption at the HA local hour instead of averaging rates', async () => {
+  const { dom, card } = preview({ now: '2026-09-30T00:30:00Z' });
+  card._hass.config.time_zone = 'UTC';
+  Object.assign(card._config, { energy_tariff_mode: 'day_night', energy_price_day: 2, energy_price_night: 1 });
+  const start = Date.parse('2026-09-29T00:00:00Z');
+  const points = Array.from({ length: 24 }, (_, hour) => ({ start: (start + hour * 3600000) / 1000,
+    change: hour === 12 ? 10 : hour === 23 ? 1 : 0 }));
+  card._hass.callWS = async msg => ({
+    'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+    'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+    'recorder/statistics_during_period': { 'sensor.grid': points },
+  })[msg.type];
+  try {
+    await card._fetchRecorderStats('day');
+    assert.equal(card._periodCache_day[0].month, 11);
+    assert.equal(card._periodCache_day[0].cost, 21);
+    assert.equal(card._cost(11), null, 'aggregate usage cannot price time tariffs without hourly consumption');
+  } finally { dom.window.close(); }
+});
