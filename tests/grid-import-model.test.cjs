@@ -114,6 +114,41 @@ test('misaligned grid source hours fail closed instead of undercounting', async 
   } finally { dom.window.close(); }
 });
 
+test('interior missing Recorder hour cannot produce a complete daily model', async () => {
+  const { dom, card } = cardWith({
+    'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+    'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+    'recorder/statistics_during_period': { 'sensor.grid': [
+      { start: '2026-09-30T09:00:00Z', change: 1 },
+      { start: '2026-09-30T11:00:00Z', change: 2 },
+    ] },
+  }, { now: '2026-09-30T12:30:00Z', timeZone: 'UTC' });
+  try {
+    await card._fetchEnergyStats();
+    assert.equal(card._hasRealData, false);
+    assert.match(card._getTemplate(), /statistics could not be loaded/);
+  } finally { dom.window.close(); }
+});
+
+test('Insights rejects an interior missing hour instead of presenting daily totals and peak hours', async () => {
+  const { dom } = cardWith({}, { now: '2026-09-30T12:30:00Z', timeZone: 'UTC' });
+  try {
+    const insights = dom.window.document.createElement('ha-energy-insights');
+    insights._updateContent = () => {};
+    insights._hass = { config: { currency: 'EUR', time_zone: 'UTC' }, states: {}, callWS: async msg => ({
+      'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+      'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+      'recorder/statistics_during_period': { 'sensor.grid': [
+        { start: '2026-09-30T09:00:00Z', change: 1 },
+        { start: '2026-09-30T11:00:00Z', change: 2 },
+      ] },
+    })[msg.type] };
+    await insights._fetchData();
+    assert.match(insights._error || '', /Incomplete.*hour/i);
+    assert.equal(insights._data, null);
+  } finally { dom.window.close(); }
+});
+
 test('negative change fails closed instead of becoming zero energy', async () => {
   const start = Math.floor((Date.now() - 3600000) / 1000);
   const { dom, card } = cardWith({
