@@ -205,6 +205,11 @@ class HaEnergyOptimizer extends HTMLElement {
           daily.get(key)[hour] += kwh;
         }
         if (!todayCount) throw new Error('No complete statistic bucket for today');
+        // Compare absolute starts: local DST skips/repeats remain consecutive UTC hours.
+        const orderedToday = [...todayBuckets].sort((a, b) => a - b);
+        if (orderedToday.some((start, index) => index && start - orderedToday[index - 1] !== 3600000)) {
+          throw new Error('Incomplete Energy Dashboard hourly coverage');
+        }
         if (referenceTodayBuckets && (todayBuckets.size !== referenceTodayBuckets.size ||
           [...todayBuckets].some(startTime => !referenceTodayBuckets.has(startTime)))) {
           throw new Error('Incomplete Energy Dashboard grid import series');
@@ -1982,6 +1987,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           const entries = stats[id] || [];
           const unit = sensorUnits[id];
           let sensorMonthTotal = 0;
+          const todayBucketStarts = new Set();
 
           entries.forEach(entry => {
             if (typeof entry.change !== 'number' || !Number.isFinite(entry.change) || entry.change < 0) throw new Error('Invalid or incomplete energy change bucket');
@@ -1997,6 +2003,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
             // Today hourly
             if (bucketDay === todayKey) {
+              todayBucketStarts.add(entryDate.getTime());
               hourlyToday[hour] += change;
               todayKwh += change;
               if (rate !== null) todayCost += change * rate;
@@ -2021,6 +2028,11 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
             sensorMonthTotal += change;
           });
+
+          const orderedToday = [...todayBucketStarts].sort((a, b) => a - b);
+          if (orderedToday.some((start, index) => index && start - orderedToday[index - 1] !== 3600000)) {
+            throw new Error('Incomplete Energy Dashboard hourly coverage');
+          }
 
           // Track per-device totals for Top Devices
           const friendlyName = this._hass.states?.[id]?.attributes?.friendly_name
