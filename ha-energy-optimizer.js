@@ -3118,7 +3118,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       try {
         const prefs = await this._hass.callWS({ type: 'energy/get_prefs' });
         const ids = energyImportIds(prefs);
-        if (!ids.length) return;
+        if (!ids.length) { this[statusKey] = 'no_sources'; return; }
         const rawMetadata = await this._hass.callWS({ type: 'recorder/get_statistics_metadata', statistic_ids: ids });
         const metadata = Array.isArray(rawMetadata) ? Object.fromEntries(rawMetadata.map(row => [row.statistic_id, row])) : (rawMetadata || {});
         const stats = await this._hass.callWS({ type: 'recorder/statistics_during_period',
@@ -3151,6 +3151,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         this[statusKey] = 'ready';
         this[`_periodCacheTime_${period}`] = Date.now();
       } catch (e) {
+        this[statusKey] = 'error';
         console.warn('Energy Email: complete Recorder period data unavailable');
       }
     }
@@ -3574,9 +3575,25 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         const lb = p === 'total' ? (L ? 'Wszystko' : 'All') : p === 'day' ? '24h' : p === 'week' ? '7d' : '30d';
         return `<button class="overview-period-btn" data-period="${p}" style="padding:5px 12px;font-size:11px;border-radius:6px;cursor:pointer;border:1px solid var(--bento-border);background:${period === p ? 'var(--bento-primary)' : 'var(--bento-bg)'};color:${period === p ? '#fff' : 'var(--bento-text)'};font-weight:${period === p ? '600' : '400'};">${lb}</button>`;
       }).join('');
-      if (!displayData.length) return `<div class="section-title">${periodLabel}</div><div>${periodBtns}</div>
-        <div class="empty-state">${L ? 'Dane okresu niedostępne' : 'Period data unavailable'} (${_esc(this[`_periodStatus_${period}`] || 'no_data')})</div>
-        ${periodNote ? `<div class="info-row" style="overflow-wrap:anywhere">${_esc(periodNote)}</div>` : ''}`;
+      if (!displayData.length) {
+        const status = this[`_periodStatus_${period}`] || 'no_data';
+        const messages = L ? {
+          no_sources: 'Skonfiguruj źródło importu z sieci w panelu Energia, aby wyświetlić zużycie.',
+          no_data: 'Brak statystyk Recorder dla skonfigurowanych źródeł w tym okresie. Sumy będą dostępne, gdy każde źródło dostarczy dane.',
+          partial: 'Statystyki okresu są niepełne lub nieprawidłowe. Sprawdź dane każdego źródła w panelu Energia; suma pozostaje niedostępna.',
+          unsupported: 'Źródło importu wymaga statystyk energii w Wh, kWh lub MWh. Sprawdź konfigurację źródła w panelu Energia.',
+          error: 'Nie udało się odczytać statystyk energii. Sprawdź połączenie z Home Assistant i ponów odczyt.'
+        } : {
+          no_sources: 'Configure a grid-import source in Energy Dashboard to display usage.',
+          no_data: 'No Recorder statistics for the configured sources in this period. Totals become available when every source has data.',
+          partial: 'Period statistics are incomplete or invalid. Check every source in Energy Dashboard; the total remains unavailable.',
+          unsupported: 'The import source requires energy statistics in Wh, kWh or MWh. Check its Energy Dashboard configuration.',
+          error: 'Energy statistics could not be loaded. Check your Home Assistant connection and retry.'
+        };
+        return `<div class="section-title">${periodLabel}</div><div>${periodBtns}</div>
+          <div class="empty-state" role="status">${_esc(messages[status] || messages.error)}${['no_sources', 'partial', 'unsupported'].includes(status) ? ` <a href="/energy">${L ? 'Otwórz panel Energia' : 'Open Energy Dashboard'}</a>` : ''}</div>
+          ${periodNote ? `<div class="info-row" style="overflow-wrap:anywhere">${_esc(periodNote)}</div>` : ''}`;
+      }
       return `
         ${periodNote ? `<div class="info-row" style="overflow-wrap:anywhere">${_esc(periodNote)}</div>` : ''}
         <div class="info-row">${L ? 'Import z sieci: źródła skonfigurowane w Energy Dashboard.' : 'Grid import: sources configured in Energy Dashboard.'}</div>

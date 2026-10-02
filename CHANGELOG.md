@@ -2,6 +2,8 @@
 
 ## 3.5.3 (unreleased)
 
+- Guide Email first run to configure a missing grid-import source. Distinguish absent Recorder measurements, incomplete or unsupported statistics, and failed reads instead of showing raw status codes.
+
 - Describe report rows as grid-import sources, label chart dates accurately and show the required HA Tools Email version in schedule/send instructions.
 
 - Refresh open email report windows every five minutes without replacing a settings form while it is being edited.
