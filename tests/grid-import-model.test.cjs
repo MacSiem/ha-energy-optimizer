@@ -25,6 +25,25 @@ function cardWith(responses, options = {}) {
   return { dom, card, calls };
 }
 
+test('Optimizer tab selection matches the visible panel immediately after navigation', () => {
+  const { dom, card } = cardWith({});
+  try {
+    card._hasRealData = true;
+    card._config.show_support = false;
+    // Chart timers are unrelated to immediate navigation semantics.
+    card._schedule = () => {};
+    card._render();
+    for (const tab of ['patterns', 'recommendations', 'compare', 'dashboard']) {
+      const button = card.shadowRoot.querySelector(`[data-tab="${tab}"]`);
+      button.click();
+      assert.equal(button.getAttribute('aria-selected'), 'true');
+      assert.equal(card.shadowRoot.querySelectorAll('[role="tab"][aria-selected="true"]').length, 1);
+      assert.ok(card.shadowRoot.getElementById(tab).classList.contains('active'));
+      assert.equal(card.shadowRoot.querySelectorAll('.tab-content.active').length, 1);
+    }
+  } finally { dom.window.close(); }
+});
+
 test('grid import uses unique configured roots and converts Wh without counting arbitrary sensors', async () => {
   const start = Date.parse('2026-09-30T11:00:00Z') / 1000;
   const { dom, card, calls } = cardWith({
