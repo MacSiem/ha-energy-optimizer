@@ -2,6 +2,8 @@
 
 ## 3.5.2 (2026-09-30)
 
+- Bound responsive Optimizer chart plots so full Recorder data cannot repeatedly enlarge the card while resizing.
+
 - Optimizer and Insights reject an interior gap in today's hourly Recorder buckets instead of presenting a complete daily model or peak-hour advice. Absolute UTC coverage preserves valid 23-hour and 25-hour daylight-saving days.
 
 - Period overview preserves measured zero and keeps missing daily/weekly/monthly data unavailable instead of using lifetime or another period. Recorder windows are explicit.

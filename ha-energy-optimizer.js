@@ -650,6 +650,12 @@ canvas {
           border: 1px solid var(--divider);
         }
 
+        .chart-plot {
+          position: relative;
+          height: clamp(220px, 32vw, 320px);
+          min-width: 0;
+        }
+
         .chart-title {
           font-size: 14px;
           font-weight: 600;
@@ -970,7 +976,7 @@ canvas {
               <span>24-Hour Usage</span>
               <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">kWh by hour</span>
             </div>
-            <canvas id="dashboard-chart"></canvas>
+            <div class="chart-plot"><canvas id="dashboard-chart"></canvas></div>
           </div>
         </div>
 
@@ -1021,7 +1027,7 @@ canvas {
               <span>7-Day Trend</span>
               <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">Daily consumption average</span>
             </div>
-            <canvas id="trend-chart"></canvas>
+            <div class="chart-plot"><canvas id="trend-chart"></canvas></div>
           </div>
 
           <div class="chart-container">
@@ -1029,7 +1035,7 @@ canvas {
               <span>Day-of-Week Comparison</span>
               <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">Average daily usage</span>
             </div>
-            <canvas id="weekday-chart"></canvas>
+            <div class="chart-plot"><canvas id="weekday-chart"></canvas></div>
           </div>
         </div>
 
