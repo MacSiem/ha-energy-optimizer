@@ -46,3 +46,43 @@ test('ordinary user cannot trigger an energy email send from the card', async ()
     assert.deepEqual(writes, []);
   } finally { dom.window.close(); }
 });
+
+test('ordinary users get a read-only message and cannot mutate settings or schedules', async () => {
+  const { dom, card: email } = card();
+  email._hass.user.is_admin = false;
+  const writes = [];
+  email._hass.callWS = async msg => { writes.push(msg.type); return {}; };
+  email._hass.callService = async (...args) => { writes.push(args); };
+  try {
+    for (const tab of ['config', 'schedule', 'send']) {
+      email._activeTab = tab;
+      email._render();
+      assert.match(email.shadowRoot.getElementById('tab-content').textContent, /Only administrators/);
+      assert.equal(email.shadowRoot.querySelector('#cfg-price-save, .schedule-save, #send-daily'), null);
+    }
+    await email._saveToHelper('recipient', 'nobody@example.invalid');
+    await email._saveBackendSchedule('daily');
+    await email._deleteBackendSchedule('daily');
+    await email._createAutomation('daily');
+    await email._testSmtp();
+    assert.deepEqual(writes, []);
+    assert.equal(dom.window.localStorage.length, 0);
+  } finally { dom.window.close(); }
+});
+
+test('explicit admin settings save without helpers persists locally, including a zero tariff', async () => {
+  const { dom, card: email } = card();
+  const writes = [];
+  email._hass.callService = async (...args) => writes.push(args);
+  try {
+    await email._saveToHelper('price', '0');
+    await email._saveToHelper('recipient', 'preview@example.invalid');
+    const restored = dom.window.document.createElement('ha-energy-email');
+    restored._hass = email._hass;
+    await restored._ensureHelpers();
+    assert.equal(restored._config.energy_price, 0);
+    assert.equal(restored._getRecipient(), 'preview@example.invalid');
+    assert.equal(restored._helpersReady, false);
+    assert.deepEqual(writes, []);
+  } finally { dom.window.close(); }
+});

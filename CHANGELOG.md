@@ -1,5 +1,14 @@
 # Changelog — Energy Optimizer
 
+## 3.5.3 (unreleased)
+
+- Validate every configured import source against the complete requested hourly window. Reject duplicate and missing buckets; retain unavailable history and future hours as gaps instead of partial totals or zeros.
+- Share grid-source selection and unit/timestamp normalization across cards, including legacy grid flows, Wh/kWh/MWh and current Recorder millisecond timestamps.
+- Default Energy Email to its 24-hour Recorder view; remove the mixed lifetime “All” sum and report controls for unrelated device counters.
+- Opening the email card no longer creates helpers. Existing settings remain readable; explicit saves retain the helper/browser fallback. Limit sends, schedules and configuration to administrators.
+- Use actual date labels and nullable chart values, and consumption-weighted tariff costs for chart tooltips. Show exact windows and the Home Assistant timezone.
+- Legacy automation creation now directs users to the Recorder-backed email scheduler instead of generating templates from lifetime states.
+
 ## 3.5.2 (2026-09-30)
 
 - Keep the accessible selected Optimizer tab in sync with the visible panel immediately after navigation.

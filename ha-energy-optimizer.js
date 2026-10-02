@@ -1,4 +1,4 @@
-// HA Energy Optimizer Bundle v3.5.2
+// HA Energy Optimizer Bundle v3.5.3
 // HTML escape helper — wrap any user-derived string before interpolation into innerHTML.
 const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -946,7 +946,8 @@ canvas {
         <h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>
 
         <div class="data-source-badge">
-          📊 Grid import from ${(this._energySensorIds || []).length} Energy Dashboard source(s)
+          📊 Grid import from ${(this._energySensorIds || []).length} Energy Dashboard source(s)<br>
+          ${_esc(this._todayWindow?.start || '')} — ${_esc(this._todayWindow?.end || '')} • ${_esc(this._energyModel?.zone || '')}
         </div>
 
         <div class="tabs" role="tablist">
@@ -1046,15 +1047,15 @@ canvas {
           <div class="chart-container">
             <div class="chart-title">
               <span>7-Day Trend</span>
-              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">Daily consumption average</span>
+              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">Completed hourly measurements</span>
             </div>
             <div class="chart-plot"><canvas id="trend-chart"></canvas></div>
           </div>
 
           <div class="chart-container">
             <div class="chart-title">
-              <span>Day-of-Week Comparison</span>
-              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">Average daily usage</span>
+              <span>Daily Consumption</span>
+              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">Dates in Home Assistant timezone</span>
             </div>
             <div class="chart-plot"><canvas id="weekday-chart"></canvas></div>
           </div>
@@ -1066,8 +1067,8 @@ canvas {
 
         <div id="compare" class="tab-content">
           <div class="comparison-grid">
-            <div class="comparison-card"><div class="comparison-title">Last 7 available days</div><div class="comparison-value">${this._comparisonData.thisWeek === null ? 'N/A' : this._comparisonData.thisWeek.toFixed(2)}</div><div class="comparison-title">kWh grid import</div></div>
-            <div class="comparison-card"><div class="comparison-title">Previous 7 available days</div><div class="comparison-value">${this._comparisonData.lastWeek === null ? 'N/A' : this._comparisonData.lastWeek.toFixed(2)}</div><div class="comparison-title">kWh grid import</div></div>
+            <div class="comparison-card"><div class="comparison-title">Last 7 days (168 hours)</div><div class="comparison-value">${this._comparisonData.thisWeek === null ? 'N/A' : this._comparisonData.thisWeek.toFixed(2)}</div><div class="comparison-title">kWh grid import</div></div>
+            <div class="comparison-card"><div class="comparison-title">Previous 7 days (168 hours)</div><div class="comparison-value">${this._comparisonData.lastWeek === null ? 'N/A' : this._comparisonData.lastWeek.toFixed(2)}</div><div class="comparison-title">kWh grid import</div></div>
           </div>
           <p>Only recorded periods are shown. Monthly and cost comparisons need complete source and tariff data.</p>
         </div>
@@ -1240,12 +1241,12 @@ _drawHeatmap() {
       const width = rect.width;
       const height = 200;
       const padding = 40;
-      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const days = (this._dayKeys || []).map(key => key.slice(5));
       const cellWidth = (width - padding * 2) / 24;
       const cellHeight = (height - padding * 2) / 7;
 
       // Find min/max for color scaling
-      const allValues = (this._weeklyData || []).flat();
+      const allValues = (this._weeklyData || []).flat().filter(value => typeof value === 'number');
       const minVal = allValues.length > 0 ? Math.min(...allValues) : 0;
       const maxVal = allValues.length > 0 ? Math.max(...allValues) : 1;
       const range = maxVal - minVal || 1;
@@ -1263,7 +1264,7 @@ _drawHeatmap() {
           const x = padding + hourIndex * cellWidth;
           const y = padding + dayIndex * cellHeight;
 
-          ctx.fillStyle = getColor(value);
+          ctx.fillStyle = value === null ? 'rgba(128,128,128,0.15)' : getColor(value);
           ctx.fillRect(x, y, cellWidth - 1, cellHeight - 1);
 
           // Draw cell border
@@ -1274,7 +1275,7 @@ _drawHeatmap() {
       });
 
       // Day labels (Y-axis)
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillStyle = getComputedStyle(this).getPropertyValue('--primary-text-color').trim() || '#64748b';
       ctx.font = '12px sans-serif';
       ctx.textAlign = 'right';
       ctx.textBaseline = 'middle';
@@ -1292,13 +1293,13 @@ _drawHeatmap() {
       }
 
       // Legend
-      ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+      ctx.fillStyle = getComputedStyle(this).getPropertyValue('--primary-text-color').trim() || '#64748b';
       ctx.font = '11px sans-serif';
       ctx.textAlign = 'left';
       const legendX = padding;
       const legendY = height - 15;
       ctx.fillText(`Min: ${minVal.toFixed(2)} kWh`, legendX, legendY);
-      ctx.fillText(`Max: ${maxVal.toFixed(2)} kWh`, legendX + 120, legendY);
+      ctx.fillText(`Max: ${maxVal.toFixed(2)} kWh • Grey = unavailable`, legendX + 120, legendY);
     } catch (err) {
       console.error('Heatmap error:', err);
     }
@@ -2831,7 +2832,6 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     static getStubConfig() {
       return {
         type: 'custom:ha-energy-email',
-        title: 'Energy Email Reports',
         title: 'Energy Email Reports'
       };
     }
@@ -2862,7 +2862,6 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     async _discoverAll() {
       await this._loadEmailBackendConfig();
       await this._ensureHelpers();
-      this._discoverEnergySensors();
       this._discoverRecipient();
       this._discoveryDone = true;
       this._render();
@@ -2870,75 +2869,6 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       this._fetchAllPeriodStats().then(() => {
         if (this._periodCache_day || this._periodCache_week || this._periodCache_month) this._render();
       }).catch(() => {});
-    }
-
-    _discoverEnergySensors() {
-      if (!this._hass) return;
-      const states = this._hass.states;
-      const energySensors = [];
-      for (const [entityId, state] of Object.entries(states)) {
-        if (!entityId.startsWith('sensor.')) continue;
-        const attrs = state.attributes || {};
-        const dc = attrs.device_class;
-        const uom = attrs.unit_of_measurement;
-        const sc = attrs.state_class;
-        const val = parseFloat(state.state);
-        if (dc === 'energy' || ((uom === 'kWh' || uom === 'Wh') && (sc === 'total_increasing' || sc === 'total' || sc === 'measurement'))) {
-          if (isNaN(val) || state.state === 'unavailable' || state.state === 'unknown') continue;
-          energySensors.push({
-            entity_id: entityId,
-            friendly_name: attrs.friendly_name || entityId.replace('sensor.', '').replace(/_/g, ' '),
-            value: uom === 'Wh' ? val / 1000 : val,
-            unit: 'kWh',
-            device_class: dc,
-            state_class: sc,
-            icon: attrs.icon || 'mdi:flash',
-            last_updated: state.last_updated
-          });
-        }
-      }
-      const deviceMap = {};
-      for (const sensor of energySensors) {
-        const eid = sensor.entity_id.replace('sensor.', '');
-        let deviceKey = eid
-          .replace(/_energy_?.*$/i, '')
-          .replace(/_power_?.*$/i, '')
-          .replace(/_electricity_?.*$/i, '')
-          .replace(/_daily$/i, '')
-          .replace(/_weekly$/i, '')
-          .replace(/_monthly$/i, '')
-          .replace(/_total$/i, '')
-          .replace(/_kwh$/i, '')
-          .replace(/_consumption$/i, '');
-        if (!deviceMap[deviceKey]) {
-          deviceMap[deviceKey] = {
-            key: deviceKey,
-            name: sensor.friendly_name.replace(/\s*(energy|power|electricity|daily|weekly|monthly|total|kwh|consumption)\s*/gi, '').trim() || deviceKey.replace(/_/g, ' '),
-            sensors: []
-          };
-        }
-        deviceMap[deviceKey].sensors.push(sensor);
-      }
-      const devices = [];
-      for (const [key, device] of Object.entries(deviceMap)) {
-        const sorted = device.sensors.sort((a, b) => {
-          const priority = { total_increasing: 3, total: 2, measurement: 1 };
-          return (priority[b.state_class] || 0) - (priority[a.state_class] || 0) || b.value - a.value;
-        });
-        const best = sorted[0];
-        if (best) {
-          devices.push({
-            key: key,
-            name: device.name.charAt(0).toUpperCase() + device.name.slice(1),
-            entity_id: best.entity_id,
-            value_kwh: best.value,
-            sensor_count: device.sensors.length,
-            all_sensors: device.sensors
-          });
-        }
-      }
-      devices.sort((a, b) => b.value_kwh - a.value_kwh);
-      this._discoveredDevices = devices;
     }
 
     // --- HA-native persistent storage via input_text helpers ---
@@ -2989,8 +2919,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       if (!s) return;
       const read = (key) => {
         const eid = this._helperEntity(key);
-        const val = s[eid]?.state;
-        return (val && val !== 'unknown' && val !== '') ? val : '';
+        return this._readHelper(key);
       };
       const recipient = read('recipient');
       const service = read('service');
@@ -3005,7 +2934,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       if (/^\d{2}:\d{2}$/.test(weeklyTime)) this._scheduleDefaults.weekly_time = weeklyTime;
       if (weeklyDay && weeklyDay.length >= 3) this._scheduleDefaults.weekly_day = weeklyDay;
       if (/^\d{2}:\d{2}$/.test(monthlyTime)) this._scheduleDefaults.monthly_time = monthlyTime;
-      if (price && !isNaN(parseFloat(price)) && parseFloat(price) > 0) this._config.energy_price = parseFloat(price);
+      if (price && !isNaN(parseFloat(price)) && parseFloat(price) >= 0) this._config.energy_price = parseFloat(price);
       const excluded = read('excluded');
       if (excluded) this._excludedDevices = new Set(excluded.split(',').map(s => s.trim()).filter(Boolean));
     }
@@ -3486,9 +3415,14 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       this._renderTab();
       this._bindEmailEvents();
       this._bindPriceEdit();
+      if (this._hass?.user?.is_admin !== true) {
+        const price = this.shadowRoot.getElementById('price-display');
+        if (price) { price.style.cursor = 'default'; price.style.borderBottom = 'none'; price.removeAttribute('title'); }
+      }
     }
 
     _bindEmailEvents() {
+      if (this._hass?.user?.is_admin !== true) return;
       const root = this.shadowRoot;
       const saveBtn = root.getElementById('email-save');
       const editBtn = root.getElementById('email-edit');
@@ -3518,6 +3452,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     _bindPriceEdit() {
+      if (this._hass?.user?.is_admin !== true) return;
       const root = this.shadowRoot;
       const priceEl = root.getElementById('price-display');
       if (!priceEl) return;
@@ -3544,9 +3479,10 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         if (input) input.focus();
         const save = () => {
           const val = parseFloat(input.value);
-          if (!isNaN(val) && val > 0) {
+          if (Number.isFinite(val) && val >= 0) {
             this._config.energy_price = val;
             this._saveToHelper('price', String(val));
+            this._fetchAllPeriodStats().then(() => this._render());
             this._render();
           }
         };
@@ -3577,8 +3513,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 
     _updateLiveData() {
       if (this._activeTab !== 'send') {
-        this._discoverEnergySensors();
-        this._renderTab();
+          this._renderTab();
       }
     }
 
@@ -3964,16 +3899,6 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 
     _tabConfig() {
       const L = this._lang === 'pl';
-      const allDevices = this._discoveredDevices || [];
-      const manual = this._devices();
-      const isAuto = manual.length === 0 && allDevices.length > 0;
-      const devices = isAuto
-        ? allDevices.map(d => ({ key: d.key || d.entity_id, name: d.name, value: d.value_kwh, entity_id: d.entity_id }))
-        : manual.map(d => ({ key: d.name, name: d.name, value: this._float(this._state(d.energy_month || d.energy_week, '0')), entity_id: '' }));
-      devices.sort((a, b) => a.name.localeCompare(b.name));
-      const excluded = this._excludedDevices;
-      const enabledCount = devices.filter(d => !excluded.has(d.key)).length;
-
       const recipient = this._getRecipient();
       const price = this._getAvgRate();
       const currency = this._config.currency || this._hass?.config?.currency || '';
@@ -3995,25 +3920,9 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         </div>
 
         <div class="config-section">
-          <div class="config-section-title">\u{1F50C} ${L ? 'Urz\u0105dzenia w raportach' : 'Devices in Reports'} <span class="device-count">(${enabledCount}/${devices.length} ${L ? 'aktywnych' : 'active'})</span></div>
-          <div style="margin-bottom:10px;display:flex;gap:8px">
-            <button class="btn" id="cfg-select-all" style="font-size:11px;padding:4px 12px">${L ? 'Zaznacz wszystkie' : 'Select All'}</button>
-            <button class="btn" id="cfg-deselect-all" style="font-size:11px;padding:4px 12px">${L ? 'Odznacz wszystkie' : 'Deselect All'}</button>
-          </div>
-          <div style="max-height:350px;overflow-y:auto;border:1px solid var(--bento-border);border-radius:var(--bento-radius-sm);padding:4px">
-            ${devices.map(d => {
-              const checked = !excluded.has(d.key);
-              return `<div class="device-toggle">
-                <div class="toggle-switch">
-                  <input type="checkbox" id="dev-${_esc(d.key)}" data-key="${_esc(d.key)}" ${checked ? 'checked' : ''}>
-                  <span class="toggle-slider"></span>
-                </div>
-                <label for="dev-${_esc(d.key)}">${_esc(d.name)}</label>
-                <div class="dt-val">${d.value.toFixed(1)} kWh</div>
-              </div>`;
-            }).join('')}
-            ${devices.length === 0 ? `<div style="text-align:center;padding:20px;color:var(--bento-text-secondary);font-size:13px">${L ? 'Brak wykrytych urz\u0105dze\u0144' : 'No devices detected'}</div>` : ''}
-          </div>
+          <div class="config-section-title">${L ? 'Źródła raportu' : 'Report sources'}</div>
+          <p>${L ? 'Raport obejmuje wszystkie źródła importu z sieci skonfigurowane w Energy Dashboard. Liczniki urządzeń i eksport nie są dodawane do sumy.' : 'Reports include every grid-import source configured in Energy Dashboard. Appliance counters and exports are excluded from the total.'}</p>
+          <a href="/energy">${L ? 'Otwórz Energy Dashboard' : 'Open Energy Dashboard'}</a>
         </div>
 
         <div class="config-section">
@@ -4027,6 +3936,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     _attachConfigEvents() {
+      if (this._hass?.user?.is_admin !== true) return;
       const root = this.shadowRoot;
       // Email save
       const emailSave = root.getElementById('cfg-email-save');
@@ -4042,56 +3952,18 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       if (priceSave) priceSave.addEventListener('click', () => {
         const input = root.getElementById('cfg-price');
         const val = parseFloat(input?.value);
-        if (!isNaN(val) && val > 0) {
+        if (Number.isFinite(val) && val >= 0) {
           this._config.energy_price = val;
           this._saveToHelper('price', String(val));
+          this._fetchAllPeriodStats().then(() => this._render());
           this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Stawka zapisana' : 'Price saved'));
           this._render();
         }
       });
-      // Device toggles
-      root.querySelectorAll('.device-toggle input[type="checkbox"]').forEach(cb => {
-        cb.addEventListener('change', () => {
-          const key = cb.dataset.key;
-          if (cb.checked) {
-            this._excludedDevices.delete(key);
-          } else {
-            this._excludedDevices.add(key);
-          }
-          this._saveExcludedDevices();
-          // Update count
-          const countEl = root.querySelector('.device-count');
-          if (countEl) {
-            const total = root.querySelectorAll('.device-toggle input').length;
-            const active = root.querySelectorAll('.device-toggle input:checked').length;
-            const L = this._lang === 'pl';
-            countEl.textContent = `(${active}/${total} ${L ? 'aktywnych' : 'active'})`;
-          }
-        });
-      });
-      // Select/Deselect all
-      const selectAll = root.getElementById('cfg-select-all');
-      const deselectAll = root.getElementById('cfg-deselect-all');
-      if (selectAll) selectAll.addEventListener('click', () => {
-        this._excludedDevices.clear();
-        this._saveExcludedDevices();
-        this._renderTab();
-      });
-      if (deselectAll) deselectAll.addEventListener('click', () => {
-        root.querySelectorAll('.device-toggle input[type="checkbox"]').forEach(cb => {
-          this._excludedDevices.add(cb.dataset.key);
-        });
-        this._saveExcludedDevices();
-        this._renderTab();
-      });
-    }
-
-    _saveExcludedDevices() {
-      const list = [...this._excludedDevices].join(',');
-      this._saveToHelper('excluded', list);
     }
 
     _attachScheduleEvents() {
+      if (this._hass?.user?.is_admin !== true) return;
       const root = this.shadowRoot;
       const btnSmtpTest = root.getElementById('btn-smtp-test');
       if (btnSmtpTest) { btnSmtpTest.addEventListener('click', () => this._testSmtp()); }
@@ -4450,6 +4322,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     async _testSmtp() {
+      if (!this._requireAdmin()) return;
       if (!this._hass) return;
       if (this._emailBackendAvailable && !this._emailBackendConfig?.smtp_configured) {
         this._smtpStatus = { ok: false, error: (this._lang === 'pl' ? 'SMTP nie skonfigurowany' : 'SMTP not configured') };

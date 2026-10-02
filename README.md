@@ -10,8 +10,8 @@ Part of the [HA Tools](https://github.com/MacSiem/ha-tools-panel) collection for
 
 ## How it works
 
-1. The Dashboard and Insights cards read the **grid import statistics selected in your Energy Dashboard** using `energy/get_prefs`. They validate Recorder metadata and use the hourly `change` series. Solar production, grid export, power sensors in watts, and unrelated statistics are excluded.
-2. Usage appears when valid measured buckets are available. Missing or invalid data produces an explicit empty or error state. No demo numbers are shown.
+1. All three cards read the **grid import statistics selected in your Energy Dashboard** using `energy/get_prefs`. They validate Recorder metadata and use the hourly `change` series. Solar production, grid export, power sensors in watts, and unrelated statistics are excluded.
+2. Usage appears only when every configured source has every completed hourly bucket in the selected window. Missing or invalid data produces an explicit empty or error state. No demo numbers are shown.
 3. Costs appear only when a tariff is configured. They are estimates based on measured import and your rate, not a bill or a measured appliance saving. The currency comes from Home Assistant unless set in the card.
 4. Live power is shown only if you set `power_entity`; the card does not sum overlapping power sensors.
 5. Chart.js is bundled in the single HACS JavaScript file. There is no CDN request or extra Lovelace resource.
@@ -24,8 +24,8 @@ once, use any of them:
 | Card type | What it adds |
 |---|---|
 | `custom:ha-energy-optimizer` | Dashboard, patterns (heat map/trend), recommendations and week-over-week compare — described above. |
-| `custom:ha-energy-insights` | A separate 30-day breakdown across Overview / Daily / Weekly / Monthly / Tips tabs, also driven by `recorder/list_statistic_ids` + `recorder/statistics_during_period`. |
-| `custom:ha-energy-email` | Sends the usage report by e-mail. Manual "Send now" always works via `ha_tools_email.send`; scheduled sends are server-side if the optional **HA Tools Email v2.0.0** integration is installed, otherwise schedule config falls back to browser `localStorage`. SMTP is set in **Settings → Devices & services → HA Tools Email → Configure**. This is the only maintained copy of the card; HA Tools Email & Reports 4.5.0+ just forwards to it. |
+| `custom:ha-energy-insights` | A separate 30-day breakdown across Overview / Daily / Weekly / Monthly / Tips tabs, also driven by `energy/get_prefs`, `recorder/get_statistics_metadata` and `recorder/statistics_during_period`. |
+| `custom:ha-energy-email` | Recorder-backed 24h / 7d / 30d overview and report preview. Sending requires an administrator, complete data, and configured SMTP in HA Tools Email. Server previews and schedules use **HA Tools Email 2.1.2+**. Legacy direct sending also validates hourly coverage. Local schedule settings are retained but do not run a server schedule. HA Tools Email & Reports 4.5.0+ forwards to this maintained card. |
 
 ### What is automatic vs. manual
 
@@ -35,6 +35,14 @@ once, use any of them:
 | Measured hourly charts when Recorder data is available | Set `energy_price` or peak/off-peak rates for cost estimates |
 | Home Assistant theme and currency | Set `power_entity` for live power; add Insights or Email cards if wanted |
 | Bundled charts | Configure the optional HA Tools Email integration and SMTP before sending mail |
+
+### Windows and first run
+
+Optimizer and Insights “Today” cover completed hourly buckets since local midnight in the Home Assistant timezone. Repeated DST hours count separately; a skipped hour is a gap, not measured zero. Weekly comparisons use consecutive 168-hour windows; monthly and email views use the last 720 hours. Email daily reports use the last 24 completed hours. The displayed start/end timestamps identify the window, so Today and a daily email can legitimately differ.
+
+Wh, kWh and MWh are normalized to kWh. Missing sources, hours, duplicate timestamps, negative changes and unsupported metadata cannot produce a complete total. Future hours remain blank. Cost requires a configured tariff; there is no assumed electricity price.
+
+Opening Energy Email only reads data and existing settings. It never creates helpers or automations. Explicit administrator saves use existing input_text helpers when available and browser storage otherwise. Ordinary users can read energy data; email configuration, scheduling and sending are reserved for administrators. Card tariffs are local estimates; server report costs depend on the backend’s tariff support.
 
 ## Screenshots
 
@@ -83,7 +91,7 @@ peak_hours:
 ```
 
 ```yaml
-# 30-day breakdown, top consumers, trends:
+# 30-day grid-import breakdown and trends:
 type: custom:ha-energy-insights
 ```
 
@@ -110,7 +118,7 @@ integration, mail is sent through the SMTP server *you* configure — not
 through any MacSiem-operated service.
 
 **What happened to the `entities:` option?**
-Older stub configs mention an `entities` list. The Dashboard and Insights cards use Energy Dashboard grid import sources instead, so remove that list.
+Older stub configs mention an `entities` list. All cards use Energy Dashboard grid import sources instead. Legacy manual device lists and exclusions do not alter the grid-import report total.
 
 ## Changelog
 
