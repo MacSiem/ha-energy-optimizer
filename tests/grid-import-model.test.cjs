@@ -25,6 +25,10 @@ function cardWith(responses, options = {}) {
   return { dom, card, calls };
 }
 
+const completeHours = (start, count, changes = {}) => Array.from({ length: count }, (_, i) => ({
+  start: Date.parse(start) + i * 3600000, change: changes[i] ?? 0,
+}));
+
 test('Optimizer tab selection matches the visible panel immediately after navigation', () => {
   const { dom, card } = cardWith({});
   try {
@@ -57,8 +61,8 @@ test('grid import uses unique configured roots and converts Wh without counting 
       'sensor.grid_b': { has_sum: true, statistics_unit_of_measurement: 'Wh', unit_class: 'energy' },
     },
     'recorder/statistics_during_period': {
-      'sensor.grid_a': [{ start, change: 2 }],
-      'sensor.grid_b': [{ start, change: 500 }],
+      'sensor.grid_a': completeHours('2026-09-30T00:00Z', 12, { 11: 2 }),
+      'sensor.grid_b': completeHours('2026-09-30T00:00Z', 12, { 11: 500 }),
       'sensor.unrelated': [{ start, change: 999 }],
     },
   }, { now: '2026-09-30T12:30:00Z', timeZone: 'UTC' });
@@ -77,10 +81,7 @@ test('fall DST repeated local hour counts both distinct Recorder buckets once', 
   const { dom, card } = cardWith({
     'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
     'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
-    'recorder/statistics_during_period': { 'sensor.grid': [
-      { start: '2026-10-25T00:00:00Z', change: 1 },
-      { start: '2026-10-25T01:00:00Z', change: 2 },
-    ] },
+    'recorder/statistics_during_period': { 'sensor.grid': completeHours('2026-10-24T22:00Z', 6, { 2: 1, 3: 2 }) },
   }, { now: '2026-10-25T04:30:00Z', timeZone: 'Europe/Warsaw' });
   try {
     await card._fetchEnergyStats();
@@ -88,7 +89,7 @@ test('fall DST repeated local hour counts both distinct Recorder buckets once', 
     assert.equal(card._calculateTodayUsage(), 3);
     assert.equal(card._energyData[2], 3);
     assert.equal(card._hourlyBucketCounts[2], 2);
-    assert.equal(card._calculateOffPeakAverage(), 1.5);
+    assert.equal(card._calculateOffPeakAverage(), 0.5);
   } finally { dom.window.close(); }
 });
 
@@ -96,10 +97,7 @@ test('spring DST skipped hour and future hours are not displayed as measured zer
   const { dom, card } = cardWith({
     'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
     'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
-    'recorder/statistics_during_period': { 'sensor.grid': [
-      { start: '2026-03-29T00:00:00Z', change: 1 },
-      { start: '2026-03-29T01:00:00Z', change: 2 },
-    ] },
+    'recorder/statistics_during_period': { 'sensor.grid': completeHours('2026-03-28T23:00Z', 5, { 1: 1, 2: 2 }) },
   }, { now: '2026-03-29T04:30:00Z', timeZone: 'Europe/Warsaw' });
   try {
     await card._fetchEnergyStats();
@@ -188,8 +186,8 @@ test('Recorder millisecond timestamps are interpreted as milliseconds', async ()
   const { dom, card } = cardWith({
     'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
     'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
-    'recorder/statistics_during_period': { 'sensor.grid': [{ start, change: 1.25 }] },
-  });
+    'recorder/statistics_during_period': { 'sensor.grid': completeHours('2026-09-30T00:00Z', 12, { 11: 1.25 }) },
+  }, { now: '2026-09-30T12:30:00Z', timeZone: 'UTC' });
   try {
     await card._fetchEnergyStats();
     assert.equal(card._hasRealData, true);
@@ -221,7 +219,7 @@ test('Insights ignores unconfigured power sensors and omits cost without a tarif
     }, callWS: async msg => ({
       'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
       'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
-      'recorder/statistics_during_period': { 'sensor.grid': [{ start, change: 2.5 }] },
+      'recorder/statistics_during_period': { 'sensor.grid': completeHours('2026-09-30T00:00Z', 12, { 11: 2.5 }) },
     })[msg.type] };
     await insights._fetchData();
     assert.deepEqual(Array.from(insights._data.sensors), ['sensor.grid']);

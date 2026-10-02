@@ -99,3 +99,37 @@ test('Energy Email preserves valid millisecond timestamps for hourly statistics'
     assert.equal(card._periodCache_day[0].month, 24);
   } finally { dom.window.close(); }
 });
+
+for (const [date, zone, expectedHours] of [['2026-10-25T23:30Z', 'Europe/Warsaw', 0], ['2026-10-25T22:30Z', 'Europe/Warsaw', 24], ['2026-03-29T21:30Z', 'Europe/Warsaw', 22]]) {
+  test(`three cards agree on rolling totals and tariffs across DST at ${date}`, async () => {
+    const end = Math.floor(Date.parse(date) / 3600000) * 3600000;
+    const all = hours(new Date(end - 720 * 3600000).toISOString(), 720);
+    const { dom, card } = setup('ha-energy-insights', { 'sensor.a': all }, { now: date, zone });
+    try {
+      card._config.energy_price = 2;
+      await card._fetchData();
+      // At local midnight there are no completed hours today yet.
+      if (expectedHours === 0) assert.equal(card._data, null);
+      else {
+        assert.equal(card._data.todayKwh, expectedHours);
+        assert.equal(card._data.thisWeekKwh, 168);
+        assert.equal(card._data.monthKwh, 720);
+        assert.equal(card._data.weekCost, 336);
+        assert.equal(card._data.monthCost, 1440);
+      }
+      const email = dom.window.document.createElement('ha-energy-email');
+      email._hass = { ...card._hass, callWS: async msg => {
+        if (msg.type === 'recorder/statistics_during_period') return { 'sensor.a': all.filter(p => p.start >= Date.parse(msg.start_time) && p.start < Date.parse(msg.end_time)) };
+        return card._hass.callWS(msg);
+      } };
+      email._config.energy_price = 2;
+      await email._fetchRecorderStats('week');
+      assert.equal(email._periodCache_week[0].month, 168);
+      assert.equal(email._periodCache_week[0].cost, 336);
+      const optimizer = dom.window.document.createElement('ha-energy-optimizer');
+      optimizer._hass = card._hass;
+      await optimizer._fetchEnergyStats();
+      if (expectedHours > 0) assert.equal(optimizer._comparisonData.thisWeek, 168);
+    } finally { dom.window.close(); }
+  });
+}

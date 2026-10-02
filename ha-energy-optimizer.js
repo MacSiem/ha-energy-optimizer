@@ -7,6 +7,87 @@ const ENERGY_OPTIMIZER_DONATE_HTML = `<div class="donate-section" data-source="o
 const energySupportDismissed = key => { try { return localStorage.getItem(key + '-support-dismissed') === '1'; } catch (_) { return false; } };
 const bindEnergySupport = (root, key) => root.querySelector('.support-dismiss')?.addEventListener('click', () => { try { localStorage.setItem(key + '-support-dismissed', '1'); } catch (_) {} root.querySelector('.donate-section[data-source="own-card"]')?.remove(); });
 
+// Recorder WS uses milliseconds; older captures may use seconds or ISO strings.
+const energyTimestamp = value => typeof value === 'number' ? (value > 1e11 ? value : value * 1000) : typeof value === 'string' ? Date.parse(value) : NaN;
+const energyFactor = unit => ({ Wh: 0.001, kWh: 1, MWh: 1000 })[unit];
+const energyImportIds = prefs => [...new Set((prefs?.energy_sources || [])
+  .filter(source => source?.type === 'grid')
+  .flatMap(source => source.stat_energy_from ? [source.stat_energy_from] : (source.flow_from || []).map(flow => flow?.stat_energy_from).filter(Boolean)))];
+const ENERGY_HOUR = 3600000;
+
+async function readEnergyHours(hass, hours) {
+  const ids = energyImportIds(await hass.callWS({ type: 'energy/get_prefs' }));
+  if (!ids.length) return { ids, noSensors: true };
+  const raw = await hass.callWS({ type: 'recorder/get_statistics_metadata', statistic_ids: ids });
+  const metadata = Array.isArray(raw) ? Object.fromEntries(raw.map(row => [row.statistic_id, row])) : raw || {};
+  const factors = {};
+  for (const id of ids) {
+    const row = metadata[id];
+    factors[id] = energyFactor(row?.statistics_unit_of_measurement ?? row?.unit_of_measurement);
+    if (row?.has_sum !== true || !factors[id] || (row.unit_class && row.unit_class !== 'energy')) throw new Error('Unsupported Energy Dashboard statistic metadata');
+  }
+  const now = new Date();
+  const end = Math.floor(now.getTime() / ENERGY_HOUR) * ENERGY_HOUR;
+  const start = end - hours * ENERGY_HOUR;
+  const stats = await hass.callWS({ type: 'recorder/statistics_during_period', start_time: new Date(start).toISOString(),
+    end_time: new Date(end).toISOString(), statistic_ids: ids, period: 'hour', types: ['change'] });
+  if (ids.some(id => !Array.isArray(stats?.[id]) || !stats[id].length)) return { ids, noSeries: true };
+  const sources = ids.map(id => {
+    const buckets = new Map();
+    for (const point of stats[id]) {
+      const stamp = energyTimestamp(point?.start);
+      if (!Number.isFinite(stamp) || stamp % ENERGY_HOUR !== 0 || typeof point.change !== 'number' || !Number.isFinite(point.change) || point.change < 0) throw new Error('Invalid or incomplete Energy Dashboard statistic bucket');
+      if (stamp < start || stamp >= end) continue;
+      if (buckets.has(stamp)) throw new Error('Duplicate Energy Dashboard statistic bucket');
+      buckets.set(stamp, point.change * factors[id]);
+    }
+    return buckets;
+  });
+  const zone = hass.config?.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+  const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23', weekday: 'short' });
+  const local = stamp => {
+    const p = Object.fromEntries(formatter.formatToParts(new Date(stamp)).map(part => [part.type, part.value]));
+    return { key: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour), weekday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(p.weekday) };
+  };
+  const points = new Map();
+  for (let stamp = start; stamp < end; stamp += ENERGY_HOUR) {
+    points.set(stamp, { ...local(stamp), kwh: sources.every(source => source.has(stamp)) ? sources.reduce((sum, source) => sum + source.get(stamp), 0) : null });
+  }
+  const today = local(now.getTime()).key;
+  const todayStamps = [...points].filter(([, point]) => point.key === today).map(([stamp]) => stamp);
+  const todayStart = todayStamps[0] ?? end;
+  const summary = (from, to, rate) => {
+    const selected = [...points].filter(([stamp]) => stamp >= from && stamp < to);
+    const complete = selected.length > 0 && selected.length === (to - from) / ENERGY_HOUR && selected.every(([, point]) => point.kwh !== null);
+    let cost = complete && rate && (hass.config?.currency) ? 0 : null;
+    // A caller may provide an explicit currency when HA has none.
+    if (complete && rate?.currency) cost = 0;
+    for (const [, point] of selected) {
+      const price = rate?.(point.hour, point.weekday);
+      if (price === null || price === undefined || point.kwh === null) cost = null;
+      else if (cost !== null) cost += point.kwh * price;
+    }
+    return { total: complete ? selected.reduce((sum, [, point]) => sum + point.kwh, 0) : null, cost,
+      start: new Date(from).toISOString(), end: new Date(to).toISOString(), selected, complete };
+  };
+  const daily = (from, to, rate) => {
+    const groups = new Map();
+    for (const [stamp, point] of points) {
+      if (stamp < from || stamp >= to) continue;
+      if (!groups.has(point.key)) groups.set(point.key, []);
+      groups.get(point.key).push(stamp);
+    }
+    return [...groups].map(([key, stamps]) => ({ key, ...summary(stamps[0], stamps.at(-1) + ENERGY_HOUR, rate) }));
+  };
+  const hourlyToday = new Array(24).fill(null);
+  const counts = new Array(24).fill(0);
+  for (let hour = 0; hour < 24; hour++) {
+    const rows = todayStamps.map(stamp => points.get(stamp)).filter(point => point.hour === hour);
+    if (rows.length && rows.every(point => point.kwh !== null)) { hourlyToday[hour] = rows.reduce((sum, point) => sum + point.kwh, 0); counts[hour] = rows.length; }
+  }
+  return { ids, zone, start, end, todayStart, points, summary, daily, hourlyToday, counts };
+}
+
 class HaEnergyOptimizer extends HTMLElement {
   constructor() {
     super();
@@ -144,88 +225,25 @@ class HaEnergyOptimizer extends HTMLElement {
     this._statsLoading = true;
     this._energyError = null;
     try {
-      const prefs = await this._hass.callWS({ type: 'energy/get_prefs' });
-      const ids = [...new Set((prefs?.energy_sources || [])
-        .filter(source => source?.type === 'grid')
-        .flatMap(source => source.stat_energy_from
-          ? [source.stat_energy_from]
-          : (source.flow_from || []).map(flow => flow?.stat_energy_from || flow?.stat_energy).filter(Boolean)))];
-      if (!ids.length) {
-        this._hasRealData = false;
-        this._energyData = [];
-        this._hourlyBucketCounts = [];
-        this._weeklyData = [];
-        return;
-      }
-      const metadata = await this._hass.callWS({ type: 'recorder/get_statistics_metadata', statistic_ids: ids });
-      const byId = Array.isArray(metadata) ? Object.fromEntries(metadata.map(item => [item.statistic_id, item])) : metadata || {};
-      for (const id of ids) {
-        const row = byId[id];
-        const unit = row?.statistics_unit_of_measurement;
-        if (row?.has_sum !== true || !['Wh', 'kWh', 'MWh'].includes(unit) || (row.unit_class && row.unit_class !== 'energy')) {
-          throw new Error('Unsupported Energy Dashboard statistic metadata');
+      const model = await readEnergyHours(this._hass, 24 * 15);
+      if (model.noSensors || model.noSeries) throw new Error(model.noSeries ? 'Missing Energy Dashboard statistic series' : 'No Energy Dashboard grid import source');
+      const today = model.summary(model.todayStart, model.end);
+      if (!today.complete) throw new Error('Incomplete Energy Dashboard hourly coverage');
+      this._energyModel = model;
+      this._todayWindow = today;
+      this._energySensorIds = model.ids;
+      this._hourlyBucketCounts = model.counts;
+      this._energyData = model.hourlyToday;
+      const days = model.daily(model.start, model.end).slice(-7);
+      this._dayKeys = days.map(day => day.key);
+      this._weeklyData = days.map(day => {
+        const values = new Array(24).fill(null);
+        for (const [, point] of day.selected) {
+          if (point.kwh !== null) values[point.hour] = (values[point.hour] ?? 0) + point.kwh;
         }
-      }
-      const now = new Date();
-      const start = new Date(now.getTime() - 15 * 86400000);
-      const stats = await this._hass.callWS({
-        type: 'recorder/statistics_during_period', start_time: start.toISOString(),
-        end_time: now.toISOString(), statistic_ids: ids, period: 'hour', types: ['change']
+        return values;
       });
-      const zone = this._hass.config?.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-      const formatter = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' });
-      const partsFor = date => Object.fromEntries(formatter.formatToParts(date).map(part => [part.type, part.value]));
-      const todayParts = partsFor(now);
-      const todayKey = [todayParts.year, todayParts.month, todayParts.day].join('-');
-      const hourlyToday = new Array(24).fill(0);
-      const daily = new Map();
-      let referenceTodayBuckets = null;
-      for (const id of ids) {
-        const series = stats?.[id];
-        if (!Array.isArray(series) || !series.length) throw new Error('Missing Energy Dashboard statistic series');
-        let todayCount = 0;
-        const seenBuckets = new Set();
-        const todayBuckets = new Set();
-        for (const bucket of series) {
-          const rawStart = bucket?.start;
-          const date = new Date(typeof rawStart === 'number' ? (rawStart > 1e11 ? rawStart : rawStart * 1000) : rawStart);
-          const change = bucket?.change;
-          if (!Number.isFinite(date.getTime()) || typeof change !== 'number' || !Number.isFinite(change) || change < 0) {
-            throw new Error('Invalid or incomplete Energy Dashboard statistic bucket');
-          }
-          if (seenBuckets.has(date.getTime())) throw new Error('Duplicate Energy Dashboard statistic bucket');
-          seenBuckets.add(date.getTime());
-          const unit = byId[id].statistics_unit_of_measurement;
-          const kwh = change * (unit === 'Wh' ? 0.001 : unit === 'MWh' ? 1000 : 1);
-          const parts = partsFor(date);
-          const key = [parts.year, parts.month, parts.day].join('-');
-          const hour = Number(parts.hour);
-          if (key === todayKey) { hourlyToday[hour] += kwh; todayCount++; todayBuckets.add(date.getTime()); }
-          if (!daily.has(key)) daily.set(key, new Array(24).fill(0));
-          daily.get(key)[hour] += kwh;
-        }
-        if (!todayCount) throw new Error('No complete statistic bucket for today');
-        // Compare absolute starts: local DST skips/repeats remain consecutive UTC hours.
-        const orderedToday = [...todayBuckets].sort((a, b) => a - b);
-        if (orderedToday.some((start, index) => index && start - orderedToday[index - 1] !== 3600000)) {
-          throw new Error('Incomplete Energy Dashboard hourly coverage');
-        }
-        if (referenceTodayBuckets && (todayBuckets.size !== referenceTodayBuckets.size ||
-          [...todayBuckets].some(startTime => !referenceTodayBuckets.has(startTime)))) {
-          throw new Error('Incomplete Energy Dashboard grid import series');
-        }
-        referenceTodayBuckets = todayBuckets;
-      }
-      const keys = [...daily.keys()].sort().slice(-14);
-      const hourlyBucketCounts = new Array(24).fill(0);
-      for (const startTime of referenceTodayBuckets) {
-        hourlyBucketCounts[Number(partsFor(new Date(startTime)).hour)]++;
-      }
-      this._energySensorIds = ids;
-      this._hourlyBucketCounts = hourlyBucketCounts;
-      this._energyData = hourlyToday.map((kwh, hour) => hourlyBucketCounts[hour] ? kwh : null);
-      this._weeklyData = keys.slice(-7).map(key => daily.get(key));
-      this._dailyTotals = keys.map(key => daily.get(key).reduce((sum, value) => sum + value, 0));
+      this._dailyTotals = days.map(day => day.total);
       this._hasRealData = true;
       this._generateRecommendations();
       this._generateComparisonData();
@@ -237,6 +255,9 @@ class HaEnergyOptimizer extends HTMLElement {
       this._weeklyData = [];
       this._recommendations = [];
       this._comparisonData = null;
+      this._energyModel = null;
+      this._todayWindow = null;
+      this._dailyTotals = [];
       console.warn('Energy Optimizer: Energy statistics unavailable');
     } finally {
       this._statsLoading = false;
@@ -278,15 +299,15 @@ class HaEnergyOptimizer extends HTMLElement {
   }
 
   _generateComparisonData() {
-    const totals = this._dailyTotals || [];
-    const thisWeek = totals.length >= 7 ? totals.slice(-7).reduce((sum, value) => sum + value, 0) : null;
-    const lastWeek = totals.length >= 14 ? totals.slice(-14, -7).reduce((sum, value) => sum + value, 0) : null;
+    const model = this._energyModel;
+    const thisWeek = model?.summary(model.end - 168 * ENERGY_HOUR, model.end).total ?? null;
+    const lastWeek = model?.summary(model.end - 336 * ENERGY_HOUR, model.end - 168 * ENERGY_HOUR).total ?? null;
     const configuredPeak = this._config.peak_rate ?? this._config.energy_price;
     const peakRate = configuredPeak == null || configuredPeak === '' ? NaN : Number(configuredPeak);
     const offPeakRate = Number(this._config.off_peak_rate ?? peakRate);
     this._comparisonData = {
       thisWeek, lastWeek, thisMonth: null, lastMonth: null,
-      dailyBreakdown: this._weeklyData.map(day => day.reduce((sum, value) => sum + value, 0)),
+      dailyBreakdown: this._dailyTotals || [],
       costCurrency: this._config.currency || this._hass?.config?.currency || null,
       costPerKwh: Number.isFinite(peakRate) && peakRate >= 0 ? peakRate : null,
       offPeakRate: Number.isFinite(offPeakRate) && offPeakRate >= 0 ? offPeakRate : null,
@@ -1293,8 +1314,8 @@ _drawHeatmap() {
       this._destroyChart('trend');
 
       const ctx = canvas.getContext('2d');
-      const dailyTotals = this._weeklyData?.map(day => (day || []).reduce((a, b) => a + b, 0)) || [0, 0, 0, 0, 0, 0, 0];
-      const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const dailyTotals = this._dailyTotals || [];
+      const labels = this._dayKeys || [];
 
       const chartConfig = {
         type: 'line',
@@ -1362,8 +1383,8 @@ async _drawWeekdayChart() {
       this._destroyChart('weekday');
 
       const ctx = canvas.getContext('2d');
-      const dailyTotals = this._weeklyData?.map(day => (day || []).reduce((a, b) => a + b, 0)) || [0, 0, 0, 0, 0, 0, 0];
-      const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const dailyTotals = this._dailyTotals || [];
+      const labels = this._dayKeys || [];
 
       const chartConfig = {
         type: 'bar',
@@ -1443,44 +1464,19 @@ async _drawComparisonChart() {
 
       const ctx = canvas.getContext('2d');
       
-      const compData = this._comparisonData || {
-        thisWeek: [0, 0, 0, 0, 0, 0, 0],
-        lastWeek: [0, 0, 0, 0, 0, 0, 0],
-        average: [0, 0, 0, 0, 0, 0, 0]
-      };
-
-      const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      const compData = this._comparisonData || {};
+      const labels = ['Last 7 days', 'Previous 7 days'];
 
       const chartConfig = {
         type: 'bar',
         data: {
           labels: labels,
-          datasets: [
-            {
-              label: 'This Week (kWh)',
-              data: compData.thisWeek,
-              backgroundColor: 'rgba(59, 130, 246, 0.7)',
-              borderColor: 'rgb(59, 130, 246)',
-              borderWidth: 1,
-              borderRadius: 4
-            },
-            {
-              label: 'Last Week (kWh)',
-              data: compData.lastWeek,
-              backgroundColor: 'rgba(200, 200, 200, 0.7)',
-              borderColor: 'rgb(200, 200, 200)',
-              borderWidth: 1,
-              borderRadius: 4
-            },
-            {
-              label: 'Average (kWh)',
-              data: compData.average,
-              backgroundColor: 'rgba(100, 200, 100, 0.7)',
-              borderColor: 'rgb(100, 200, 100)',
-              borderWidth: 1,
-              borderRadius: 4
-            }
-          ]
+          datasets: [{
+            label: 'Grid import (kWh)',
+            data: [compData.thisWeek ?? null, compData.lastWeek ?? null],
+            backgroundColor: ['rgba(59, 130, 246, 0.7)', 'rgba(100, 116, 139, 0.7)'],
+            borderRadius: 4
+          }]
         },
         options: {
           responsive: true,
@@ -1919,166 +1915,36 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
       if (!this._hass || !this._hass.callWS) return;
       this._loading = true;
       this._error = null;
+      this._data = null;
       if (this._domBuilt) this._updateLoadingState();
 
       try {
-        const prefs = await this._hass.callWS({ type: 'energy/get_prefs' });
-        const sensorIds = [...new Set((prefs?.energy_sources || [])
-          .filter(source => source?.type === 'grid')
-          .flatMap(source => source.stat_energy_from ? [source.stat_energy_from] : (source.flow_from || []).map(flow => flow?.stat_energy_from || flow?.stat_energy).filter(Boolean)))];
-
-        if (sensorIds.length === 0) {
-          this._data = { sensors: [], noSensors: true };
-          this._loading = false;
-          this._updateContent();
-          return;
+        const model = await readEnergyHours(this._hass, 720);
+        if (model.noSensors || model.noSeries) {
+          this._data = { sensors: model.ids, noSensors: model.noSensors, noSeries: model.noSeries };
+        } else {
+          const rate = (hour, weekday) => this._getRate(hour, weekday);
+          rate.currency = this._config.currency;
+          const today = model.summary(model.todayStart, model.end, rate);
+          if (!today.complete) throw new Error('Incomplete Energy Dashboard hourly coverage');
+          const week = model.summary(model.end - 168 * ENERGY_HOUR, model.end, rate);
+          const previous = model.summary(model.end - 336 * ENERGY_HOUR, model.end - 168 * ENERGY_HOUR, rate);
+          const month = model.summary(model.start, model.end, rate);
+          const weekDays = model.daily(model.end - 168 * ENERGY_HOUR, model.end, rate);
+          const monthDays = model.daily(model.start, model.end, rate);
+          this._data = { sensors: model.ids, noSensors: false, topDevices: [],
+            todayKwh: today.total, todayCost: today.cost, thisWeekKwh: week.total, prevWeekKwh: previous.total,
+            monthKwh: month.total, weekCost: week.cost, monthCost: month.cost,
+            dailyCosts: model.hourlyToday.map((kwh, hour) => {
+              const point = [...model.points.values()].find(p => p.key === model.points.get(model.todayStart)?.key && p.hour === hour);
+              const price = point ? rate(hour, point.weekday) : null;
+              return kwh !== null && price !== null && (rate.currency || this._hass.config?.currency) ? kwh * price : null;
+            }),
+            dailyData: model.hourlyToday, weeklyData: weekDays.map(day => day.total), monthlyData: monthDays.map(day => day.total),
+            weekLabels: weekDays.map(day => day.key), monthLabels: monthDays.map(day => day.key),
+            weeklyCosts: weekDays.map(day => day.cost), monthlyCosts: monthDays.map(day => day.cost),
+            windows: { daily: today, weekly: week, monthly: month }, zone: model.zone };
         }
-
-        const metadata = await this._hass.callWS({ type: 'recorder/get_statistics_metadata', statistic_ids: sensorIds });
-        const byId = Array.isArray(metadata) ? Object.fromEntries(metadata.map(item => [item.statistic_id, item])) : metadata || {};
-        const sensorUnits = {};
-        sensorIds.forEach(id => {
-          const row = byId[id];
-          const unit = row?.statistics_unit_of_measurement;
-          if (row?.has_sum !== true || !['Wh', 'kWh', 'MWh'].includes(unit) || (row.unit_class && row.unit_class !== 'energy')) throw new Error('Unsupported Energy Dashboard statistic metadata');
-          sensorUnits[id] = unit;
-        });
-
-        // Step 2: Fetch 30 days of hourly statistics via recorder
-        const now = new Date();
-        const monthAgo = new Date(now.getTime() - 30 * 24 * 3600000);
-        const twoWeeksAgo = new Date(now.getTime() - 14 * 24 * 3600000);
-
-        const stats = await this._hass.callWS({
-          type: 'recorder/statistics_during_period',
-          start_time: monthAgo.toISOString(),
-          end_time: now.toISOString(),
-          statistic_ids: sensorIds,
-          period: 'hour',
-          types: ['change']
-        });
-
-        if (sensorIds.some(id => !Array.isArray(stats?.[id]) || stats[id].length === 0)) {
-          this._data = { sensors: sensorIds, noSeries: true };
-          this._loading = false;
-          this._updateContent();
-          return;
-        }
-
-        // Step 3: Aggregate data
-        const timeZone = this._hass?.config?.time_zone || Intl.DateTimeFormat().resolvedOptions().timeZone;
-        const dateFormatter = new Intl.DateTimeFormat('en-US', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' });
-        const dateKey = value => {
-          const parts = Object.fromEntries(dateFormatter.formatToParts(value).map(part => [part.type, part.value]));
-          return `${parts.year}-${parts.month}-${parts.day}`;
-        };
-        const hourInZone = value => Number(new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', hourCycle: 'h23' }).format(value));
-        const weekdayInZone = value => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' }).format(value));
-        const todayKey = dateKey(now);
-        const [year, month, day] = todayKey.split('-').map(Number);
-        const dayKeys = Array.from({ length: 30 }, (_, i) => new Date(Date.UTC(year, month - 1, day - (29 - i))).toISOString().slice(0, 10));
-        const weekStart = new Date(now.getTime() - 7 * 24 * 3600000);
-        const prevWeekStart = new Date(now.getTime() - 14 * 24 * 3600000);
-
-        let todayKwh = 0;
-        let thisWeekKwh = 0;
-        let prevWeekKwh = 0;
-        let monthKwh = 0;
-        const hourlyToday = new Array(24).fill(0);
-        const dailyWeek = new Array(7).fill(0);
-        const dailyMonth = new Array(30).fill(0);
-        const deviceTotals = {};
-        let todayCost = 0;
-        let weekCost = 0;
-        let monthCost = 0;
-        let costReady = Boolean(this._config.currency || this._hass?.config?.currency);
-
-        sensorIds.forEach(id => {
-          const entries = stats[id] || [];
-          const unit = sensorUnits[id];
-          let sensorMonthTotal = 0;
-          const todayBucketStarts = new Set();
-
-          entries.forEach(entry => {
-            if (typeof entry.change !== 'number' || !Number.isFinite(entry.change) || entry.change < 0) throw new Error('Invalid or incomplete energy change bucket');
-            let change = entry.change * (unit === 'Wh' ? 0.001 : unit === 'MWh' ? 1000 : 1);
-
-            const entryDate = new Date(typeof entry.start === 'number' ? (entry.start > 1e11 ? entry.start : entry.start * 1000) : entry.start);
-            if (!Number.isFinite(entryDate.getTime())) throw new Error('Invalid energy bucket timestamp');
-            const hour = hourInZone(entryDate);
-            const bucketDay = dateKey(entryDate);
-            const dayIdx = dayKeys.indexOf(bucketDay);
-            const rate = this._getRate(hour, weekdayInZone(entryDate));
-            if (rate === null) costReady = false;
-
-            // Today hourly
-            if (bucketDay === todayKey) {
-              todayBucketStarts.add(entryDate.getTime());
-              hourlyToday[hour] += change;
-              todayKwh += change;
-              if (rate !== null) todayCost += change * rate;
-            }
-
-            // This week
-            if (entryDate >= weekStart) {
-              thisWeekKwh += change;
-              if (dayIdx >= 23 && dayIdx < 30) dailyWeek[dayIdx - 23] += change;
-              if (rate !== null) weekCost += change * rate;
-            }
-
-            // Previous week
-            if (entryDate >= prevWeekStart && entryDate < weekStart) {
-              prevWeekKwh += change;
-            }
-
-            // Monthly
-            monthKwh += change;
-            if (rate !== null) monthCost += change * rate;
-            if (dayIdx >= 0) dailyMonth[dayIdx] += change;
-
-            sensorMonthTotal += change;
-          });
-
-          const orderedToday = [...todayBucketStarts].sort((a, b) => a - b);
-          if (orderedToday.some((start, index) => index && start - orderedToday[index - 1] !== 3600000)) {
-            throw new Error('Incomplete Energy Dashboard hourly coverage');
-          }
-
-          // Track per-device totals for Top Devices
-          const friendlyName = this._hass.states?.[id]?.attributes?.friendly_name
-            || id.replace('sensor.', '').replace(/_/g, ' ');
-          const uom = 'kWh';
-          const rawVal = null;
-          deviceTotals[id] = {
-            name: this._sanitize(friendlyName),
-            kwh: sensorMonthTotal,
-            entity_id: id,
-            uom,
-            rawVal
-          };
-        });
-
-        // Top 5 devices by month consumption
-        const topDevices = [];
-
-        // Round values
-        const r2 = v => Math.round(v * 100) / 100;
-
-        this._data = {
-          sensors: sensorIds,
-          noSensors: false,
-          todayKwh: r2(todayKwh),
-          todayCost: costReady ? r2(todayCost) : null,
-          topDevices,
-          weeklyData: dailyWeek.map(r2),
-          monthlyData: dailyMonth.map(r2),
-          dailyData: hourlyToday.map(r2),
-          thisWeekKwh: r2(thisWeekKwh),
-          prevWeekKwh: r2(prevWeekKwh),
-          monthKwh: r2(monthKwh),
-          weekCost: costReady ? r2(weekCost) : null,
-          monthCost: costReady ? r2(monthCost) : null,
-        };
 
         this._loading = false;
         this._updateContent();
@@ -2361,7 +2227,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
       const cur = this._config.currency || this._hass?.config?.currency || '';
       const fmt = v => typeof v === 'number' && Number.isFinite(v) ? v.toFixed(2) : 'N/A';
 
-      const trendDiff = d.prevWeekKwh > 0
+      const trendDiff = d.thisWeekKwh !== null && d.prevWeekKwh > 0
         ? ((d.thisWeekKwh - d.prevWeekKwh) / d.prevWeekKwh * 100)
         : null;
       const trendClass = trendDiff > 5 ? 'trend-up' : trendDiff < -5 ? 'trend-down' : 'trend-neutral';
@@ -2433,6 +2299,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
         <div class="chart-container">
           ${this._chartJsReady ? `<canvas id="chart-${period}"></canvas>` : '<div class="chart-unavailable" role="status">Chart unavailable — numeric analysis remains available.</div>'}
         </div>
+        <div class="chart-label">${_esc(this._data?.windows?.[period]?.start || '')} — ${_esc(this._data?.windows?.[period]?.end || '')} • ${_esc(this._data?.zone || '')}</div>
         <div class="chart-label">kWh • ${_esc(this._getTariffLabel())}</div>
       `;
     }
@@ -2469,8 +2336,8 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
       const chartDefs = {
         daily:   { data: this._data.dailyData,   labels: this._buildHourLabels(24) },
-        weekly:  { data: this._data.weeklyData,   labels: this._buildDayLabels(7) },
-        monthly: { data: this._data.monthlyData,  labels: this._buildDayLabels(30) }
+        weekly:  { data: this._data.weeklyData,   labels: this._data.weekLabels },
+        monthly: { data: this._data.monthlyData,  labels: this._data.monthLabels }
       };
 
       if (this._activeTab in chartDefs) {
@@ -2506,11 +2373,10 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
               tooltip: {
                 callbacks: {
                   label: ctx => {
-                    const kwh = ctx.raw || 0;
-                    const hour = ctx.dataIndex || 0;
-                    const rate = this._getRate(hour, new Date().getDay());
-                    const cost = rate === null ? 'N/A' : (kwh * rate).toFixed(2);
-                    return ` ${kwh.toFixed(2)} kWh  (${cost} ${this._config.currency || this._hass?.config?.currency || ''})`;
+                    const kwh = ctx.raw;
+                    if (typeof kwh !== 'number') return 'N/A';
+                    const cost = this._data[`${this._activeTab}Costs`]?.[ctx.dataIndex];
+                    return ` ${kwh.toFixed(2)} kWh (${typeof cost === 'number' ? cost.toFixed(2) : 'N/A'} ${this._config.currency || this._hass?.config?.currency || ''})`;
                   }
                 }
               }
@@ -2706,7 +2572,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       this._renderScheduled = false;
       this._timers = new Set();
       this._reportPeriod = 'week';
-      this._overviewPeriod = 'total';
+      this._overviewPeriod = 'day';
       this._discoveredDevices = null;
       this._detectedRecipient = null;
       this._detectedService = null;
@@ -2920,7 +2786,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     _bucketCost(buckets, unit) {
-      const divisor = unit === 'Wh' ? 1000 : 1;
+      const divisor = 1 / energyFactor(unit);
       if ((this._config.energy_tariff_mode || 'flat') === 'flat') {
         return this._cost([...buckets.values()].reduce((sum, value) => sum + value, 0) / divisor);
       }
@@ -3112,29 +2978,9 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     async _ensureHelpers() {
       if (this._helpersChecked) return;
       this._helpersChecked = true;
-      // Use entity registry to check existence (hass.states may not have new helpers yet)
-      let registeredIds = new Set();
-      try {
-        const entries = await this._hass.callWS({ type: 'config/entity_registry/list' });
-        for (const e of entries) {
-          if (e.entity_id.startsWith('input_text.energy_email')) registeredIds.add(e.entity_id);
-        }
-      } catch(e) { /* fallback to hass.states check */ }
-      let created = 0;
-      for (const h of HAEnergyEmail.HELPERS) {
-        const slug = h.name.toLowerCase().replace(/\s+/g, '_');
-        const eid = `input_text.${slug}`;
-        if (registeredIds.has(eid) || this._hass.states[eid]) continue;
-        try {
-          await this._hass.callWS({ type: 'input_text/create', name: h.name, min: 0, max: h.max, initial: '', mode: 'text' });
-          created++;
-        } catch (e) {
-          // May fail if already exists or no permission — that's ok
-        }
-      }
-      // If we created helpers, wait for HA to register them in states
-      if (created > 0) await new Promise(r => setTimeout(r, 1500));
-      this._helpersReady = true;
+      // Opening a card must not create entities or change the household configuration.
+      this._helpersReady = HAEnergyEmail.HELPERS.every(helper =>
+        !!this._hass?.states?.[this._helperEntity(helper.key)]);
       this._loadFromHelpers();
     }
 
@@ -3164,9 +3010,17 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       if (excluded) this._excludedDevices = new Set(excluded.split(',').map(s => s.trim()).filter(Boolean));
     }
 
+    _requireAdmin() {
+      if (this._hass?.user?.is_admin === true) return true;
+      this._showToast(this._lang === 'pl' ? 'Tylko administrator może zmieniać ustawienia i wysyłać raporty.' : 'Only administrators can change settings and send reports.');
+      return false;
+    }
+
     async _saveToHelper(key, value) {
+      if (!this._requireAdmin()) return;
       const eid = this._helperEntity(key);
       try {
+        if (!this._hass?.states?.[eid]) throw new Error('Helper not configured');
         await this._hass.callService('input_text', 'set_value', { entity_id: eid, value: value || '' });
       } catch (e) {
         // Fallback to localStorage
@@ -3190,6 +3044,11 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 
     async _loadEmailBackendConfig(options = {}) {
       const showErrors = !!options.showErrors;
+      if (this._hass?.user?.is_admin !== true) {
+        this._emailBackendChecked = true;
+        this._emailBackendError = 'Administrator access is required for email configuration.';
+        return null;
+      }
       const hass = this._hass;
       if (!hass?.callWS) {
         this._emailBackendChecked = true;
@@ -3263,7 +3122,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     _discoverRecipient() {
-      if (!this._hass) return;
+      if (this._hass?.user?.is_admin !== true) return;
       if (!this._config.recipient && !this._detectedRecipient && this._emailBackendConfig?.default_recipient) {
         this._detectedRecipient = this._emailBackendConfig.default_recipient;
         return;
@@ -3293,6 +3152,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     _saveRecipient(email) {
+      if (!this._requireAdmin()) return;
       this._saveToHelper('recipient', email);
       this._detectedRecipient = email;
       this._render();
@@ -3307,21 +3167,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     _getOverviewDataForPeriod(period) {
-      const manual = this._devices();
-      if (!manual.length) return this._getAutoDataForPeriod(period);
-      const field = { day: 'energy_day', week: 'energy_week', month: 'energy_month', total: 'energy_month' }[period];
-      const costField = { day: 'cost_day', week: 'cost_week', month: 'cost_month', total: 'cost_month' }[period];
-      const read = id => {
-        const raw = id ? this._hass?.states?.[id]?.state : undefined;
-        if (raw === undefined || raw === null || raw === '' || !Number.isFinite(Number(raw))) return null;
-        return Number(raw);
-      };
-      return this._filterExcluded(manual.map(d => {
-        const month = read(d[field]);
-        const measuredCost = read(d[costField]);
-        return { name: d.name, key: d.name, month, lastMonth: null,
-          cost: measuredCost === null ? this._cost(month) : measuredCost, source: 'manual' };
-      }).filter(d => d.month !== null && d.month >= 0)).sort((a, b) => b.month - a.month);
+      return this._getAutoDataForPeriod(period === 'total' ? 'month' : period);
     }
 
     _getAutoDataForPeriod(period) {
@@ -3341,7 +3187,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       this[`_periodWindow_${period}`] = { start: start.toISOString(), end: end.toISOString() };
       try {
         const prefs = await this._hass.callWS({ type: 'energy/get_prefs' });
-        const ids = [...new Set((prefs?.energy_sources || []).filter(source => source.type === 'grid').map(source => source.stat_energy_from).filter(Boolean))];
+        const ids = energyImportIds(prefs);
         if (!ids.length) return;
         const rawMetadata = await this._hass.callWS({ type: 'recorder/get_statistics_metadata', statistic_ids: ids });
         const metadata = Array.isArray(rawMetadata) ? Object.fromEntries(rawMetadata.map(row => [row.statistic_id, row])) : (rawMetadata || {});
@@ -3353,13 +3199,13 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         for (const id of ids) {
           const meta = metadata[id];
           const unit = meta?.statistics_unit_of_measurement || meta?.unit_of_measurement;
-          if (!meta?.has_sum || !['Wh', 'kWh'].includes(unit) || (meta.unit_class && meta.unit_class !== 'energy')) {
+          if (meta?.has_sum !== true || !energyFactor(unit) || (meta.unit_class && meta.unit_class !== 'energy')) {
             this[statusKey] = 'unsupported'; return;
           }
           const buckets = new Map();
           for (const point of stats?.[id] || []) {
-            const stamp = typeof point.start === 'number' ? point.start * 1000 : Date.parse(point.start);
-            const change = point.change === null || point.change === undefined ? NaN : Number(point.change);
+            const stamp = energyTimestamp(point.start);
+            const change = typeof point.change === 'number' ? point.change : NaN;
             if (!Number.isFinite(stamp) || stamp < start.getTime() || stamp >= end.getTime() ||
                 (stamp - start.getTime()) % 3600000 !== 0 || buckets.has(stamp) || !Number.isFinite(change) || change < 0) {
               this[statusKey] = 'partial'; return;
@@ -3367,7 +3213,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
             buckets.set(stamp, change);
           }
           if (buckets.size !== hours) { this[statusKey] = hasSamples ? 'partial' : 'no_data'; return; }
-          const kwh = [...buckets.values()].reduce((sum, value) => sum + value, 0) / (unit === 'Wh' ? 1000 : 1);
+          const kwh = [...buckets.values()].reduce((sum, value) => sum + value * energyFactor(unit), 0);
           result.push({ name: this._hass.states?.[id]?.attributes?.friendly_name || id,
             key: id, entity_id: id, month: kwh, lastMonth: null, cost: this._bucketCost(buckets, unit), source: 'recorder' });
         }
@@ -3397,20 +3243,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     _getOverviewData() {
-      const manual = this._devices();
-      if (manual.length > 0) return this._getOverviewDataForPeriod('month');
-      if (this._discoveredDevices && this._discoveredDevices.length > 0) {
-        return this._filterExcluded(this._discoveredDevices.map(d => ({
-          name: d.name, key: d.key || d.entity_id,
-          month: d.value_kwh,
-          lastMonth: 0,
-          cost: this._cost(d.value_kwh),
-          entity_id: d.entity_id,
-          sensor_count: d.sensor_count,
-          source: 'auto'
-        }))).sort((a, b) => b.month - a.month);
-      }
-      return [];
+      return this._getOverviewDataForPeriod(this._overviewPeriod || 'day');
     }
 
     _autoState(id) {
@@ -3729,6 +3562,10 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     _renderTab() {
       const el = this.shadowRoot.getElementById('tab-content');
       if (!el) return;
+      if (this._hass?.user?.is_admin !== true && ['schedule', 'send', 'config'].includes(this._activeTab)) {
+        el.innerHTML = `<div class="empty-state" role="status">${this._lang === 'pl' ? 'Tylko administrator może zmieniać ustawienia i wysyłać raporty. Podgląd energii jest dostępny w zakładce Przegląd.' : 'Only administrators can change settings and send reports. Energy data remains available in Overview.'}</div>`;
+        return;
+      }
       switch (this._activeTab) {
         case 'overview': el.innerHTML = this._tabOverview(); this._attachOverviewEvents(); break;
         case 'schedule': el.innerHTML = this._tabSchedule(); this._attachScheduleEvents(); break;
@@ -3774,29 +3611,8 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     // --- tabs ---
 
     _tabOverview() {
-      const devData = this._getOverviewData();
-      const isAuto = devData.length > 0 && devData[0].source === 'auto';
       const L = this._lang === 'pl';
-      if (devData.length === 0 && !this._discoveryDone && !(this._periodCache_day?.length)) {
-        return `<div class="empty-state">
-          <div class="big"><span class="spinner" style="width:32px;height:32px;border-width:3px;border-color:var(--bento-primary);border-top-color:transparent;"></span></div>
-          <div class="title">${L ? 'Wyszukiwanie czujnik\u00F3w energii...' : 'Discovering energy sensors...'}</div>
-          <div class="desc">${L
-            ? 'Skanowanie urz\u0105dze\u0144 Home Assistant i konfiguracja ustawie\u0144. To potrwa chwil\u0119.'
-            : 'Scanning Home Assistant devices and configuring settings. This will take a moment.'}</div>
-        </div>`;
-      }
-      if (devData.length === 0 && (this._overviewPeriod || 'total') === 'total') {
-        return `<div class="empty-state">
-          <div class="big">\u{1F50C}</div>
-          <div class="title">${L ? 'Nie znaleziono czujnik\u00F3w energii' : 'No Energy Sensors Found'}</div>
-          <div class="desc">${L
-            ? 'Karta nie znalaz\u0142a \u017Cadnych czujnik\u00F3w energii w Home Assistant. Upewnij si\u0119, \u017Ce masz skonfigurowane urz\u0105dzenia z monitoringiem energii (np. Shelly, PZEM, smart plugi) lub dodaj je do HA Energy Dashboard.'
-            : 'No energy sensors found in Home Assistant. Make sure you have energy monitoring devices configured (e.g., Shelly, PZEM, smart plugs) or add them to the HA Energy Dashboard.'}</div>
-          <div style="margin-top:16px;"><a class="btn btn-primary" href="/config/energy" target="_blank">\u26A1 ${L ? 'Konfiguracja Energy' : 'Energy Config'}</a></div>
-        </div>`;
-      }
-      const period = this._overviewPeriod || 'total';
+      const period = ['day', 'week', 'month'].includes(this._overviewPeriod) ? this._overviewPeriod : 'day';
       const periodLabels = {
         total: { lbl: 'Total', lblPl: '\u0141\u0105cznie', sub: '', subPl: '' },
         day:   { lbl: 'Last 24h', lblPl: 'Ostatnie 24h', sub: 'Last 24h', subPl: 'Ostatnie 24h' },
@@ -3805,14 +3621,14 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       };
       const pl = periodLabels[period];
       const periodLabel = L ? pl.lblPl : pl.lbl;
-      const displayData = period === 'total' ? devData : this._getOverviewDataForPeriod(period);
+      const displayData = this._getOverviewDataForPeriod(period);
       const window = this[`_periodWindow_${period}`];
       const periodNote = window ? `${window.start} — ${window.end}` : '';
       const totalEnergy = displayData.length ? displayData.reduce((sum, d) => sum + d.month, 0) : null;
       const totalCost = displayData.length && displayData.every(d => typeof d.cost === 'number' && Number.isFinite(d.cost))
         ? displayData.reduce((sum, d) => sum + d.cost, 0) : null;
       const maxVal = Math.max(...displayData.map(x => x.month)) || 1;
-      const periodBtns = ['day', 'week', 'month', 'total'].map(p => {
+      const periodBtns = ['day', 'week', 'month'].map(p => {
         const lb = p === 'total' ? (L ? 'Wszystko' : 'All') : p === 'day' ? '24h' : p === 'week' ? '7d' : '30d';
         return `<button class="overview-period-btn" data-period="${p}" style="padding:5px 12px;font-size:11px;border-radius:6px;cursor:pointer;border:1px solid var(--bento-border);background:${period === p ? 'var(--bento-primary)' : 'var(--bento-bg)'};color:${period === p ? '#fff' : 'var(--bento-text)'};font-weight:${period === p ? '600' : '400'};">${lb}</button>`;
       }).join('');
@@ -3821,7 +3637,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         ${periodNote ? `<div class="info-row">${_esc(periodNote)}</div>` : ''}`;
       return `
         ${periodNote ? `<div class="info-row">${_esc(periodNote)}</div>` : ''}
-        ${isAuto ? `<div class="info-row">\u{1F50D}\u00A0 ${L ? 'Auto-discovery: znaleziono <b>' + displayData.length + '</b> urz\u0105dze\u0144 z czujnikami energii.' : 'Auto-discovery: found <b>' + displayData.length + '</b> devices with energy sensors.'} <span class="source-badge source-auto">AUTO</span>${periodNote ? `<br><span style="font-size:11px;color:var(--bento-warning)">${periodNote}</span>` : ''}</div>` : ''}
+        <div class="info-row">${L ? 'Import z sieci: źródła skonfigurowane w Energy Dashboard.' : 'Grid import: sources configured in Energy Dashboard.'}</div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <div class="section-title" style="margin:0;">\u{1F4CA} ${periodLabel}</div>
           <div style="display:flex;gap:4px;">${periodBtns}</div>
@@ -4347,6 +4163,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     async _saveBackendSchedule(cadence) {
+      if (!this._requireAdmin()) return;
       if (!cadence) return;
       const existing = this._getEnergySchedule(cadence);
       const time = this.shadowRoot?.getElementById('schedule-time-' + cadence)?.value || this._defaultScheduleTime(cadence);
@@ -4371,6 +4188,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     async _deleteBackendSchedule(cadence) {
+      if (!this._requireAdmin()) return;
       const existing = this._getEnergySchedule(cadence);
       if (!existing?.id) return;
       this._scheduleBusy[cadence] = true;
@@ -4388,6 +4206,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     _saveLegacySchedule(cadence) {
+      if (!this._requireAdmin()) return;
       if (!cadence) return;
       const time = this.shadowRoot?.getElementById('schedule-time-' + cadence)?.value || this._defaultScheduleTime(cadence);
       const recipients = this._scheduleRecipients(cadence);
@@ -4400,6 +4219,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     _deleteLegacySchedule(cadence) {
+      if (!this._requireAdmin()) return;
       if (!cadence) return;
       this._legacySchedules = this._legacySchedules || {};
       this._legacySchedules[cadence] = { kind: 'energy_report', cadence, time: this._defaultScheduleTime(cadence), recipients: [], enabled: false };
@@ -4411,115 +4231,15 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     // --- Automation creation ---
 
     async _createAutomation(type, update = false) {
-      if (!this._hass) return;
-      const recipient = this._getRecipient();
-      if (!this._hasHaToolsEmail()) { this._showToast('\u274C ' + (this._lang === 'pl' ? 'ha_tools_email nie zainstalowany' : 'ha_tools_email not installed')); return; }
-      if (!recipient) { this._showToast('\u274C ' + (this._lang === 'pl' ? 'Najpierw ustaw adres email' : 'Set email address first')); return; }
-      const sd = this._scheduleDefaults;
-      const L = this._lang === 'pl';
-      const [dailyH, dailyM] = sd.daily.split(':').map(Number);
-      const [weeklyH, weeklyM] = sd.weekly_time.split(':').map(Number);
-      const [monthlyH, monthlyM] = sd.monthly_time.split(':').map(Number);
-      const dayMap = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 0 };
-      const configs = {
-        daily: {
-          alias: 'Send Daily Energy Report',
-          id: 'send_daily_energy_report',
-          trigger: [{ platform: 'time', at: `${String(dailyH).padStart(2,'0')}:${String(dailyM).padStart(2,'0')}:00` }],
-          description: 'Auto-created by HA Energy Email card'
-        },
-        weekly: {
-          alias: 'Send Weekly Energy Report',
-          id: 'send_weekly_energy_report',
-          trigger: [{ platform: 'time', at: `${String(weeklyH).padStart(2,'0')}:${String(weeklyM).padStart(2,'0')}:00` }],
-          condition: [{ condition: 'time', weekday: [['sun','mon','tue','wed','thu','fri','sat'][dayMap[sd.weekly_day] || 1]] }],
-          description: 'Auto-created by HA Energy Email card'
-        },
-        monthly: {
-          alias: 'Send Monthly Energy Report',
-          id: 'send_monthly_energy_report',
-          trigger: [{ platform: 'time', at: `${String(monthlyH).padStart(2,'0')}:${String(monthlyM).padStart(2,'0')}:00` }],
-          condition: [{ condition: 'template', value_template: '{{ now().day == 1 }}' }],
-          description: 'Auto-created by HA Energy Email card'
-        }
-      };
-      const cfg = configs[type];
-      if (!cfg) return;
-      // Build email with actual sensor data via Jinja templates
-      const price = this._getAvgRate();
-      const currency = this._config.currency || this._hass?.config?.currency || '';
-      const typeName = type.charAt(0).toUpperCase() + type.slice(1);
-      const periodMap = { daily: 'day', weekly: 'week', monthly: 'month' };
-      const periodKey = periodMap[type] || 'day';
-      // Get sensor list: prefer period-specific sensors, fallback to total
-      let sensorList = [];
-      const periodData = this._getAutoDataForPeriod(periodKey);
-      if (periodData && periodData.length > 0) {
-        sensorList = periodData.map(d => ({ name: d.name, entity: d.entity_id }));
-      } else {
-        const autoDevs = this._discoveredDevices || [];
-        const manualDevs = this._devices();
-        if (manualDevs.length > 0) {
-          const sensorKey = type === 'daily' ? 'energy_day' : type === 'weekly' ? 'energy_week' : 'energy_month';
-          sensorList = manualDevs.map(d => ({ name: d.name, entity: d[sensorKey] || d.energy_week || d.energy_month })).filter(d => d.entity);
-        } else {
-          sensorList = autoDevs.map(d => ({ name: d.name, entity: d.entity_id }));
-        }
-      }
-      // Build Jinja template for the email body
-      const sensorLines = sensorList.map(s =>
-        `{{ '${s.name}' }}: {{ states('${s.entity}') | float(0) | round(2) }} kWh = {{ (states('${s.entity}') | float(0) * ${price}) | round(2) }} ${currency}`
-      ).join('\\n');
-      const totalExpr = sensorList.map(s => `states('${s.entity}') | float(0)`).join(' + ');
-      const totalCostExpr = `(${totalExpr}) * ${price}`;
-      const periodLabel = type === 'daily' ? (L ? 'Wczoraj / ostatnie 24h' : 'Yesterday / Last 24h')
-        : type === 'weekly' ? (L ? 'Ostatnie 7 dni' : 'Last 7 days')
-        : (L ? 'Ostatni miesi\u0105c' : 'Last month');
-      const emailMsg = [
-        `\u26A1 Energy ${typeName} Report`,
-        `{{ now().strftime('%Y-%m-%d %H:%M') }}`,
-        `${L ? 'Okres' : 'Period'}: ${periodLabel}`,
-        `${L ? 'Urz\u0105dze\u0144' : 'Devices'}: ${sensorList.length}`,
-        ``,
-        `${L ? '\u0141\u0105cznie' : 'Total'}: {{ (${totalExpr}) | round(2) }} kWh = {{ (${totalCostExpr}) | round(2) }} ${currency}`,
-        ``,
-        `${L ? 'Szczeg\u00F3\u0142y' : 'Details'}:`,
-        sensorLines,
-        ``,
-        `---`,
-        `Generated by HA Energy Email card | ${this._getTariffLabel()}`
-      ].join('\\n');
-      const action = [{
-        service: 'ha_tools_email.send',
-        data: {
-          subject: `\u26A1 Energy ${typeName} Report \u2013 {{ now().strftime('%Y-%m-%d') }}`,
-          body: emailMsg,
-          to: recipient
-        }
-      }];
-      try {
-        if (update) {
-          // Delete old automation first, then create new
-          try { await this._hass.callService('automation', 'turn_off', { entity_id: `automation.${cfg.id}` }); } catch(e) { console.debug('[ha-energy-email] caught:', e); }
-        }
-        await this._hass.callWS({
-          type: 'config/automation/config',
-          automation_id: cfg.id,
-          ...cfg,
-          action: action,
-          mode: 'single'
-        });
-        this._showToast(`\u2705 ${update ? (L ? 'Automatyzacja zaktualizowana' : 'Automation updated') : (L ? 'Automatyzacja utworzona' : 'Automation created')}!`);
-        // Wait for HA to register the automation, then refresh
-        this._schedule(() => this._renderTab(), 2000);
-      } catch (e) {
-        this._showToast('\u274C Error: ' + (e.message || 'Failed to create automation'));
-      }
+      if (!this._requireAdmin()) return;
+      if (this._emailBackendAvailable) return this._saveBackendSchedule(type);
+      this._showToast(this._lang === 'pl' ? 'Harmonogram raportów Recorder wymaga HA Tools Email 2.1.2 lub nowszego.' : 'Recorder report schedules require HA Tools Email 2.1.2 or newer.');
     }
 
     // --- HA service calls ---
 
     async _toggleAuto(entity_id, enable) {
+      if (!this._requireAdmin()) return;
       if (!this._hass) return;
       try {
         await this._hass.callService('automation', enable ? 'turn_on' : 'turn_off', { entity_id });
@@ -4529,6 +4249,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     async _sendReportViaBackend(cadence) {
+      if (!this._requireAdmin()) return;
       if (!this._hass || this._sending) return;
       const L = this._lang === 'pl';
       if (!['daily', 'weekly', 'monthly'].includes(cadence)) return;
@@ -4554,6 +4275,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     async _sendReport(type) {
+      if (!this._requireAdmin()) return;
       if (!this._hass || this._sending) return;
       if (this._emailBackendAvailable && ['daily', 'weekly', 'monthly'].includes(type)) {
         await this._sendReportViaBackend(type);
@@ -4661,6 +4383,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     async _sendViaHaToolsEmail(to, subject, body, html) {
+      if (!this._requireAdmin()) return;
       const hass = this._hass;
       if (!hass) throw new Error('Home Assistant is not ready');
       if (!this._hasLegacyHaToolsEmail()) throw new Error(this._lang === 'pl' ? 'Brak us\u0142ugi ha_tools_email.send' : 'ha_tools_email.send service is unavailable');

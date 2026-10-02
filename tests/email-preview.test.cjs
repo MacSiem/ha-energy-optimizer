@@ -16,7 +16,7 @@ function preview(options = {}) {
   }
   dom.window.eval(readFileSync(join(__dirname, '..', 'ha-energy-optimizer.js'), 'utf8'));
   const card = dom.window.document.createElement('ha-energy-email');
-  card._hass = { config: { currency: 'EUR' }, states: {} };
+  card._hass = { user: { is_admin: true }, config: { currency: 'EUR' }, states: {} };
   card._discoveryDone = true;
   card._lang = 'en';
   card._discoveredDevices = options.devices || [];
@@ -140,7 +140,7 @@ for (const zero of [false, true]) {
         assert.match(output.textContent, /unavailable|No.*data|not available/i);
         assert.doesNotMatch(output.textContent, /0\.0\s+kWh/);
       }
-      assert.equal(output.querySelectorAll('.overview-period-btn').length, 4);
+      assert.equal(output.querySelectorAll('.overview-period-btn').length, 3);
     } finally { dom.window.close(); }
   });
 }
