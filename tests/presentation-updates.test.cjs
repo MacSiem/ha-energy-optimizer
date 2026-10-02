@@ -66,3 +66,41 @@ test('Insights updates existing chart axes when HA theme colors change without n
     assert.equal(chart.updated, true);
   } finally { dom.window.close(); }
 });
+
+test('Email locale changes preserve unsaved schedule fields, checkbox and caret without saving', () => {
+  const { dom, card, hass } = setup('ha-energy-email');
+  try {
+    card._activeTab = 'schedule';
+    card._render();
+    const field = card.shadowRoot.getElementById('schedule-recipients-daily');
+    field.value = 'unsaved@example.invalid';
+    field.focus();
+    field.setSelectionRange(2, 7, 'backward');
+    card.shadowRoot.getElementById('schedule-time-daily').value = '13:45';
+    card.shadowRoot.getElementById('schedule-enabled-daily').checked = true;
+    const storageBefore = dom.window.localStorage.length;
+    card.hass = { ...hass, language: 'en', locale: { language: 'en' } };
+    const restored = card.shadowRoot.getElementById('schedule-recipients-daily');
+    assert.equal(restored.value, 'unsaved@example.invalid');
+    assert.equal(card.shadowRoot.activeElement, restored);
+    assert.deepEqual([restored.selectionStart, restored.selectionEnd, restored.selectionDirection], [2, 7, 'backward']);
+    assert.equal(card.shadowRoot.getElementById('schedule-time-daily').value, '13:45');
+    assert.equal(card.shadowRoot.getElementById('schedule-enabled-daily').checked, true);
+    assert.equal(dom.window.localStorage.length, storageBefore);
+  } finally { dom.window.close(); }
+});
+
+test('Email locale changes keep an inline tariff draft open without applying its value', () => {
+  const { dom, card, hass } = setup('ha-energy-email');
+  try {
+    card.shadowRoot.getElementById('price-display').click();
+    const input = card.shadowRoot.getElementById('price-input');
+    input.value = '1.25';
+    input.focus();
+    card.hass = { ...hass, language: 'en', locale: { language: 'en' } };
+    assert.equal(card.shadowRoot.getElementById('price-input').value, '1.25');
+    assert.equal(card.shadowRoot.activeElement?.id, 'price-input');
+    assert.equal(card._config.energy_price, null);
+    assert.equal(dom.window.localStorage.length, 0);
+  } finally { dom.window.close(); }
+});
