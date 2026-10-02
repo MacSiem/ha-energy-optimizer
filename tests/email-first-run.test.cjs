@@ -120,3 +120,52 @@ test('background HA updates preserve an open email settings form', () => {
     assert.equal(input.value, 'draft@example.invalid');
   } finally { dom.window.close(); }
 });
+
+test('Email first run identifies the missing grid source and links to Energy Dashboard', async () => {
+  const { dom, card: email } = card();
+  const calls = [];
+  email._hass.callWS = async msg => {
+    calls.push(msg.type);
+    if (msg.type === 'energy/get_prefs') return { energy_sources: [] };
+    throw new Error('Unexpected request');
+  };
+  try {
+    await email._fetchRecorderStats('day');
+    const view = dom.window.document.createElement('div');
+    view.innerHTML = email._tabOverview();
+    assert.match(view.textContent, /configure.*grid.import source/i);
+    assert.equal(view.querySelector('a')?.getAttribute('href'), '/energy');
+    assert.deepEqual(calls, ['energy/get_prefs']);
+    assert.equal(email._getOverviewData().length, 0);
+  } finally { dom.window.close(); }
+});
+
+test('Email distinguishes failed Recorder reads from sources with no measurements', async () => {
+  const { dom, card: email } = card();
+  const id = 'sensor.grid_import';
+  let fail = true;
+  email._hass.callWS = async msg => {
+    if (msg.type === 'energy/get_prefs') return { energy_sources: [{ type: 'grid', stat_energy_from: id }] };
+    if (msg.type === 'recorder/get_statistics_metadata') return [{ statistic_id: id, has_sum: true, statistics_unit_of_measurement: 'kWh' }];
+    if (msg.type === 'recorder/statistics_during_period') {
+      if (fail) throw new Error('Transport unavailable: private diagnostic must not appear');
+      return { [id]: [] };
+    }
+    throw new Error('Unexpected request');
+  };
+  try {
+    await email._fetchRecorderStats('day');
+    const failed = dom.window.document.createElement('div');
+    failed.innerHTML = email._tabOverview();
+    assert.match(failed.textContent, /could not.*load|could not.*read/i);
+    assert.doesNotMatch(failed.textContent, /private diagnostic|\(no_data\)/);
+    assert.equal(email._getOverviewData().length, 0);
+    fail = false;
+    await email._fetchRecorderStats('day');
+    const empty = dom.window.document.createElement('div');
+    empty.innerHTML = email._tabOverview();
+    assert.match(empty.textContent, /no.*Recorder statistics/i);
+    assert.doesNotMatch(empty.textContent, /could not.*load|could not.*read|configure.*grid.import source/i);
+    assert.equal(email._getOverviewData().length, 0);
+  } finally { dom.window.close(); }
+});
