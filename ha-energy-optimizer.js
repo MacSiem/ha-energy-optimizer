@@ -1058,11 +1058,15 @@ canvas {
   _setupEventListeners() {
     const buttons = this.shadowRoot.querySelectorAll('.tab-button');
     buttons.forEach(button => {
-      button.addEventListener('click', (e) => {
-        buttons.forEach(b => b.classList.remove('active'));
-        e.target.classList.add('active');
-        this._currentTab = e.target.dataset.tab;
-        this._showTab(e.target.dataset.tab);
+      button.addEventListener('click', () => {
+        buttons.forEach(b => {
+          b.classList.remove('active');
+          b.setAttribute('aria-selected', 'false');
+        });
+        button.classList.add('active');
+        button.setAttribute('aria-selected', 'true');
+        this._currentTab = button.dataset.tab;
+        this._showTab(button.dataset.tab);
       });
     });
   }
