@@ -2,6 +2,8 @@
 
 ## 3.5.3 (unreleased)
 
+- Refresh open email report windows every five minutes without replacing a settings form while it is being edited.
+
 - Validate every configured import source against the complete requested hourly window. Reject duplicate and missing buckets; retain unavailable history and future hours as gaps instead of partial totals or zeros.
 - Share grid-source selection and unit/timestamp normalization across cards, including legacy grid flows, Wh/kWh/MWh and current Recorder millisecond timestamps.
 - Default Energy Email to its 24-hour Recorder view; remove the mixed lifetime “All” sum and report controls for unrelated device counters.

@@ -931,6 +931,7 @@ canvas {
     min-width: 100px;
   }
 
+  .card-container a { color: var(--primary-color, #4a90d9); }
   th:nth-child(3),
   td:nth-child(3) {
     min-width: 80px;
@@ -940,7 +941,7 @@ canvas {
   }
 
   _getTemplate() {
-    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2><div class="empty-state" role="status">${this._statsLoading ? 'Loading Energy Dashboard statistics…' : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? 'No recent Recorder statistics for the configured grid import.' : this._energyError ? 'Energy statistics could not be loaded.' : 'No supported Energy Dashboard grid import statistics found.'} <a href="/energy">Open Energy Dashboard</a></div>${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
+    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2><div class="empty-state" role="status">${this._statsLoading ? 'Loading Energy Dashboard statistics…' : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? 'No recent Recorder statistics for the configured grid import.' : this._energyError?.message?.includes('No Energy Dashboard grid import source') ? 'No supported Energy Dashboard grid import statistics found.' : this._energyError ? 'Energy statistics could not be loaded.' : 'No supported Energy Dashboard grid import statistics found.'} <a href="/energy">Open Energy Dashboard</a></div>${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
     return `
       <div class="card-container">
         <h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>
@@ -2206,7 +2207,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
       if (!this._data) return '';
 
       if (this._data.noSensors) {
-        return `<div class="no-sensors">${this._t('noSensors')}</div>`;
+        return `<div class="no-sensors">${this._t('noSensors')} <a href="/energy">Energy Dashboard</a></div>`;
       }
       if (this._data.noSeries) {
         return `<div class="no-sensors" role="status">${this._t('noSeries')}</div>`;
@@ -3154,13 +3155,15 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       }
     }
 
-    // Fetch stats for all periods (called once during discovery)
+    // Coalesce refreshes and retry unavailable data without polling every HA update.
     async _fetchAllPeriodStats() {
-      await Promise.all([
-        this._fetchRecorderStats('day'),
-        this._fetchRecorderStats('week'),
-        this._fetchRecorderStats('month')
+      if (this._periodRefreshPromise) return this._periodRefreshPromise;
+      this._lastPeriodRefresh = Date.now();
+      this._periodRefreshPromise = Promise.all([
+        this._fetchRecorderStats('day'), this._fetchRecorderStats('week'), this._fetchRecorderStats('month')
       ]);
+      try { await this._periodRefreshPromise; }
+      finally { this._periodRefreshPromise = null; }
     }
 
     _filterExcluded(data) {
@@ -3512,9 +3515,13 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     _updateLiveData() {
-      if (this._activeTab !== 'send') {
-          this._renderTab();
+      // Preserve forms while the user edits settings or schedules.
+      if (!['overview', 'preview'].includes(this._activeTab)) return;
+      if (this._discoveryDone && Date.now() - (this._lastPeriodRefresh || 0) > 300000) {
+        this._fetchAllPeriodStats().then(() => { if (this.isConnected) this._renderTab(); }).catch(() => {});
+        if (this._emailBackendAvailable) this._loadEmailBackendConfig();
       }
+      this._renderTab();
     }
 
     _attachOverviewEvents() {
@@ -3569,9 +3576,9 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       }).join('');
       if (!displayData.length) return `<div class="section-title">${periodLabel}</div><div>${periodBtns}</div>
         <div class="empty-state">${L ? 'Dane okresu niedostępne' : 'Period data unavailable'} (${_esc(this[`_periodStatus_${period}`] || 'no_data')})</div>
-        ${periodNote ? `<div class="info-row">${_esc(periodNote)}</div>` : ''}`;
+        ${periodNote ? `<div class="info-row" style="overflow-wrap:anywhere">${_esc(periodNote)}</div>` : ''}`;
       return `
-        ${periodNote ? `<div class="info-row">${_esc(periodNote)}</div>` : ''}
+        ${periodNote ? `<div class="info-row" style="overflow-wrap:anywhere">${_esc(periodNote)}</div>` : ''}
         <div class="info-row">${L ? 'Import z sieci: źródła skonfigurowane w Energy Dashboard.' : 'Grid import: sources configured in Energy Dashboard.'}</div>
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <div class="section-title" style="margin:0;">\u{1F4CA} ${periodLabel}</div>

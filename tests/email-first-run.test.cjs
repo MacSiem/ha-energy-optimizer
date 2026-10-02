@@ -86,3 +86,37 @@ test('explicit admin settings save without helpers persists locally, including a
     assert.deepEqual(writes, []);
   } finally { dom.window.close(); }
 });
+
+test('an open Email overview refreshes Recorder windows after the refresh interval', async () => {
+  const dom = new JSDOM('', {runScripts:'dangerously',url:'http://localhost/'});
+  dom.window.eval(readFileSync(root+'/ha-energy-optimizer.js','utf8'));
+  const card = dom.window.document.createElement('ha-energy-email');
+  card._hass={states:{},config:{},user:{is_admin:false}};
+  card._discoveryDone=true;
+  card._lastPeriodRefresh=Date.now()-301000;
+  card._renderTab=()=>{};
+  let refreshed=0;
+  card._fetchRecorderStats=async()=>{refreshed++};
+  try {
+    card._updateLiveData();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(refreshed,3);
+    card._updateLiveData();
+    await new Promise(resolve=>setImmediate(resolve));
+    assert.equal(refreshed,3,'do not refetch every HA state update');
+  }finally{dom.window.close()}
+});
+
+
+test('background HA updates preserve an open email settings form', () => {
+  const { dom, card: email } = card();
+  try {
+    email._activeTab = 'config';
+    email._render();
+    const input = email.shadowRoot.getElementById('cfg-email');
+    input.value = 'draft@example.invalid';
+    email._updateLiveData();
+    assert.equal(email.shadowRoot.getElementById('cfg-email'), input);
+    assert.equal(input.value, 'draft@example.invalid');
+  } finally { dom.window.close(); }
+});
