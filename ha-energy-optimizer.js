@@ -291,8 +291,8 @@ class HaEnergyOptimizer extends HTMLElement {
     const peakKwh = this._energyData.slice(start, end).reduce((sum, value) => sum + (value ?? 0), 0);
     if (peakKwh <= 0) return;
     this._recommendations = [{
-      id: 1, icon: '↘', title: 'Consider shifting flexible loads to off-peak',
-      description: `Measured grid import during configured peak hours: ${peakKwh.toFixed(2)} kWh today. This is a scenario, not a measured appliance saving.`,
+      id: 1, icon: '↘', title: this._text('Consider shifting flexible loads to off-peak', 'Rozważ przeniesienie elastycznego zużycia poza godziny szczytu'),
+      description: this._text(`Measured grid import during configured peak hours: ${peakKwh.toFixed(2)} kWh today. This is a scenario, not a measured appliance saving.`, `Zmierzony import z sieci w skonfigurowanych godzinach szczytu: ${peakKwh.toFixed(2)} kWh dzisiaj. To scenariusz, a nie zmierzona oszczędność urządzeń.`),
       savings: peakKwh * 0.3 * (peakRate - offPeakRate),
       difficulty: 'manual', impact: 'medium'
     }];
@@ -940,64 +940,84 @@ canvas {
     `;
   }
 
+  _text(en, pl) {
+    const language = this._hass?.locale?.language || this._hass?.language || 'en';
+    return language.split('-')[0] === 'pl' ? pl : en;
+  }
+
+  _applyChartTheme(config) {
+    const style = getComputedStyle(this);
+    const text = style.getPropertyValue('--primary-text-color').trim() || '#172335';
+    const border = style.getPropertyValue('--divider-color').trim() || '#d6dce5';
+    config.options.color = text;
+    const legend = config.options.plugins?.legend;
+    if (legend) legend.labels = { ...legend.labels, color: text };
+    for (const scale of Object.values(config.options.scales || {})) {
+      scale.ticks = { ...scale.ticks, color: text };
+      scale.title = { ...scale.title, color: text };
+      scale.grid = { ...scale.grid, color: border };
+    }
+    return config;
+  }
+
   _getTemplate() {
-    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2><div class="empty-state" role="status">${this._statsLoading ? 'Loading Energy Dashboard statistics…' : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? 'No recent Recorder statistics for the configured grid import.' : this._energyError?.message?.includes('No Energy Dashboard grid import source') ? 'No supported Energy Dashboard grid import statistics found.' : this._energyError ? 'Energy statistics could not be loaded.' : 'No supported Energy Dashboard grid import statistics found.'} <a href="/energy">Open Energy Dashboard</a></div>${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
+    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2><div class="empty-state" role="status">${this._statsLoading ? this._text("Loading Energy Dashboard statistics…", "Ładowanie statystyk panelu Energia…") : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? this._text("No recent Recorder statistics for the configured grid import.", "Brak bieżących statystyk Recorder dla skonfigurowanego importu z sieci.") : this._energyError?.message?.includes('No Energy Dashboard grid import source') ? this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.") : this._energyError ? this._text("Energy statistics could not be loaded.", "Nie udało się wczytać statystyk energii.") : this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.")} <a href="/energy">${this._text("Open Energy Dashboard", "Otwórz panel Energia")}</a></div>${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
     return `
       <div class="card-container">
         <h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>
 
         <div class="data-source-badge">
-          📊 Grid import from ${(this._energySensorIds || []).length} Energy Dashboard source(s)<br>
+          📊 ${this._text('Grid import from Energy Dashboard sources', 'Import z sieci ze źródeł panelu Energia')}: ${(this._energySensorIds || []).length}<br>
           ${_esc(this._todayWindow?.start || '')} — ${_esc(this._todayWindow?.end || '')} • ${_esc(this._energyModel?.zone || '')}
         </div>
 
         <div class="tabs" role="tablist">
-          <button class="tab-button active" data-tab="dashboard" role="tab" aria-selected="${this._currentTab === 'dashboard'}">Dashboard</button>
-          <button class="tab-button" data-tab="patterns" role="tab" aria-selected="${this._currentTab === 'patterns'}">Patterns</button>
-          <button class="tab-button" data-tab="recommendations" role="tab" aria-selected="${this._currentTab === 'recommendations'}">Recommendations</button>
-          <button class="tab-button" data-tab="compare" role="tab" aria-selected="${this._currentTab === 'compare'}">Compare</button>
+          <button class="tab-button active" data-tab="dashboard" role="tab" aria-selected="${this._currentTab === 'dashboard'}">${this._text("Dashboard", "Przegląd")}</button>
+          <button class="tab-button" data-tab="patterns" role="tab" aria-selected="${this._currentTab === 'patterns'}">${this._text("Patterns", "Wzorce")}</button>
+          <button class="tab-button" data-tab="recommendations" role="tab" aria-selected="${this._currentTab === 'recommendations'}">${this._text("Recommendations", "Zalecenia")}</button>
+          <button class="tab-button" data-tab="compare" role="tab" aria-selected="${this._currentTab === 'compare'}">${this._text("Compare", "Porównanie")}</button>
         </div>
 
         <div id="dashboard" class="tab-content active">
           <div class="grid">
             <div class="summary-card">
-              <span class="summary-label">Today's Usage</span>
+              <span class="summary-label">${this._text("Today's Usage", "Zużycie dzisiaj")}</span>
               <div class="summary-value">${this._calculateTodayUsage().toFixed(2)}</div>
               <span class="summary-label">kWh</span>
             </div>
             <div class="summary-card alt">
-              <span class="summary-label">Cost Estimate</span>
+              <span class="summary-label">${this._text("Cost Estimate", "Koszt okresu")}</span>
               <div class="summary-value">${this._calculateTodayCost() === null ? 'N/A' : this._calculateTodayCost().toFixed(2)}</div>
-              <span class="summary-label">${_esc(this._config.currency || this._hass?.config?.currency || '')}${(this._config.off_peak_rate && this._config.peak_rate !== this._config.off_peak_rate) ? ' (configured dual tariff)' : ''}</span>
+              <span class="summary-label">${_esc(this._config.currency || this._hass?.config?.currency || '')}${(this._config.off_peak_rate && this._config.peak_rate !== this._config.off_peak_rate) ? this._text(' (configured dual tariff)', ' (skonfigurowana taryfa dwustrefowa)') : ''}</span>
             </div>
             ${(this._config.off_peak_rate && this._config.peak_rate !== this._config.off_peak_rate) ? `
             <div class="summary-card" style="border-left:3px solid var(--success)">
-              <span class="summary-label">Potential Savings</span>
+              <span class="summary-label">${this._text("Potential Savings", "Możliwe oszczędności")}</span>
               <div class="summary-value">${this._calculatePotentialSavings() === null ? 'N/A' : this._calculatePotentialSavings().toFixed(2)}</div>
-              <span class="summary-label">${_esc(this._config.currency || this._hass?.config?.currency || '')}/day scenario for 30% shifted</span>
+              <span class="summary-label">${_esc(this._config.currency || this._hass?.config?.currency || '')}${this._text('/day scenario for 30% shifted', '/dzień w scenariuszu przeniesienia 30% zużycia')}</span>
             </div>` : `
             <div class="summary-card warn">
-              <span class="summary-label">Peak Hour</span>
+              <span class="summary-label">${this._text("Peak Hour", "Godzina szczytu")}</span>
               <div class="summary-value">${this._getPeakHour() === null ? 'N/A' : this._getPeakHour() + ':00'}</div>
-              <span class="summary-label">Highest consumption</span>
+              <span class="summary-label">${this._text("Highest consumption", "Największe zużycie")}</span>
             </div>`}
             <div class="summary-card">
-              <span class="summary-label">Efficiency Score</span>
+              <span class="summary-label">${this._text("Efficiency Score", "Wskaźnik efektywności")}</span>
               <div class="summary-value">N/A</div>
               <span class="summary-label">/ 100</span>
             </div>
           </div>
 
           <div class="power-draw">
-            <div class="power-draw-unit">Current Power Draw</div>
+            <div class="power-draw-unit">${this._text("Current Power Draw", "Aktualna moc")}</div>
             <div class="power-draw-value">${this._currentPowerW === null ? 'N/A' : (this._currentPowerW / 1000).toFixed(2)}</div>
             <div class="power-draw-unit">kW</div>
           </div>
 
           <div class="chart-container">
             <div class="chart-title">
-              <span>24-Hour Usage</span>
-              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">kWh by hour</span>
+              <span>${this._text("24-Hour Usage", "Zużycie godzinowe dzisiaj")}</span>
+              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">${this._text("kWh by hour", "kWh według godzin")}</span>
             </div>
             <div class="chart-plot"><canvas id="dashboard-chart"></canvas></div>
           </div>
@@ -1006,57 +1026,57 @@ canvas {
         <div id="patterns" class="tab-content">
           <div class="chart-container">
             <div class="chart-title">
-              <span>Weekly Heat Map</span>
-              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">Energy intensity by day & hour</span>
+              <span>${this._text("Weekly Heat Map", "Tygodniowa mapa zużycia")}</span>
+              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">${this._text("Energy intensity by day & hour", "Zużycie według dnia i godziny")}</span>
             </div>
             <canvas id="heatmap-canvas"></canvas>
             <div class="heatmap-legend">
               <div class="legend-item">
                 <div class="legend-color" style="background: #1e3a8a;"></div>
-                <span>Low</span>
+                <span>${this._text("Low", "Niskie")}</span>
               </div>
               <div class="legend-item">
                 <div class="legend-color" style="background: #3b82f6;"></div>
-                <span>Moderate</span>
+                <span>${this._text("Moderate", "Umiarkowane")}</span>
               </div>
               <div class="legend-item">
                 <div class="legend-color" style="background: #fbbf24;"></div>
-                <span>High</span>
+                <span>${this._text("High", "Wysokie")}</span>
               </div>
               <div class="legend-item">
                 <div class="legend-color" style="background: #dc2626;"></div>
-                <span>Peak</span>
+                <span>${this._text("Peak", "Szczyt")}</span>
               </div>
             </div>
           </div>
 
           <div class="stats-row">
             <div class="stat-item">
-              <div class="stat-label">Peak Usage</div>
+              <div class="stat-label">${this._text("Peak Usage", "Zużycie szczytowe")}</div>
               <div class="stat-value">${(this._energyData.reduce((a, b) => Math.max(a, b), 0)).toFixed(2)} kWh</div>
             </div>
             <div class="stat-item">
-              <div class="stat-label">Off-Peak Usage</div>
+              <div class="stat-label">${this._text("Off-Peak Usage", "Zużycie poza szczytem")}</div>
               <div class="stat-value">${this._calculateOffPeakAverage() === null ? 'N/A' : this._calculateOffPeakAverage().toFixed(2) + ' kWh/h'}</div>
             </div>
             <div class="stat-item">
-              <div class="stat-label">Ratio</div>
+              <div class="stat-label">${this._text("Ratio", "Proporcja")}</div>
               <div class="stat-value">${this._calculatePeakRatio() === null ? 'N/A' : this._calculatePeakRatio().toFixed(1) + ':1'}</div>
             </div>
           </div>
 
           <div class="chart-container">
             <div class="chart-title">
-              <span>7-Day Trend</span>
-              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">Completed hourly measurements</span>
+              <span>${this._text("7-Day Trend", "Trend z ostatnich 7 dni")}</span>
+              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">${this._text("Completed hourly measurements", "Ukończone pomiary godzinowe")}</span>
             </div>
             <div class="chart-plot"><canvas id="trend-chart"></canvas></div>
           </div>
 
           <div class="chart-container">
             <div class="chart-title">
-              <span>Daily Consumption</span>
-              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">Dates in Home Assistant timezone</span>
+              <span>${this._text("Daily Consumption", "Zużycie dzienne")}</span>
+              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">${this._text("Dates in Home Assistant timezone", "Daty w strefie czasowej Home Assistant")}</span>
             </div>
             <div class="chart-plot"><canvas id="weekday-chart"></canvas></div>
           </div>
@@ -1068,10 +1088,10 @@ canvas {
 
         <div id="compare" class="tab-content">
           <div class="comparison-grid">
-            <div class="comparison-card"><div class="comparison-title">Last 7 days (168 hours)</div><div class="comparison-value">${this._comparisonData.thisWeek === null ? 'N/A' : this._comparisonData.thisWeek.toFixed(2)}</div><div class="comparison-title">kWh grid import</div></div>
-            <div class="comparison-card"><div class="comparison-title">Previous 7 days (168 hours)</div><div class="comparison-value">${this._comparisonData.lastWeek === null ? 'N/A' : this._comparisonData.lastWeek.toFixed(2)}</div><div class="comparison-title">kWh grid import</div></div>
+            <div class="comparison-card"><div class="comparison-title">${this._text("Last 7 days (168 hours)", "Ostatnie 7 dni (168 godzin)")}</div><div class="comparison-value">${this._comparisonData.thisWeek === null ? 'N/A' : this._comparisonData.thisWeek.toFixed(2)}</div><div class="comparison-title">${this._text("kWh grid import", "kWh importu z sieci")}</div></div>
+            <div class="comparison-card"><div class="comparison-title">${this._text("Previous 7 days (168 hours)", "Poprzednie 7 dni (168 godzin)")}</div><div class="comparison-value">${this._comparisonData.lastWeek === null ? 'N/A' : this._comparisonData.lastWeek.toFixed(2)}</div><div class="comparison-title">${this._text("kWh grid import", "kWh importu z sieci")}</div></div>
           </div>
-          <p>Only recorded periods are shown. Monthly and cost comparisons need complete source and tariff data.</p>
+          <p>${this._text("Only recorded periods are shown. Monthly and cost comparisons need complete source and tariff data.", "Pokazano tylko zarejestrowane okresy. Porównania miesięczne i kosztowe wymagają kompletnych źródeł oraz danych taryfy.")}</p>
         </div>
         ${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}
       </div>
@@ -1103,7 +1123,7 @@ canvas {
       const fallback = document.createElement('div');
       fallback.className = 'chart-unavailable';
       fallback.setAttribute('role', 'status');
-      fallback.textContent = 'Chart unavailable — numeric analysis remains available.';
+      fallback.textContent = this._text('Chart unavailable — numeric analysis remains available.', 'Wykres niedostępny — analiza liczbowa pozostaje dostępna.');
       canvas.replaceWith(fallback);
     });
     return null;
@@ -1167,7 +1187,7 @@ canvas {
         data: {
           labels: labels,
           datasets: [{
-            label: 'Energy Usage (kWh)',
+            label: this._text("Energy Usage (kWh)", "Zużycie energii (kWh)"),
             data: data,
             backgroundColor: data.map((val, hour) => {
               const isPeak = hour >= (this._config?.peak_hours?.start || 6) && hour < (this._config?.peak_hours?.end || 22);
@@ -1206,20 +1226,20 @@ canvas {
               beginAtZero: true,
               title: {
                 display: true,
-                text: 'Energy (kWh)'
+                text: this._text("Energy (kWh)", "Energia (kWh)")
               }
             },
             x: {
               title: {
                 display: true,
-                text: 'Hour of Day'
+                text: this._text("Hour of Day", "Godzina dnia")
               }
             }
           }
         }
       };
 
-      this._charts['dashboard'] = new HA_ENERGY_CHART(ctx, chartConfig);
+      this._charts['dashboard'] = new HA_ENERGY_CHART(ctx, this._applyChartTheme(chartConfig));
     } catch (error) {
       console.error('Error drawing dashboard chart:', error);
     }
@@ -1324,7 +1344,7 @@ _drawHeatmap() {
         data: {
           labels: labels,
           datasets: [{
-            label: 'Daily Total Usage (kWh)',
+            label: this._text('Daily Total Usage (kWh)', 'Dzienne zużycie energii (kWh)'),
             data: dailyTotals,
             borderColor: 'rgb(59, 130, 246)',
             backgroundColor: 'rgba(59, 130, 246, 0.1)',
@@ -1358,20 +1378,20 @@ _drawHeatmap() {
               beginAtZero: true,
               title: {
                 display: true,
-                text: 'Daily Total (kWh)'
+                text: this._text("Daily Total (kWh)", "Zużycie dzienne (kWh)")
               }
             },
             x: {
               title: {
                 display: true,
-                text: 'Date (Home Assistant timezone)'
+                text: this._text("Date (Home Assistant timezone)", "Data (strefa Home Assistant)")
               }
             }
           }
         }
       };
 
-      this._charts['trend'] = new HA_ENERGY_CHART(ctx, chartConfig);
+      this._charts['trend'] = new HA_ENERGY_CHART(ctx, this._applyChartTheme(chartConfig));
     } catch (error) {
       console.error('Error drawing trend chart:', error);
     }
@@ -1393,7 +1413,7 @@ async _drawWeekdayChart() {
         data: {
           labels: labels,
           datasets: [{
-            label: 'Daily Total Usage (kWh)',
+            label: this._text('Daily Total Usage (kWh)', 'Dzienne zużycie energii (kWh)'),
             data: dailyTotals,
             backgroundColor: [
               'rgba(100, 200, 100, 0.7)',
@@ -1438,20 +1458,20 @@ async _drawWeekdayChart() {
               beginAtZero: true,
               title: {
                 display: true,
-                text: 'Daily Total (kWh)'
+                text: this._text("Daily Total (kWh)", "Zużycie dzienne (kWh)")
               }
             },
             x: {
               title: {
                 display: true,
-                text: 'Date (Home Assistant timezone)'
+                text: this._text("Date (Home Assistant timezone)", "Data (strefa Home Assistant)")
               }
             }
           }
         }
       };
 
-      this._charts['weekday'] = new HA_ENERGY_CHART(ctx, chartConfig);
+      this._charts['weekday'] = new HA_ENERGY_CHART(ctx, this._applyChartTheme(chartConfig));
     } catch (error) {
       console.error('Error drawing weekday chart:', error);
     }
@@ -1467,14 +1487,14 @@ async _drawComparisonChart() {
       const ctx = canvas.getContext('2d');
       
       const compData = this._comparisonData || {};
-      const labels = ['Last 7 days', 'Previous 7 days'];
+      const labels = [this._text("Last 7 days", "Ostatnie 7 dni"), this._text("Previous 7 days", "Poprzednie 7 dni")];
 
       const chartConfig = {
         type: 'bar',
         data: {
           labels: labels,
           datasets: [{
-            label: 'Grid import (kWh)',
+            label: this._text('Grid import (kWh)', 'Import z sieci (kWh)'),
             data: [compData.thisWeek ?? null, compData.lastWeek ?? null],
             backgroundColor: ['rgba(59, 130, 246, 0.7)', 'rgba(100, 116, 139, 0.7)'],
             borderRadius: 4
@@ -1501,7 +1521,7 @@ async _drawComparisonChart() {
               beginAtZero: true,
               title: {
                 display: true,
-                text: 'Daily Total (kWh)'
+                text: this._text("Daily Total (kWh)", "Zużycie dzienne (kWh)")
               }
             },
             x: {
@@ -1514,7 +1534,7 @@ async _drawComparisonChart() {
         }
       };
 
-      this._charts['comparison'] = new HA_ENERGY_CHART(ctx, chartConfig);
+      this._charts['comparison'] = new HA_ENERGY_CHART(ctx, this._applyChartTheme(chartConfig));
     } catch (error) {
       console.error('Error drawing comparison chart:', error);
     }
@@ -1524,7 +1544,7 @@ async _drawComparisonChart() {
   _renderRecommendations() {
     const container = this.shadowRoot.getElementById('recommendations-list');
     if (!container) return;
-    if (!this._recommendations.length) { container.textContent = 'No evidence-based savings scenario available. A time-dependent tariff and measured consumption are needed to compare peak and off-peak hours.'; return; }
+    if (!this._recommendations.length) { container.textContent = this._text('No evidence-based savings scenario available. A time-dependent tariff and measured consumption are needed to compare peak and off-peak hours.', 'Brak scenariusza oszczędności opartego na danych. Porównanie godzin szczytu i poza szczytem wymaga taryfy zależnej od czasu oraz zmierzonego zużycia.'); return; }
     container.innerHTML = this._recommendations.map(rec => `
       <div class="recommendation ${_esc(rec.impact)}">
         <div class="rec-icon">${_esc(rec.icon)}</div>
@@ -1532,8 +1552,8 @@ async _drawComparisonChart() {
           <div class="rec-title">${_esc(rec.title)}</div>
           <div class="rec-description">${_esc(rec.description)}</div>
           <div class="rec-footer">
-            <div class="savings-badge">Scenario: ${_esc(rec.savings.toFixed(2))} ${_esc(this._config.currency || this._hass?.config?.currency || '')}/day</div>
-            <div class="difficulty-badge">${_esc(rec.difficulty)}</div>
+            <div class="savings-badge">${this._text('Scenario', 'Scenariusz')}: ${_esc(rec.savings.toFixed(2))} ${_esc(this._config.currency || this._hass?.config?.currency || '')}${this._text('/day', '/dzień')}</div>
+            <div class="difficulty-badge">${rec.difficulty === 'manual' ? this._text('manual', 'ręcznie') : _esc(rec.difficulty)}</div>
           </div>
         </div>
       </div>
@@ -1614,9 +1634,9 @@ async _drawComparisonChart() {
     this._currentPage[tabName] = page;
     return `
       <div class="pagination">
-        <button class="pagination-btn" data-page-tab="${tabName}" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>&#8249; Prev</button>
+        <button class="pagination-btn" data-page-tab="${tabName}" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>&#8249; ${this._text('Prev', 'Poprzednia')}</button>
         <span class="pagination-info">${page} / ${totalPages} (${totalItems})</span>
-        <button class="pagination-btn" data-page-tab="${tabName}" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>Next &#8250;</button>
+        <button class="pagination-btn" data-page-tab="${tabName}" data-page="${page + 1}" ${page >= totalPages ? 'disabled' : ''}>${this._text('Next', 'Następna')} &#8250;</button>
         <select class="page-size-select" data-page-tab="${tabName}" data-action="page-size">
           ${[10,15,25,50].map(s => `<option value="${s}" ${s === pageSize ? 'selected' : ''}>${s}/page</option>`).join('')}
         </select>
@@ -3196,7 +3216,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       const L = this._lang === 'pl';
       const recipient = this._getRecipient();
       const recipientDisplay = recipient
-        ? `To: ${_esc(recipient)}`
+        ? `${L ? 'Do' : 'To'}: ${_esc(recipient)}`
         : (L ? 'Nie ustawiono odbiorcy' : 'No recipient set');
       this.shadowRoot.innerHTML = `
         <style>${LOCAL_BENTO_CSS}
@@ -3395,11 +3415,11 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
             </div>
           </div>
           <div class="tabs">
-            <button class="tab-btn ${this._activeTab === 'overview' ? 'active' : ''}" data-tab="overview">\u{1F4CA} Overview</button>
-            <button class="tab-btn ${this._activeTab === 'schedule' ? 'active' : ''}" data-tab="schedule">\u{1F4C5} Schedule</button>
-            <button class="tab-btn ${this._activeTab === 'preview' ? 'active' : ''}" data-tab="preview">\u{1F4CB} Preview</button>
-            <button class="tab-btn ${this._activeTab === 'send' ? 'active' : ''}" data-tab="send">\u{1F4E4} Send Now</button>
-            <button class="tab-btn ${this._activeTab === 'config' ? 'active' : ''}" data-tab="config">\u2699\uFE0F Config</button>
+            <button class="tab-btn ${this._activeTab === 'overview' ? 'active' : ''}" data-tab="overview">\u{1F4CA} ${L ? "Przegląd" : "Overview"}</button>
+            <button class="tab-btn ${this._activeTab === 'schedule' ? 'active' : ''}" data-tab="schedule">\u{1F4C5} ${L ? "Harmonogram" : "Schedule"}</button>
+            <button class="tab-btn ${this._activeTab === 'preview' ? 'active' : ''}" data-tab="preview">\u{1F4CB} ${L ? "Podgląd" : "Preview"}</button>
+            <button class="tab-btn ${this._activeTab === 'send' ? 'active' : ''}" data-tab="send">\u{1F4E4} ${L ? "Wyślij teraz" : "Send Now"}</button>
+            <button class="tab-btn ${this._activeTab === 'config' ? 'active' : ''}" data-tab="config">\u2699\uFE0F ${L ? "Ustawienia" : "Config"}</button>
           </div>
           <div id="tab-content"></div>
           ${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-email') ? OWN_SUPPORT_FOOTER : ''}

@@ -2,6 +2,8 @@
 
 ## 3.5.3 (unreleased)
 
+- Use Home Assistant theme colors for Optimizer chart labels and axes. Translate Optimizer views and Email navigation for Polish, and describe browser-only legacy settings accurately when HA helpers are unavailable.
+
 - Guide Email first run to configure a missing grid-import source. Distinguish absent Recorder measurements, incomplete or unsupported statistics, and failed reads instead of showing raw status codes.
 
 - Describe report rows as grid-import sources, label chart dates accurately and show the required HA Tools Email version in schedule/send instructions.
