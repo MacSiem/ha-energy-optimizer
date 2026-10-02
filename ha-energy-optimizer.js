@@ -1869,7 +1869,10 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     _getTariffLabel() {
       const currency = this._config.currency || this._hass?.config?.currency || '';
       const rate = this._getRate(12, 1);
-      return rate === null ? 'Cost unavailable: configure a tariff' : `${currency} / kWh (configured tariff)`;
+      const L = this._lang === 'pl';
+      return rate === null
+        ? (L ? 'Koszt niedostępny: skonfiguruj taryfę' : 'Cost unavailable: configure a tariff')
+        : `${currency} / kWh (${L ? 'skonfigurowana taryfa' : 'configured tariff'})`;
     }
 
     set hass(hass) {
@@ -3556,8 +3559,8 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           <span>${_esc(this._config.currency || this._hass?.config?.currency || '')}</span>
           <input type="number" id="price-input" value="${cur ?? ''}" step="0.01" min="0" style="width:70px;padding:3px 6px;border:1.5px solid var(--bento-primary);border-radius:4px;font-size:12px;background:var(--bento-card);color:var(--bento-text);font-family:'Inter',sans-serif;text-align:center">
           <span>/kWh</span>
-          <button id="price-save" class="btn btn-primary" style="padding:3px 10px;font-size:11px;margin:0" aria-label="Save">\u2714</button>
-          <button id="price-cancel" class="btn" style="padding:3px 8px;font-size:11px;margin:0" aria-label="Cancel">\u2716</button>
+          <button id="price-save" class="btn btn-primary" style="padding:3px 10px;font-size:11px;margin:0" aria-label="${L ? 'Zapisz' : 'Save'}">\u2714</button>
+          <button id="price-cancel" class="btn" style="padding:3px 8px;font-size:11px;margin:0" aria-label="${L ? 'Anuluj' : 'Cancel'}">\u2716</button>
         </span>`;
         // Find just the price part and replace
         const priceSpan = root.getElementById('price-display');

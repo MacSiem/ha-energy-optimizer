@@ -2,6 +2,7 @@
 
 ## 3.5.3 (unreleased)
 
+- Translate Insights tariff status and Email inline tariff editor accessibility labels in Polish and English.
 - Refresh Insights and Email headings and navigation when the HA language changes. Preserve unsaved Email fields and focus, and update existing Insights chart colors when the theme changes.
 
 - Use Home Assistant theme colors for Optimizer chart labels and axes. Translate Optimizer views and Email navigation for Polish, and describe browser-only legacy settings accurately when HA helpers are unavailable.
