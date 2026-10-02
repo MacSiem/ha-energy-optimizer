@@ -169,3 +169,26 @@ test('Email distinguishes failed Recorder reads from sources with no measurement
     assert.equal(email._getOverviewData().length, 0);
   } finally { dom.window.close(); }
 });
+
+
+test('legacy Schedule describes actual settings storage with and without existing HA helpers', () => {
+  const { dom, card: email } = card();
+  email._emailBackendAvailable = false;
+  try {
+    for (const language of ['en', 'pl']) {
+      email._lang = language;
+      for (const helpersReady of [false, true]) {
+        email._helpersReady = helpersReady;
+        const view = dom.window.document.createElement('div');
+        view.innerHTML = email._tabSchedule();
+        const footer = view.lastElementChild.textContent;
+        if (helpersReady) {
+          assert.match(footer, language === 'pl' ? /Home Assistant.*każdym urządzeniu/ : /Home Assistant.*all your devices/);
+        } else {
+          assert.match(footer, language === 'pl' ? /tylko.*przeglądarce/ : /only.*browser/);
+          assert.doesNotMatch(footer, /all your devices|każdym urządzeniu/);
+        }
+      }
+    }
+  } finally { dom.window.close(); }
+});
