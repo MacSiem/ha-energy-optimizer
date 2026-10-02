@@ -3787,9 +3787,13 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           'enable-monthly', 'disable-monthly', 'create-monthly', 'time-monthly', sd.monthly_time, ''
         )}
         <div style="margin-top:12px;padding:12px 16px;background:rgba(59,130,246,0.08);border-left:3px solid var(--bento-primary,#3B82F6);border-radius:6px;font-size:13px;color:var(--bento-text);">
-          <strong>\u2139\uFE0F ${L ? 'Info' : 'Info'}:</strong> ${L
-            ? 'Ustawienia (email, serwis, godziny) s\u0105 zapisywane w Home Assistant i dzia\u0142aj\u0105 na ka\u017Cdym urz\u0105dzeniu.'
-            : 'Settings (email, service, times) are stored in Home Assistant and work across all your devices.'}
+          <strong>\u2139\uFE0F Info:</strong> ${this._helpersReady
+            ? (L
+              ? 'Ustawienia (email, serwis, godziny) są zapisywane w Home Assistant i działają na każdym urządzeniu.'
+              : 'Settings (email, service, times) are stored in Home Assistant and work across all your devices.')
+            : (L
+              ? 'Helpery HA niedostępne. Ustawienia (email, serwis, godziny) są zapisywane tylko w tej przeglądarce.'
+              : 'HA helpers unavailable. Settings (email, service, times) are saved only in this browser.')}
         </div>`;
     }
 
