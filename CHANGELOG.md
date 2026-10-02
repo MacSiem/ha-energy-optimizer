@@ -2,6 +2,8 @@
 
 ## 3.5.3 (unreleased)
 
+- Describe report rows as grid-import sources, label chart dates accurately and show the required HA Tools Email version in schedule/send instructions.
+
 - Refresh open email report windows every five minutes without replacing a settings form while it is being edited.
 
 - Validate every configured import source against the complete requested hourly window. Reject duplicate and missing buckets; retain unavailable history and future hours as gaps instead of partial totals or zeros.

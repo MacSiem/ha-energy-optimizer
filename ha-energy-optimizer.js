@@ -1364,7 +1364,7 @@ _drawHeatmap() {
             x: {
               title: {
                 display: true,
-                text: 'Day of Week'
+                text: 'Date (Home Assistant timezone)'
               }
             }
           }
@@ -1444,7 +1444,7 @@ async _drawWeekdayChart() {
             x: {
               title: {
                 display: true,
-                text: 'Day of Week'
+                text: 'Date (Home Assistant timezone)'
               }
             }
           }
@@ -1507,7 +1507,7 @@ async _drawComparisonChart() {
             x: {
               title: {
                 display: true,
-                text: 'Day of Week'
+                text: 'Completed period'
               }
             }
           }
@@ -1524,7 +1524,7 @@ async _drawComparisonChart() {
   _renderRecommendations() {
     const container = this.shadowRoot.getElementById('recommendations-list');
     if (!container) return;
-    if (!this._recommendations.length) { container.textContent = 'No evidence-based savings scenario available. Configure a tariff to compare peak and off-peak hours.'; return; }
+    if (!this._recommendations.length) { container.textContent = 'No evidence-based savings scenario available. A time-dependent tariff and measured consumption are needed to compare peak and off-peak hours.'; return; }
     container.innerHTML = this._recommendations.map(rec => `
       <div class="recommendation ${_esc(rec.impact)}">
         <div class="rec-icon">${_esc(rec.icon)}</div>
@@ -2507,7 +2507,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
 
   window.customCards = window.customCards || [];
-  window.customCards.push({ type: 'ha-energy-insights', name: 'Energy Insights', description: 'Energy dashboard: usage, costs, top devices, trends', preview: false });
+  window.customCards.push({ type: 'ha-energy-insights', name: 'Energy Insights', description: 'Recorded grid import, costs and period trends', preview: false });
 })();
 
 // --- Bundled card: ha-energy-email (v3.3.0 bundle)
@@ -3588,7 +3588,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           <div class="stat">
             <div class="stat-value" style="color:#F59E0B">${totalEnergy === null ? 'N/A' : totalEnergy.toFixed(1)}</div>
             <div class="stat-label">kWh ${periodLabel}</div>
-            <div class="stat-sub">${displayData.length} ${L ? 'urz\u0105dze\u0144' : 'devices'}</div>
+            <div class="stat-sub">${displayData.length} ${L ? 'źródeł importu' : 'import sources'}</div>
           </div>
           <div class="stat">
             <div class="stat-value" style="color:#3B82F6">${this._formatCost(totalCost)}</div>
@@ -3597,11 +3597,11 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           </div>
           <div class="stat">
             <div class="stat-value" style="color:#10B981">${displayData.length > 0 ? _esc(displayData[0].name.split(' ').slice(0,2).join(' ')) : '-'}</div>
-            <div class="stat-label">${L ? 'Najwi\u0119ksze zu\u017Cycie' : 'Top Consumer'}</div>
+            <div class="stat-label">${L ? 'Największy import' : 'Largest Import'}</div>
             <div class="stat-sub">${displayData.length > 0 ? displayData[0].month.toFixed(1) + ' kWh' : ''}</div>
           </div>
         </div>
-        <div class="section-title">\u26A1 ${L ? 'Zu\u017Cycie wg urz\u0105dzenia' : 'Energy by Device'}</div>
+        <div class="section-title">\u26A1 ${L ? 'Import według źródła' : 'Import by Source'}</div>
         ${(() => {
           const page = this._devicePage || 0;
           const perPage = this._devicesPerPage || 20;
@@ -3635,7 +3635,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       if (this._emailBackendAvailable) {
         return `
           ${this._renderSmtpSection()}
-          <div class="info-row">\u{1F4BE}\u00A0 ${L ? 'Harmonogramy s\u0105 zapisywane po stronie integracji HA Tools Email v2.0.0.' : 'Schedules are stored server-side by the HA Tools Email v2.0.0 integration.'}</div>
+          <div class="info-row">\u{1F4BE}\u00A0 ${L ? 'Raporty energii wymagają HA Tools Email 2.1.2+. Harmonogramy są zapisywane w integracji.' : 'Energy reports require HA Tools Email 2.1.2+. Schedules are stored in the integration.'}</div>
           ${cadences.map(c => this._renderBackendScheduleCard(c)).join('')}
         `;
       }
@@ -3660,7 +3660,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         : '<span class="badge badge-wa">\u2795 ' + (L ? 'Nie utworzony' : 'Not Created') + '</span>';
       return `<div class="schedule-card" data-schedule-card="${cadence}">
         <div class="schedule-row"><div class="schedule-name">${icon} ${title}</div>${status}</div>
-        <div class="schedule-meta"><span>${cadenceLabel}</span><span>kind: energy_report</span>${schedule?.id ? `<span>${_esc(schedule.id)}</span>` : ''}</div>
+        <div class="schedule-meta"><span>${cadenceLabel}</span><span>${L ? 'Raport energii' : 'Energy report'}</span>${schedule?.id ? `<span>${_esc(schedule.id)}</span>` : ''}</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;align-items:end;margin-top:10px">
           <label style="font-size:12px;color:var(--bento-text-secondary);font-weight:500">${L ? 'Godzina' : 'Time'}<input class="config-input" type="time" id="schedule-time-${cadence}" value="${_esc(time)}" style="width:100%;margin-top:4px"></label>
           <label style="font-size:12px;color:var(--bento-text-secondary);font-weight:500">${L ? 'Odbiorcy' : 'Recipients'}<input class="config-input" type="text" id="schedule-recipients-${cadence}" value="${_esc(recipients || '')}" placeholder="name@example.com, other@example.com" style="width:100%;margin-top:4px"></label>
@@ -3836,15 +3836,15 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         return `<div class="preview-box" style="margin-bottom:14px">
           <h3 style="margin:0 0 8px">${p.icon} ${title} \u2013 ${today}</h3>
           ${periodNote}
-          <div style="font-size:12px;color:var(--bento-text-secondary);margin-bottom:10px">\u{1F4E7} ${_esc(recipientLine)} \u00A0\u2022\u00A0 ${range} \u00A0\u2022\u00A0 ${devData.length} ${L ? 'urz.' : 'dev.'}</div>
+          <div style="font-size:12px;color:var(--bento-text-secondary);margin-bottom:10px">\u{1F4E7} ${_esc(recipientLine)} \u00A0\u2022\u00A0 ${range} \u00A0\u2022\u00A0 ${devData.length} ${L ? 'źródeł' : 'sources'}</div>
           <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">
             <div><span style="font-size:18px;font-weight:700;color:#F59E0B">${totalEnergy === null ? 'N/A' : totalEnergy.toFixed(1)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">kWh</span></div>
             <div><span style="font-size:18px;font-weight:700;color:#3B82F6">${this._formatCost(totalCost)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">${_esc(this._config.currency || this._hass?.config?.currency || '')}</span></div>
           </div>
           <table class="preview-table">
-            <thead><tr><th>${L ? 'Urz\u0105dzenie' : 'Device'}</th><th>kWh</th><th>${L ? 'Koszt' : 'Cost'} (${_esc(this._config.currency || this._hass?.config?.currency || '')})</th></tr></thead>
+            <thead><tr><th>${L ? 'Źródło importu' : 'Import source'}</th><th>kWh</th><th>${L ? 'Koszt' : 'Cost'} (${_esc(this._config.currency || this._hass?.config?.currency || '')})</th></tr></thead>
             <tbody>${top5.map(d => `<tr><td>${_esc(d.name)}</td><td>${d.current === null ? 'N/A' : d.current.toFixed(2)}</td><td>${this._formatCost(d.cost)}</td></tr>`).join('')}
-            ${devData.length > 5 ? `<tr><td colspan="3" style="text-align:center;color:var(--bento-text-secondary);font-size:11px">+ ${devData.length - 5} ${L ? 'wi\u0119cej urz\u0105dze\u0144' : 'more devices'}...</td></tr>` : ''}</tbody>
+            ${devData.length > 5 ? `<tr><td colspan="3" style="text-align:center;color:var(--bento-text-secondary);font-size:11px">+ ${devData.length - 5} ${L ? 'więcej źródeł' : 'more sources'}...</td></tr>` : ''}</tbody>
           </table>
         </div>`;
       };
@@ -3861,7 +3861,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       const canSend = this._hasHaToolsEmail();
       const quickDisabled = this._sending || (this._emailBackendAvailable ? true : !canSend);
       const modeText = this._emailBackendAvailable
-        ? (L ? 'R\u0119cznie wy\u015Blij raport energii przez backend HA Tools Email v2.0.0.' : 'Manually trigger an energy report through the HA Tools Email v2.0.0 backend.')
+        ? (L ? 'Wyślij raport energii przez HA Tools Email 2.1.2+.' : 'Send an energy report using HA Tools Email 2.1.2+.')
         : (L ? 'R\u0119cznie wy\u015Blij raport energii poprzez ha_tools_email.' : 'Manually trigger an energy report via ha_tools_email.');
       return `
         <div class="info-row">\u{1F4E4}\u00A0 ${modeText}</div>
@@ -4205,7 +4205,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         const html = `<div style="font-family:'Segoe UI',Arial,sans-serif;max-width:600px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e2e8f0">
           <div style="background:linear-gradient(135deg,#1e40af,#3b82f6);padding:24px 28px;color:#fff">
             <h1 style="margin:0;font-size:22px;font-weight:700">\u26A1 ${L ? 'Raport energii' : 'Energy Report'} \u2014 ${typeName}</h1>
-            <p style="margin:6px 0 0;opacity:.85;font-size:14px">${dateStr} \u2022 ${_esc(windowText)} \u2022 ${devices.length} ${L ? 'urz.' : 'dev.'}</p>
+            <p style="margin:6px 0 0;opacity:.85;font-size:14px">${dateStr} \u2022 ${_esc(windowText)} \u2022 ${devices.length} ${L ? 'źródeł' : 'sources'}</p>
           </div>
           <div style="padding:20px 28px">
             <div style="display:flex;gap:16px;margin-bottom:20px">
@@ -4224,7 +4224,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
             </div>
             <table style="width:100%;border-collapse:collapse;border-radius:8px;overflow:hidden;border:1px solid #e2e8f0">
               <thead><tr style="background:#f1f5f9">
-                <th style="padding:10px 14px;text-align:left;font-size:12px;text-transform:uppercase;color:#64748b;letter-spacing:.5px">${L ? 'Urz\u0105dzenie' : 'Device'}</th>
+                <th style="padding:10px 14px;text-align:left;font-size:12px;text-transform:uppercase;color:#64748b;letter-spacing:.5px">${L ? 'Źródło importu' : 'Import source'}</th>
                 <th style="padding:10px 14px;text-align:right;font-size:12px;text-transform:uppercase;color:#64748b;letter-spacing:.5px">kWh</th>
                 <th style="padding:10px 14px;text-align:right;font-size:12px;text-transform:uppercase;color:#64748b;letter-spacing:.5px">${_esc(currency)}</th>
                 <th style="padding:10px 14px;text-align:right;font-size:12px;text-transform:uppercase;color:#64748b;letter-spacing:.5px">%</th>
