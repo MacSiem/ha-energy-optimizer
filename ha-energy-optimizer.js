@@ -967,7 +967,7 @@ canvas {
         <h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>
 
         <div class="data-source-badge">
-          📊 ${this._text('Grid import from Energy Dashboard sources', 'Import z sieci ze źródeł panelu Energia')}: ${(this._energySensorIds || []).length}<br>
+          📊 ${this._text('Grid import from', 'Import z sieci ze źródeł panelu Energia:')} ${(this._energySensorIds || []).length}${this._text(' Energy Dashboard source(s)', '')}<br>
           ${_esc(this._todayWindow?.start || '')} — ${_esc(this._todayWindow?.end || '')} • ${_esc(this._energyModel?.zone || '')}
         </div>
 
