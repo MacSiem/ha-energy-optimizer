@@ -1874,7 +1874,9 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
     set hass(hass) {
       try {
-        if (hass?.language) this._lang = hass.language.startsWith('pl') ? 'pl' : 'en';
+        const previousLanguage = this._lang;
+        const language = hass?.locale?.language || hass?.language;
+        if (language) this._lang = language.startsWith('pl') ? 'pl' : 'en';
         this._hass = hass;
         if (!hass) return;
 
@@ -1888,6 +1890,17 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           this._lastRenderTime = now;
           return;
         }
+
+        if (previousLanguage !== this._lang && this._domBuilt) {
+          const header = this.shadowRoot.querySelector('.panel-header');
+          if (header) header.outerHTML = this._renderHeader();
+          this.shadowRoot.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.textContent = this._t(btn.dataset.tab);
+          });
+          this._updateContent();
+          if (this._chartJsReady) this._renderCharts();
+        }
+        this._syncChartTheme();
 
         // Fetch new data every 5 minutes (recorder stats don't change often)
         if (!this._lastDataFetch || (now - this._lastDataFetch) > 300000) {
@@ -2353,6 +2366,26 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
     // ===== CHARTS =====
 
+    _chartThemeColors() {
+      const style = getComputedStyle(this);
+      return {
+        text: style.getPropertyValue('--primary-text-color').trim() || (this._hass?.themes?.darkMode ? '#e2e8f0' : '#172335'),
+        grid: style.getPropertyValue('--divider-color').trim() || (this._hass?.themes?.darkMode ? '#334155' : '#d6dce5')
+      };
+    }
+
+    _syncChartTheme() {
+      const { text, grid } = this._chartThemeColors();
+      for (const chart of Object.values(this._charts)) {
+        const { x, y } = chart.options.scales;
+        if (x.ticks.color === text && y.ticks.color === text && y.grid.color === grid) continue;
+        x.ticks.color = text;
+        y.ticks.color = text;
+        y.grid.color = grid;
+        chart.update('none');
+      }
+    }
+
     _renderCharts() {
       if (!HA_ENERGY_CHART || !this._data) return;
 
@@ -2373,6 +2406,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
         }
 
         const primaryColor = getComputedStyle(this).getPropertyValue('--bento-primary').trim() || '#4A90D9';
+        const theme = this._chartThemeColors();
 
         this._charts[this._activeTab] = new HA_ENERGY_CHART(canvas, {
           type: 'bar',
@@ -2405,12 +2439,12 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
             },
             scales: {
               x: {
-                ticks: { color: getComputedStyle(this).getPropertyValue('--bento-text-secondary').trim(), font: { size: 11 }, maxRotation: 45 },
+                ticks: { color: theme.text, font: { size: 11 }, maxRotation: 45 },
                 grid: { color: 'transparent' }
               },
               y: {
-                ticks: { color: getComputedStyle(this).getPropertyValue('--bento-text-secondary').trim(), font: { size: 11 } },
-                grid: { color: 'rgba(0,0,0,0.05)' },
+                ticks: { color: theme.text, font: { size: 11 } },
+                grid: { color: theme.grid },
                 beginAtZero: true
               }
             }
@@ -2662,7 +2696,9 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 
     set hass(hass) {
       try {
-        if (hass?.language) this._lang = hass.language.startsWith('pl') ? 'pl' : 'en';
+        const previousLanguage = this._lang;
+        const language = hass?.locale?.language || hass?.language;
+        if (language) this._lang = language.startsWith('pl') ? 'pl' : 'en';
         this._hass = hass;
         if (!hass) return;
         const now = Date.now();
@@ -2670,6 +2706,11 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           this._firstRender = true;
           this._discoverAll().catch(e => this._renderError(e));
           this._render();
+          this._lastRenderTime = now;
+          return;
+        }
+        if (previousLanguage !== this._lang) {
+          this._renderPreservingDrafts();
           this._lastRenderTime = now;
           return;
         }
@@ -3210,6 +3251,30 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     // --- main render ---
+
+    _renderPreservingDrafts() {
+      const root = this.shadowRoot;
+      const focused = root.activeElement;
+      const focusId = focused?.id;
+      const focusTab = focused?.dataset?.tab;
+      const selection = focused?.selectionStart != null ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null;
+      const fields = [...root.querySelectorAll('input[id], select[id], textarea[id]')].map(field => ({ id: field.id, value: field.value, checked: field.checked }));
+      const tabsScroll = root.querySelector('.tabs')?.scrollLeft || 0;
+      this._render();
+      // Reopen an unsaved inline tariff editor without committing the draft.
+      if (fields.some(field => field.id === 'price-input')) root.getElementById('price-display')?.click();
+      for (const saved of fields) {
+        const field = root.getElementById(saved.id);
+        if (!field) continue;
+        field.value = saved.value;
+        if (typeof saved.checked === 'boolean') field.checked = saved.checked;
+      }
+      const target = focusId ? root.getElementById(focusId) : [...root.querySelectorAll('[data-tab]')].find(el => el.dataset.tab === focusTab);
+      target?.focus({ preventScroll: true });
+      if (selection && target?.setSelectionRange) target.setSelectionRange(...selection);
+      const tabs = root.querySelector('.tabs');
+      if (tabs) tabs.scrollLeft = tabsScroll;
+    }
 
     _render() {
       if (!this._hass) return;
