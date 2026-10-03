@@ -1,5 +1,47 @@
 # Changelog — Energy Optimizer
 
+## 3.5.3 (unreleased)
+
+- Translate Insights tariff status and Email inline tariff editor accessibility labels in Polish and English.
+- Refresh Insights and Email headings and navigation when the HA language changes. Preserve unsaved Email fields and focus, and update existing Insights chart colors when the theme changes.
+
+- Use Home Assistant theme colors for Optimizer chart labels and axes. Translate Optimizer views and Email navigation for Polish, and describe browser-only legacy settings accurately when HA helpers are unavailable.
+
+- Guide Email first run to configure a missing grid-import source. Distinguish absent Recorder measurements, incomplete or unsupported statistics, and failed reads instead of showing raw status codes.
+
+- Describe report rows as grid-import sources, label chart dates accurately and show the required HA Tools Email version in schedule/send instructions.
+
+- Refresh open email report windows every five minutes without replacing a settings form while it is being edited.
+
+- Validate every configured import source against the complete requested hourly window. Reject duplicate and missing buckets; retain unavailable history and future hours as gaps instead of partial totals or zeros.
+- Share grid-source selection and unit/timestamp normalization across cards, including legacy grid flows, Wh/kWh/MWh and current Recorder millisecond timestamps.
+- Default Energy Email to its 24-hour Recorder view; remove the mixed lifetime “All” sum and report controls for unrelated device counters.
+- Opening the email card no longer creates helpers. Existing settings remain readable; explicit saves retain the helper/browser fallback. Limit sends, schedules and configuration to administrators.
+- Use actual date labels and nullable chart values, and consumption-weighted tariff costs for chart tooltips. Show exact windows and the Home Assistant timezone.
+- Legacy automation creation now directs users to the Recorder-backed email scheduler instead of generating templates from lifetime states.
+
+## 3.5.2 (2026-09-30)
+
+- Keep the accessible selected Optimizer tab in sync with the visible panel immediately after navigation.
+
+- Bound responsive Optimizer chart plots so full Recorder data cannot repeatedly enlarge the card while resizing.
+
+- Optimizer and Insights reject an interior gap in today's hourly Recorder buckets instead of presenting a complete daily model or peak-hour advice. Absolute UTC coverage preserves valid 23-hour and 25-hour daylight-saving days.
+
+- Period overview preserves measured zero and keeps missing daily/weekly/monthly data unavailable instead of using lifetime or another period. Recorder windows are explicit.
+- Time-dependent tariff costs weight actual hourly consumption in the Home Assistant timezone; aggregate usage alone has no estimated time-tariff cost.
+
+- Energy Email previews no longer substitute lifetime counters for daily, weekly or monthly energy, or missing measurements with zero.
+- With HA Tools Email 2.1.2+, preview reads the server composer model used by manual sends and schedules, including exact Recorder windows and configured grid sources. Unavailable server previews stay unavailable.
+- Keep measured zero and escape source names in the preview. Tariff absence remains explicit.
+- Without the new backend, period previews and manual sends also use configured grid sources, complete hourly Recorder coverage and exact windows; incomplete data stops the send.
+
+## 3.5.1 (2026-09-29)
+
+- Use measured grid-import statistics with explicit empty/partial states, including missing and daylight-saving hours; never invent a rate or currency for Energy Email.
+- Bundle pinned Chart.js locally and keep Energy Insights honest when recent Recorder statistics are absent.
+- Let all three cards grow naturally in Sections and use compact administrator-only support links.
+
 ## 3.5.0 (2026-09-24)
 
 - Energy Email: Energy Optimizer is now the single maintained source of `custom:ha-energy-email`. HA Tools Email & Reports 4.5.0 no longer ships its own copy; it keeps a thin wrapper that renders this card, so existing dashboards keep working in either load order.

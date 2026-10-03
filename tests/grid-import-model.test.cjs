@@ -1,0 +1,273 @@
+const assert = require('node:assert/strict');
+const { test } = require('node:test');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
+const { JSDOM } = require('jsdom');
+
+function cardWith(responses, options = {}) {
+  const dom = new JSDOM('', { runScripts: 'dangerously', url: 'http://localhost/' });
+  if (options.now) {
+    const NativeDate = dom.window.Date;
+    const fixed = new NativeDate(options.now).getTime();
+    dom.window.Date = class extends NativeDate {
+      constructor(...args) { super(...(args.length ? args : [fixed])); }
+      static now() { return fixed; }
+    };
+  }
+  dom.window.eval(readFileSync(join(__dirname, '..', 'ha-energy-optimizer.js'), 'utf8'));
+  const card = dom.window.document.createElement('ha-energy-optimizer');
+  const calls = [];
+  card._hass = { config: { currency: 'EUR', time_zone: options.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone }, states: {}, callWS: async message => {
+    calls.push(message);
+    const response = responses[message.type];
+    return typeof response === 'function' ? response(message) : response;
+  } };
+  return { dom, card, calls };
+}
+
+const completeHours = (start, count, changes = {}) => Array.from({ length: count }, (_, i) => ({
+  start: Date.parse(start) + i * 3600000, change: changes[i] ?? 0,
+}));
+
+test('Optimizer tab selection matches the visible panel immediately after navigation', () => {
+  const { dom, card } = cardWith({});
+  try {
+    card._hasRealData = true;
+    card._config.show_support = false;
+    // Chart timers are unrelated to immediate navigation semantics.
+    card._schedule = () => {};
+    card._render();
+    for (const tab of ['patterns', 'recommendations', 'compare', 'dashboard']) {
+      const button = card.shadowRoot.querySelector(`[data-tab="${tab}"]`);
+      button.click();
+      assert.equal(button.getAttribute('aria-selected'), 'true');
+      assert.equal(card.shadowRoot.querySelectorAll('[role="tab"][aria-selected="true"]').length, 1);
+      assert.ok(card.shadowRoot.getElementById(tab).classList.contains('active'));
+      assert.equal(card.shadowRoot.querySelectorAll('.tab-content.active').length, 1);
+    }
+  } finally { dom.window.close(); }
+});
+
+test('grid import uses unique configured roots and converts Wh without counting arbitrary sensors', async () => {
+  const start = Date.parse('2026-09-30T11:00:00Z') / 1000;
+  const { dom, card, calls } = cardWith({
+    'energy/get_prefs': { energy_sources: [
+      { type: 'grid', stat_energy_from: 'sensor.grid_a' },
+      { type: 'grid', stat_energy_from: 'sensor.grid_a' },
+      { type: 'grid', stat_energy_from: 'sensor.grid_b' },
+    ] },
+    'recorder/get_statistics_metadata': {
+      'sensor.grid_a': { has_sum: true, statistics_unit_of_measurement: 'kWh', unit_class: 'energy' },
+      'sensor.grid_b': { has_sum: true, statistics_unit_of_measurement: 'Wh', unit_class: 'energy' },
+    },
+    'recorder/statistics_during_period': {
+      'sensor.grid_a': completeHours('2026-09-30T00:00Z', 12, { 11: 2 }),
+      'sensor.grid_b': completeHours('2026-09-30T00:00Z', 12, { 11: 500 }),
+      'sensor.unrelated': [{ start, change: 999 }],
+    },
+  }, { now: '2026-09-30T12:30:00Z', timeZone: 'UTC' });
+  try {
+    await card._fetchEnergyStats();
+    assert.equal(card._hasRealData, true);
+    assert.equal(card._calculateTodayUsage(), 2.5);
+    assert.equal(card._calculateTodayCost(), null);
+    assert.match(card._getTemplate(), /Grid import from 2 Energy Dashboard source/);
+    assert.doesNotMatch(card._getTemplate(), /Demo data/);
+    assert.deepEqual(Array.from(calls.find(call => call.type === 'recorder/statistics_during_period').statistic_ids), ['sensor.grid_a', 'sensor.grid_b']);
+  } finally { dom.window.close(); }
+});
+
+test('fall DST repeated local hour counts both distinct Recorder buckets once', async () => {
+  const { dom, card } = cardWith({
+    'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+    'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+    'recorder/statistics_during_period': { 'sensor.grid': completeHours('2026-10-24T22:00Z', 6, { 2: 1, 3: 2 }) },
+  }, { now: '2026-10-25T04:30:00Z', timeZone: 'Europe/Warsaw' });
+  try {
+    await card._fetchEnergyStats();
+    assert.equal(card._hasRealData, true);
+    assert.equal(card._calculateTodayUsage(), 3);
+    assert.equal(card._energyData[2], 3);
+    assert.equal(card._hourlyBucketCounts[2], 2);
+    assert.equal(card._calculateOffPeakAverage(), 0.5);
+  } finally { dom.window.close(); }
+});
+
+test('spring DST skipped hour and future hours are not displayed as measured zeroes', async () => {
+  const { dom, card } = cardWith({
+    'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+    'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+    'recorder/statistics_during_period': { 'sensor.grid': completeHours('2026-03-28T23:00Z', 5, { 1: 1, 2: 2 }) },
+  }, { now: '2026-03-29T04:30:00Z', timeZone: 'Europe/Warsaw' });
+  try {
+    await card._fetchEnergyStats();
+    assert.equal(card._hasRealData, true);
+    assert.equal(card._calculateTodayUsage(), 3);
+    assert.equal(card._energyData[2], null);
+    assert.equal(card._energyData[23], null);
+    assert.equal(card._calculatePeakRatio(), null);
+  } finally { dom.window.close(); }
+});
+
+test('misaligned grid source hours fail closed instead of undercounting', async () => {
+  const { dom, card } = cardWith({
+    'energy/get_prefs': { energy_sources: [
+      { type: 'grid', stat_energy_from: 'sensor.grid_a' },
+      { type: 'grid', stat_energy_from: 'sensor.grid_b' },
+    ] },
+    'recorder/get_statistics_metadata': {
+      'sensor.grid_a': { has_sum: true, statistics_unit_of_measurement: 'kWh' },
+      'sensor.grid_b': { has_sum: true, statistics_unit_of_measurement: 'kWh' },
+    },
+    'recorder/statistics_during_period': {
+      'sensor.grid_a': [{ start: '2026-09-27T09:00:00Z', change: 1 }],
+      'sensor.grid_b': [{ start: '2026-09-27T08:00:00Z', change: 2 }],
+    },
+  }, { now: '2026-09-27T12:00:00Z', timeZone: 'Europe/Warsaw' });
+  try {
+    await card._fetchEnergyStats();
+    assert.equal(card._hasRealData, false);
+    assert.match(card._getTemplate(), /statistics could not be loaded/);
+  } finally { dom.window.close(); }
+});
+
+test('interior missing Recorder hour cannot produce a complete daily model', async () => {
+  const { dom, card } = cardWith({
+    'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+    'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+    'recorder/statistics_during_period': { 'sensor.grid': [
+      { start: '2026-09-30T09:00:00Z', change: 1 },
+      { start: '2026-09-30T11:00:00Z', change: 2 },
+    ] },
+  }, { now: '2026-09-30T12:30:00Z', timeZone: 'UTC' });
+  try {
+    await card._fetchEnergyStats();
+    assert.equal(card._hasRealData, false);
+    assert.match(card._getTemplate(), /statistics could not be loaded/);
+  } finally { dom.window.close(); }
+});
+
+test('Insights rejects an interior missing hour instead of presenting daily totals and peak hours', async () => {
+  const { dom } = cardWith({}, { now: '2026-09-30T12:30:00Z', timeZone: 'UTC' });
+  try {
+    const insights = dom.window.document.createElement('ha-energy-insights');
+    insights._updateContent = () => {};
+    insights._hass = { config: { currency: 'EUR', time_zone: 'UTC' }, states: {}, callWS: async msg => ({
+      'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+      'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+      'recorder/statistics_during_period': { 'sensor.grid': [
+        { start: '2026-09-30T09:00:00Z', change: 1 },
+        { start: '2026-09-30T11:00:00Z', change: 2 },
+      ] },
+    })[msg.type] };
+    await insights._fetchData();
+    assert.match(insights._error || '', /Incomplete.*hour/i);
+    assert.equal(insights._data, null);
+  } finally { dom.window.close(); }
+});
+
+test('negative change fails closed instead of becoming zero energy', async () => {
+  const start = Math.floor((Date.now() - 3600000) / 1000);
+  const { dom, card } = cardWith({
+    'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+    'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+    'recorder/statistics_during_period': { 'sensor.grid': [{ start, change: -5 }] },
+  });
+  try {
+    await card._fetchEnergyStats();
+    assert.equal(card._hasRealData, false);
+    assert.match(card._getTemplate(), /statistics could not be loaded/);
+    assert.doesNotMatch(card._getTemplate(), /Demo data/);
+  } finally { dom.window.close(); }
+});
+
+test('Recorder millisecond timestamps are interpreted as milliseconds', async () => {
+  const start = Date.now() - 60000;
+  const { dom, card } = cardWith({
+    'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+    'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+    'recorder/statistics_during_period': { 'sensor.grid': completeHours('2026-09-30T00:00Z', 12, { 11: 1.25 }) },
+  }, { now: '2026-09-30T12:30:00Z', timeZone: 'UTC' });
+  try {
+    await card._fetchEnergyStats();
+    assert.equal(card._hasRealData, true);
+    assert.equal(card._calculateTodayUsage(), 1.25);
+  } finally { dom.window.close(); }
+});
+
+test('configured grid without recent Recorder buckets stays empty', async () => {
+  const { dom, card } = cardWith({
+    'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+    'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+    'recorder/statistics_during_period': {},
+  });
+  try {
+    await card._fetchEnergyStats();
+    assert.equal(card._hasRealData, false);
+    assert.match(card._getTemplate(), /No recent Recorder statistics/);
+  } finally { dom.window.close(); }
+});
+
+test('Insights ignores unconfigured power sensors and omits cost without a tariff', async () => {
+  const start = Date.parse('2026-09-30T11:00:00Z') / 1000;
+  const { dom, card: unused } = cardWith({}, { now: '2026-09-30T12:30:00Z', timeZone: 'UTC' });
+  try {
+    const insights = dom.window.document.createElement('ha-energy-insights');
+    insights._updateContent = () => {};
+    insights._hass = { config: { currency: 'EUR', time_zone: 'UTC' }, states: {
+      'sensor.power': { state: '1500', attributes: { unit_of_measurement: 'W' } },
+    }, callWS: async msg => ({
+      'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
+      'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
+      'recorder/statistics_during_period': { 'sensor.grid': completeHours('2026-09-30T00:00Z', 12, { 11: 2.5 }) },
+    })[msg.type] };
+    await insights._fetchData();
+    assert.deepEqual(Array.from(insights._data.sensors), ['sensor.grid']);
+    assert.equal(insights._data.todayKwh, 2.5);
+    assert.equal(insights._data.todayCost, null);
+    assert.equal(insights._data.topDevices.length, 0);
+    assert.match(insights._renderOverview(), /N\/A/);
+  } finally { dom.window.close(); }
+});
+
+test('Insights shows an honest empty state when one configured grid source has no series', async () => {
+  const { dom } = cardWith({});
+  try {
+    const insights = dom.window.document.createElement('ha-energy-insights');
+    insights._updateContent = () => {};
+    insights._hass = { config: { currency: 'EUR' }, states: {}, callWS: async msg => ({
+      'energy/get_prefs': { energy_sources: [
+        { type: 'grid', stat_energy_from: 'sensor.grid_a' },
+        { type: 'grid', stat_energy_from: 'sensor.grid_b' },
+      ] },
+      'recorder/get_statistics_metadata': {
+        'sensor.grid_a': { has_sum: true, statistics_unit_of_measurement: 'kWh' },
+        'sensor.grid_b': { has_sum: true, statistics_unit_of_measurement: 'kWh' },
+      },
+      'recorder/statistics_during_period': {
+        'sensor.grid_a': [{ start: Math.floor(Date.now() / 1000), change: 2 }],
+      },
+    })[msg.type] };
+    await insights._fetchData();
+    assert.equal(insights._error, null);
+    assert.equal(insights._data.noSeries, true);
+    assert.match(insights._renderTabContent(), /Totals are unavailable/);
+    assert.doesNotMatch(insights._renderTabContent(), /2\.00 kWh/);
+  } finally { dom.window.close(); }
+});
+
+test('Energy Email has no assumed price or currency and preserves an explicit zero tariff', () => {
+  const { dom } = cardWith({});
+  try {
+    const email = dom.window.document.createElement('ha-energy-email');
+    email._hass = { config: { currency: 'EUR' } };
+    assert.equal(email._getAvgRate(), null);
+    assert.equal(email._cost(5), null);
+    assert.equal(email._formatCost(email._cost(5)), 'N/A');
+    assert.match(email._getTariffLabel(), /not configured/);
+    email.setConfig({ energy_price: 0 });
+    assert.equal(email._getAvgRate(), 0);
+    assert.equal(email._cost(5), 0);
+    assert.match(email._getTariffLabel(), /EUR/);
+  } finally { dom.window.close(); }
+});

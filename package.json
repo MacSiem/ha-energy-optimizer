@@ -3,9 +3,12 @@
   "version": "0.0.0-private",
   "private": true,
   "scripts": {
+    "build:chart": "node scripts/embed-chart.cjs --write",
+    "check:chart": "node scripts/embed-chart.cjs --check",
     "test:smoke": "node .github/smoke.cjs"
   },
   "devDependencies": {
+    "chart.js": "4.5.1",
     "jsdom": "24.1.3"
   }
 }
