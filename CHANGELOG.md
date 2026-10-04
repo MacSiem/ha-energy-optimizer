@@ -3,6 +3,7 @@
 ## 3.5.3 (unreleased)
 
 - Translate Energy Email Send buttons, manual/instant badges, sending and last-sent text into Polish, including live HA locale changes, while retaining English labels and send guards.
+- Use the primary HA theme text color for manual badges and last-sent status, preserving readable small-text contrast in light and dark themes.
 
 - When the email backend and legacy send service are missing, guide first run through HACS installation, adding the integration, then SMTP configuration. Keep transport or unavailable-backend errors distinct and preserve disabled sends and administrator-only actions.
 

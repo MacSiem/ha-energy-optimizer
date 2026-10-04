@@ -3370,7 +3370,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           .badge-ok { background: var(--bento-success-light); color: var(--bento-success); }
           .badge-er { background: var(--bento-error-light); color: var(--bento-error); }
           .badge-wa { background: var(--bento-warning-light); color: var(--bento-warning); }
-          .badge-pr { background: var(--bento-primary-light); color: var(--bento-primary); }
+          .badge-pr { background: var(--bento-primary-light); color: var(--bento-text); }
           .badge-auto { background: rgba(139,92,246,.1); color: #8B5CF6; }
           .schedule-meta { font-size: 12px; color: var(--bento-text-secondary); }
           .schedule-meta span { margin-right: 12px; }
@@ -3427,7 +3427,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           .auto-unknown { color: var(--bento-warning); }
           .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; margin-right: 6px; vertical-align: middle; }
           @keyframes spin { to { transform: rotate(360deg); } }
-          .last-sent { font-size: 11px; color: var(--bento-text-muted); margin-top: 4px; }
+          .last-sent { font-size: 11px; color: var(--bento-text); margin-top: 4px; }
           .empty-state { text-align: center; padding: 32px 20px; }
           .empty-state .big { font-size: 40px; margin-bottom: 12px; }
           .empty-state .title { font-size: 15px; font-weight: 600; color: var(--bento-text); margin-bottom: 6px; }
