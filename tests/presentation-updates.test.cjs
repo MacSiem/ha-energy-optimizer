@@ -36,7 +36,7 @@ for (const language of ['en', 'pl']) {
           const schedule = { ...payload.schedule, id: payload.schedule_id || payload.schedule.cadence };
           return { schedules: [...card._emailSchedules.filter(s => s.cadence !== schedule.cadence), schedule] };
         }
-        if (command === 'get_schedules') return { schedules: card._emailSchedules };
+        if (command === 'list_schedules') return { schedules: card._emailSchedules };
         throw new Error('Unexpected backend command: ' + command);
       };
       for (const cadence of ['daily', 'weekly', 'monthly']) {
