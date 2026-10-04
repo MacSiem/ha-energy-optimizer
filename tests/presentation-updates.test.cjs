@@ -121,6 +121,50 @@ for (const type of ['ha-energy-optimizer', 'ha-energy-insights', 'ha-energy-emai
 }
 
 // Optional real CSS-renderer regression, using the existing Node test runner.
+if (process.env.ENERGY_RENDER_LAYOUT === '1') {
+  test('360px schedule time and recipient inputs fit their own cards in EN/PL light/dark backend and legacy modes', async () => {
+    const { webkit } = require('playwright');
+    const browser = await webkit.launch({ headless: true });
+    const rows = [];
+    try {
+      for (const language of ['en', 'pl']) for (const dark of [false, true]) for (const backend of [true, false]) {
+        const page = await browser.newPage({ viewport: { width: 360, height: 900 } });
+        await page.route('**/*', route => route.abort());
+        await page.setContent('<!doctype html><html><body style="margin:0"></body></html>');
+        await page.addScriptTag({ path: join(__dirname, '..', 'ha-energy-optimizer.js') });
+        rows.push(...await page.evaluate(({ language, dark, backend }) => {
+          document.documentElement.style.setProperty('--card-background-color', dark ? '#1c1c1c' : '#ffffff');
+          document.documentElement.style.setProperty('--primary-text-color', dark ? '#e1e1e1' : '#212121');
+          const card = document.createElement('ha-energy-email');
+          card.style.cssText = 'display:block;width:360px';
+          card._discoverAll = async () => {};
+          card._discoveryDone = true;
+          card._emailBackendChecked = true;
+          card._emailBackendAvailable = backend;
+          card._emailBackendConfig = { smtp_configured: true };
+          card._activeTab = 'schedule';
+          document.body.append(card);
+          card.hass = { language, locale: { language }, themes: { darkMode: dark }, user: { is_admin: true }, states: {}, config: {} };
+          card._render();
+          return [...card.shadowRoot.querySelectorAll('input[id^="schedule-time-"], input[id^="schedule-recipients-"]')].map(input => {
+            const owner = input.closest('.schedule-card').getBoundingClientRect();
+            const rect = input.getBoundingClientRect();
+            return { language, dark, backend, input: input.id, cardLeft: owner.left, cardRight: owner.right,
+              inputLeft: rect.left, inputRight: rect.right, width: rect.width, boxSizing: getComputedStyle(input).boxSizing };
+          });
+        }, { language, dark, backend }));
+        await page.close();
+      }
+      console.log('ENERGY_SCHEDULE_INPUT_GEOMETRY', JSON.stringify(rows));
+      assert.equal(rows.length, 48);
+      for (const row of rows) {
+        assert.ok(row.width > 0, JSON.stringify(row));
+        assert.ok(row.inputLeft >= row.cardLeft - 0.5 && row.inputRight <= row.cardRight + 0.5, JSON.stringify(row));
+      }
+    } finally { await browser.close(); }
+  });
+}
+
 // Enable with ENERGY_RENDER_CONTRAST=1 and an installed Playwright WebKit runtime.
 // It uses only an offline in-memory card, never HA, Chrome or a saved profile.
 if (process.env.ENERGY_RENDER_CONTRAST === '1') {
