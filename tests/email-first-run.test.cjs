@@ -15,7 +15,7 @@ function card() {
 
 // Consumer regression: Email Reports cold-missing run 8b61dd8f4dfa462da388a1c756f87ac3.
 for (const language of ['en', 'pl']) {
-  for (const state of ['missing', 'unconfigured', 'configured', 'legacy', 'transport', 'unavailable', 'no-websocket']) {
+  for (const state of ['missing', 'unconfigured', 'configured', 'legacy', 'transport', 'unavailable', 'unauthorized', 'no-websocket']) {
     test(`SMTP first run ${language}/${state} keeps installation, configuration and unavailable states distinct`, async () => {
       const { dom, card: email } = card();
       const writes = [];
@@ -30,6 +30,7 @@ for (const language of ['en', 'pl']) {
         if (state === 'missing' || state === 'legacy') throw { code: 'unknown_command', message: 'Unknown command' };
         if (state === 'transport') throw new Error('Connection lost: private diagnostic');
         if (state === 'unavailable') throw { code: 'not_loaded', message: 'Integration intentionally disabled' };
+        if (state === 'unauthorized') throw { code: 'unauthorized', message: 'Access denied' };
         if (msg.type === 'ha_tools_email/get_config') return { smtp_configured: state === 'configured' };
         return null;
       };
@@ -70,6 +71,10 @@ for (const language of ['en', 'pl']) {
         }
         assert.deepEqual(writes, []);
         assert.equal(dom.window.localStorage.length, 0);
+        email._activeTab = 'config';
+        email._render();
+        assert.equal(email.shadowRoot.querySelector('.smtp-section').textContent, text,
+          'Config and Send show the same first-run state');
       } finally { dom.window.close(); }
     });
   }
@@ -94,6 +99,27 @@ for (const language of ['en', 'pl']) {
     } finally { dom.window.close(); }
   });
 }
+
+test('a later transport failure or successful configuration clears earlier missing guidance', async () => {
+  const { dom, card: email } = card();
+  let state = 'missing';
+  email._hass.callWS = async msg => {
+    if (state === 'missing') throw { code: 'unknown_command', message: 'Unknown command' };
+    if (state === 'transport') throw new Error('Connection lost');
+    return msg.type === 'ha_tools_email/get_config' ? { smtp_configured: true } : null;
+  };
+  try {
+    await email._loadEmailBackendConfig();
+    assert.match(email._renderSmtpSection(), /HACS/);
+    state = 'transport';
+    await email._loadEmailBackendConfig();
+    assert.doesNotMatch(email._renderSmtpSection(), /HACS|not installed/);
+    state = 'configured';
+    await email._loadEmailBackendConfig();
+    assert.match(email._renderSmtpSection(), /SMTP Configured/);
+    assert.doesNotMatch(email._renderSmtpSection(), /HACS|not installed/);
+  } finally { dom.window.close(); }
+});
 test('opening Energy Email only reads existing settings and never creates helpers', async () => {
   const { dom, card: email } = card();
   const writes = [];
