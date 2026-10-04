@@ -2647,6 +2647,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       this._emailBackendAvailable = false;
       this._emailBackendConfig = null;
       this._emailBackendError = null;
+      this._emailBackendMissing = false;
       this._backendReportPreviews = {};
       this._emailSchedules = [];
       this._scheduleBusy = {};
@@ -3047,12 +3048,14 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       if (!hass?.callWS) {
         this._emailBackendChecked = true;
         this._emailBackendAvailable = false;
+        this._emailBackendMissing = false;
         return null;
       }
       try {
         const resp = await hass.callWS({ type: 'ha_tools_email/get_config' });
         this._emailBackendChecked = true;
         this._emailBackendAvailable = true;
+        this._emailBackendMissing = false;
         this._emailBackendConfig = resp || {};
         this._emailSchedules = Array.isArray(resp?.schedules) ? resp.schedules : [];
         this._emailBackendError = null;
@@ -3071,6 +3074,9 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         this._emailBackendAvailable = false;
         this._emailBackendConfig = null;
         this._emailSchedules = [];
+        // Only HA's explicit missing command proves this backend API is absent.
+        // Connection, permission and not-loaded errors do not prove absence.
+        this._emailBackendMissing = e?.code === 'unknown_command';
         this._emailBackendError = e?.message || String(e);
         if (showErrors) this._showToast('⚠️ ' + (this._lang === 'pl' ? 'Backend email niedostępny: ' : 'Email backend unavailable: ') + this._emailBackendError);
         this._render();
@@ -3975,7 +3981,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       return `
         <div class="info-row">\u{1F4E4}\u00A0 ${modeText}</div>
         ${smtpConfig}
-        <div style="font-size:12px;color:var(--bento-text-secondary);margin:16px 0 12px;padding:10px;background:var(--bento-primary-light);border-radius:var(--bento-radius-xs)">${L ? '💡 Konfiguracja SMTP: <a href="/config/integrations/integration/ha_tools_email">Ustawienia \u2192 Urz\u0105dzenia i us\u0142ugi \u2192 HA Tools Email \u2192 Konfiguruj</a>' : '💡 SMTP settings: <a href="/config/integrations/integration/ha_tools_email">Settings \u2192 Devices &amp; services \u2192 HA Tools Email \u2192 Configure</a>'}</div>
+        ${(this._emailBackendAvailable || this._hasLegacyHaToolsEmail()) ? `<div style="font-size:12px;color:var(--bento-text-secondary);margin:16px 0 12px;padding:10px;background:var(--bento-primary-light);border-radius:var(--bento-radius-xs)">${L ? '💡 Konfiguracja SMTP: <a href="/config/integrations/integration/ha_tools_email">Ustawienia \u2192 Urz\u0105dzenia i us\u0142ugi \u2192 HA Tools Email \u2192 Konfiguruj</a>' : '💡 SMTP settings: <a href="/config/integrations/integration/ha_tools_email">Settings \u2192 Devices &amp; services \u2192 HA Tools Email \u2192 Configure</a>'}</div>` : ''}
         <div class="schedule-card">
           <div class="schedule-row"><div class="schedule-name">\u2600\uFE0F ${L ? 'Wy\u015Blij raport dzienny' : 'Send Daily Report Now'}</div><span class="badge badge-pr">Manual</span></div>
           <div id="last-daily" class="last-sent">${this._lastSent.daily ? 'Last sent: ' + this._lastSent.daily : ''}</div>
@@ -4431,8 +4437,12 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       }
       return `<div class="smtp-section smtp-missing">
         <div class="smtp-header"><div class="smtp-icon">\u26A0\uFE0F</div><div>
-          <div class="smtp-title">${L ? 'SMTP nie skonfigurowany' : 'SMTP Not Configured'}</div>
-          <div class="smtp-detail">${L ? 'Otw\u00F3rz' : 'Open'} <b>${L ? '<a href="/config/integrations/integration/ha_tools_email">Ustawienia \u2192 Urz\u0105dzenia i us\u0142ugi \u2192 HA Tools Email \u2192 Konfiguruj</a>' : '<a href="/config/integrations/integration/ha_tools_email">Settings \u2192 Devices &amp; services \u2192 HA Tools Email \u2192 Configure</a>'}</b></div>
+          <div class="smtp-title">${this._emailBackendMissing
+            ? (L ? 'Integracja HA Tools Email nie jest zainstalowana lub dodana' : 'HA Tools Email integration is not installed or added')
+            : (L ? 'Backend email niedostępny' : 'Email backend unavailable')}</div>
+          <div class="smtp-detail">${this._emailBackendMissing
+            ? (L ? 'Zainstaluj HA Tools Email z <a href="/hacs">HACS</a>, następnie <a href="/config/integrations">Ustawienia → Urządzenia i usługi → Dodaj integrację → HA Tools Email</a>, a dopiero potem ustaw SMTP w Konfiguruj.' : 'Install HA Tools Email from <a href="/hacs">HACS</a>, then <a href="/config/integrations">Settings → Devices &amp; services → Add integration → HA Tools Email</a>, then set up SMTP in Configure.')
+            : (L ? 'Sprawdź połączenie z Home Assistant i status HA Tools Email w <a href="/config/integrations">Ustawienia → Urządzenia i usługi</a>.' : 'Check the Home Assistant connection and HA Tools Email status in <a href="/config/integrations">Settings → Devices &amp; services</a>.')}</div>
         </div></div>
       </div>`;
     }
