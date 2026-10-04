@@ -20,6 +20,106 @@ function setup(type) {
   return { dom, card, hass };
 }
 
+for (const language of ['en', 'pl']) {
+  test(`Schedule ${language} renders statuses after backend create/update and preserves guards`, async () => {
+    const { dom, card, hass } = setup('ha-energy-email');
+    const writes = [];
+    try {
+      card.hass = { ...hass, language, locale: { language } };
+      card._activeTab = 'schedule';
+      card._emailBackendAvailable = true;
+      card._emailBackendConfig = { smtp_configured: true };
+      card._emailSchedules = [];
+      card._emailWs = async (command, payload) => {
+        if (command === 'set_schedule') {
+          writes.push(payload);
+          const schedule = { ...payload.schedule, id: payload.schedule_id || payload.schedule.cadence };
+          return { schedules: [...card._emailSchedules.filter(s => s.cadence !== schedule.cadence), schedule] };
+        }
+        if (command === 'get_schedules') return { schedules: card._emailSchedules };
+        throw new Error('Unexpected backend command: ' + command);
+      };
+      for (const cadence of ['daily', 'weekly', 'monthly']) {
+        card._render();
+        const section = () => card.shadowRoot.querySelector(`[data-schedule-card="${cadence}"]`);
+        assert.match(section().querySelector('.badge').textContent, language === 'pl' ? /Nie utworzony/ : /Not Created/);
+        assert.equal(section().querySelector('.schedule-delete').disabled, true);
+        card.shadowRoot.getElementById('schedule-recipients-' + cadence).value = 'local@example.invalid';
+        card.shadowRoot.getElementById('schedule-enabled-' + cadence).checked = false;
+        await card._saveBackendSchedule(cadence);
+        assert.equal(section().querySelector('.badge-er').textContent, '❌ ' + (language === 'pl' ? 'Wyłączony' : 'Disabled'));
+        assert.equal(section().querySelector('.schedule-save').textContent, language === 'pl' ? 'Aktualizuj' : 'Update');
+        card.shadowRoot.getElementById('schedule-enabled-' + cadence).checked = true;
+        await card._saveBackendSchedule(cadence);
+        assert.equal(section().querySelector('.badge-ok').textContent, '✅ ' + (language === 'pl' ? 'Aktywny' : 'Active'));
+        card._scheduleBusy[cadence] = true;
+        card._render();
+        for (const control of ['.schedule-save', '.schedule-send', '.schedule-delete']) assert.equal(section().querySelector(control).disabled, true);
+        card._scheduleBusy[cadence] = false;
+      }
+      assert.equal(writes.length, 6);
+      assert.deepEqual(writes.map(w => w.schedule.enabled), [false, true, false, true, false, true]);
+      const other = language === 'pl' ? 'en' : 'pl';
+      card.hass = { ...hass, language: other, locale: { language: other } };
+      assert.equal(card.shadowRoot.querySelector('.badge-ok').textContent, '✅ ' + (other === 'pl' ? 'Aktywny' : 'Active'));
+      card.hass = { ...hass, language, locale: { language }, user: { is_admin: false } };
+      await card._saveBackendSchedule('daily');
+      assert.equal(writes.length, 6);
+      assert.equal(card.shadowRoot.querySelector('.schedule-save'), null);
+    } finally { dom.window.close(); }
+  });
+
+  test(`Legacy Schedule ${language} translates automation state without changing local storage mode`, () => {
+    const { dom, card, hass } = setup('ha-energy-email');
+    try {
+      card.hass = { ...hass, language, locale: { language }, states: {
+        'automation.send_daily_energy_report': { state: 'on' },
+        'automation.send_weekly_energy_report': { state: 'off' }
+      } };
+      card._emailBackendAvailable = false;
+      const view = dom.window.document.createElement('div');
+      view.innerHTML = card._tabSchedule();
+      assert.match(view.textContent, language === 'pl' ? /✅ Aktywny/ : /✅ Active/);
+      assert.match(view.textContent, language === 'pl' ? /❌ Wyłączony/ : /❌ Disabled/);
+      assert.match(view.textContent, /localStorage/);
+      assert.equal(dom.window.localStorage.length, 0);
+    } finally { dom.window.close(); }
+  });
+}
+
+for (const type of ['ha-energy-optimizer', 'ha-energy-insights', 'ha-energy-email']) {
+  test(`${type} support text and accessible dismissal follow locale, persist dismissal and retain role/config guards`, () => {
+    const { dom, card, hass } = setup(type);
+    try {
+      for (const language of ['pl', 'en', 'pl']) {
+        card.hass = { ...hass, language, locale: { language } };
+        card._render();
+        const footer = card.shadowRoot.querySelector('.donate-section[data-source="own-card"]');
+        assert.equal(footer.querySelector('a').textContent, language === 'pl' ? 'Opcjonalne wsparcie dla HA Tools' : 'Optional support for HA Tools');
+        assert.equal(footer.querySelector('button').getAttribute('aria-label'), language === 'pl' ? 'Ukryj link wsparcia' : 'Dismiss support link');
+        assert.equal(dom.window.localStorage.length, 0);
+      }
+      card.setConfig({ show_support: false });
+      card._render();
+      let footer = card.shadowRoot.querySelector('.donate-section[data-source="own-card"]');
+      assert.ok(!footer || footer.style.display === 'none');
+      card.setConfig({ show_support: true });
+      card.hass = { ...hass, user: { is_admin: false } };
+      card._render();
+      footer = card.shadowRoot.querySelector('.donate-section[data-source="own-card"]');
+      assert.ok(!footer || footer.style.display === 'none');
+      card.hass = hass;
+      card._render();
+      card.shadowRoot.querySelector('.support-dismiss').click();
+      assert.equal(dom.window.localStorage.getItem(type + '-support-dismissed'), '1');
+      card._render();
+      footer = card.shadowRoot.querySelector('.donate-section[data-source="own-card"]');
+      assert.ok(!footer || footer.style.display === 'none');
+      assert.equal(dom.window.localStorage.length, 1);
+    } finally { dom.window.close(); }
+  });
+}
+
 // Optional real CSS-renderer regression, using the existing Node test runner.
 // Enable with ENERGY_RENDER_CONTRAST=1 and an installed Playwright WebKit runtime.
 // It uses only an offline in-memory card, never HA, Chrome or a saved profile.
