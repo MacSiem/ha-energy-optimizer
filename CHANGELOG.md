@@ -2,6 +2,8 @@
 
 ## 3.5.3 (unreleased)
 
+- Translate Energy Email Send buttons, manual/instant badges, sending and last-sent text into Polish, including live HA locale changes, while retaining English labels and send guards.
+
 - When the email backend and legacy send service are missing, guide first run through HACS installation, adding the integration, then SMTP configuration. Keep transport or unavailable-backend errors distinct and preserve disabled sends and administrator-only actions.
 
 - Translate Insights tariff status and Email inline tariff editor accessibility labels in Polish and English.
