@@ -2,6 +2,8 @@
 
 ## 3.5.3 (unreleased)
 
+- Keep schedule time and recipient inputs inside their cards at narrow widths in backend and legacy modes.
+
 - Localize active/disabled Energy Email schedule statuses and support link/dismissal labels in Polish, retaining English, administrator guards and dismissed-link persistence.
 
 - Translate Energy Email Send buttons, manual/instant badges, sending and last-sent text into Polish, including live HA locale changes, while retaining English labels and send guards.
