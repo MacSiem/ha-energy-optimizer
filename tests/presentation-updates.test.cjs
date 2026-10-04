@@ -20,6 +20,78 @@ function setup(type) {
   return { dom, card, hass };
 }
 
+// Optional real CSS-renderer regression, using the existing Node test runner.
+// Enable with ENERGY_RENDER_CONTRAST=1 and an installed Playwright WebKit runtime.
+// It uses only an offline in-memory card, never HA, Chrome or a saved profile.
+if (process.env.ENERGY_RENDER_CONTRAST === '1') {
+  test('rendered Email Last sent and Manual/Ręcznie meet 4.5:1 in EN/PL light/dark', async () => {
+    const { webkit } = require('playwright');
+    const browser = await webkit.launch({ headless: true });
+    const rows = [];
+    try {
+      for (const language of ['en', 'pl']) for (const dark of [false, true]) {
+        const page = await browser.newPage();
+        await page.route('**/*', route => route.abort());
+        await page.setContent('<!doctype html><html><body></body></html>');
+        await page.addScriptTag({ path: join(__dirname, '..', 'ha-energy-optimizer.js') });
+        const result = await page.evaluate(({ language, dark }) => {
+          const tokens = dark
+            ? { '--primary-text-color': '#e1e1e1', '--card-background-color': '#1c1c1c', '--disabled-text-color': '#6f6f6f' }
+            : { '--primary-text-color': '#212121', '--card-background-color': '#ffffff', '--disabled-text-color': '#bdbdbd' };
+          for (const [key, value] of Object.entries(tokens)) document.documentElement.style.setProperty(key, value);
+          document.body.style.backgroundColor = tokens['--card-background-color'];
+          const card = document.createElement('ha-energy-email');
+          card._discoverAll = async () => {};
+          card._ensureHelpers = async () => {};
+          card._fetchRecorderStats = async () => {};
+          card._discoveryDone = true;
+          card._emailBackendChecked = true;
+          card._emailBackendAvailable = true;
+          card._emailBackendConfig = { smtp_configured: true };
+          card._activeTab = 'send';
+          card._lastSent.daily = '10:21';
+          card.hass = { language, locale: { language }, themes: { darkMode: dark }, user: { is_admin: true }, states: {}, config: {} };
+          document.body.append(card);
+          card._render();
+          const rgba = text => {
+            const values = text.match(/[\d.]+/g).map(Number);
+            return [values[0], values[1], values[2], values[3] ?? 1];
+          };
+          const blend = (color, background) => color.slice(0, 3).map((v, i) => v * color[3] + background[i] * (1 - color[3]));
+          const luminance = color => color.map(v => {
+            v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+          }).reduce((sum, v, i) => sum + v * [0.2126, 0.7152, 0.0722][i], 0);
+          const measure = selector => {
+            const el = card.shadowRoot.querySelector(selector);
+            const layers = [];
+            for (let node = el; node; node = node.parentElement || node.getRootNode().host) {
+              layers.push(rgba(getComputedStyle(node).backgroundColor));
+            }
+            const background = layers.reverse().reduce((bg, layer) => blend(layer, bg), [255, 255, 255]);
+            const color = getComputedStyle(el).color;
+            const foreground = blend(rgba(color), background);
+            const a = luminance(foreground), b = luminance(background);
+            return { selector, language, dark, text: el.textContent, color, background, ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05) };
+          };
+          const colors = [measure('#last-daily'), measure('.badge-pr')];
+          const adminEnabled = !card.shadowRoot.getElementById('send-daily').disabled;
+          card._hass.user.is_admin = false;
+          card._render();
+          const householdBlocked = !card.shadowRoot.querySelector('#send-daily, #btn-smtp-test');
+          return { colors, adminEnabled, householdBlocked };
+        }, { language, dark });
+        rows.push(...result.colors);
+        assert.equal(result.adminEnabled, true);
+        assert.equal(result.householdBlocked, true);
+        await page.close();
+      }
+      console.log('EMAIL_SEND_RENDERED_CONTRAST', JSON.stringify(rows));
+      for (const row of rows) assert.ok(row.ratio >= 4.5,
+        `${row.language}/${row.dark ? 'dark' : 'light'} ${row.selector} ratio ${row.ratio} must reach 4.5`);
+    } finally { await browser.close(); }
+  });
+}
+
 // Actual consumer: native7335/c9e70e557a144fa6b2449602a1f2b54b Energy Send PL.
 // Its separate "Manual snapshot only" QA paragraph is not product copy.
 for (const language of ['pl', 'en']) {
