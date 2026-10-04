@@ -71,10 +71,10 @@ for (const language of ['en', 'pl']) {
         }
         assert.deepEqual(writes, []);
         assert.equal(dom.window.localStorage.length, 0);
-        email._activeTab = 'config';
+        email._activeTab = 'schedule';
         email._render();
         assert.equal(email.shadowRoot.querySelector('.smtp-section').textContent, text,
-          'Config and Send show the same first-run state');
+          'Schedule and Send show the same first-run state');
       } finally { dom.window.close(); }
     });
   }
