@@ -12,6 +12,88 @@ function card() {
   card._discoveryDone = true;
   return { dom, card };
 }
+
+// Consumer regression: Email Reports cold-missing run 8b61dd8f4dfa462da388a1c756f87ac3.
+for (const language of ['en', 'pl']) {
+  for (const state of ['missing', 'unconfigured', 'configured', 'legacy', 'transport', 'unavailable', 'no-websocket']) {
+    test(`SMTP first run ${language}/${state} keeps installation, configuration and unavailable states distinct`, async () => {
+      const { dom, card: email } = card();
+      const writes = [];
+      email._lang = language;
+      email._activeTab = 'send';
+      email._hass.services = state === 'legacy' ? { ha_tools_email: { send: {} } } : {};
+      email._hass.callService = async (...args) => writes.push(args);
+      email._hass.callWS = async msg => {
+        if (msg.type !== 'ha_tools_email/get_config' && msg.type !== 'ha_tools_email/preview_energy_report') {
+          writes.push(msg); throw new Error('Unexpected write');
+        }
+        if (state === 'missing' || state === 'legacy') throw { code: 'unknown_command', message: 'Unknown command' };
+        if (state === 'transport') throw new Error('Connection lost: private diagnostic');
+        if (state === 'unavailable') throw { code: 'not_loaded', message: 'Integration intentionally disabled' };
+        if (msg.type === 'ha_tools_email/get_config') return { smtp_configured: state === 'configured' };
+        return null;
+      };
+      if (state === 'no-websocket') delete email._hass.callWS;
+      try {
+        await email._loadEmailBackendConfig();
+        email._render();
+        const section = email.shadowRoot.querySelector('.smtp-section');
+        const text = section.textContent;
+        if (state === 'missing') {
+          assert.match(text, language === 'pl' ? /integracja.*nie.*(?:zainstalowana|dodana)/i : /integration.*not.*(?:installed|added)/i);
+          assert.match(text, /HACS/);
+          assert.equal(section.querySelector('a[href="/hacs"]')?.textContent, 'HACS');
+          assert.ok(text.indexOf('HACS') < text.indexOf(language === 'pl' ? 'Dodaj' : 'Add'));
+          assert.ok(text.indexOf(language === 'pl' ? 'Dodaj' : 'Add') < text.indexOf(language === 'pl' ? 'Konfiguruj' : 'Configure'));
+          assert.doesNotMatch(text, /SMTP Not Configured|SMTP nie skonfigurowany/);
+          assert.equal(email.shadowRoot.querySelectorAll('a[href="/config/integrations/integration/ha_tools_email"]').length, 0);
+        } else if (state === 'unconfigured') {
+          assert.match(text, language === 'pl' ? /SMTP nie skonfigurowany/ : /SMTP Not Configured/);
+          assert.equal(section.querySelector('a')?.getAttribute('href'), '/config/integrations/integration/ha_tools_email');
+          assert.doesNotMatch(text, /HACS/);
+        } else if (state === 'configured' || state === 'legacy') {
+          assert.match(text, language === 'pl' ? /SMTP skonfigurowany/ : /SMTP Configured/);
+          assert.doesNotMatch(text, /HACS/);
+          if (state === 'legacy') assert.match(text, /legacy/);
+        } else {
+          assert.match(text, language === 'pl' ? /(?:niedostępny|sprawd)/i : /(?:unavailable|check)/i);
+          assert.doesNotMatch(text, /HACS|not installed|nie.*zainstalowana|SMTP Not Configured|SMTP nie skonfigurowany|private diagnostic/);
+        }
+        const send = [...email.shadowRoot.querySelectorAll('#send-daily, #send-weekly, #send-monthly, #send-quick')];
+        assert.equal(send.length, 4);
+        if (!['configured', 'legacy'].includes(state)) {
+          assert.ok(send.every(button => button.disabled));
+          send.forEach(button => button.click());
+        } else {
+          assert.ok(send.slice(0, 3).every(button => !button.disabled));
+          assert.equal(send[3].disabled, state === 'configured');
+        }
+        assert.deepEqual(writes, []);
+        assert.equal(dom.window.localStorage.length, 0);
+      } finally { dom.window.close(); }
+    });
+  }
+  test(`household SMTP first run ${language} reads no backend and exposes no write controls`, async () => {
+    const { dom, card: email } = card();
+    email._lang = language;
+    email._hass.user.is_admin = false;
+    const writes = [];
+    email._hass.callWS = async msg => { writes.push(msg); return {}; };
+    email._hass.callService = async (...args) => writes.push(args);
+    try {
+      await email._loadEmailBackendConfig();
+      for (const tab of ['send', 'config']) {
+        email._activeTab = tab; email._render();
+        assert.match(email.shadowRoot.getElementById('tab-content').textContent, language === 'pl' ? /administrator/ : /administrators/);
+        assert.equal(email.shadowRoot.querySelector('#send-daily, #btn-smtp-test'), null);
+      }
+      await email._sendReport('daily');
+      await email._testSmtp();
+      assert.deepEqual(writes, []);
+      assert.equal(dom.window.localStorage.length, 0);
+    } finally { dom.window.close(); }
+  });
+}
 test('opening Energy Email only reads existing settings and never creates helpers', async () => {
   const { dom, card: email } = card();
   const writes = [];
