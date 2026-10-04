@@ -5,7 +5,18 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 // Card-owned support footer; never mutate sibling cards or the document.
 const ENERGY_OPTIMIZER_DONATE_HTML = `<div class="donate-section" data-source="own-card" style="margin:8px 0 0;padding:4px 0;background:none;border:0;box-shadow:none;min-height:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex-direction:row;justify-content:flex-start;text-align:left"><a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--secondary-text-color,#64748b);font-weight:400;text-decoration:underline">Optional support for HA Tools</a><button type="button" class="support-dismiss" aria-label="Dismiss support link" style="margin-left:auto;padding:2px 6px;min-height:0;line-height:1;border:0;background:none;color:var(--secondary-text-color,#64748b);cursor:pointer">×</button></div>`;
 const energySupportDismissed = key => { try { return localStorage.getItem(key + '-support-dismissed') === '1'; } catch (_) { return false; } };
-const bindEnergySupport = (root, key) => root.querySelector('.support-dismiss')?.addEventListener('click', () => { try { localStorage.setItem(key + '-support-dismissed', '1'); } catch (_) {} root.querySelector('.donate-section[data-source="own-card"]')?.remove(); });
+const localizeEnergySupport = (root, language) => {
+  const footer = root.querySelector('.donate-section[data-source="own-card"]');
+  const link = footer?.querySelector('a');
+  const dismiss = footer?.querySelector('.support-dismiss');
+  const polish = language?.split('-')[0] === 'pl';
+  if (link) link.textContent = polish ? 'Opcjonalne wsparcie dla HA Tools' : 'Optional support for HA Tools';
+  if (dismiss) dismiss.setAttribute('aria-label', polish ? 'Ukryj link wsparcia' : 'Dismiss support link');
+};
+const bindEnergySupport = (root, key, language) => {
+  localizeEnergySupport(root, language);
+  root.querySelector('.support-dismiss')?.addEventListener('click', () => { try { localStorage.setItem(key + '-support-dismissed', '1'); } catch (_) {} root.querySelector('.donate-section[data-source="own-card"]')?.remove(); });
+};
 
 // Recorder WS uses milliseconds; older captures may use seconds or ISO strings.
 const energyTimestamp = value => typeof value === 'number' ? (value > 1e11 ? value : value * 1000) : typeof value === 'string' ? Date.parse(value) : NaN;
@@ -319,7 +330,7 @@ class HaEnergyOptimizer extends HTMLElement {
   _render() {
     this._destroyAllCharts();
     this.shadowRoot.innerHTML = this._getStyles() + this._getTemplate();
-    bindEnergySupport(this.shadowRoot, 'ha-energy-optimizer');
+    bindEnergySupport(this.shadowRoot, 'ha-energy-optimizer', this._hass?.locale?.language || this._hass?.language);
     this._setupEventListeners();
     this._renderCurrentTab();
   }
@@ -1904,6 +1915,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
           if (this._chartJsReady) this._renderCharts();
         }
         this._syncChartTheme();
+        this._syncSupport();
 
         // Fetch new data every 5 minutes (recorder stats don't change often)
         if (!this._lastDataFetch || (now - this._lastDataFetch) > 300000) {
@@ -2031,6 +2043,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     }
 
     _syncSupport() {
+      localizeEnergySupport(this.shadowRoot, this._lang);
       const footer = this.shadowRoot.querySelector('.donate-section[data-source="own-card"]');
       if (footer) footer.style.display = this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-insights') ? '' : 'none';
     }
@@ -3500,7 +3513,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         </div>
         <div class="toast" id="toast"></div>
       `
-      bindEnergySupport(this.shadowRoot, 'ha-energy-email');
+      bindEnergySupport(this.shadowRoot, 'ha-energy-email', this._hass?.locale?.language || this._hass?.language);
       this.shadowRoot.querySelectorAll('.tab-btn').forEach(t => {
         t.addEventListener('click', () => {
           this._activeTab = t.dataset.tab;
@@ -3767,7 +3780,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       const enabled = schedule ? schedule.enabled !== false : true;
       const busy = !!this._scheduleBusy[cadence];
       const status = schedule
-        ? (enabled ? '<span class="badge badge-ok">\u2705 Active</span>' : '<span class="badge badge-er">\u274C Disabled</span>')
+        ? (enabled ? '<span class="badge badge-ok">\u2705 ' + (L ? 'Aktywny' : 'Active') + '</span>' : '<span class="badge badge-er">\u274C ' + (L ? 'Wyłączony' : 'Disabled') + '</span>')
         : '<span class="badge badge-wa">\u2795 ' + (L ? 'Nie utworzony' : 'Not Created') + '</span>';
       return `<div class="schedule-card" data-schedule-card="${cadence}">
         <div class="schedule-row"><div class="schedule-name">${icon} ${title}</div>${status}</div>
@@ -3823,8 +3836,8 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       const monthlyState = this._state(monthlyId, 'missing');
       const exists = (s) => s !== 'missing' && s !== 'unavailable';
       const badge = (state) => {
-        if (state === 'on') return '<span class="badge badge-ok">\u2705 Active</span>';
-        if (state === 'off') return '<span class="badge badge-er">\u274C Disabled</span>';
+        if (state === 'on') return '<span class="badge badge-ok">\u2705 ' + (L ? 'Aktywny' : 'Active') + '</span>';
+        if (state === 'off') return '<span class="badge badge-er">\u274C ' + (L ? 'Wyłączony' : 'Disabled') + '</span>';
         return '<span class="badge badge-wa">\u2795 ' + (L ? 'Nie utworzony' : 'Not Created') + '</span>';
       };
       const recipientInfo = recipient ? `\u{1F4E7} ${recipient}` : `\u{1F4E7} <i>${L ? 'Brak — ustaw email powy\u017Cej' : 'None — set email above'}</i>`;
