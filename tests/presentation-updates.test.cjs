@@ -20,6 +20,74 @@ function setup(type) {
   return { dom, card, hass };
 }
 
+// Actual consumer: native7335/c9e70e557a144fa6b2449602a1f2b54b Energy Send PL.
+// Its separate "Manual snapshot only" QA paragraph is not product copy.
+for (const language of ['pl', 'en']) {
+  test(`Email Send ${language} localizes visible/accessibility labels, badges, busy and last-sent without changing send guards`, () => {
+    const { dom, card, hass } = setup('ha-energy-email');
+    const writes = [];
+    try {
+      card._activeTab = 'send';
+      card.hass = { ...hass, language, locale: { language },
+        callWS: async msg => { writes.push(msg); return {}; },
+        callService: async (...args) => { writes.push(args); } };
+      const pl = language === 'pl';
+      const labels = pl ? ['Wyślij raport dzienny', 'Wyślij raport tygodniowy', 'Wyślij raport miesięczny'] : ['Send Daily', 'Send Weekly', 'Send Monthly'];
+      for (const mode of ['missing', 'unconfigured', 'configured', 'legacy']) {
+        card._emailBackendAvailable = ['unconfigured', 'configured'].includes(mode);
+        card._emailBackendConfig = { smtp_configured: mode === 'configured' };
+        card._hass.services = mode === 'legacy' ? { ha_tools_email: { send: {} } } : {};
+        card._lastSent = { daily: '10:21', weekly: '10:22', monthly: '10:23', quick: '10:24' };
+        for (const busy of [false, true]) {
+          card._sending = busy;
+          card._render();
+          const content = card.shadowRoot.getElementById('tab-content');
+          assert.deepEqual([...content.querySelectorAll('.badge-pr')].map(x => x.textContent), Array(3).fill(pl ? 'Ręcznie' : 'Manual'));
+          assert.equal(content.querySelector('.badge-ok').textContent, pl ? 'Natychmiast' : 'Instant');
+          const buttons = [...content.querySelectorAll('#send-daily, #send-weekly, #send-monthly')];
+          buttons.forEach((button, i) => {
+            assert.ok(button.textContent.includes(busy ? (pl ? 'Wysyłam...' : 'Sending...') : labels[i]));
+            assert.equal(button.getAttribute('aria-label') || button.textContent, button.textContent,
+              'accessible name follows the translated button text');
+            assert.equal(button.disabled, busy || !['configured', 'legacy'].includes(mode));
+          });
+          assert.equal(content.querySelector('#send-quick').disabled, busy || mode !== 'legacy');
+          [...content.querySelectorAll('.last-sent')].forEach((row, i) => {
+            assert.equal(row.textContent, `${pl ? 'Ostatnio wysłano: ' : 'Last sent: '}10:2${i + 1}`);
+          });
+          if (pl) assert.doesNotMatch(content.textContent, /\bManual\b|\bInstant\b|Send Daily|Send Weekly|Send Monthly|Sending\.\.\.|Last sent:/);
+        }
+        card._sending = false;
+        if (mode === 'configured') {
+          card._activeTab = 'schedule'; card._render();
+          const buttons = [...card.shadowRoot.querySelectorAll('.schedule-send')];
+          assert.equal(buttons.length, 3);
+          assert.ok(buttons.every(button => button.textContent === (pl ? 'Wyślij teraz' : 'Send now')));
+          card._activeTab = 'send';
+        }
+      }
+      assert.deepEqual(writes, []);
+      assert.equal(dom.window.localStorage.length, 0);
+    } finally { dom.window.close(); }
+  });
+}
+
+test('ordinary HA locale changes refresh Send labels and retain last-sent text and disabled state', () => {
+  const { dom, card, hass } = setup('ha-energy-email');
+  try {
+    card._activeTab = 'send';
+    card._lastSent.daily = '10:21';
+    card._render();
+    card.hass = { ...hass, language: 'en', locale: { language: 'en' } };
+    assert.match(card.shadowRoot.getElementById('send-daily').textContent, /Send Daily/);
+    assert.equal(card.shadowRoot.getElementById('last-daily').textContent, 'Last sent: 10:21');
+    card.hass = { ...hass, language: 'pl', locale: { language: 'pl' } };
+    assert.match(card.shadowRoot.getElementById('send-daily').textContent, /Wyślij raport dzienny/);
+    assert.equal(card.shadowRoot.getElementById('last-daily').textContent, 'Ostatnio wysłano: 10:21');
+    assert.equal(card.shadowRoot.getElementById('send-daily').disabled, true);
+  } finally { dom.window.close(); }
+});
+
 test('Insights updates its existing header and navigation when HA language changes', () => {
   const { dom, card, hass } = setup('ha-energy-insights');
   try {
