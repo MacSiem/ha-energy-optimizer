@@ -147,8 +147,11 @@ With HA Tools Email 2.1.2 or newer, Energy Email reads the server report compose
 for each cadence. Preview and sending use configured Energy Dashboard grid-import
 sources and the exact completed-hour Recorder window shown in the preview.
 Missing or incomplete data withholds the total; missing tariff withholds cost.
-Older backends show an unavailable server preview until updated. Local period
-previews never use a lifetime reading as daily, weekly or monthly consumption.
+When an older backend explicitly lacks the report-preview API, local previews
+and manual sends use validated Recorder data through `ha_tools_email.send`.
+Without that service, sending stays disabled. Creating or updating server energy
+schedules requires HA Tools Email 2.1.2+; existing schedules remain visible and
+can be deleted. Local previews never use lifetime readings as period consumption.
 
 The legacy direct-send path also requires complete hourly Recorder data for the configured grid-import sources. Missing data stops period sending; measured zero remains a valid report. The exact completed-hour window is included in its email content.
 

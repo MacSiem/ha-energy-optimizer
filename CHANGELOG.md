@@ -2,6 +2,8 @@
 
 ## 3.5.3 (unreleased)
 
+- When an older email backend lacks the report-preview API, preserve validated Recorder previews and manual sends through the legacy service. Disable sending when the service is absent, and block new or updated server energy schedules until HA Tools Email 2.1.2+ is installed.
+
 - Keep schedule time and recipient inputs inside their cards at narrow widths in backend and legacy modes.
 
 - Localize active/disabled Energy Email schedule statuses and support link/dismissal labels in Polish, retaining English, administrator guards and dismissed-link persistence.

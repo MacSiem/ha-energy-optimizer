@@ -2658,6 +2658,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       this._scheduleDefaults = { daily: '07:30', weekly_day: 'mon', weekly_time: '08:00', monthly_time: '08:00' };
       this._emailBackendChecked = false;
       this._emailBackendAvailable = false;
+      this._emailBackendReportsUnsupported = false;
       this._emailBackendConfig = null;
       this._emailBackendError = null;
       this._emailBackendMissing = false;
@@ -3067,7 +3068,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       try {
         const resp = await hass.callWS({ type: 'ha_tools_email/get_config' });
         this._emailBackendChecked = true;
-        this._emailBackendAvailable = true;
+        let reportsUnsupported = false;
         this._emailBackendMissing = false;
         this._emailBackendConfig = resp || {};
         this._emailSchedules = Array.isArray(resp?.schedules) ? resp.schedules : [];
@@ -3078,8 +3079,12 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
             this._backendReportPreviews[cadence] = await this._emailWs('preview_energy_report', { cadence });
           } catch (e) {
             this._backendReportPreviews[cadence] = null;
+            // Only an explicit missing command proves the Recorder composer is unsupported.
+            if (e?.code === 'unknown_command') reportsUnsupported = true;
           }
         }));
+        this._emailBackendReportsUnsupported = reportsUnsupported;
+        this._emailBackendAvailable = true;
         this._render();
         return resp;
       } catch (e) {
@@ -3792,8 +3797,8 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           <label style="font-size:12px;color:var(--bento-text-secondary);font-weight:600;white-space:nowrap"><input type="checkbox" id="schedule-enabled-${cadence}" ${enabled ? 'checked' : ''}> ${L ? 'W\u0142\u0105czony' : 'Enabled'}</label>
         </div>
         <div class="btn-row">
-          <button class="btn btn-primary schedule-save" data-cadence="${cadence}" ${busy ? 'disabled' : ''}>${schedule ? (L ? 'Aktualizuj' : 'Update') : (L ? 'Utw\u00F3rz' : 'Create')}</button>
-          <button class="btn schedule-send" data-cadence="${cadence}" ${busy || !this._emailBackendConfig?.smtp_configured ? 'disabled' : ''}>${L ? 'Wy\u015Blij teraz' : 'Send now'}</button>
+          <button class="btn btn-primary schedule-save" data-cadence="${cadence}" ${busy || this._emailBackendReportsUnsupported ? 'disabled' : ''}>${schedule ? (L ? 'Aktualizuj' : 'Update') : (L ? 'Utw\u00F3rz' : 'Create')}</button>
+          <button class="btn schedule-send" data-cadence="${cadence}" ${busy || !this._hasHaToolsEmail() ? 'disabled' : ''}>${L ? 'Wy\u015Blij teraz' : 'Send now'}</button>
           <button class="btn schedule-delete" data-cadence="${cadence}" ${busy || !schedule ? 'disabled' : ''}>${L ? 'Usu\u0144' : 'Delete'}</button>
         </div>
       </div>`;
@@ -3936,7 +3941,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       if (!this._discoveryDone) {
         return `<div class="empty-state"><div class="big"><span class="spinner" style="width:32px;height:32px;border-width:3px;border-color:var(--bento-primary);border-top-color:transparent;"></span></div><div class="title">${L ? '\u0141adowanie danych...' : 'Loading data...'}</div></div>`;
       }
-      if (this._emailBackendAvailable) return this._backendPreviewHtml();
+      if (this._emailBackendAvailable && !this._emailBackendReportsUnsupported) return this._backendPreviewHtml();
       const devices = this._devices();
       const autoDevices = this._discoveredDevices || [];
       const isAuto = devices.length === 0 && autoDevices.length > 0;
@@ -3991,8 +3996,9 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       const lastSentLabel = L ? 'Ostatnio wysłano: ' : 'Last sent: ';
       const smtpConfig = this._renderSmtpSection();
       const canSend = this._hasHaToolsEmail();
-      const quickDisabled = this._sending || (this._emailBackendAvailable ? true : !canSend);
-      const modeText = this._emailBackendAvailable
+      const backendReports = this._emailBackendAvailable && !this._emailBackendReportsUnsupported;
+      const quickDisabled = this._sending || (backendReports ? true : !canSend);
+      const modeText = backendReports
         ? (L ? 'Wyślij raport energii przez HA Tools Email 2.1.2+.' : 'Send an energy report using HA Tools Email 2.1.2+.')
         : (L ? 'R\u0119cznie wy\u015Blij raport energii poprzez ha_tools_email.' : 'Manually trigger an energy report via ha_tools_email.');
       return `
@@ -4016,7 +4022,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         </div>
         <div class="schedule-card">
           <div class="schedule-row"><div class="schedule-name">\u{1F4E7} ${L ? 'Szybkie podsumowanie' : 'Quick Summary'}</div><span class="badge badge-ok">${L ? 'Natychmiast' : 'Instant'}</span></div>
-          <div class="schedule-meta">${this._emailBackendAvailable
+          <div class="schedule-meta">${backendReports
             ? (L ? 'Tryb backendu u\u017Cywa wysy\u0142ki daily/weekly/monthly przez send_now.' : 'Backend mode uses daily/weekly/monthly send_now actions.')
             : (L ? 'Tekstowe podsumowanie aktualnych danych energii.' : 'Plain-text summary of current energy stats.')}</div>
           <div id="last-quick" class="last-sent">${this._lastSent.quick ? lastSentLabel + this._lastSent.quick : ''}</div>
@@ -4176,6 +4182,10 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     async _saveBackendSchedule(cadence) {
       if (!this._requireAdmin()) return;
       if (!cadence) return;
+      if (this._emailBackendReportsUnsupported) {
+        this._showToast('⚠️ ' + (this._lang === 'pl' ? 'Zaktualizuj HA Tools Email do 2.1.2+, aby zapisywać harmonogramy energii.' : 'Update HA Tools Email to 2.1.2+ to save energy schedules.'));
+        return;
+      }
       const existing = this._getEnergySchedule(cadence);
       const time = this.shadowRoot?.getElementById('schedule-time-' + cadence)?.value || this._defaultScheduleTime(cadence);
       const recipients = this._scheduleRecipients(cadence);
@@ -4261,6 +4271,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 
     async _sendReportViaBackend(cadence) {
       if (!this._requireAdmin()) return;
+      if (this._emailBackendReportsUnsupported) return this._sendReport(cadence);
       if (!this._hass || this._sending) return;
       const L = this._lang === 'pl';
       if (!['daily', 'weekly', 'monthly'].includes(cadence)) return;
@@ -4288,7 +4299,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     async _sendReport(type) {
       if (!this._requireAdmin()) return;
       if (!this._hass || this._sending) return;
-      if (this._emailBackendAvailable && ['daily', 'weekly', 'monthly'].includes(type)) {
+      if (this._emailBackendAvailable && !this._emailBackendReportsUnsupported && ['daily', 'weekly', 'monthly'].includes(type)) {
         await this._sendReportViaBackend(type);
         return;
       }
@@ -4389,7 +4400,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     _hasHaToolsEmail() {
-      if (this._emailBackendAvailable) return !!this._emailBackendConfig?.smtp_configured;
+      if (this._emailBackendAvailable) return !!this._emailBackendConfig?.smtp_configured && (!this._emailBackendReportsUnsupported || this._hasLegacyHaToolsEmail());
       return this._hasLegacyHaToolsEmail();
     }
 
@@ -4415,6 +4426,9 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         : '';
       if (this._emailBackendAvailable) {
         const cfg = this._emailBackendConfig || {};
+        const compatibilityNotice = this._emailBackendReportsUnsupported
+          ? `<div class="smtp-detail">${L ? 'Zaktualizuj HA Tools Email do 2.1.2+ dla harmonogramów energii. Ręczna wysyłka wymaga usługi ha_tools_email.send i korzysta z danych Recorder.' : 'Update HA Tools Email to 2.1.2+ for energy schedules. Manual sending requires ha_tools_email.send and uses Recorder data.'}</div>`
+          : '';
         const scheduleCount = (this._emailSchedules || []).filter(s => s.kind === 'energy_report').length;
         if (cfg.smtp_configured) {
           const server = cfg.server ? `${_esc(cfg.server)}:${_esc(cfg.port || '')}` : (L ? 'serwer SMTP skonfigurowany' : 'SMTP server configured');
@@ -4423,6 +4437,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
           return `<div class="smtp-section">
             <div class="smtp-header"><div class="smtp-icon">\u2705</div><div>
               <div class="smtp-title">${L ? 'SMTP skonfigurowany (ha_tools_email v2)' : 'SMTP Configured (ha_tools_email v2)'}</div>
+              ${compatibilityNotice}
               <div class="smtp-detail">${server} \u2022 ${sender} \u2022 ${recipient}</div>
               <div class="smtp-detail">${L ? 'Harmonogramy na backendzie: ' : 'Server schedules: '}${scheduleCount}</div>
               <div class="smtp-detail">${L ? 'Zmie\u0144 w' : 'Change in'} <b>${L ? '<a href="/config/integrations/integration/ha_tools_email">Ustawienia \u2192 Urz\u0105dzenia i us\u0142ugi \u2192 HA Tools Email \u2192 Konfiguruj</a>' : '<a href="/config/integrations/integration/ha_tools_email">Settings \u2192 Devices &amp; services \u2192 HA Tools Email \u2192 Configure</a>'}</b></div>
@@ -4467,6 +4482,12 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     async _testSmtp() {
       if (!this._requireAdmin()) return;
       if (!this._hass) return;
+      if (this._emailBackendReportsUnsupported && !this._hasLegacyHaToolsEmail()) {
+        this._smtpStatus = { ok: false, error: (this._lang === 'pl' ? 'Zaktualizuj HA Tools Email do 2.1.2+' : 'Update HA Tools Email to 2.1.2+') };
+        this._showToast('⚠️ ' + this._smtpStatus.error);
+        this._render();
+        return;
+      }
       if (this._emailBackendAvailable && !this._emailBackendConfig?.smtp_configured) {
         this._smtpStatus = { ok: false, error: (this._lang === 'pl' ? 'SMTP nie skonfigurowany' : 'SMTP not configured') };
         this._showToast('\u274C ' + this._smtpStatus.error);
