@@ -3026,14 +3026,26 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
 
     async _saveToHelper(key, value) {
-      if (!this._requireAdmin()) return;
+      if (!this._requireAdmin()) return false;
       const eid = this._helperEntity(key);
+      const helper = this._hass?.states?.[eid];
+      const text = String(value ?? '');
       try {
-        if (!this._hass?.states?.[eid]) throw new Error('Helper not configured');
-        await this._hass.callService('input_text', 'set_value', { entity_id: eid, value: value || '' });
+        if (helper) {
+          // input_text can acknowledge an invalid length without updating its state.
+          const { min, max } = helper.attributes || {};
+          if ((Number.isFinite(min) && text.length < min) ||
+              (Number.isFinite(max) && text.length > max)) throw new Error('Invalid helper value length');
+          await this._hass.callService('input_text', 'set_value', { entity_id: eid, value: text });
+        } else {
+          localStorage.setItem(`ha-energy-email-${key}`, text);
+        }
+        return true;
       } catch (e) {
-        // Fallback to localStorage
-        try { localStorage.setItem(`ha-energy-email-${key}`, value); } catch(e2) { console.debug('[ha-energy-email] caught:', e); }
+        this._showToast(this._lang === 'pl'
+          ? 'Nie udało się zapisać ustawienia. Poprzednia wartość pozostaje bez zmian.'
+          : 'Could not save this setting. The previous value is unchanged.');
+        return false;
       }
     }
 
@@ -3169,11 +3181,11 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       return '';
     }
 
-    _saveRecipient(email) {
-      if (!this._requireAdmin()) return;
-      this._saveToHelper('recipient', email);
+    async _saveRecipient(email) {
+      if (!await this._saveToHelper('recipient', email)) return false;
       this._detectedRecipient = email;
       this._render();
+      return true;
     }
 
     _devices() {
@@ -3560,8 +3572,8 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         }
       }
       if (editBtn) {
-        editBtn.addEventListener('click', () => {
-          this._saveToHelper('recipient', '');
+        editBtn.addEventListener('click', async () => {
+          if (!await this._saveToHelper('recipient', '')) return;
           this._detectedRecipient = null;
           this._render();
         });
@@ -3594,11 +3606,11 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         const saveBtn = root.getElementById('price-save');
         const cancelBtn = root.getElementById('price-cancel');
         if (input) input.focus();
-        const save = () => {
+        const save = async () => {
           const val = parseFloat(input.value);
           if (Number.isFinite(val) && val >= 0) {
+            if (!await this._saveToHelper('price', String(val))) return;
             this._config.energy_price = val;
-            this._saveToHelper('price', String(val));
             this._fetchAllPeriodStats().then(() => this._render());
             this._render();
           }
@@ -4085,21 +4097,21 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       const root = this.shadowRoot;
       // Email save
       const emailSave = root.getElementById('cfg-email-save');
-      if (emailSave) emailSave.addEventListener('click', () => {
+      if (emailSave) emailSave.addEventListener('click', async () => {
         const input = root.getElementById('cfg-email');
         if (input && input.value && input.value.includes('@')) {
-          this._saveRecipient(input.value.trim());
+          if (!await this._saveRecipient(input.value.trim())) return;
           this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Email zapisany' : 'Email saved'));
         }
       });
       // Price save
       const priceSave = root.getElementById('cfg-price-save');
-      if (priceSave) priceSave.addEventListener('click', () => {
+      if (priceSave) priceSave.addEventListener('click', async () => {
         const input = root.getElementById('cfg-price');
         const val = parseFloat(input?.value);
         if (Number.isFinite(val) && val >= 0) {
+          if (!await this._saveToHelper('price', String(val))) return;
           this._config.energy_price = val;
-          this._saveToHelper('price', String(val));
           this._fetchAllPeriodStats().then(() => this._render());
           this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Stawka zapisana' : 'Price saved'));
           this._render();
@@ -4123,16 +4135,16 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
       ];
       timeInputs.forEach(([id, helperKey, schedKey]) => {
         const input = root.getElementById(id);
-        if (input) input.addEventListener('change', () => {
+        if (input) input.addEventListener('change', async () => {
+          if (!await this._saveToHelper(helperKey, input.value)) { input.value = this._scheduleDefaults[schedKey]; return; }
           this._scheduleDefaults[schedKey] = input.value;
-          this._saveToHelper(helperKey, input.value);
           this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Godzina zapisana' : 'Time saved'));
         });
       });
       const daySelect = root.getElementById('day-weekly');
-      if (daySelect) daySelect.addEventListener('change', () => {
+      if (daySelect) daySelect.addEventListener('change', async () => {
+        if (!await this._saveToHelper('weekly_day', daySelect.value)) { daySelect.value = this._scheduleDefaults.weekly_day; return; }
         this._scheduleDefaults.weekly_day = daySelect.value;
-        this._saveToHelper('weekly_day', daySelect.value);
         this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Dzie\u0144 zapisany' : 'Day saved'));
       });
       // Enable/disable existing automations

@@ -300,3 +300,106 @@ test('legacy Schedule describes actual settings storage with and without existin
     }
   } finally { dom.window.close(); }
 });
+
+// Live7547: input_text.set_value acknowledges an overlength request but keeps
+// the old helper state. The card must not report or display a successful save.
+for (const failure of ['length', 'service']) {
+  test(`helper ${failure} rejection keeps the previous tariff and reports failure`, async () => {
+    const { dom, card: email } = card();
+    const price = { state: '0.75', attributes: { friendly_name: 'Energy Email Price', min: 0, max: 10 } };
+    for (const spec of email.constructor.HELPERS) {
+      email._hass.states['input_text.energy_email_' + spec.key] = {
+        state: '', attributes: { friendly_name: spec.name, min: 0, max: spec.max }
+      };
+    }
+    email._hass.states['input_text.energy_email_price'] = price;
+    email._hass.callService = async (domain, service, payload) => {
+      if (failure === 'service') throw Error('Test helper unavailable');
+      // Actual HA input_text behavior: invalid length logs a warning and
+      // acknowledges the service without updating the helper.
+      if (payload.value.length <= 10) price.state = payload.value;
+    };
+    email._fetchAllPeriodStats = async () => {};
+    const notices = [];
+    email._showToast = text => notices.push(text);
+    try {
+      await email._ensureHelpers();
+      email._activeTab = 'config'; email._render();
+      email.shadowRoot.getElementById('cfg-price').value = failure === 'length' ? '0.123456789' : '0.85';
+      email.shadowRoot.getElementById('cfg-price-save').click();
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(email._config.energy_price, 0.75, 'rejected save must not become the displayed tariff');
+      assert.ok(notices.some(text => /could not|not saved|cannot/i.test(text)), 'administrator receives a truthful failure');
+      assert.ok(notices.every(text => !/Price saved/i.test(text)), 'no success message for a rejected helper write');
+      const reopened = dom.window.document.createElement('ha-energy-email');
+      reopened._hass = email._hass;
+      await reopened._ensureHelpers();
+      assert.equal(reopened._config.energy_price, 0.75);
+      assert.equal(dom.window.localStorage.length, 0, 'existing helper failure must not create a hidden conflicting browser value');
+    } finally { dom.window.close(); }
+  });
+}
+
+test('successful existing-helper Config save persists an explicit zero tariff', async () => {
+  const { dom, card: email } = card();
+  const helper = { state: '0.75', attributes: { min: 0, max: 10 } };
+  email._hass.states['input_text.energy_email_price'] = helper;
+  email._hass.callService = async (_domain, _service, payload) => { helper.state = payload.value; };
+  email._fetchAllPeriodStats = async () => {};
+  const notices = [];
+  email._showToast = text => notices.push(text);
+  try {
+    await email._ensureHelpers();
+    email._activeTab = 'config'; email._render();
+    email.shadowRoot.getElementById('cfg-price').value = '0';
+    email.shadowRoot.getElementById('cfg-price-save').click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(helper.state, '0');
+    assert.equal(email._config.energy_price, 0);
+    assert.ok(notices.some(text => /Price saved/.test(text)));
+    const reopened = dom.window.document.createElement('ha-energy-email');
+    reopened._hass = email._hass;
+    await reopened._ensureHelpers();
+    assert.equal(reopened._config.energy_price, 0);
+    assert.equal(dom.window.localStorage.length, 0);
+  } finally { dom.window.close(); }
+});
+
+for (const language of ['en', 'pl']) {
+  test(`failed recipient helper save preserves the address and reports failure in ${language}`, async () => {
+    const { dom, card: email } = card();
+    email._lang = language;
+    email._hass.states['input_text.energy_email_recipient'] = { state: 'previous@example.invalid', attributes: { min: 0, max: 255 } };
+    email._hass.callService = async () => { throw Error('Test service unavailable'); };
+    const notices = [];
+    email._showToast = text => notices.push(text);
+    try {
+      await email._ensureHelpers();
+      email._activeTab = 'config'; email._render();
+      email.shadowRoot.getElementById('cfg-email').value = 'next@example.invalid';
+      email.shadowRoot.getElementById('cfg-email-save').click();
+      await new Promise(resolve => setImmediate(resolve));
+      assert.equal(email._getRecipient(), 'previous@example.invalid');
+      assert.ok(notices.some(text => language === 'pl' ? /Nie udało się zapisać/.test(text) : /Could not save/.test(text)));
+      assert.ok(notices.every(text => !/Email saved|Email zapisany/.test(text)));
+      assert.equal(dom.window.localStorage.length, 0);
+    } finally { dom.window.close(); }
+  });
+}
+
+test('unavailable browser storage does not claim a successful Config save', async () => {
+  const { dom, card: email } = card();
+  const notices = [];
+  email._showToast = text => notices.push(text);
+  email._config.energy_price = 0.75;
+  Object.defineProperty(dom.window.Storage.prototype, 'setItem', { value() { throw Error('Storage unavailable'); } });
+  try {
+    email._activeTab = 'config'; email._render();
+    email.shadowRoot.getElementById('cfg-price').value = '0.85';
+    email.shadowRoot.getElementById('cfg-price-save').click();
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(email._config.energy_price, 0.75);
+    assert.ok(notices.some(text => /Could not save/.test(text)));
+    assert.ok(notices.every(text => !/Price saved/.test(text)));
+  } finally { dom.window.close(); }
+});
