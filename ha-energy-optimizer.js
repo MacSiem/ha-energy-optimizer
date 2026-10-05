@@ -3085,7 +3085,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         this._emailBackendConfig = resp || {};
         this._emailSchedules = Array.isArray(resp?.schedules) ? resp.schedules : [];
         this._emailBackendError = null;
-        if (resp?.default_recipient && !this._config.recipient) this._detectedRecipient = resp.default_recipient;
+        if (resp?.default_recipient && !this._config.recipient && !this._detectedRecipient) this._detectedRecipient = resp.default_recipient;
         await Promise.all(['daily', 'weekly', 'monthly'].map(async cadence => {
           try {
             this._backendReportPreviews[cadence] = await this._emailWs('preview_energy_report', { cadence });

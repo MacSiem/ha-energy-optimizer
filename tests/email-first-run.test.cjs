@@ -403,3 +403,23 @@ test('unavailable browser storage does not claim a successful Config save', asyn
     assert.ok(notices.every(text => !/Price saved/.test(text)));
   } finally { dom.window.close(); }
 });
+
+// Live7563: loading backend defaults after existing browser settings replaced
+// the recipient after reload. A saved card recipient must keep precedence.
+for (const storage of ['helper', 'browser', 'explicit']) {
+  test(`backend defaults preserve the existing ${storage} recipient`, async () => {
+    const { dom, card: email } = card();
+    const saved = storage + '@example.invalid';
+    if (storage === 'helper') email._hass.states['input_text.energy_email_recipient'] = { state: saved, attributes: { min: 0, max: 255 } };
+    if (storage === 'browser') dom.window.localStorage.setItem('ha-energy-email-recipient', saved);
+    if (storage === 'explicit') email._config.recipient = saved;
+    email._hass.callWS = async msg => msg.type === 'ha_tools_email/get_config'
+      ? { default_recipient: 'backend@example.invalid', smtp_configured: true, schedules: [] }
+      : { status: 'no_sources', sources: [] };
+    try {
+      await email._ensureHelpers();
+      await email._loadEmailBackendConfig();
+      assert.equal(email._getRecipient(), saved, 'backend defaults must not replace the administrator-saved card recipient');
+    } finally { dom.window.close(); }
+  });
+}

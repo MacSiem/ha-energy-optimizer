@@ -2,6 +2,8 @@
 
 ## 3.5.3 (unreleased)
 
+- Keep existing helper or browser recipients when loading backend defaults, preserving explicit card-recipient priority after reload.
+
 - Validate existing helper value lengths and report failed settings writes before changing the displayed tariff or recipient. Preserve previous values after failure and retain browser saves when helpers are absent.
 
 - When an older email backend lacks the report-preview API, preserve validated Recorder previews and manual sends through the legacy service. Disable sending when the service is absent, and block new or updated server energy schedules until HA Tools Email 2.1.2+ is installed.
