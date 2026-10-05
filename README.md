@@ -2,9 +2,7 @@
 
 ![Preview](banner.png)
 
-Energy usage analysis and optimization card for Home Assistant. Dual-tariff
-aware, with Chart.js visualizations and actionable savings recommendations —
-built on your existing energy statistics, zero setup required.
+Energy usage analysis for Home Assistant based on grid import configured in the Energy Dashboard. The card displays measured usage, local Chart.js charts and a tariff scenario when you provide prices. It needs Energy Dashboard grid import statistics to show numbers.
 
 [![Version](https://img.shields.io/github/v/release/MacSiem/ha-energy-optimizer)](https://github.com/MacSiem/ha-energy-optimizer/releases) [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -12,33 +10,11 @@ Part of the [HA Tools](https://github.com/MacSiem/ha-tools-panel) collection for
 
 ## How it works
 
-**Short version: it works automatically.** Add the card and it discovers your
-energy sensors by itself — no `entities:` list to maintain.
-
-1. **Auto-discovers kWh sensors.** On load, the card asks Home Assistant's
-   recorder for every "sum" statistic (`recorder/list_statistic_ids`) and
-   keeps the ones measured in kWh — your energy/grid/solar meters, whatever
-   they're named.
-2. **Pulls 7 days of hourly history.** It fetches hourly recorder statistics
-   for those sensors (`recorder/statistics_during_period`) and aggregates
-   them into today's 24-hour usage profile and a 7-day-by-24-hour dataset for
-   the weekly heat map, trend and day-of-week charts.
-3. **Computes cost, efficiency and savings.** Today's usage, cost estimate,
-   efficiency score and the savings recommendations are all derived from that
-   real data — dual-tariff aware if you set `peak_rate` / `off_peak_rate`.
-   Note: until you configure a rate (`peak_rate` or `energy_price`), cost
-   figures fall back to a built-in default of 0.65 per kWh, so set your real
-   tariff for accurate costs.
-4. **Current power draw** is read live from any entity with
-   `device_class: power` or unit `W`. Note: this sums **all** matching sensors
-   without de-duplication, so overlapping sensors (e.g. a smart plug and a
-   phase meter measuring the same load) are double-counted in the total.
-5. **No sensors yet? No crash.** Until kWh statistics exist, the card shows
-   seeded demo data labeled "⚠️ Demo data — no kWh sensors" instead of
-   breaking on first install.
-6. **Charts** are drawn with Chart.js, loaded from a locally-vendored copy
-   first (`/local/community/ha-tools/vendor/chart.umd.min.js`) and only from
-   the `cdn.jsdelivr.net` CDN if that local copy is missing.
+1. All three cards read the **grid import statistics selected in your Energy Dashboard** using `energy/get_prefs`. They validate Recorder metadata and use the hourly `change` series. Solar production, grid export, power sensors in watts, and unrelated statistics are excluded.
+2. Usage appears only when every configured source has every completed hourly bucket in the selected window. Missing or invalid data produces an explicit empty or error state. No demo numbers are shown.
+3. Costs appear only when a tariff is configured. They are estimates based on measured import and your rate, not a bill or a measured appliance saving. The currency comes from Home Assistant unless set in the card.
+4. Live power is shown only if you set `power_entity`; the card does not sum overlapping power sensors.
+5. Chart.js is bundled in the single HACS JavaScript file. There is no CDN request or extra Lovelace resource.
 
 ### One repo, three cards
 
@@ -48,18 +24,25 @@ once, use any of them:
 | Card type | What it adds |
 |---|---|
 | `custom:ha-energy-optimizer` | Dashboard, patterns (heat map/trend), recommendations and week-over-week compare — described above. |
-| `custom:ha-energy-insights` | A separate 30-day breakdown across Overview / Daily / Weekly / Monthly / Tips tabs, also driven by `recorder/list_statistic_ids` + `recorder/statistics_during_period`. |
-| `custom:ha-energy-email` | Sends the usage report by e-mail. Manual "Send now" always works via `ha_tools_email.send`; scheduled sends are server-side if the optional **HA Tools Email v2.0.0** integration is installed, otherwise schedule config falls back to browser `localStorage`. SMTP is set in **Settings → Devices & services → HA Tools Email → Configure**. This is the only maintained copy of the card; HA Tools Email & Reports 4.5.0+ just forwards to it. |
+| `custom:ha-energy-insights` | A separate 30-day breakdown across Overview / Daily / Weekly / Monthly / Tips tabs, also driven by `energy/get_prefs`, `recorder/get_statistics_metadata` and `recorder/statistics_during_period`. |
+| `custom:ha-energy-email` | Recorder-backed 24h / 7d / 30d overview and report preview. Sending requires an administrator, complete data, and configured SMTP in HA Tools Email. Server previews and schedules use **HA Tools Email 2.1.2+**. Legacy direct sending also validates hourly coverage. Local schedule settings are retained but do not run a server schedule. HA Tools Email & Reports 4.5.0+ forwards to this maintained card. |
 
 ### What is automatic vs. manual
 
-| Automatic | Manual (optional) |
+| Automatic | Manual |
 |---|---|
-| Discovering kWh energy sensors via recorder statistics | Nothing required to start |
-| 24h usage chart, weekly heat map, trend and day-of-week charts | Setting `peak_rate` / `off_peak_rate` / `peak_hours` for accurate dual-tariff costs |
-| Current power draw from any `device_class: power` / unit `W` sensor | Setting `currency` (defaults to `PLN`) |
-| Cost estimate, efficiency score and savings recommendations, once real data exists | Adding `ha-energy-insights` for a 30-day breakdown, or `ha-energy-email` for scheduled reports |
-| Theme (light/dark) follows your active Home Assistant theme | Self-hosting Chart.js instead of relying on the CDN fallback |
+| Grid import discovery from Energy Dashboard | Configure a grid import source in Energy Dashboard |
+| Measured hourly charts when Recorder data is available | Set `energy_price` or peak/off-peak rates for cost estimates |
+| Home Assistant theme and currency | Set `power_entity` for live power; add Insights or Email cards if wanted |
+| Bundled charts | Configure the optional HA Tools Email integration and SMTP before sending mail |
+
+### Windows and first run
+
+Optimizer and Insights “Today” cover completed hourly buckets since local midnight in the Home Assistant timezone. Repeated DST hours count separately; a skipped hour is a gap, not measured zero. Weekly comparisons use consecutive 168-hour windows; monthly and email views use the last 720 hours. Email daily reports use the last 24 completed hours. The displayed start/end timestamps identify the window, so Today and a daily email can legitimately differ.
+
+Wh, kWh and MWh are normalized to kWh. Missing sources, hours, duplicate timestamps, negative changes and unsupported metadata cannot produce a complete total. Future hours remain blank. Cost requires a configured tariff; there is no assumed electricity price.
+
+Opening Energy Email only reads data and existing settings. It never creates helpers or automations. Explicit administrator saves use existing input_text helpers when available and browser storage otherwise. Ordinary users can read energy data; email configuration, scheduling and sending are reserved for administrators. Card tariffs are local estimates; server report costs depend on the backend’s tariff support.
 
 ## Screenshots
 
@@ -67,9 +50,9 @@ once, use any of them:
 |---|---|
 | ![Dashboard tab, light theme](docs/screenshots/card-dashboard-light.png) | ![Dashboard tab, dark theme](docs/screenshots/card-dashboard-dark.png) |
 
-*The Dashboard tab (the default view): today's usage, cost estimate,
-efficiency score, current power draw and the 24-hour usage chart. Dark mode
-follows your Home Assistant theme automatically.*
+*The Dashboard tab on a fresh installation without a supported Energy
+Dashboard grid-import statistic. It explains how to configure a source instead
+of inventing usage or cost. Dark mode follows your Home Assistant theme.*
 
 ## Installation
 
@@ -108,7 +91,7 @@ peak_hours:
 ```
 
 ```yaml
-# 30-day breakdown, top consumers, trends:
+# 30-day grid-import breakdown and trends:
 type: custom:ha-energy-insights
 ```
 
@@ -120,34 +103,22 @@ type: custom:ha-energy-email
 ## FAQ
 
 **Do I have to configure anything?**
-No. Add the card and it discovers your kWh energy sensors from Home
-Assistant's recorder by itself. Until it finds any, it shows clearly-labeled
-demo data instead of crashing.
+The usage cards need at least one grid import source configured in Home Assistant's Energy Dashboard, with valid Recorder sum statistics. A tariff is optional; costs show N/A until one is configured.
 
-**Why does it say "Demo data — no kWh sensors"?**
-The card only found "sum" statistics that aren't measured in kWh (or none at
-all). Once a sensor with `state_class: total_increasing` and unit `kWh` has
-recorder history, the badge switches to "Data from N kWh sensor(s))" and the
-demo numbers are replaced.
+**Why are usage values unavailable?**
+Check the Energy Dashboard grid import source and its Recorder statistics. The card does not replace missing data with sample values.
 
 **Does it support day/night or weekday/weekend tariffs?**
-Yes — set `peak_rate` and `off_peak_rate` (and optionally `peak_hours`) and
-the Dashboard tab shows a "Potential Savings" tile instead of just the peak
-hour.
+Yes. Configure the relevant rates and hours. Savings are displayed as scenarios, not promises.
 
 **Does this send data anywhere?**
 No telemetry or analytics. All energy figures come from your own Home
-Assistant recorder/statistics — nothing leaves your instance. The only
-external network request the card makes is loading the Chart.js library from
-`cdn.jsdelivr.net`, and only as a fallback if a locally-vendored copy isn't
-present. If you use `ha-energy-email` with the optional HA Tools Email
+Assistant recorder/statistics — nothing leaves your instance. Chart.js is included in the card file; charts make no external library request. If you use `ha-energy-email` with the optional HA Tools Email
 integration, mail is sent through the SMTP server *you* configure — not
 through any MacSiem-operated service.
 
 **What happened to the `entities:` option?**
-Older stub configs mention an `entities` list, but the card never reads it —
-sensors are always auto-discovered from recorder statistics, so it's safe to
-leave out.
+Older stub configs mention an `entities` list. All cards use Energy Dashboard grid import sources instead. Legacy manual device lists and exclusions do not alter the grid-import report total.
 
 ## Changelog
 
@@ -158,6 +129,60 @@ See [CHANGELOG.md](CHANGELOG.md).
 - [Buy Me a Coffee](https://buymeacoffee.com/macsiem)
 - [PayPal](https://www.paypal.com/donate/?hosted_button_id=Y967H4PLRBN8W)
 
+The optional support link in Energy Optimizer, Insights and Email is shown only to administrators. Dismiss it in each card or set `show_support: false` in its configuration.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Privacy and data
+
+Energy analysis reads configured Energy Dashboard sources and Recorder statistics from Home Assistant. Consumption patterns can reveal household activity. Treat exported reports and screenshots as private; use synthetic series when sharing a reproduction.
+
+See [SECURITY.md](SECURITY.md) for safe vulnerability reporting and [NOTICE](NOTICE) for licensing notices.
+
+### Energy Email report preview
+
+With HA Tools Email 2.1.2 or newer, Energy Email reads the server report composer
+for each cadence. Preview and sending use configured Energy Dashboard grid-import
+sources and the exact completed-hour Recorder window shown in the preview.
+Missing or incomplete data withholds the total; missing tariff withholds cost.
+When an older backend explicitly lacks the report-preview API, local previews
+and manual sends use validated Recorder data through `ha_tools_email.send`.
+Without that service, sending stays disabled. Creating or updating server energy
+schedules requires HA Tools Email 2.1.2+; existing schedules remain visible and
+can be deleted. Local previews never use lifetime readings as period consumption.
+
+The legacy direct-send path also requires complete hourly Recorder data for the configured grid-import sources. Missing data stops period sending; measured zero remains a valid report. The exact completed-hour window is included in its email content.
+
+## Upgrade and migration
+
+### Updating an existing installation
+
+Keep the existing dashboard card configuration and back up the current resource and settings before updating. Energy Optimizer, Insights and Energy Email are provided by one Energy Optimizer JavaScript resource; installing another maintained copy of the Email custom element is unnecessary.
+
+Use HACS to update Energy Optimizer, then reload the browser. Keep the resource type `module` and ensure it points to the installed Energy Optimizer file. If an older version remains visible, inspect the installed resource and refresh its cache; do not add duplicate resources or erase settings as a troubleshooting shortcut. For a manual installation, replace the JavaScript at the existing resource path. If serving a precompressed `.gz` file, replace it together with the JavaScript so both contain the same version.
+
+All three cards now report only the grid-import sources configured in Home Assistant's Energy Dashboard. Legacy `entities` lists, device exclusions, export and solar meters do not change the grid-import report total. Configure the source in Energy Dashboard if the cards show the missing-source guidance. Missing Recorder history stays unavailable; it is not replaced with lifetime readings or demo numbers.
+
+Optimizer and Insights Today cover completed hourly buckets since local midnight in the Home Assistant timezone. Email daily reports use the last 24 completed hours. Weekly and monthly report windows are 168 and 720 completed hours. Compare the displayed start and end timestamps when checking values: Today and a daily email can cover different windows.
+
+Set a tariff explicitly if cost estimates are wanted. Missing tariff or currency means unavailable cost; an explicit zero tariff is valid. Currency follows Home Assistant unless overridden in the card. A card tariff is a local estimate; backend report tariffs must be configured according to the backend's supported options.
+
+### Email installation and report modes
+
+The Energy card can display Recorder-backed usage without SMTP. To send reports, install HA Tools Email through HACS, add its integration under Settings → Devices & services → Add integration, then configure SMTP through that integration's Configure action. No SMTP password is stored in the Energy card configuration.
+
+With HA Tools Email 2.1.2 or newer, administrator schedule saves use the backend and server previews use its report composer. Check the backend schedule readback before relying on automatic reports. An unavailable backend or permission error is not evidence that the integration is missing.
+
+Legacy direct sending requires the HA Tools Email send service, a recipient and complete Recorder data for the requested window. Without the newer backend, schedule settings saved only in the browser do not run an automatic server schedule. They stay local to that browser and origin and can be lost when browser storage is cleared.
+
+Opening the card does not create helpers or automations. Existing `input_text` helpers remain readable. Explicit administrator settings saves use an existing helper when available and browser storage when the helper is absent. If an existing helper rejects the value or its service write fails, the card reports the failure and retains the previous setting; it does not claim a successful save or hide a conflicting browser value. Cross-device persistence must be verified through the actual helper/backend readback; a local save alone does not establish it. Keep existing helper names and values when upgrading. An explicit card recipient takes precedence over a saved helper/browser recipient; a backend default is used only when neither is set.
+
+Ordinary users can read energy data. Configuration, scheduling and sending require an administrator. Frontend controls are only one boundary: actual backend UI/API authorization and persistence must also be tested before accepting the candidate.
+
+### Safe validation and rollback
+
+After an update, verify all three card types, source selection, displayed periods and units; test measured zero separately from missing or incomplete data. Verify the settings readback after browser reload and Home Assistant restart using the correct storage mode. Do not send a real household email merely to test layout; use the approved local capture scenario.
+
+If rollback is required, restore the backed-up JavaScript and matching gzip, restore the previous resource URL, and read back both served bytes and loaded UI. Preserve existing helpers, backend schedules and browser settings. A successful rollback of files alone does not prove that a cached browser has returned to the previous version.

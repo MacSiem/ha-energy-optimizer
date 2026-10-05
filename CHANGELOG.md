@@ -1,5 +1,62 @@
 # Changelog — Energy Optimizer
 
+## 3.5.3 (unreleased)
+
+- Keep existing helper or browser recipients when loading backend defaults, preserving explicit card-recipient priority after reload.
+
+- Validate existing helper value lengths and report failed settings writes before changing the displayed tariff or recipient. Preserve previous values after failure and retain browser saves when helpers are absent.
+
+- When an older email backend lacks the report-preview API, preserve validated Recorder previews and manual sends through the legacy service. Disable sending when the service is absent, and block new or updated server energy schedules until HA Tools Email 2.1.2+ is installed.
+
+- Keep schedule time and recipient inputs inside their cards at narrow widths in backend and legacy modes.
+
+- Localize active/disabled Energy Email schedule statuses and support link/dismissal labels in Polish, retaining English, administrator guards and dismissed-link persistence.
+
+- Translate Energy Email Send buttons, manual/instant badges, sending and last-sent text into Polish, including live HA locale changes, while retaining English labels and send guards.
+- Use the primary HA theme text color for manual badges and last-sent status, preserving readable small-text contrast in light and dark themes.
+
+- When the email backend and legacy send service are missing, guide first run through HACS installation, adding the integration, then SMTP configuration. Keep transport or unavailable-backend errors distinct and preserve disabled sends and administrator-only actions.
+
+- Translate Insights tariff status and Email inline tariff editor accessibility labels in Polish and English.
+- Refresh Insights and Email headings and navigation when the HA language changes. Preserve unsaved Email fields and focus, and update existing Insights chart colors when the theme changes.
+
+- Use Home Assistant theme colors for Optimizer chart labels and axes. Translate Optimizer views and Email navigation for Polish, and describe browser-only legacy settings accurately when HA helpers are unavailable.
+
+- Guide Email first run to configure a missing grid-import source. Distinguish absent Recorder measurements, incomplete or unsupported statistics, and failed reads instead of showing raw status codes.
+
+- Describe report rows as grid-import sources, label chart dates accurately and show the required HA Tools Email version in schedule/send instructions.
+
+- Refresh open email report windows every five minutes without replacing a settings form while it is being edited.
+
+- Validate every configured import source against the complete requested hourly window. Reject duplicate and missing buckets; retain unavailable history and future hours as gaps instead of partial totals or zeros.
+- Share grid-source selection and unit/timestamp normalization across cards, including legacy grid flows, Wh/kWh/MWh and current Recorder millisecond timestamps.
+- Default Energy Email to its 24-hour Recorder view; remove the mixed lifetime “All” sum and report controls for unrelated device counters.
+- Opening the email card no longer creates helpers. Existing settings remain readable; explicit saves retain the helper/browser fallback. Limit sends, schedules and configuration to administrators.
+- Use actual date labels and nullable chart values, and consumption-weighted tariff costs for chart tooltips. Show exact windows and the Home Assistant timezone.
+- Legacy automation creation now directs users to the Recorder-backed email scheduler instead of generating templates from lifetime states.
+
+## 3.5.2 (2026-09-30)
+
+- Keep the accessible selected Optimizer tab in sync with the visible panel immediately after navigation.
+
+- Bound responsive Optimizer chart plots so full Recorder data cannot repeatedly enlarge the card while resizing.
+
+- Optimizer and Insights reject an interior gap in today's hourly Recorder buckets instead of presenting a complete daily model or peak-hour advice. Absolute UTC coverage preserves valid 23-hour and 25-hour daylight-saving days.
+
+- Period overview preserves measured zero and keeps missing daily/weekly/monthly data unavailable instead of using lifetime or another period. Recorder windows are explicit.
+- Time-dependent tariff costs weight actual hourly consumption in the Home Assistant timezone; aggregate usage alone has no estimated time-tariff cost.
+
+- Energy Email previews no longer substitute lifetime counters for daily, weekly or monthly energy, or missing measurements with zero.
+- With HA Tools Email 2.1.2+, preview reads the server composer model used by manual sends and schedules, including exact Recorder windows and configured grid sources. Unavailable server previews stay unavailable.
+- Keep measured zero and escape source names in the preview. Tariff absence remains explicit.
+- Without the new backend, period previews and manual sends also use configured grid sources, complete hourly Recorder coverage and exact windows; incomplete data stops the send.
+
+## 3.5.1 (2026-09-29)
+
+- Use measured grid-import statistics with explicit empty/partial states, including missing and daylight-saving hours; never invent a rate or currency for Energy Email.
+- Bundle pinned Chart.js locally and keep Energy Insights honest when recent Recorder statistics are absent.
+- Let all three cards grow naturally in Sections and use compact administrator-only support links.
+
 ## 3.5.0 (2026-09-24)
 
 - Energy Email: Energy Optimizer is now the single maintained source of `custom:ha-energy-email`. HA Tools Email & Reports 4.5.0 no longer ships its own copy; it keeps a thin wrapper that renders this card, so existing dashboards keep working in either load order.
