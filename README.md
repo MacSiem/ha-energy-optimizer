@@ -66,6 +66,14 @@ of inventing usage or cost. Dark mode follows your Home Assistant theme.*
 
 Requires Home Assistant **2024.1.0** or newer.
 
+### Compatibility and optional services
+
+The **2024.1.0** minimum applies to the three frontend cards. Their required Home Assistant APIs are `energy/get_prefs`, `recorder/get_statistics_metadata` and `recorder/statistics_during_period` with hourly `change` values; these commands and request fields exist in Home Assistant Core 2024.1.0. Energy Dashboard grid-import configuration and valid Recorder sum statistics are required for measured totals. The cards use Home Assistant state, theme, locale, currency and timezone data supplied to custom cards.
+
+This minimum is based on the Core API contract; the release's live installation and UI checks were performed on the current Home Assistant staging version, rather than on a separate 2024.1.0 instance. Use a browser supported by your Home Assistant frontend. Chart.js **4.5.1** is bundled locally with its MIT license notice.
+
+Email delivery additionally requires an administrator and the optional HA Tools Email integration with configured SMTP. Server report previews and schedules require **HA Tools Email 2.1.2+** and its `get_config`, `preview_energy_report`, `list_schedules`, `set_schedule` and `send_now` commands. These are integration APIs, not part of the Home Assistant Core minimum. Without them, the cards still provide the local energy overview; legacy direct sending uses the integration's `send` service and validates hourly coverage. Settings can use existing `input_text` helpers (`input_text.set_value`) or browser storage. Recipient discovery is best effort; set `recipient` explicitly if automatic discovery is unavailable.
+
 ### Manual / custom repository
 
 1. HACS → the **⋮** menu → **Custom repositories** → add
