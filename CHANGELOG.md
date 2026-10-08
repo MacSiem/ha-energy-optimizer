@@ -1,6 +1,11 @@
 # Changelog — Energy Optimizer
 
-## 3.5.3 (unreleased)
+## 3.5.4 (2026-10-08)
+
+- Correct the release date for the published 3.5.3 entry and document the Home Assistant API compatibility boundary and optional email backend requirements.
+- Preserve the existing card behavior and bundled Chart.js; this maintenance release only updates documentation and the bundle version header.
+
+## 3.5.3 (2026-10-05)
 
 - Keep existing helper or browser recipients when loading backend defaults, preserving explicit card-recipient priority after reload.
 
