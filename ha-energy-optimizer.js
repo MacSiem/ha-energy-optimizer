@@ -394,7 +394,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=12ec6de1f5e9b96e7ad8988cade3c3ed3464688b10fa0cefd4470314e4bdf7f4
+    // HA_TARIFF_V3_START sha256=141fc72d139b0a2ca1ecff66721921191eac4aab128c952ef56fd1fa92e4b632
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1136,7 +1136,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       if (target && !target.disabled) target.focus({ preventScroll: true });
     }
   };
-  return { model, profile: activeProfile, currency, reset, load, markup, bind };
+  return { model, profile: activeProfile, currency, reset, load, markup, bind, ui: () => createUi({ language: language() }) };
 }
 this._tariffHostController = createTariffHostV3({ card: this, kind: 'optimizer', createModel: createEnergyTariffV3, legacyProfile: energyTariffProfileV3, createSettings: createTariffSettingsV3, createUi: createUiV3 });
 // HA_TARIFF_V3_END
@@ -2885,7 +2885,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=12ec6de1f5e9b96e7ad8988cade3c3ed3464688b10fa0cefd4470314e4bdf7f4
+      // HA_TARIFF_V3_START sha256=141fc72d139b0a2ca1ecff66721921191eac4aab128c952ef56fd1fa92e4b632
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -3627,7 +3627,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       if (target && !target.disabled) target.focus({ preventScroll: true });
     }
   };
-  return { model, profile: activeProfile, currency, reset, load, markup, bind };
+  return { model, profile: activeProfile, currency, reset, load, markup, bind, ui: () => createUi({ language: language() }) };
 }
 this._tariffHostController = createTariffHostV3({ card: this, kind: 'insights', createModel: createEnergyTariffV3, legacyProfile: energyTariffProfileV3, createSettings: createTariffSettingsV3, createUi: createUiV3 });
 // HA_TARIFF_V3_END
@@ -4535,6 +4535,267 @@ function createHaToolsEmailHistory({ escape = value => String(value == null ? ''
 }
 // END vendored ha-tools-email-history factory
 
+// BEGIN vendored ha-tools-email-schedules factory
+// Pure frontend controller; the existing integration owns scheduling and DST.
+// Vendor the exported factory inside consumer IIFEs; no global or second scheduler.
+function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
+  kind = 'log_digest', recipientEditor = false, projectPreview = null, contextLost = () => {} } = {}) {
+  if (!['log_digest', 'energy_report'].includes(kind)) throw new Error('Unsupported schedule kind');
+  // Addresses are deliberately separate from controller metadata/history/export.
+  recipientEditor = recipientEditor === true && kind === 'energy_report';
+  let privateRows = new Map(), privateDraft = null, pendingRecipients = null;
+  let connectionOffline = false, browserOffline = globalThis.navigator?.onLine === false, watchedConnection = null;
+  let unwatch = () => {};
+  const recipients = value => {
+    if (!Array.isArray(value) || value.length > 128 || value.some(v => typeof v !== 'string' || !v.trim() || v.length > 255 || /[\r\n]/.test(v)))
+      throw { code: 'invalid_recipients' };
+    return [...value];
+  };
+  const editable = ['id', 'kind', 'cadence', 'time', 'enabled', 'timezone', 'weekday', 'month_day'];
+  let hass = null, context = null, epoch = 0, checked = false, rows = [], draft = null;
+  let reading = null, writing = false, previewing = null, pendingExpected = null, preview = null;
+  let status = { state: 'not_checked', reason: 'initial' }, previewStatus = { state: 'not_checked', reason: 'initial' };
+  const cancellations = new Set();
+  const capture = value => ({ user: value?.user?.id ?? value?.user ?? null, admin: value?.user?.is_admin === true,
+    connection: value?.connection ?? null, online: !!value && !browserOffline && !connectionOffline && value.connected !== false && value.connection?.connected !== false });
+  const allowed = () => !!hass && context?.admin && context?.online && !browserOffline && !connectionOffline && hass.user?.is_admin === true && hass.connected !== false && hass.connection?.connected !== false;
+  const notify = () => changed();
+  const reset = () => {
+    epoch++; for (const cancel of [...cancellations]) cancel(); cancellations.clear();
+    checked = false; rows = []; draft = null; privateRows = new Map(); privateDraft = null; pendingRecipients = null; reading = null; writing = false; previewing = null;
+    pendingExpected = null; preview = null; status = { state: 'not_checked', reason: 'initial' };
+    previewStatus = { state: 'not_checked', reason: 'initial' };
+  };
+  const request = (source, message, holder = null) => new Promise((resolve, reject) => {
+    let done = false;
+    const finish = (fn, value) => { if (done) return; done = true; clearTimeout(timer); cancellations.delete(cancel); fn(value); };
+    const cancel = () => finish(reject, { code: 'stale_context' });
+    const timer = setTimeout(() => finish(reject, { code: 'request_timeout' }), timeoutMs);
+    cancellations.add(cancel);
+    if (holder) holder.cancel = cancel;
+    Promise.resolve().then(() => { if (!done && allowed()) return source.callWS(message); if (!done) throw { code: 'stale_context' }; }).then(value => finish(resolve, value), error => finish(reject, error));
+  });
+  const same = (expected, actual) => expected.deleted ? !actual : !!actual && editable.every(key =>
+    Object.prototype.hasOwnProperty.call(expected, key) ? actual[key] === expected[key] : key !== 'timezone' || actual[key] === undefined) &&
+    (pendingRecipients === null || JSON.stringify(pendingRecipients) === JSON.stringify(privateRows.get(expected.id)));
+  const cleanRows = result => {
+    if (!result || !Array.isArray(result.schedules) || result.schedules.length > 500) throw { code: 'invalid_response' };
+    const ids = new Set(), nextPrivate = new Map();
+    const cleanList = result.schedules.map(raw => {
+      if (!raw || typeof raw.id !== 'string' || !/^[\w.:-]{1,255}$/.test(raw.id) || ids.has(raw.id) || typeof raw.kind !== 'string') throw { code: 'invalid_response' };
+      ids.add(raw.id);
+      // Only allowlisted calendar metadata is exposed; arbitrary stored fields stay on the server.
+      if (recipientEditor && raw.kind === kind) nextPrivate.set(raw.id, recipients(raw.recipients ?? []));
+      const clean = { id: raw.id, kind: ['log_digest', 'energy_report'].includes(raw.kind) ? raw.kind : 'unknown' };
+      if (raw.kind === kind) {
+        for (const key of editable.filter(key => !['id', 'kind'].includes(key))) if (Object.prototype.hasOwnProperty.call(raw, key)) clean[key] = raw[key];
+        if (raw.timezone !== undefined && typeof raw.timezone !== 'string') throw { code: 'invalid_response' };
+        if (raw.weekday !== undefined && (!Number.isInteger(raw.weekday) || raw.weekday < 0 || raw.weekday > 6)) throw { code: 'invalid_response' };
+        if (raw.month_day !== undefined && (!Number.isInteger(raw.month_day) || raw.month_day < 1 || raw.month_day > 31)) throw { code: 'invalid_response' };
+        if (raw.timezone) try { new Intl.DateTimeFormat('en', { timeZone: raw.timezone }); } catch (_) { throw { code: 'invalid_response' }; }
+        clean.next_fire = typeof raw.next_fire === 'string' && /^\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2})$/.test(raw.next_fire) && Number.isFinite(Date.parse(raw.next_fire)) ? raw.next_fire : null;
+        clean.effective_timezone = null;
+        if (typeof raw.effective_timezone === 'string' && raw.effective_timezone.length <= 128)
+          try { new Intl.DateTimeFormat('en', { timeZone: raw.effective_timezone }); clean.effective_timezone = raw.effective_timezone; } catch (_) {}
+      }
+      if (raw.kind === kind && (!['daily', 'weekly', 'monthly'].includes(raw.cadence) ||
+        !/^([01]\d|2[0-3]):[0-5]\d$/.test(raw.time) || typeof raw.enabled !== 'boolean')) throw { code: 'invalid_response' };
+      return clean;
+    });
+    privateRows = nextPrivate;
+    return cleanList;
+  };
+  const unavailable = error => ['unknown_command', 'not_found'].includes(error?.code);
+  const read = () => {
+    if (!allowed()) return Promise.resolve();
+    if (typeof hass.callWS !== 'function') { checked = true; status = { state: 'not_checked', reason: 'unavailable' }; notify(); return Promise.resolve(); }
+    if (reading) return reading.promise;
+    const token = { epoch, promise: null }, source = hass;
+    reading = token; checked = true; status = { state: pendingExpected ? 'unconfirmed' : 'not_checked', reason: 'loading' };
+    token.promise = (async () => {
+      try {
+        const response = await request(source, { type: 'ha_tools_email/list_schedules' }, token);
+        if (epoch !== token.epoch || reading !== token || !allowed()) return;
+        rows = cleanRows(response);
+        if (pendingExpected) {
+          if (same(pendingExpected, rows.find(row => row.id === pendingExpected.id))) {
+            const deleted = pendingExpected.deleted;
+            pendingExpected = null; pendingRecipients = null; privateDraft = null; draft = null; status = { state: 'success', reason: deleted ? 'deleted' : 'saved' };
+          } else status = { state: 'unconfirmed', reason: 'readback_mismatch' };
+        } else status = { state: rows.some(row => row.kind === kind) ? 'success' : 'no_data', reason: 'loaded' };
+      } catch (error) {
+        if (epoch !== token.epoch || reading !== token || !allowed()) return;
+        rows = []; privateRows.clear();
+        status = { state: pendingExpected ? 'unconfirmed' : 'not_checked',
+          reason: unavailable(error) ? 'unavailable' : error?.code === 'request_timeout' ? 'read_timeout' : 'read_failed' };
+      } finally { if (epoch === token.epoch && reading === token) { reading = null; notify(); } }
+    })();
+    notify(); return token.promise;
+  };
+  const validate = value => {
+    if (!['daily', 'weekly', 'monthly'].includes(value.cadence) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value.time)) throw { code: 'invalid_fields' };
+    if (value.timezone) {
+      if (value.timezone.length > 128 || /^(posix\/|right\/)|^(localtime|posixrules)$/.test(value.timezone)) throw { code: 'invalid_timezone' };
+      try { new Intl.DateTimeFormat('en', { timeZone: value.timezone }); } catch (_) { throw { code: 'invalid_timezone' }; }
+    }
+    if (value.cadence === 'weekly' && (!Number.isInteger(value.weekday) || value.weekday < 0 || value.weekday > 6)) throw { code: 'invalid_fields' };
+    if (value.cadence === 'monthly' && (!Number.isInteger(value.month_day) || value.month_day < 1 || value.month_day > 31)) throw { code: 'invalid_fields' };
+  };
+  const save = async () => {
+    if (!allowed() || !draft || writing || reading || pendingExpected || !['success', 'no_data', 'error'].includes(status.state)) return;
+    let expected;
+    try {
+      validate(draft);
+      expected = { id: draft.id, kind, cadence: draft.cadence, time: draft.time, enabled: draft.enabled === true };
+      if (draft.timezone) expected.timezone = draft.timezone;
+      if (draft.cadence === 'weekly') expected.weekday = draft.weekday;
+      if (draft.cadence === 'monthly') expected.month_day = draft.month_day;
+      if (recipientEditor && privateDraft !== null) expected.recipients = recipients(privateDraft);
+    } catch (error) { status = { state: 'error', reason: error.code || 'invalid_fields' }; notify(); return; }
+    const useHaTimezone = !!rows.find(row => row.id === draft.id)?.timezone && !draft.timezone;
+    const requestEpoch = epoch, source = hass;
+    pendingRecipients = expected.recipients ? [...expected.recipients] : null;
+    pendingExpected = Object.fromEntries(Object.entries(expected).filter(([key]) => key !== 'recipients')); writing = true; status = { state: 'not_checked', reason: 'saving' }; notify();
+    try {
+      await request(source, { type: 'ha_tools_email/set_schedule', action: 'upsert', schedule: useHaTimezone ? { ...expected, use_ha_timezone: true } : expected });
+      if (requestEpoch !== epoch || !allowed()) return;
+      // The acknowledgement (and its embedded schedules) cannot confirm storage: use a separate read.
+      await read();
+    } catch (error) {
+      if (requestEpoch !== epoch || !allowed()) return;
+      const rejected = ['invalid_payload', 'unauthorized', 'unknown_command', 'not_found'].includes(error?.code);
+      if (rejected) { pendingExpected = null; pendingRecipients = null; }
+      status = { state: rejected ? 'error' : 'unconfirmed', reason: rejected ? 'save_rejected' : 'write_unknown' };
+    } finally { if (requestEpoch === epoch) { writing = false; notify(); } }
+  };
+  const previewRead = () => {
+    if (!allowed() || previewing || writing) return previewing?.promise || Promise.resolve();
+    const selection = draft || rows.find(row => row.kind === kind);
+    if (!selection) return Promise.resolve();
+    try { validate(selection); } catch (error) { previewStatus = { state: 'error', reason: error.code }; notify(); return Promise.resolve(); }
+    const token = { epoch, promise: null }, source = hass;
+    const message = { type: 'ha_tools_email/' + (kind === 'energy_report' ? 'preview_energy_report' : 'preview_log_digest'), cadence: selection.cadence };
+    if (kind === 'energy_report') message.calendar_period = true;
+    if (selection.timezone) message.timezone = selection.timezone;
+    previewing = token; preview = null; previewStatus = { state: 'not_checked', reason: 'loading' };
+    token.promise = (async () => {
+      try {
+        const response = await request(source, message, token);
+        if (epoch !== token.epoch || previewing !== token || !allowed()) return;
+        if (kind === 'energy_report') {
+          if (typeof projectPreview !== 'function') throw { code: 'invalid_response' };
+          const projected = projectPreview(response, message);
+          if (!projected || !['success', 'partial', 'no_data'].includes(projected.state)) throw { code: 'invalid_response' };
+          preview = projected.value; previewStatus = { state: projected.state, reason: 'loaded' };
+          return;
+        }
+        if (!response || response.cadence !== message.cadence || !(response.total === null || (Number.isInteger(response.total) && response.total >= 0)) ||
+          typeof response.period?.from !== 'string' || typeof response.period?.to !== 'string' ||
+          response.period.semantics !== 'previous_completed_calendar_period' || typeof response.effective_timezone !== 'string' ||
+          response.source?.name !== 'system_log' || response.source.count_semantics !== 'retained_aggregates' ||
+          typeof response.source.complete !== 'boolean' || !Number.isInteger(response.source.retained_entries) ||
+          response.source.retained_entries < 0) throw { code: 'invalid_response' };
+        preview = { cadence: response.cadence, total: response.total,
+          unique_problems: Number.isInteger(response.unique_problems) && response.unique_problems >= 0 ? response.unique_problems : null,
+          counts_complete: response.counts_complete === true,
+          period: { from: response.period.from, to: response.period.to, semantics: response.period.semantics },
+          effective_timezone: response.effective_timezone,
+          source: { name: response.source.name, complete: response.source.complete, count_semantics: response.source.count_semantics, retained_entries: response.source.retained_entries } };
+        previewStatus = { state: response.source.complete ? (response.source.retained_entries ? 'success' : 'no_data') : 'partial', reason: 'loaded' };
+      } catch (error) {
+        if (epoch !== token.epoch || previewing !== token || !allowed()) return;
+        preview = null; previewStatus = { state: 'not_checked', reason: unavailable(error) ? 'unavailable' : 'read_failed' };
+      } finally { if (epoch === token.epoch && previewing === token) { previewing = null; notify(); } }
+    })();
+    notify(); return token.promise;
+  };
+  return {
+    setContext(value) {
+      if (watchedConnection !== (value?.connection ?? null)) {
+        unwatch(); connectionOffline = false; watchedConnection = value?.connection ?? null;
+        const source = watchedConnection;
+        const disconnect = () => { if (watchedConnection !== source) return; connectionOffline = true; reset(); if (context) context.online = false; contextLost(); notify(); };
+        const ready = () => { if (watchedConnection !== source) return; connectionOffline = false; reset(); if (context) context.online = !browserOffline && hass?.connected !== false; contextLost(); notify(); };
+        const offline = () => { browserOffline = true; reset(); if (context) context.online = false; contextLost(); notify(); };
+        const online = () => { browserOffline = false; reset(); if (context) context.online = !connectionOffline && hass?.connected !== false && source?.connected !== false; contextLost(); notify(); };
+        source?.addEventListener?.('disconnected', disconnect); source?.addEventListener?.('ready', ready);
+        globalThis.addEventListener?.('offline', offline); globalThis.addEventListener?.('online', online);
+        unwatch = () => { source?.removeEventListener?.('disconnected', disconnect); source?.removeEventListener?.('ready', ready);
+          globalThis.removeEventListener?.('offline', offline); globalThis.removeEventListener?.('online', online); };
+      }
+      const next = capture(value);
+      if (!context || Object.keys(next).some(key => next[key] !== context[key]) || !next.admin || !next.online) reset();
+      hass = value; context = next;
+    },
+    discard() { unwatch(); watchedConnection = null; reset(); hass = null; context = null; },
+    online() { return allowed(); },
+    recipientsFor(id) { return allowed() && recipientEditor && privateRows.has(id) ? [...privateRows.get(id)] : null; },
+    recipientModel() { return allowed() && recipientEditor && draft && privateDraft !== null ? [...privateDraft] : null; },
+    updateRecipients(value) {
+      if (!allowed() || !recipientEditor || !draft || writing || pendingExpected) return;
+      privateDraft = [...value];
+    },
+    ensureRead() { if (!checked && allowed()) return read(); },
+    refresh() { if (!writing) return read(); },
+    edit(id) {
+      if (!allowed() || writing || pendingExpected || reading || !['success', 'no_data', 'error'].includes(status.state)) return;
+      const row = rows.find(value => value.id === id && value.kind === kind);
+      if (!row) return;
+      previewing?.cancel?.(); previewing = null;
+      privateDraft = recipientEditor ? [...(privateRows.get(id) || [])] : null;
+      draft = { ...row, timezone: row.timezone || '', weekday: row.weekday ?? 0, month_day: row.month_day ?? 1 };
+      preview = null; previewStatus = { state: 'not_checked', reason: 'initial' }; notify();
+    },
+    create() {
+      if (!allowed() || reading || writing || pendingExpected || !['success', 'no_data'].includes(status.state)) return;
+      // New IDs are allocated only after the explicit New action, never on open.
+      let id;
+      try {
+        if (globalThis.crypto?.randomUUID) id = globalThis.crypto.randomUUID();
+        else {
+          const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+          bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+          const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+          id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+        }
+      } catch (_) { status = { state: 'error', reason: 'id_unavailable' }; notify(); return; }
+      previewing?.cancel?.(); previewing = null;
+      privateDraft = recipientEditor ? [] : null;
+      draft = { id, kind, cadence: 'daily', time: '08:00', enabled: false,
+        timezone: '', weekday: 0, month_day: 1 };
+      preview = null; previewStatus = { state: 'not_checked', reason: 'initial' }; notify();
+    },
+    update(key, value) {
+      if (!allowed() || !draft || writing || pendingExpected || !editable.includes(key) || ['id', 'kind'].includes(key)) return;
+      draft = { ...draft, [key]: value };
+      // A preview belongs to its exact selection; invalidate callbacks after an edit.
+      if (previewing) { previewing.cancel?.(); previewing = null; }
+      preview = null; previewStatus = { state: 'not_checked', reason: 'initial' };
+    },
+    cancel() { draft = null; privateDraft = null; preview = null; previewing?.cancel?.(); previewing = null; previewStatus = { state: 'not_checked', reason: 'initial' }; notify(); },
+    save, preview: previewRead,
+    async remove(id) {
+      if (!allowed() || reading || writing || pendingExpected || !rows.some(row => row.id === id && row.kind === kind) || !['success', 'no_data', 'error'].includes(status.state)) return;
+      const requestEpoch = epoch, source = hass;
+      pendingExpected = { id, deleted: true }; pendingRecipients = null; writing = true;
+      status = { state: 'not_checked', reason: 'saving' }; notify();
+      try {
+        await request(source, { type: 'ha_tools_email/set_schedule', action: 'delete', schedule_id: id });
+        if (requestEpoch === epoch && allowed()) await read();
+      } catch (error) {
+        if (requestEpoch !== epoch || !allowed()) return;
+        const rejected = ['invalid_payload', 'unauthorized', 'unknown_command', 'not_found'].includes(error?.code);
+        if (rejected) pendingExpected = null;
+        status = { state: rejected ? 'error' : 'unconfirmed', reason: rejected ? 'save_rejected' : 'write_unknown' };
+      } finally { if (requestEpoch === epoch) { writing = false; notify(); } }
+    },
+    model() { return { rows: rows.map(row => ({ ...row })), draft: draft ? { ...draft } : null, status: { ...status },
+      reading: !!reading, writing, locked: !!pendingExpected, previewing: !!previewing,
+      preview: preview ? { ...preview } : null, previewStatus: { ...previewStatus } }; }
+  };
+}
+// END vendored ha-tools-email-schedules factory
+
   const OWN_SUPPORT_FOOTER = ENERGY_OPTIMIZER_DONATE_HTML;
   const LOCAL_BENTO_CSS = `.donate-section[data-source="own-card"]{margin:24px 0 4px;padding:18px 20px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--bento-border);border-radius:var(--bento-radius-sm);background:var(--bento-primary-light);color:var(--bento-text)}.donate-section[data-source="own-card"] .donate-text{display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px}.donate-section[data-source="own-card"] .donate-buttons{display:flex;flex-wrap:wrap;gap:8px}.donate-section[data-source="own-card"] a{color:var(--bento-primary);font-weight:700;text-decoration:none}`;
 
@@ -4582,6 +4843,13 @@ function createHaToolsEmailHistory({ escape = value => String(value == null ? ''
         notify_service: '',
       };
       this._activeTab = 'overview';
+      this._emailContextVersion = 0;
+      this._emailContextIdentity = null;
+      this._backendConfigRead = null;
+      this._serverSchedules = createHaToolsEmailSchedules({ kind: 'energy_report', recipientEditor: true,
+        projectPreview: (response, message) => this._projectCalendarPreview(response, message),
+        contextLost: () => { this._clearEmailContext(); this._scheduleSaveFocus = null; this._render(); },
+        changed: () => { if (this._activeTab === 'schedule') this._renderTab(); } });
       this._attemptHistory = createHaToolsEmailHistory({ escape: _esc, changed: () => { if (this._activeTab === 'history') this._renderTab(); } });
       this._lastSent = {};
       this._sending = false;
@@ -4663,11 +4931,14 @@ function createHaToolsEmailHistory({ escape = value => String(value == null ? ''
         const previousLanguage = this._lang;
         const language = hass?.locale?.language || hass?.language;
         if (language) this._lang = language.startsWith('pl') ? 'pl' : 'en';
+        const emailContextChanged = this._resetEmailContext(hass);
         this._resetTariffContext(hass);
         this._hass = hass;
+        this._serverSchedules.setContext(hass);
         this._attemptHistory.setContext(hass);
         if (this._activeTab === 'history') this._render();
         if (!hass) return;
+        if (emailContextChanged && this._firstRender) { this._render(); return; }
         const now = Date.now();
         if (!this._firstRender) {
           this._firstRender = true;
@@ -4681,7 +4952,7 @@ function createHaToolsEmailHistory({ escape = value => String(value == null ? ''
           this._lastRenderTime = now;
           return;
         }
-        if (!this._emailBackendChecked) this._loadEmailBackendConfig().catch(e => this._showToast('⚠️ ' + (e?.message || e)));
+        if (!this._emailBackendChecked && this._activeTab !== 'schedule') this._loadEmailBackendConfig().catch(e => this._showToast('⚠️ ' + (e?.message || e)));
         if (now - this._lastRenderTime < 10000) {
           if (!this._renderScheduled) {
             this._renderScheduled = true;
@@ -4779,7 +5050,7 @@ function createHaToolsEmailHistory({ escape = value => String(value == null ? ''
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=12ec6de1f5e9b96e7ad8988cade3c3ed3464688b10fa0cefd4470314e4bdf7f4
+      // HA_TARIFF_V3_START sha256=141fc72d139b0a2ca1ecff66721921191eac4aab128c952ef56fd1fa92e4b632
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -5521,7 +5792,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       if (target && !target.disabled) target.focus({ preventScroll: true });
     }
   };
-  return { model, profile: activeProfile, currency, reset, load, markup, bind };
+  return { model, profile: activeProfile, currency, reset, load, markup, bind, ui: () => createUi({ language: language() }) };
 }
 this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', createModel: createEnergyTariffV3, legacyProfile: energyTariffProfileV3, createSettings: createTariffSettingsV3, createUi: createUiV3 });
 // HA_TARIFF_V3_END
@@ -5643,14 +5914,17 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
     // --- auto-discovery ---
 
     async _discoverAll() {
+      const token = this._emailContextToken();
       await this._loadEmailBackendConfig();
+      if (!this._emailContextMatches(token)) return;
       await this._ensureHelpers();
+      if (!this._emailContextMatches(token)) return;
       this._discoverRecipient();
       this._discoveryDone = true;
       this._render();
       // Fetch recorder stats in background (for period views)
       this._fetchAllPeriodStats().then(() => {
-        if (this._periodCache_day || this._periodCache_week || this._periodCache_month) this._render();
+        if (this._emailContextMatches(token) && (this._periodCache_day || this._periodCache_week || this._periodCache_month)) this._render();
       }).catch(() => {});
     }
 
@@ -5711,8 +5985,8 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       const weeklyDay = read('weekly_day');
       const monthlyTime = read('monthly_time');
       const price = read('price');
-      if (recipient && recipient.includes('@')) this._detectedRecipient = recipient;
-      if (service && service.length > 0) this._detectedService = service;
+      if (this._hass?.user?.is_admin === true && recipient && recipient.includes('@')) this._detectedRecipient = recipient;
+      if (this._hass?.user?.is_admin === true && service && service.length > 0) this._detectedService = service;
       if (/^\d{2}:\d{2}$/.test(dailyTime)) this._scheduleDefaults.daily = dailyTime;
       if (/^\d{2}:\d{2}$/.test(weeklyTime)) this._scheduleDefaults.weekly_time = weeklyTime;
       if (weeklyDay && weeklyDay.length >= 3) this._scheduleDefaults.weekly_day = weeklyDay;
@@ -5723,12 +5997,13 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
     }
 
     _requireAdmin() {
-      if (this._hass?.user?.is_admin === true) return true;
+      if (this._hass?.user?.is_admin === true && this._hass.connected !== false && this._hass.connection?.connected !== false && (!this._emailContextIdentity || this._serverSchedules.online())) return true;
       this._showToast(this._lang === 'pl' ? 'Tylko administrator może zmieniać ustawienia i wysyłać raporty.' : 'Only administrators can change settings and send reports.');
       return false;
     }
 
     async _saveToHelper(key, value) {
+      const token = this._emailContextToken(), source = this._hass;
       if (!this._requireAdmin()) return false;
       const eid = this._helperEntity(key);
       const helper = this._hass?.states?.[eid];
@@ -5739,12 +6014,13 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
           const { min, max } = helper.attributes || {};
           if ((Number.isFinite(min) && text.length < min) ||
               (Number.isFinite(max) && text.length > max)) throw new Error('Invalid helper value length');
-          await this._hass.callService('input_text', 'set_value', { entity_id: eid, value: text });
+          await source.callService('input_text', 'set_value', { entity_id: eid, value: text });
         } else {
           localStorage.setItem(`ha-energy-email-${key}`, text);
         }
-        return true;
+        return this._emailContextCurrent(token);
       } catch (e) {
+        if (!this._emailContextCurrent(token)) return false;
         this._showToast(this._lang === 'pl'
           ? 'Nie udało się zapisać ustawienia. Poprzednia wartość pozostaje bez zmian.'
           : 'Could not save this setting. The previous value is unchanged.');
@@ -5760,78 +6036,152 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       try { return localStorage.getItem(`ha-energy-email-${key}`) || ''; } catch(e) { return ''; }
     }
 
+    _emailIdentity(hass) {
+      return { user: hass?.user?.id ?? hass?.user ?? null, admin: hass?.user?.is_admin === true,
+        connection: hass?.connection ?? null, online: !!hass && hass.connected !== false && hass.connection?.connected !== false };
+    }
+
+    _clearEmailContext() {
+      this._emailContextVersion++;
+      this.shadowRoot?.replaceChildren();
+      this._backendConfigRead = null;
+      this._emailBackendChecked = true;
+      this._emailBackendAvailable = false;
+      this._emailBackendConfig = null;
+      this._emailBackendError = null;
+      this._emailBackendMissing = false;
+      this._emailBackendReportsUnsupported = false;
+      this._backendReportPreviews = {};
+      this._emailSchedules = [];
+      this._scheduleBusy = {};
+      this._detectedRecipient = null;
+      this._detectedService = null;
+      this._configEntriesChecked = false;
+      this._helpersChecked = false;
+      this._smtpStatus = null;
+      this._smtpTesting = false;
+      this._sending = false;
+      this._scheduleSaveFocus = null;
+    }
+
+    _resetEmailContext(hass) {
+      const next = this._emailIdentity(hass), prior = this._emailContextIdentity;
+      const changed = !!prior && Object.keys(next).some(key => next[key] !== prior[key]);
+      if (changed) this._clearEmailContext();
+      this._emailContextIdentity = next;
+      return changed;
+    }
+
+    _emailContextToken() {
+      return { version: this._emailContextVersion, ...this._emailIdentity(this._hass) };
+    }
+
+    _emailContextMatches(token) {
+      const next = this._emailIdentity(this._hass);
+      return token.version === this._emailContextVersion &&
+        ['user', 'admin', 'connection', 'online'].every(key => token[key] === next[key]);
+    }
+
+    _emailContextCurrent(token) {
+      const next = this._emailIdentity(this._hass);
+      return token.version === this._emailContextVersion && next.admin && next.online &&
+        (!this._emailContextIdentity || this._serverSchedules.online()) &&
+        ['user', 'admin', 'connection', 'online'].every(key => token[key] === next[key]);
+    }
+
+    _projectCalendarPreview(raw, message) {
+      const numeric = value => typeof value === 'number' && Number.isFinite(value) ? value : null;
+      const stamp = value => typeof value === 'string' && value.length <= 64 &&
+        /^\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2})$/.test(value) && Number.isFinite(Date.parse(value));
+      if (!raw || raw.cadence !== message.cadence || raw.period?.cadence !== message.cadence ||
+        raw.period?.semantics !== 'previous_completed_calendar_period' || !stamp(raw.period.start) || !stamp(raw.period.end) ||
+        Date.parse(raw.period.end) <= Date.parse(raw.period.start) || !['ready', 'partial', 'no_data', 'unsupported'].includes(raw.status) ||
+        !Array.isArray(raw.source_ids) || raw.source_ids.length > 500 ||
+        raw.source_ids.some(id => typeof id !== 'string' || !/^[\w.:-]{1,255}$/.test(id)) ||
+        !(raw.total_kwh === null || numeric(raw.total_kwh) !== null)) throw { code: 'invalid_response' };
+      try { if (typeof raw.effective_timezone !== 'string' || raw.effective_timezone.length > 128) throw 0;
+        const actualZone = new Intl.DateTimeFormat('en', { timeZone: raw.effective_timezone }).resolvedOptions().timeZone;
+        if (message.timezone && actualZone !== new Intl.DateTimeFormat('en', { timeZone: message.timezone }).resolvedOptions().timeZone) throw 0;
+      } catch (_) { throw { code: 'invalid_response' }; }
+      const value = { cadence: raw.cadence, effective_timezone: raw.effective_timezone, status: raw.status,
+        period: { start: raw.period.start, end: raw.period.end, cadence: raw.period.cadence, semantics: raw.period.semantics },
+        source_count: raw.source_ids.length,
+        total_kwh: raw.status === 'ready' ? numeric(raw.total_kwh) : null,
+        total_cost: numeric(raw.total_cost), energyCost: numeric(raw.energyCost), variableCost: numeric(raw.variableCost),
+        usageCost: numeric(raw.usageCost), fixedMonthly: numeric(raw.fixedMonthly),
+        currency: typeof raw.currency === 'string' && /^[A-Z]{3}$/.test(raw.currency) ? raw.currency : null,
+        priceBasis: ['gross', 'net'].includes(raw.priceBasis) ? raw.priceBasis : null,
+        tariff_complete: typeof raw.tariff_complete === 'boolean' ? raw.tariff_complete : null };
+      return { state: value.status === 'partial' || (value.status === 'ready' && value.total_kwh === null) ? 'partial' :
+        ['no_data','unsupported'].includes(value.status) ? 'no_data' : 'success', value };
+    }
+
     async _emailWs(command, payload = {}) {
       const hass = this._hass;
       if (!hass?.callWS) throw new Error('Home Assistant websocket API is unavailable');
       return hass.callWS({ type: 'ha_tools_email/' + command, ...payload });
     }
 
-    async _loadEmailBackendConfig(options = {}) {
-      const showErrors = !!options.showErrors;
-      if (this._hass?.user?.is_admin !== true) {
-        this._emailBackendChecked = true;
-        this._emailBackendError = 'Administrator access is required for email configuration.';
-        return null;
-      }
-      const hass = this._hass;
-      if (!hass?.callWS) {
-        this._emailBackendChecked = true;
-        this._emailBackendAvailable = false;
-        this._emailBackendMissing = false;
-        return null;
-      }
+    async _emailReadonlyWs(hass, message) {
+      const delay = Number.isFinite(this._emailReadonlyTimeoutMs) && this._emailReadonlyTimeoutMs > 0 ? this._emailReadonlyTimeoutMs : 15000;
+      let timer;
       try {
-        const resp = await hass.callWS({ type: 'ha_tools_email/get_config' });
-        this._emailBackendChecked = true;
-        let reportsUnsupported = false;
-        this._emailBackendMissing = false;
-        this._emailBackendConfig = resp || {};
-        this._emailSchedules = Array.isArray(resp?.schedules) ? resp.schedules : [];
-        this._emailBackendError = null;
-        if (resp?.default_recipient && !this._config.recipient && !this._detectedRecipient) this._detectedRecipient = resp.default_recipient;
-        await Promise.all(['daily', 'weekly', 'monthly'].map(async cadence => {
-          try {
-            this._backendReportPreviews[cadence] = await this._emailWs('preview_energy_report', { cadence });
-          } catch (e) {
-            this._backendReportPreviews[cadence] = null;
-            // Only an explicit missing command proves the Recorder composer is unsupported.
-            if (e?.code === 'unknown_command') reportsUnsupported = true;
-          }
-        }));
-        this._emailBackendReportsUnsupported = reportsUnsupported;
-        this._emailBackendAvailable = true;
-        this._render();
-        return resp;
-      } catch (e) {
-        this._emailBackendChecked = true;
-        this._emailBackendAvailable = false;
-        this._emailBackendConfig = null;
-        this._emailSchedules = [];
-        // Only HA's explicit missing command proves this backend API is absent.
-        // Connection, permission and not-loaded errors do not prove absence.
-        this._emailBackendMissing = e?.code === 'unknown_command';
-        this._emailBackendError = e?.message || String(e);
-        if (showErrors) this._showToast('⚠️ ' + (this._lang === 'pl' ? 'Backend email niedostępny: ' : 'Email backend unavailable: ') + this._emailBackendError);
-        this._render();
-        return null;
-      }
+        return await Promise.race([hass.callWS(message), new Promise((_, reject) => {
+          timer = setTimeout(() => reject({code:'readonly_timeout'}), delay);
+        })]);
+      } finally { clearTimeout(timer); }
     }
 
-    async _refreshBackendSchedules(showErrors = false) {
-      if (!this._emailBackendAvailable) return;
-      try {
-        const resp = await this._emailWs('list_schedules');
-        this._emailSchedules = Array.isArray(resp?.schedules) ? resp.schedules : [];
-        this._emailBackendError = null;
-        this._render();
-      } catch (e) {
-        this._emailBackendError = e?.message || String(e);
-        if (showErrors) this._showToast('❌ ' + (this._lang === 'pl' ? 'Nie udało się pobrać harmonogramów: ' : 'Could not load schedules: ') + this._emailBackendError);
-      }
+    async _loadEmailBackendConfig(options = {}) {
+      const hass = this._hass;
+      if (hass?.user?.is_admin !== true || hass.connected === false || hass.connection?.connected === false ||
+        (this._emailContextIdentity && !this._serverSchedules.online())) return null;
+      if (this._backendConfigRead) return this._backendConfigRead;
+      if (!hass?.callWS) { this._emailBackendChecked = true; this._emailBackendAvailable = false; return null; }
+      const token = this._emailContextToken();
+      const operation = (async () => {
+        try {
+          const resp = await this._emailReadonlyWs(hass, { type: 'ha_tools_email/get_config' });
+          if (!this._emailContextCurrent(token)) return null;
+          this._emailBackendChecked = true;
+          this._emailBackendMissing = false;
+          this._emailBackendConfig = resp || {};
+          this._emailSchedules = Array.isArray(resp?.schedules) ? resp.schedules : [];
+          this._emailBackendError = null;
+          if (resp?.default_recipient && !this._config.recipient && !this._detectedRecipient) this._detectedRecipient = resp.default_recipient;
+          let reportsUnsupported = false;
+          const previews = {};
+          await Promise.all(['daily', 'weekly', 'monthly'].map(async cadence => {
+            try { previews[cadence] = await this._emailReadonlyWs(hass, { type: 'ha_tools_email/preview_energy_report', cadence }); }
+            catch (e) { previews[cadence] = null; if (e?.code === 'unknown_command') reportsUnsupported = true; }
+          }));
+          if (!this._emailContextCurrent(token)) return null;
+          this._backendReportPreviews = previews;
+          this._emailBackendReportsUnsupported = reportsUnsupported;
+          this._emailBackendAvailable = true;
+          this._render();
+          return resp;
+        } catch (e) {
+          if (!this._emailContextCurrent(token)) return null;
+          this._emailBackendChecked = true; this._emailBackendAvailable = false;
+          this._emailBackendConfig = null; this._emailSchedules = [];
+          this._emailBackendMissing = e?.code === 'unknown_command';
+          this._emailBackendError = 'Email configuration read unavailable';
+          if (options.showErrors) this._showToast(this._lang === 'pl' ? 'Nie udało się odczytać konfiguracji email.' : 'Email configuration could not be read.');
+          this._render(); return null;
+        }
+      })();
+      this._backendConfigRead = operation;
+      try { return await operation; } finally { if (this._backendConfigRead === operation) this._backendConfigRead = null; }
+    }
+
+    async _refreshBackendSchedules() {
+      this._serverSchedules.setContext(this._hass);
+      return this._serverSchedules.refresh();
     }
 
     _getEnergySchedule(cadence) {
-      return (this._emailSchedules || []).find(s => s && s.kind === 'energy_report' && s.cadence === cadence) || null;
+      return this._serverSchedules.model().rows.find(s => s.kind === 'energy_report' && s.cadence === cadence) || (this._emailSchedules || []).find(s => s && s.kind === 'energy_report' && s.cadence === cadence) || null;
     }
 
     _defaultScheduleTime(cadence) {
@@ -5848,7 +6198,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       const input = this.shadowRoot?.getElementById('schedule-recipients-' + cadence);
       if (input) return this._splitRecipients(input.value);
       const schedule = this._getEnergySchedule(cadence) || this._legacySchedules?.[cadence];
-      const recipients = Array.isArray(schedule?.recipients) ? schedule.recipients : [];
+      const recipients = this._serverSchedules.recipientsFor(schedule?.id) ?? (Array.isArray(schedule?.recipients) ? schedule.recipients : []);
       if (recipients.length) return recipients;
       const recipient = this._getRecipient();
       return recipient ? [recipient] : [];
@@ -5867,7 +6217,9 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
         // Try config_entries API to get ha_tools_email default recipient
         if (!this._detectedRecipient && !this._configEntriesChecked) {
           this._configEntriesChecked = true;
-          this._hass.callWS({ type: 'config/config_entries' }).then(entries => {
+          const token = this._emailContextToken(), source = this._hass;
+          source.callWS({ type: 'config/config_entries' }).then(entries => {
+            if (!this._emailContextCurrent(token)) return;
             const haToolsEntry = entries.find(e => e.domain === 'ha_tools_email');
             if (haToolsEntry && haToolsEntry.data) {
               const r = haToolsEntry.data.default_recipient;
@@ -5879,13 +6231,16 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
     }
 
     _getRecipient() {
+      if (this._hass?.user?.is_admin !== true) return '';
       if (this._config.recipient) return this._config.recipient;
       if (this._detectedRecipient) return this._detectedRecipient;
       return '';
     }
 
     async _saveRecipient(email) {
+      const token = this._emailContextToken();
       if (!await this._saveToHelper('recipient', email)) return false;
+      if (!this._emailContextCurrent(token)) return false;
       this._detectedRecipient = email;
       this._render();
       return true;
@@ -6021,6 +6376,13 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
 
     _render() {
       if (!this._hass) return;
+      const renderToken = this._emailContextVersion;
+      const focus = this.shadowRoot.activeElement;
+      const focusId = focus?.id;
+      const selection = typeof focus?.selectionStart === 'number' ? [focus.selectionStart, focus.selectionEnd, focus.selectionDirection] : null;
+      const formFields = [...this.shadowRoot.querySelectorAll('input[id], select[id], textarea[id]')]
+        .filter(field => !field.id.startsWith('schedule-'))
+        .map(field => ({ id: field.id, value: field.value, checked: field.checked }));
       const L = this._lang === 'pl';
       const recipient = this._getRecipient();
       const recipientDisplay = recipient
@@ -6263,6 +6625,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       this.shadowRoot.querySelectorAll('.tab-btn').forEach(t => {
         t.addEventListener('click', () => {
           this._activeTab = t.dataset.tab;
+          if (this._activeTab === 'schedule') { this._serverSchedules.setContext(this._hass); this._serverSchedules.ensureRead(); }
           if (this._activeTab === 'history') this._attemptHistory.setContext(this._hass);
           const picker = this.shadowRoot.getElementById('email-tab-select'); if (picker) picker.value = this._activeTab;
           history.replaceState(null, '', location.pathname + '#' + this._toolId + '/' + this._activeTab);
@@ -6276,6 +6639,12 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       this._bindTariffSettings();
       this._bindEmailEvents();
       this._bindPriceEdit();
+      if (renderToken === this._emailContextVersion && this._hass?.user?.is_admin === true) {
+        for (const saved of formFields) { const field = this.shadowRoot.getElementById(saved.id); if (!field) continue;
+          field.value = saved.value; if (typeof saved.checked === 'boolean') field.checked = saved.checked; }
+        const target = focusId && this.shadowRoot.getElementById(focusId);
+        if (target && !target.disabled) { target.focus({ preventScroll: true }); if (selection && target.setSelectionRange) try { target.setSelectionRange(...selection); } catch (_) {} }
+      }
       if (this._hass?.user?.is_admin !== true) {
         const price = this.shadowRoot.getElementById('price-display');
         if (price) { price.style.cursor = 'default'; price.style.borderBottom = 'none'; price.removeAttribute('title'); }
@@ -6305,7 +6674,9 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       }
       if (editBtn) {
         editBtn.addEventListener('click', async () => {
+          const token = this._emailContextToken();
           if (!await this._saveToHelper('recipient', '')) return;
+          if (!this._emailContextCurrent(token)) return;
           this._detectedRecipient = null;
           this._render();
         });
@@ -6366,6 +6737,11 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
     _renderTab() {
       const el = this.shadowRoot.getElementById('tab-content');
       if (!el) return;
+      const focused = this.shadowRoot.activeElement, focusId = focused?.id;
+      const selection = typeof focused?.selectionStart === 'number' ? [focused.selectionStart,focused.selectionEnd,focused.selectionDirection] : null;
+      const legacyFields = this._activeTab === 'schedule' ? [...el.querySelectorAll('input[id],select[id]')]
+        .filter(field => /^(schedule-(?:time|recipients|enabled)-(?:daily|weekly|monthly)|time-(?:daily|weekly|monthly)|day-weekly)$/.test(field.id))
+        .map(field => ({ id: field.id, value: field.value, checked: field.checked })) : [];
       if (this._hass?.user?.is_admin !== true && ['schedule', 'send', 'config', 'history'].includes(this._activeTab)) {
         el.innerHTML = `<div class="empty-state" role="status">${this._lang === 'pl' ? 'Tylko administrator może zmieniać ustawienia i wysyłać raporty. Podgląd energii jest dostępny w zakładce Przegląd.' : 'Only administrators can change settings and send reports. Energy data remains available in Overview.'}</div>`;
         return;
@@ -6384,6 +6760,18 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
           if (focusId) this.shadowRoot.getElementById(focusId)?.focus({preventScroll:true});
           break;
         }
+      }
+      for (const saved of legacyFields) { const field = this.shadowRoot.getElementById(saved.id); if (!field) continue;
+        field.value = saved.value; if (typeof saved.checked === 'boolean') field.checked = saved.checked; }
+      if (focusId) { const target = this.shadowRoot.getElementById(focusId); if (target && !target.disabled) {
+        target.focus({ preventScroll: true }); if (selection && target.setSelectionRange) try { target.setSelectionRange(...selection); } catch (_) {} } }
+      const m = this._serverSchedules.model();
+      if (this._scheduleSaveFocus && !m.writing && !m.reading) {
+        const index = m.rows.filter(row => row.kind === 'energy_report').findIndex(row => row.id === this._scheduleSaveFocus);
+        const target = m.status.reason === 'saved' && index >= 0 ? this.shadowRoot.getElementById('schedule-edit-' + index) : this.shadowRoot.getElementById('schedule-save');
+        const outerActive = this.getRootNode().activeElement;
+        if (target && !target.disabled && (!outerActive || outerActive === this || outerActive === this.ownerDocument.body)) target.focus({ preventScroll: true });
+        this._scheduleSaveFocus = null;
       }
     }
 
@@ -6519,16 +6907,104 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
     }
 
     _tabSchedule() {
-      const L = this._lang === 'pl';
-      const cadences = ['daily', 'weekly', 'monthly'];
-      if (this._emailBackendAvailable) {
-        return `
-          ${this._renderSmtpSection()}
-          <div class="info-row">\u{1F4BE}\u00A0 ${L ? 'Raporty energii wymagają HA Tools Email 2.1.2+. Harmonogramy są zapisywane w integracji.' : 'Energy reports require HA Tools Email 2.1.2+. Schedules are stored in the integration.'}</div>
-          ${cadences.map(c => this._renderBackendScheduleCard(c)).join('')}
-        `;
+      return this._renderSmtpSection() + `<button class="btn" id="email-config-refresh" type="button">${this._lang === 'pl' ? 'Odczytaj status SMTP' : 'Read SMTP status'}</button>` + this._renderEnergyCalendar() + this._renderLegacyScheduleTab(true);
+    }
+
+    _renderEnergyCalendar() {
+      const m = this._serverSchedules.model(), pl = this._lang === 'pl', ui = this._getTariffHostV3().ui();
+      const tr = (polish, english) => pl ? polish : english;
+      const status = value => `<p role="status" aria-live="polite" data-state="${_esc(value.state)}">${ui.statusHtml(value.state)}</p>`;
+      const reasons = { initial: tr('Nie odczytano harmonogramów.', 'Schedules have not been read.'), loading: tr('Odczytywanie…', 'Reading…'),
+        loaded: tr('Dane odczytane z serwera.', 'Data read from the server.'), saving: tr('Zapisywanie…', 'Saving…'),
+        saved: tr('Zapis potwierdzony niezależnym odczytem wszystkich edytowanych pól.', 'Save confirmed by independent readback of all edited fields.'),
+        deleted: tr('Usunięcie potwierdzone niezależnym odczytem.', 'Deletion confirmed by independent readback.'),
+        readback_mismatch: tr('Nie potwierdzono zapisu. Nie zapisuj ponownie; odśwież odczyt.', 'Save not confirmed. Do not repeat the write; refresh the read.'),
+        write_unknown: tr('Wynik zapisu nieznany. Odśwież odczyt; ponowny zapis jest zablokowany.', 'Save outcome unknown. Refresh the read; another write is locked.'),
+        unavailable: tr('Kalendarz niedostępny. Zaktualizuj HA Tools Email i odśwież świadomie.', 'Calendar unavailable. Update HA Tools Email and refresh explicitly.'),
+        read_timeout: tr('Odczyt przekroczył limit czasu. Odśwież świadomie.', 'Read timed out. Refresh explicitly.'),
+        read_failed: tr('Odczyt niepotwierdzony. Odśwież świadomie.', 'Read not confirmed. Refresh explicitly.'),
+        save_rejected: tr('Serwer odrzucił zapis.', 'Server rejected the save.'), invalid_fields: tr('Sprawdź godzinę i dzień.', 'Check time and day.'),
+        invalid_timezone: tr('Podaj poprawną strefę IANA.', 'Enter a valid IANA timezone.'), invalid_recipients: tr('Sprawdź odbiorców.', 'Check recipients.'),
+        id_unavailable: tr('Nie można utworzyć bezpiecznego ID.', 'A safe ID cannot be created.') };
+      const cadence = value => ({ daily: tr('Codziennie', 'Daily'), weekly: tr('Co tydzień', 'Weekly'), monthly: tr('Co miesiąc', 'Monthly') })[value] || tr('Nieznane', 'Unknown');
+      const days = pl ? ['Poniedziałek','Wtorek','Środa','Czwartek','Piątek','Sobota','Niedziela'] : ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+      const busy = m.reading || m.writing || m.locked, editable = this._serverSchedules.online() && !busy && ['success','no_data','error'].includes(m.status.state);
+      const rows = m.rows.filter(row => row.kind === 'energy_report'), d = m.draft;
+      const field = (id, label, type, value, extra = '') => `<label for="${id}">${label}<input id="${id}" type="${type}" value="${_esc(value)}" ${extra} ${busy ? 'disabled' : ''}></label>`;
+      const select = (id, label, values, selected) => `<label for="${id}">${label}<select id="${id}" ${busy ? 'disabled' : ''}>${values.map(([value,label]) => `<option value="${_esc(value)}" ${String(value) === String(selected) ? 'selected' : ''}>${_esc(label)}</option>`).join('')}</select></label>`;
+      const editor = d ? `<fieldset class="schedule-editor"><legend>${tr('Edycja harmonogramu energii','Edit energy schedule')}</legend><p>ID: ${_esc(d.id)}</p><div class="server-schedule-fields">
+        ${select('schedule-cadence',tr('Częstotliwość','Cadence'),['daily','weekly','monthly'].map(c=>[c,cadence(c)]),d.cadence)}
+        ${field('schedule-time',tr('Godzina lokalna (HH:MM)','Local wall time (HH:MM)'),'time',d.time,'required')}
+        ${field('schedule-timezone',tr('Strefa IANA (puste: strefa HA)','IANA timezone (blank: HA timezone)'),'text',d.timezone,'maxlength="128"')}
+        ${d.cadence === 'weekly' ? select('schedule-weekday',tr('Dzień tygodnia','Weekday'),days.map((v,i)=>[i,v]),d.weekday) : ''}
+        ${d.cadence === 'monthly' ? field('schedule-month-day',tr('Dzień miesiąca (1–31)','Day of month (1–31)'),'number',d.month_day,'min="1" max="31" step="1"') : ''}
+        ${field('schedule-recipients',tr('Odbiorcy (przecinki; puste: konfiguracja centralna)','Recipients (commas; blank: central configuration)'),'text',(this._serverSchedules.recipientModel() || []).join(', '))}
+        <label for="schedule-enabled"><input type="checkbox" id="schedule-enabled" ${d.enabled ? 'checked' : ''} ${busy ? 'disabled' : ''}>${tr('Włączony','Enabled')}</label></div>
+        <p>${tr('Nowy harmonogram jest wyłączony. Zapis włączonego harmonogramu uruchamia przyszłe wysyłki.','A new schedule is disabled. Saving an enabled schedule activates future deliveries.')}</p>
+        <div class="server-schedule-actions"><button id="schedule-save" type="button" ${editable ? '' : 'disabled'}>${tr('Zapisz','Save')}</button><button id="schedule-cancel" type="button">${tr('Anuluj','Cancel')}</button>
+        <button id="schedule-preview" type="button" ${m.previewing || m.writing || !this._serverSchedules.online() ? 'disabled' : ''}>${tr('Podgląd okresu (tylko odczyt)','Preview period (readonly)')}</button></div></fieldset>` : '';
+      const p = m.preview, number = value => value === null ? tr('Brak danych','No data') : Number(value).toFixed(2);
+      const basis = p?.priceBasis === 'gross' ? tr('brutto','gross') : p?.priceBasis === 'net' ? tr('netto','net') : tr('nieznana','unknown');
+      const preview = p ? `<section class="schedule-preview"><h4>${tr('Podgląd kalendarza energii','Energy calendar preview')}</h4>${status(m.previewStatus)}
+        <p>${tr('Poprzedni zakończony okres kalendarzowy; koniec przedziału jest wyłączny.','Previous completed calendar period; the end is exclusive.')}</p>
+        <dl><dt>${tr('Od / do','From / to')}</dt><dd>${_esc(p.period.start)} / ${_esc(p.period.end)}</dd>
+        <dt>${tr('Efektywna strefa raportu','Effective report timezone')}</dt><dd>${_esc(p.effective_timezone)}</dd>
+        <dt>${tr('Źródła importu z sieci (Energy Dashboard)','Grid import sources (Energy Dashboard)')}</dt><dd>${p.source_count}</dd>
+        <dt>${tr('Pokrycie: status danych Recorder','Coverage: Recorder data status')}</dt><dd>${_esc(p.status === 'ready' ? tr('Kompletne','Complete') : p.status === 'partial' ? tr('Częściowe','Partial') : tr('Niedostępne','Unavailable'))}</dd>
+        <dt>${tr('Import energii','Energy import')}</dt><dd>${number(p.total_kwh)} kWh</dd>
+        <dt>${tr('Koszt energii','Energy cost')}</dt><dd>${number(p.energyCost)} ${_esc(p.currency ?? '')}</dd>
+        <dt>${tr('Opłaty zmienne','Variable fees')}</dt><dd>${number(p.variableCost)} ${_esc(p.currency ?? '')}</dd>
+        <dt>${tr('Koszt zużycia','Usage cost')}</dt><dd>${number(p.usageCost)} ${_esc(p.currency ?? '')}</dd>
+        <dt>${tr('Opłata stała miesięczna (osobno, bez proporcji)','Fixed monthly fee (separate, not prorated)')}</dt><dd>${number(p.fixedMonthly)} ${_esc(p.currency ?? '')}</dd>
+        <dt>${tr('Koszt raportu ze źródła','Report cost from source')}</dt><dd>${number(p.total_cost)} ${_esc(p.currency ?? '')}</dd>
+        <dt>${tr('Podstawa / kompletność taryfy','Basis / tariff completeness')}</dt><dd>${basis} / ${p.tariff_complete === true ? tr('Kompletna','Complete') : p.tariff_complete === false ? tr('Częściowa','Partial') : tr('Nieznana','Unknown')}</dd></dl>
+        <p>${tr('Zegar taryfy pozostaje niezależny od strefy kalendarza raportu. Podgląd nie wysyła emaila ani nie zapisuje historii.','The tariff clock remains independent of the report calendar timezone. Preview does not send email or save history.')}</p></section>` :
+        m.previewStatus.reason !== 'initial' ? `<section class="schedule-preview">${status(m.previewStatus)}<p>${_esc(reasons[m.previewStatus.reason] || reasons.read_failed)}</p></section>` : '';
+      return `<style>${ui.css}
+        .server-schedules{container-type:inline-size;container-name:energy-schedules;min-width:0;max-width:100%;overflow-wrap:anywhere}
+        .server-schedule-list,.server-schedule-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+        .server-schedules article,.server-schedules fieldset{min-width:0;margin:12px 0;padding:12px;border:1px solid var(--bento-border);border-radius:10px}
+        .server-schedules input:not([type=checkbox]),.server-schedules select{display:block;box-sizing:border-box;width:100%;min-height:44px;font:inherit}
+        .server-schedules button{min-height:44px;min-width:44px;font:inherit;white-space:normal}
+        .server-schedule-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.server-schedules input[type=checkbox]{width:24px;height:24px}.server-schedules label{min-height:44px}
+        .server-schedules dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:8px}.server-schedules dd{margin:0}
+        @container energy-schedules (max-width:499.99px){.server-schedule-list,.server-schedule-fields,.server-schedules dl{grid-template-columns:minmax(0,1fr)}.server-schedule-actions button{flex:1 1 150px}}
+      </style><section class="server-schedules"><h3>${tr('Kalendarz raportów energii','Energy report calendar')}</h3>${status(m.status)}<p>${_esc(reasons[m.status.reason] || reasons.read_failed)}</p>
+      <div class="server-schedule-actions"><button id="schedule-refresh" type="button" ${m.reading || m.writing ? 'disabled' : ''}>${tr('Odśwież harmonogramy','Refresh schedules')}</button>
+      <button id="schedule-new" type="button" ${editable && ['success','no_data'].includes(m.status.state) ? '' : 'disabled'}>${tr('Nowy harmonogram','New schedule')}</button></div>
+      <p>${tr('Poniedziałek=0. Dzień 31 używa ostatniego dnia krótszego miesiąca. Nieistniejąca godzina DST przesuwa się do przodu o lukę; powtórzona używa pierwszego wystąpienia. Serwer wyznacza kolejny termin.','Monday=0. Day 31 uses the last day of a shorter month. A nonexistent DST time is shifted forward by the gap; repeated times use the first occurrence. The server determines the next fire time.')}</p>
+      <div class="server-schedule-list">${rows.map((row,i)=>`<article><h4>${_esc(cadence(row.cadence))}</h4><p>ID: ${_esc(row.id)}</p><p>${_esc(row.time)} · ${row.enabled ? tr('Włączony','Enabled') : tr('Wyłączony','Disabled')} · ${_esc(row.effective_timezone ?? tr('Nieznana strefa','Unknown timezone'))}</p>
+      <p>${tr('Kolejny termin','Next fire')}: ${_esc(row.next_fire ?? tr('Brak terminu','No scheduled fire'))}</p>
+      ${row.cadence === 'weekly' ? `<p>${_esc(days[row.weekday] ?? tr('Nieznany dzień','Unknown weekday'))}</p>` : row.cadence === 'monthly' ? `<p>${tr('Dzień miesiąca','Day of month')}: ${_esc(row.month_day ?? '—')}</p>` : ''}
+      <div class="server-schedule-actions"><button id="schedule-edit-${i}" type="button" data-calendar-edit="${_esc(row.id)}" ${editable ? '' : 'disabled'}>${tr('Edytuj','Edit')}</button>
+      <button id="schedule-send-${i}" type="button" data-calendar-send="${_esc(row.id)}" ${busy || !this._serverSchedules.online() || this._sending ? 'disabled' : ''}>${tr('Wyślij teraz','Send now')}</button>
+      <button id="schedule-delete-${i}" type="button" data-calendar-delete="${_esc(row.id)}" ${editable ? '' : 'disabled'}>${tr('Usuń','Delete')}</button></div></article>`).join('')}</div>${editor}${preview}</section>`;
+    }
+
+    _bindEnergyCalendar() {
+      const root = this.shadowRoot, c = this._serverSchedules;
+      root.getElementById('schedule-refresh')?.addEventListener('click', () => c.refresh());
+      root.getElementById('schedule-new')?.addEventListener('click', () => { c.create(); root.getElementById('schedule-cadence')?.focus(); });
+      root.querySelectorAll('[data-calendar-edit]').forEach(button => button.addEventListener('click', () => { c.edit(button.dataset.calendarEdit); root.getElementById('schedule-cadence')?.focus(); }));
+      root.querySelectorAll('[data-calendar-delete]').forEach(button => button.addEventListener('click', () => c.remove(button.dataset.calendarDelete)));
+      root.querySelectorAll('[data-calendar-send]').forEach(button => button.addEventListener('click', () => this._sendCalendarNow(button.dataset.calendarSend)));
+      root.getElementById('schedule-save')?.addEventListener('click', () => { this._scheduleSaveFocus = c.model().draft?.id; void c.save(); });
+      root.getElementById('schedule-cancel')?.addEventListener('click', () => { c.cancel(); root.getElementById('schedule-refresh')?.focus(); });
+      root.getElementById('schedule-preview')?.addEventListener('click', () => c.preview());
+      for (const [id,key] of [['schedule-cadence','cadence'],['schedule-time','time'],['schedule-timezone','timezone'],['schedule-weekday','weekday'],['schedule-month-day','month_day'],['schedule-enabled','enabled']]) {
+        const input = root.getElementById(id);
+        input?.addEventListener('input', () => { c.update(key,input.type === 'checkbox' ? input.checked : ['weekday','month_day'].includes(key) ? Number(input.value) : input.value); });
+        input?.addEventListener('change', () => { c.update(key,input.type === 'checkbox' ? input.checked : ['weekday','month_day'].includes(key) ? Number(input.value) : input.value); if (key === 'cadence') this._renderTab(); });
       }
-      return this._renderLegacyScheduleTab();
+      root.getElementById('schedule-recipients')?.addEventListener('input', event => c.updateRecipients(this._splitRecipients(event.target.value)));
+    }
+
+    async _sendCalendarNow(id) {
+      if (!this._requireAdmin() || !this._serverSchedules.online() || this._sending) return;
+      const row = this._serverSchedules.model().rows.find(row => row.id === id && row.kind === 'energy_report');
+      if (!row) return;
+      // Manual send remains explicit and independent from readonly calendar preview.
+      return this._sendReportViaBackend(row.cadence, { recipients: this._serverSchedules.recipientsFor(id) ?? [] });
     }
 
     _renderBackendScheduleCard(cadence) {
@@ -6589,7 +7065,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       </div>`;
     }
 
-    _renderLegacyScheduleTab() {
+    _renderLegacyScheduleTab(calendarVisible = false) {
       const L = this._lang === 'pl';
       const recipient = this._getRecipient();
       const service = this._detectedService || this._config?.notify_service || '';
@@ -6599,13 +7075,13 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       const dailyState = this._state(dailyId, 'missing');
       const weeklyState = this._state(weeklyId, 'missing');
       const monthlyState = this._state(monthlyId, 'missing');
-      const exists = (s) => s !== 'missing' && s !== 'unavailable';
+      const exists = (s) => s === 'on' || s === 'off';
       const badge = (state) => {
         if (state === 'on') return '<span class="badge badge-ok">\u2705 ' + (L ? 'Aktywny' : 'Active') + '</span>';
         if (state === 'off') return '<span class="badge badge-er">\u274C ' + (L ? 'Wyłączony' : 'Disabled') + '</span>';
-        return '<span class="badge badge-wa">\u2795 ' + (L ? 'Nie utworzony' : 'Not Created') + '</span>';
+        return '<span class="badge badge-wa">? ' + (L ? 'Nieznany stan' : 'Unknown state') + '</span>';
       };
-      const recipientInfo = recipient ? `\u{1F4E7} ${recipient}` : `\u{1F4E7} <i>${L ? 'Brak — ustaw email powy\u017Cej' : 'None — set email above'}</i>`;
+      const recipientInfo = recipient ? `\u{1F4E7} ${_esc(recipient)}` : `\u{1F4E7} <i>${L ? 'Brak — ustaw email powy\u017Cej' : 'None — set email above'}</i>`;
       const sd = this._scheduleDefaults;
       const dayNames = L
         ? { mon: 'Poniedzia\u0142ek', tue: 'Wtorek', wed: '\u015Aroda', thu: 'Czwartek', fri: 'Pi\u0105tek', sat: 'Sobota', sun: 'Niedziela' }
@@ -6627,12 +7103,14 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
             ${ex ? (state === 'on'
               ? `<button class="btn btn-ok" id="${disableId}">${L ? 'Wy\u0142\u0105cz' : 'Disable'}</button><button class="btn" id="update-${createId}">\u{1F504} ${L ? 'Aktualizuj' : 'Update'}</button>`
               : `<button class="btn btn-primary" id="${enableId}">${L ? 'W\u0142\u0105cz' : 'Enable'}</button><button class="btn" id="update-${createId}">\u{1F504} ${L ? 'Aktualizuj' : 'Update'}</button>`)
-              : `<button class="btn btn-primary" id="${createId}">\u2795 ${L ? 'Utw\u00F3rz automatyzacj\u0119' : 'Create Automation'}</button>`}
+              : state === 'missing' ? `<button class="btn btn-primary" id="${createId}">\u2795 ${L ? 'Utw\u00F3rz automatyzacj\u0119' : 'Create Automation'}</button>` : ''}
           </div>
         </div>`;
       };
       return `
-        ${this._renderSmtpSection()}
+        ${calendarVisible ? '' : this._renderSmtpSection()}
+        <p>${L ? 'Oba systemy mogą wysyłać raporty; możliwe duplikaty. Brak encji nie potwierdza wyłączenia.' : 'Both systems may send reports; duplicate deliveries are possible. An absent entity does not confirm disabled automation.'}</p>
+        <p><code>${dailyId}</code>: ${_esc(dailyState)} · <code>${weeklyId}</code>: ${_esc(weeklyState)} · <code>${monthlyId}</code>: ${_esc(monthlyState)}</p>
         <div class="info-row info-warn">\u26A0\uFE0F\u00A0 ${L
           ? 'Tryb legacy: harmonogramy lokalne zapisuj\u0105 si\u0119 tylko w tej przegl\u0105darce. Stare automatyzacje HA pozostaj\u0105 dost\u0119pne poni\u017Cej.'
           : 'Legacy mode: local schedules are saved only in this browser. Existing HA automation controls remain available below.'}</div>
@@ -6752,7 +7230,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       const L = this._lang === 'pl';
       const manualLabel = L ? 'Ręcznie' : 'Manual';
       const sendingLabel = L ? 'Wysyłam...' : 'Sending...';
-      const lastSentLabel = L ? 'Ostatnio wysłano: ' : 'Last sent: ';
+      const lastSentLabel = this._emailBackendAvailable && !this._emailBackendReportsUnsupported ? (L ? 'Ostatnio przyjęto przez SMTP: ' : 'Last accepted by SMTP: ') : (L ? 'Ostatnio wysłano: ' : 'Last sent: ');
       const smtpConfig = this._renderSmtpSection();
       const canSend = this._hasHaToolsEmail();
       const backendReports = this._emailBackendAvailable && !this._emailBackendReportsUnsupported;
@@ -6869,10 +7347,12 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
     _attachScheduleEvents() {
       if (this._hass?.user?.is_admin !== true) return;
       const root = this.shadowRoot;
+      root.getElementById('email-config-refresh')?.addEventListener('click', () => this._loadEmailBackendConfig({ showErrors: true }));
       const btnSmtpTest = root.getElementById('btn-smtp-test');
       if (btnSmtpTest) { btnSmtpTest.addEventListener('click', () => this._testSmtp()); }
-      root.querySelectorAll('.schedule-save').forEach(btn => btn.addEventListener('click', () => this._saveSchedule(btn.dataset.cadence)));
-      root.querySelectorAll('.schedule-delete').forEach(btn => btn.addEventListener('click', () => this._deleteSchedule(btn.dataset.cadence)));
+      this._bindEnergyCalendar();
+      root.querySelectorAll('.schedule-save').forEach(btn => btn.addEventListener('click', () => this._saveLegacySchedule(btn.dataset.cadence)));
+      root.querySelectorAll('.schedule-delete').forEach(btn => btn.addEventListener('click', () => this._deleteLegacySchedule(btn.dataset.cadence)));
       root.querySelectorAll('.schedule-send').forEach(btn => btn.addEventListener('click', () => this._sendScheduleNow(btn.dataset.cadence)));
       // Time inputs — save on change
       const timeInputs = [
@@ -6939,50 +7419,17 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
     }
 
     async _saveBackendSchedule(cadence) {
-      if (!this._requireAdmin()) return;
-      if (!cadence) return;
-      if (this._emailBackendReportsUnsupported) {
-        this._showToast('⚠️ ' + (this._lang === 'pl' ? 'Zaktualizuj HA Tools Email do 2.1.2+, aby zapisywać harmonogramy energii.' : 'Update HA Tools Email to 2.1.2+ to save energy schedules.'));
-        return;
-      }
+      if (!this._requireAdmin() || this._emailBackendReportsUnsupported) return;
       const existing = this._getEnergySchedule(cadence);
-      const time = this.shadowRoot?.getElementById('schedule-time-' + cadence)?.value || this._defaultScheduleTime(cadence);
-      const recipients = this._scheduleRecipients(cadence);
-      const enabled = !!this.shadowRoot?.getElementById('schedule-enabled-' + cadence)?.checked;
-      this._scheduleBusy[cadence] = true;
-      this._render();
-      try {
-        const resp = await this._emailWs('set_schedule', {
-          action: 'upsert',
-          schedule: { id: existing?.id, kind: 'energy_report', cadence, time, recipients, enabled }
-        });
-        this._emailSchedules = Array.isArray(resp?.schedules) ? resp.schedules : (resp?.schedule ? [...this._emailSchedules.filter(s => s.id !== resp.schedule.id), resp.schedule] : this._emailSchedules);
-        this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Harmonogram zapisany' : 'Schedule saved'));
-      } catch (e) {
-        this._showToast('\u274C ' + (this._lang === 'pl' ? 'Nie uda\u0142o si\u0119 zapisa\u0107 harmonogramu: ' : 'Could not save schedule: ') + (e?.message || 'Unknown error'));
-      } finally {
-        this._scheduleBusy[cadence] = false;
-        await this._refreshBackendSchedules(false);
-        this._render();
-      }
+      if (!existing?.id) return; // New UUIDs are allocated by the explicit New action only.
+      this._serverSchedules.edit(existing.id);
+      return this._serverSchedules.save();
     }
 
     async _deleteBackendSchedule(cadence) {
       if (!this._requireAdmin()) return;
       const existing = this._getEnergySchedule(cadence);
-      if (!existing?.id) return;
-      this._scheduleBusy[cadence] = true;
-      this._render();
-      try {
-        const resp = await this._emailWs('set_schedule', { action: 'delete', schedule_id: existing.id });
-        this._emailSchedules = Array.isArray(resp?.schedules) ? resp.schedules : this._emailSchedules.filter(s => s.id !== existing.id);
-        this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Harmonogram usuni\u0119ty' : 'Schedule deleted'));
-      } catch (e) {
-        this._showToast('\u274C ' + (this._lang === 'pl' ? 'Nie uda\u0142o si\u0119 usun\u0105\u0107 harmonogramu: ' : 'Could not delete schedule: ') + (e?.message || 'Unknown error'));
-      } finally {
-        this._scheduleBusy[cadence] = false;
-        this._render();
-      }
+      if (existing?.id) return this._serverSchedules.remove(existing.id);
     }
 
     _saveLegacySchedule(cadence) {
@@ -7028,7 +7475,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       } catch (e) { this._showToast('\u274C Error: ' + (e.message || 'Unknown error')); }
     }
 
-    async _sendReportViaBackend(cadence) {
+    async _sendReportViaBackend(cadence, options = {}) {
       if (!this._requireAdmin()) return;
       if (this._emailBackendReportsUnsupported) return this._sendReport(cadence);
       if (!this._hass || this._sending) return;
@@ -7038,17 +7485,27 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
         this._showToast('\u274C ' + (L ? 'SMTP nie skonfigurowany w backendzie ha_tools_email' : 'SMTP is not configured in ha_tools_email backend'));
         return;
       }
-      const recipients = this._scheduleRecipients(cadence);
+      const recipients = options.recipients ?? this._scheduleRecipients(cadence);
+      const token = this._emailContextToken(), source = this._hass;
       this._sending = true;
       this._scheduleBusy[cadence] = true;
       this._renderTab(); this._attachSendEvents();
       try {
-        await this._emailWs('send_now', { kind: 'energy_report', cadence, recipients });
+        const acknowledgement = await source.callWS({ type: 'ha_tools_email/send_now', kind: 'energy_report', cadence, recipients });
+        if (!this._emailContextCurrent(token)) return;
+        const accepted = acknowledgement?.status === 'accepted_by_smtp' || (acknowledgement?.status === undefined && acknowledgement?.success === true);
+        if (!accepted) {
+          const state = this._getTariffHostV3().ui().status('unconfirmed');
+          this._showToast(state.icon + ' ' + state.label + ': ' + (L ? 'Wynik wysyłki niepotwierdzony. Sprawdź historię.' : 'Send outcome unconfirmed. Inspect history.'));
+          return;
+        }
         this._lastSent[cadence] = new Date().toLocaleString((this._lang === 'pl' ? 'pl-PL' : 'en-US'), { hour12: false });
-        this._showToast('\u2705 ' + (L ? 'Raport wys\u0142any przez backend' : 'Report sent by backend'));
+        this._showToast('✓ ' + (L ? 'Przyjęte przez SMTP; doręczenie niepotwierdzone.' : 'Accepted by SMTP; delivery unconfirmed.'));
       } catch (e) {
-        this._showToast('\u274C Send failed: ' + (e?.message || 'Unknown error'));
+        if (!this._emailContextCurrent(token)) return;
+        this._showToast(this._lang === 'pl' ? 'Wynik wysyłki niepotwierdzony. Sprawdź historię; nie ponawiamy automatycznie.' : 'Send outcome unconfirmed. Inspect history; no automatic retry.');
       } finally {
+        if (!this._emailContextCurrent(token)) return;
         this._sending = false;
         this._scheduleBusy[cadence] = false;
         this._renderTab(); this._attachSendEvents();
@@ -7239,6 +7696,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
     }
 
     async _testSmtp() {
+      const token = this._emailContextToken();
       if (!this._requireAdmin()) return;
       if (!this._hass) return;
       if (this._emailBackendReportsUnsupported && !this._hasLegacyHaToolsEmail()) {
@@ -7265,12 +7723,15 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       try {
         const hass = this._hass;
         await hass.callService('ha_tools_email', 'test', {});
+        if (!this._emailContextCurrent(token)) return;
         this._smtpStatus = { ok: true, service: 'ha_tools_email', time: new Date().toLocaleTimeString((this._lang === 'pl' ? 'pl-PL' : 'en-US')) };
         this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Testowy email wysy\u0142any!' : 'Test email sent!'));
       } catch (e) {
-        this._smtpStatus = { ok: false, error: e.message || 'Check HA logs' };
+        if (!this._emailContextCurrent(token)) return;
+        this._smtpStatus = { ok: false, error: this._lang === 'pl' ? 'Wynik testu niepotwierdzony; sprawdź logi HA.' : 'Test outcome unconfirmed; inspect HA logs.' };
         this._showToast('\u274C SMTP test failed: ' + this._smtpStatus.error);
       } finally {
+        if (!this._emailContextCurrent(token)) return;
         this._smtpTesting = false;
         this._render();
       }
@@ -7285,6 +7746,9 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
     }
 
     disconnectedCallback() {
+      this._clearEmailContext();
+      this._serverSchedules.discard();
+      this.shadowRoot.getElementById('tab-content')?.replaceChildren();
       this._attemptHistory.discard();
       this._timers.forEach(timer => clearTimeout(timer));
       this._timers.clear();
@@ -7305,6 +7769,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
 
     setActiveTab(tabId) {
       this._activeTab = tabId;
+      if (tabId === 'schedule') { this._serverSchedules.setContext(this._hass); this._serverSchedules.ensureRead(); }
       if (tabId === 'history') this._attemptHistory.setContext(this._hass);
       this._render();
     }
