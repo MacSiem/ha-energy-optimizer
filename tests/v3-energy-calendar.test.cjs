@@ -137,3 +137,9 @@ test('readonly SMTP configuration deadline releases pending state and ignores la
  pending.resolve({default_recipient:'CANARY-LATE',smtp_configured:true});await work;await settle();
  assert.equal(completed,true);assert.equal(f.card._backendConfigRead,null);assert.notEqual(f.card._detectedRecipient,'CANARY-LATE');assert.equal(f.card._emailBackendAvailable,false);
 });
+
+test('last SMTP acceptance follows its acknowledgement when backend availability changes; quick remains a request',async t=>{
+ const f=fixture(t,{sendAck:{status:'accepted_by_smtp'}});await f.open();f.click('schedule-send-0');await settle();
+ f.card._emailBackendAvailable=false;f.card._lastSent.quick='12:00';f.card.setActiveTab('send');
+ assert.match(f.root.getElementById('last-weekly').textContent,/Last accepted by SMTP/);assert.match(f.root.getElementById('last-quick').textContent,/Last send request/);
+});

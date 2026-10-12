@@ -21,52 +21,25 @@ function setup(type) {
 }
 
 for (const language of ['en', 'pl']) {
-  test(`Schedule ${language} renders statuses after backend create/update and preserves guards`, async () => {
-    const { dom, card, hass } = setup('ha-energy-email');
-    const writes = [];
+  test(`Schedule ${language} renders server statuses after verified create/update and preserves guards`, async () => {
+    const { dom, card, hass } = setup('ha-energy-email');const writes=[];let rows=[];
+    const settle=async()=>{for(let i=0;i<30;i++)await Promise.resolve();};
+    const connection=new dom.window.EventTarget();connection.connected=true;
+    const callWS=async msg=>{if(msg.type.endsWith('/list_schedules'))return {schedules:rows};if(msg.type.endsWith('/set_schedule')){writes.push(msg);const row={...msg.schedule,effective_timezone:msg.schedule.timezone||'UTC',next_fire:null};rows=rows.filter(r=>r.id!==row.id).concat(row);return {schedules:rows};}throw Error('Unexpected fixture read');};
     try {
-      card.hass = { ...hass, language, locale: { language } };
-      card._activeTab = 'schedule';
-      card._emailBackendAvailable = true;
-      card._emailBackendConfig = { smtp_configured: true };
-      card._emailSchedules = [];
-      card._emailWs = async (command, payload) => {
-        if (command === 'set_schedule') {
-          writes.push(payload);
-          const schedule = { ...payload.schedule, id: payload.schedule_id || payload.schedule.cadence };
-          return { schedules: [...card._emailSchedules.filter(s => s.cadence !== schedule.cadence), schedule] };
-        }
-        if (command === 'list_schedules') return { schedules: card._emailSchedules };
-        throw new Error('Unexpected backend command: ' + command);
-      };
-      for (const cadence of ['daily', 'weekly', 'monthly']) {
-        card._render();
-        const section = () => card.shadowRoot.querySelector(`[data-schedule-card="${cadence}"]`);
-        assert.match(section().querySelector('.badge').textContent, language === 'pl' ? /Nie utworzony/ : /Not Created/);
-        assert.equal(section().querySelector('.schedule-delete').disabled, true);
-        card.shadowRoot.getElementById('schedule-recipients-' + cadence).value = 'local@example.invalid';
-        card.shadowRoot.getElementById('schedule-enabled-' + cadence).checked = false;
-        await card._saveBackendSchedule(cadence);
-        assert.equal(section().querySelector('.badge-er').textContent, '❌ ' + (language === 'pl' ? 'Wyłączony' : 'Disabled'));
-        assert.equal(section().querySelector('.schedule-save').textContent, language === 'pl' ? 'Aktualizuj' : 'Update');
-        card.shadowRoot.getElementById('schedule-enabled-' + cadence).checked = true;
-        await card._saveBackendSchedule(cadence);
-        assert.equal(section().querySelector('.badge-ok').textContent, '✅ ' + (language === 'pl' ? 'Aktywny' : 'Active'));
-        card._scheduleBusy[cadence] = true;
-        card._render();
-        for (const control of ['.schedule-save', '.schedule-send', '.schedule-delete']) assert.equal(section().querySelector(control).disabled, true);
-        card._scheduleBusy[cadence] = false;
+      card.hass={...hass,language,user:{id:'qa',is_admin:true},connection,config:{time_zone:'UTC'},callWS};
+      card._emailBackendAvailable=true;card._emailBackendConfig={smtp_configured:true};card.setActiveTab('schedule');await settle();
+      const root=card.shadowRoot;assert.match(root.querySelector('.server-schedules [data-result-state="no_data"]').textContent,language==='pl'?/Brak danych/:/No data/);
+      for(const cadence of ['daily','weekly','monthly']){
+        root.getElementById('schedule-new').click();const select=root.getElementById('schedule-cadence');select.value=cadence;select.dispatchEvent(new dom.window.Event('change'));
+        root.getElementById('schedule-save').click();await settle();
+        assert.equal(writes.at(-1).schedule.enabled,false);assert.match(root.querySelector('.server-schedules [data-result-state="success"]').textContent,language==='pl'?/Sukces/:/Success/);
+        const edit=root.querySelector(`[data-calendar-edit="${rows.at(-1).id}"]`);edit.click();const enabled=root.getElementById('schedule-enabled');enabled.checked=true;enabled.dispatchEvent(new dom.window.Event('change'));root.getElementById('schedule-save').click();await settle();assert.equal(writes.at(-1).schedule.enabled,true);
       }
-      assert.equal(writes.length, 6);
-      assert.deepEqual(writes.map(w => w.schedule.enabled), [false, true, false, true, false, true]);
-      const other = language === 'pl' ? 'en' : 'pl';
-      card.hass = { ...hass, language: other, locale: { language: other } };
-      assert.equal(card.shadowRoot.querySelector('.badge-ok').textContent, '✅ ' + (other === 'pl' ? 'Aktywny' : 'Active'));
-      card.hass = { ...hass, language, locale: { language }, user: { is_admin: false } };
-      await card._saveBackendSchedule('daily');
-      assert.equal(writes.length, 6);
-      assert.equal(card.shadowRoot.querySelector('.schedule-save'), null);
-    } finally { dom.window.close(); }
+      assert.equal(writes.length,6);assert.deepEqual(writes.map(w=>w.schedule.enabled),[false,true,false,true,false,true]);
+      const other=language==='pl'?'en':'pl';card.hass={...card._hass,language:other};assert.match(root.querySelector('.server-schedules [data-result-state="success"]').textContent,other==='pl'?/Sukces/:/Success/);
+      card.hass={...card._hass,user:{id:'household',is_admin:false}};assert.equal(root.getElementById('schedule-new'),null);assert.equal(writes.length,6);
+    }finally{dom.window.close();}
   });
 
   test(`Legacy Schedule ${language} translates automation state without changing local storage mode`, () => {
@@ -269,7 +242,7 @@ for (const language of ['pl', 'en']) {
           });
           assert.equal(content.querySelector('#send-quick').disabled, busy || mode !== 'legacy');
           [...content.querySelectorAll('.last-sent')].forEach((row, i) => {
-            assert.equal(row.textContent, `${pl ? 'Ostatnio wysłano: ' : 'Last sent: '}10:2${i + 1}`);
+            assert.equal(row.textContent, `${pl ? 'Ostatnie żądanie wysyłki: ' : 'Last send request: '}10:2${i + 1}`);
           });
           if (pl) assert.doesNotMatch(content.textContent, /\bManual\b|\bInstant\b|Send Daily|Send Weekly|Send Monthly|Sending\.\.\.|Last sent:/);
         }
