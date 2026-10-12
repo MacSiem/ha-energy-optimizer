@@ -134,3 +134,21 @@ test('Insights prices both repeated DST buckets in the hour shown by its chart',
     await card._fetchData(); assert.equal(card._data.todayCost, 11); assert.equal(card._data.dailyCosts[2], 5);
   } finally { dom.window.close(); }
 });
+
+for (const admin of [true, false]) test(`an unedited editor opened before the shared read shows its confirmed rates (${admin ? 'admin' : 'household'})`, async () => {
+  const { dom, card } = setup('ha-energy-optimizer');
+  try {
+    delete card._config.tariff_profile; delete card._config.energy_price;
+    card._hass.user = { id: 'fixture', is_admin: admin }; card._hass.connection = { connected: true };
+    let resolve; card._hass.callWS = () => new Promise(r => { resolve = r; });
+    card._schedule = () => {}; card._render();
+    const details = card.shadowRoot.querySelector('[data-tariff-details]');
+    details.open = true; details.dispatchEvent(new dom.window.Event('toggle'));
+    const pending = card._loadSharedTariffProfile();
+    resolve({ profile: profile(), revision: 3, updated_at: '2026-10-12T10:00:00Z' }); await pending;
+    card._render();
+    assert.equal(card.shadowRoot.querySelector('[data-path="currency"]').value, 'CHF');
+    assert.equal(card.shadowRoot.querySelector('[data-path="zones.0.energyRate"]').value, '1');
+    assert.equal(card.shadowRoot.querySelector('[data-action="save"]') === null, !admin);
+  } finally { dom.window.close(); }
+});
