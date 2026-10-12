@@ -7,7 +7,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   const text = (en, pl) => String(language()).startsWith('pl') ? pl : en;
   const identity = hass => ({ user: hass?.user?.id, connection: hass?.connection });
   const same = (a, b) => a?.user === b?.user && a?.connection === b?.connection;
-  let association = identity(card._hass), pending = null, cachedKey, cachedModel, editorRoot, editor;
+  let association = identity(card._hass), pending = null, cachedKey, cachedModel, editorRoot, editor, focusKey = null;
   const state = () => (card._tariffEditorState ||= { profile: null, revision: null, status: 'not_checked', busy: false });
   const effectiveConfig = () => {
     const config = card._config || {};
@@ -34,6 +34,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       card._sharedTariffReadStatus = 'not_checked';
       pending = null; cachedKey = undefined; cachedModel = undefined;
       editorRoot = null; editor = null;
+      focusKey = null;
     }
     association = next;
   };
@@ -74,7 +75,13 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     operation.finally(() => { if (pending === operation) pending = null; });
     return operation;
   };
-  const markup = () => `<style>
+  const markup = () => {
+    const active = card.shadowRoot?.activeElement;
+    focusKey = active?.closest('[data-tariff-details]') ? {
+      summary: active.tagName === 'SUMMARY', path: active.dataset.path,
+      action: active.dataset.action, weekday: active.dataset.weekday, feed: active.dataset.feed
+    } : null;
+    return `<style>
     [data-energy-container]{container-type:inline-size;container-name:energy-card}
     .tabs{flex-wrap:wrap;overflow:visible;max-width:100%}
     .tabs>button{min-height:44px;min-width:44px;white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
@@ -90,6 +97,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     <details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
     ${Object.hasOwn(card._config || {}, 'tariff_profile') ? `<p>${text('This card uses its own configured tariff. Shared settings apply to cards using the shared profile.', 'Ta karta używa własnej skonfigurowanej taryfy. Ustawienia współdzielone dotyczą kart korzystających ze wspólnego profilu.')}</p>` : ''}
     <div data-tariff-mount></div></details>`;
+  };
   const mount = root => {
     if (editorRoot !== root || !editor) {
       const saved = state();
@@ -162,6 +170,14 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       });
     }
     if (details.open) mount(root);
+    if (focusKey) {
+      const key = focusKey; focusKey = null;
+      const target = key.summary ? details.querySelector('summary') : details.open &&
+        [...root.querySelectorAll('input,select,textarea,button')].find(el =>
+          (key.path && el.dataset.path === key.path) || (key.action && el.dataset.action === key.action) ||
+          (key.weekday && el.dataset.weekday === key.weekday) || (key.feed && el.dataset.feed === key.feed));
+      if (target && !target.disabled) target.focus({ preventScroll: true });
+    }
   };
   return { model, profile: activeProfile, currency, reset, load, markup, bind };
 }

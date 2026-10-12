@@ -29,3 +29,12 @@ test('known invalid stored profile is initially Error, not an unchecked validati
  assert.equal(state.status,'error');assert.equal(root.querySelector('[data-result-state]').dataset.resultState,'error');
  }finally{dom.window.close();}
 });
+
+test('finishing a Save does not steal focus from a newly chosen external control',async()=>{
+ const dom=new JSDOM('<button id="outside">Outside</button><main></main>');try{
+ const root=dom.window.document.querySelector('main');const state={profile,revision:1,status:'not_checked',busy:false};let resolve;
+ const hass={config:{currency:'EUR',time_zone:'UTC'},user:{id:'fixture',is_admin:true},connection:{connected:true},callWS:request=>request.type.endsWith('/set_tariff')?new Promise(r=>{resolve=r;}):Promise.resolve({profile,revision:2,updated_at:'2026-10-12T10:00:00Z'})};
+ const editor=createTariffSettingsV3({root,getHass:()=>hass,state,validate:createEnergyTariffV3});editor.render();const save=root.querySelector('[data-action="save"]');save.focus();save.click();dom.window.document.querySelector('#outside').focus();resolve({revision:2});await new Promise(r=>setImmediate(r));
+ assert.equal(state.status,'success');assert.equal(dom.window.document.activeElement.id,'outside');
+ }finally{dom.window.close();}
+});
