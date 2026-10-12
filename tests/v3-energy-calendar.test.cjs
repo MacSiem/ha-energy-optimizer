@@ -10,7 +10,7 @@ const row = extra => ({ id: 'energy-existing', kind: 'energy_report', cadence: '
 function fixture(t, options={}) {
   const dom=new JSDOM('',{url:'http://localhost/',runScripts:'outside-only',pretendToBeVisual:true}); t.after(()=>dom.window.close());
   const w=dom.window; w.eval('const ENERGY_OPTIMIZER_DONATE_HTML=""; const bindEnergySupport=()=>{}; const energySupportDismissed=()=>true;\n' + source);
-  const card=w.document.createElement('ha-energy-email'); card._firstRender=true; card._discoveryDone=true; card._emailBackendChecked=true;
+  const card=w.document.createElement('ha-energy-email'); card._firstRender=true; card._discoveryDone=true; card._lastPeriodRefresh=Date.now(); card._emailBackendChecked=true;
   card._emailBackendAvailable=true; card._emailBackendConfig={smtp_configured:true}; card._schedule=()=>{}; card._config.show_support=false;
   let rows=options.rows||[row()]; const calls=[]; const services=[]; const connection=new w.EventTarget(); connection.connected=true;
   const hass={user:{id:'a',is_admin:true},connection,config:{currency:'EUR',time_zone:'Europe/Warsaw'},states:options.states||{},language:options.lang||'en',
@@ -20,7 +20,7 @@ function fixture(t, options={}) {
         else{const next={...(rows.find(r=>r.id===msg.schedule.id)||{}),...msg.schedule};if(next.use_ha_timezone)delete next.timezone;delete next.use_ha_timezone;rows=rows.filter(r=>r.id!==next.id).concat(next);}return {schedules:rows};}
       if(msg.type.endsWith('/preview_energy_report'))return typeof options.preview==='function'?options.preview(msg):options.preview||{...calendar(msg.cadence),effective_timezone:msg.timezone||'Europe/Warsaw'};
       if(msg.type.endsWith('/get_config'))return options.config?options.config():{smtp_configured:true,schedules:[],default_recipient:'default@example.invalid'};
-      if(msg.type.endsWith('/send_now'))return {success:true}; throw new Error('Unexpected API '+msg.type); }};
+      if(msg.type.endsWith('/send_now'))return options.sendAck ?? {success:true}; throw new Error('Unexpected API '+msg.type); }};
   card.hass=hass; w.document.body.append(card); const root=card.shadowRoot;
   const click=id=>{const el=root.getElementById(id);assert.ok(el,id);el.click();};
   const input=(id,value)=>{const el=root.getElementById(id);assert.ok(el,id);if(el.type==='checkbox')el.checked=value;else el.value=value;el.dispatchEvent(new w.Event('input',{bubbles:true}));el.dispatchEvent(new w.Event('change',{bubbles:true}));};
@@ -114,4 +114,26 @@ test('late recipient helper ACK cannot repopulate the next user UI',async t=>{
   const pending=deferred();const f=fixture(t);f.hass.states['input_text.energy_email_recipient']={state:'old@example.invalid',attributes:{max:255}};
   f.hass.callService=()=>pending.promise;const save=f.card._saveRecipient('edited@example.invalid');await settle();
   f.card.hass={...f.hass,user:{id:'b',is_admin:true}};pending.resolve();assert.equal(await save,false);assert.doesNotMatch(f.root.textContent,/edited@example.invalid/);
+});
+
+test('calendar status uses the canonical W4 Success icon and Partial preview badge',async t=>{
+ const f=fixture(t,{preview:{...calendar('weekly'),status:'partial',total_kwh:null,total_cost:null}});await f.open();
+ assert.match(f.root.querySelector('.server-schedules [data-result-state="success"]')?.textContent||'',/✓.*Success/);
+ f.click('schedule-edit-0');f.click('schedule-preview');await settle();assert.match(f.root.querySelector('.schedule-preview [data-result-state="partial"]')?.textContent||'',/½.*Partial/);
+});
+test('calendar DST explanation matches the existing server gap-forward policy',async t=>{
+ const f=fixture(t);await f.open();const text=f.root.querySelector('.server-schedules').textContent;
+ assert.match(text,/shifted forward|moves forward/);assert.doesNotMatch(text,/nonexistent DST time is skipped/);
+});
+test('manual send acknowledgement says SMTP acceptance and unknown acknowledgement never claims sent',async t=>{
+ const accepted=fixture(t,{sendAck:{status:'accepted_by_smtp'}});await accepted.open();accepted.click('schedule-send-0');await settle();
+ assert.match(accepted.root.textContent,/Accepted by SMTP/);assert.doesNotMatch(accepted.root.textContent,/Report sent by backend/);
+ const unknown=fixture(t,{sendAck:{status:'unknown'}});await unknown.open();unknown.click('schedule-send-0');await settle();
+ assert.match(unknown.root.textContent,/unconfirmed/i);assert.equal(unknown.card._lastSent.weekly,undefined);
+});
+test('readonly SMTP configuration deadline releases pending state and ignores late private response',async t=>{
+ const pending=deferred(),f=fixture(t,{config:()=>pending.promise});f.card._emailReadonlyTimeoutMs=5;
+ let timer;const work=f.card._loadEmailBackendConfig();const completed=await Promise.race([work.then(()=>true),new Promise(resolve=>{timer=setTimeout(()=>resolve(false),100);})]);clearTimeout(timer);
+ pending.resolve({default_recipient:'CANARY-LATE',smtp_configured:true});await work;await settle();
+ assert.equal(completed,true);assert.equal(f.card._backendConfigRead,null);assert.notEqual(f.card._detectedRecipient,'CANARY-LATE');assert.equal(f.card._emailBackendAvailable,false);
 });
