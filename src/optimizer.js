@@ -1404,6 +1404,7 @@ canvas {
       tabEl.classList.add('active');
     }
 
+    if (tabName === 'recommendations') this._renderRecommendations();
     // Draw charts after showing tab (needed for canvas sizing)
     this._schedule(() => {
       if (tabName === 'dashboard') {
@@ -1412,8 +1413,6 @@ canvas {
         this._drawHeatmap();
         this._drawTrendChart().catch(err => console.error('Trend chart error:', err));
         this._drawWeekdayChart().catch(err => console.error('Weekday chart error:', err));
-      } else if (tabName === 'recommendations') {
-        this._renderRecommendations();
       } else if (tabName === 'compare') {
         this._drawComparisonChart().catch(err => console.error('Comparison chart error:', err));
       }
@@ -1421,7 +1420,7 @@ canvas {
   }
 
   _renderCurrentTab() {
-    this._schedule(() => this._showTab('dashboard'), 100);
+    this._showTab(this._currentTab || 'dashboard');
   }
 
   async _drawDashboardChart() {
@@ -1816,6 +1815,7 @@ async _drawComparisonChart() {
       <div style="max-width:100%;overflow:auto"><table><caption>${this._text('Measured consumption by tariff zone', 'Zmierzony import według stref taryfy')}</caption><thead><tr>
         <th>${this._text('Zone', 'Strefa')}</th><th>kWh</th><th>${this._text('Energy rate', 'Stawka energii')} (${unit}/kWh)</th><th>${this._text('Energy cost', 'Koszt energii')} (${unit})</th><th>${this._text('Variable fees', 'Opłaty zmienne')} (${unit})</th>
       </tr></thead><tbody>${[...groups.values()].map(row => `<tr><th scope="row">${_esc(profile?.zones?.find(zone => zone.id === row.zone)?.label || row.zone)}</th><td>${number(row.kwh)}</td><td>${number(row.energyRate)}</td><td>${number(row.energyCost)}</td><td>${number(row.variableCost)}</td></tr>`).join('')}</tbody></table></div>`}
+      <p>${this._text('Measured usage', 'Zmierzony import')}: ${number(result.kwh)} kWh</p>
       <p><b>${this._text('Energy cost', 'Koszt energii')}: ${number(result.energyCost)} ${unit}</b></p>
       <p>${this._text('Variable fees', 'Opłaty zmienne')}: ${number(result.variableCost)} ${unit}</p>
       <p>${this._text('Usage cost (energy + variable fees)', 'Koszt zużycia (energia + opłaty zmienne)')}: ${number(result.usageCost)} ${unit}</p>
