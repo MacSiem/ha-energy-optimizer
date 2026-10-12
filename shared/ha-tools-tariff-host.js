@@ -65,7 +65,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     return operation;
   };
   const markup = () => `<style>
-    :host{container-type:inline-size;container-name:energy-card}
+    [data-energy-container]{container-type:inline-size;container-name:energy-card}
     .tabs{flex-wrap:wrap;overflow:visible;max-width:100%}
     .tabs>button{min-height:44px;min-width:44px;white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
     button{min-height:44px;min-width:44px}
@@ -112,6 +112,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   const bind = () => {
     const tabs = card.shadowRoot.querySelector('.tabs');
     if (tabs) {
+      tabs.parentElement.setAttribute('data-energy-container', '');
       const buttons = [...tabs.querySelectorAll('button')];
       tabs.setAttribute('role', 'tablist');
       tabs.setAttribute('aria-label', text('Energy views', 'Widoki energii'));
