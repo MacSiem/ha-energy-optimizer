@@ -1698,7 +1698,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       --bento-shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
       --bento-shadow-md: 0 4px 12px rgba(0,0,0,0.4);
     }
-          .card { container-type: inline-size; container-name: energy-email-card; background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-md); padding: 20px; box-shadow: var(--bento-shadow-sm); box-sizing: border-box; max-width: 100%; overflow: hidden; }
+          .card { container-type: inline-size; container-name: energy-card; background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-md); padding: 20px; box-shadow: var(--bento-shadow-sm); box-sizing: border-box; max-width: 100%; overflow: hidden; }
           .header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
           .header-icon { font-size: 24px; }
           .header-title { font-size: 17px; font-weight: 700; color: var(--bento-text); }
@@ -1847,17 +1847,20 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
           .card .tab-btn{white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
           .email-tab-picker{display:none}
           .history-actions{display:flex;flex-wrap:wrap;gap:8px}
+          .history-actions button{padding:10px 14px;border:1px solid var(--bento-border);border-radius:10px;background:var(--bento-card);color:var(--bento-text);font:inherit;cursor:pointer}
+          .history-actions button:focus-visible{outline:3px solid var(--bento-primary);outline-offset:2px}
+          .attempt-history p{line-height:1.55}.history-records{font-size:14px}
           .attempt-history{overflow-wrap:anywhere;color:var(--bento-text)}
           .history-records{width:100%;border-collapse:collapse}
           .history-records th,.history-records td{padding:10px;text-align:left;border-bottom:1px solid var(--bento-border);overflow-wrap:anywhere}
-          @container energy-email-card (max-width:499px){
+          @container energy-card (max-width:499px){
             .history-records thead{position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden}
             .history-records,.history-records tbody{display:block}
             .history-records tbody tr{display:block;border:1px solid var(--bento-border);border-radius:10px;margin-block:12px;padding:8px}
             .history-records tbody td{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:10px;border:0;padding:8px}
             .history-records tbody td::before{content:attr(data-label);font-weight:600}
           }
-          @container energy-email-card (max-width:279px){.card .tabs{display:none !important}.email-tab-picker{display:block}.email-tab-picker select{width:100%}}
+          @container energy-card (max-width:279px){.card .tabs{display:none !important}.email-tab-picker{display:block}.email-tab-picker select{width:100%}}
 
   </style>
 
