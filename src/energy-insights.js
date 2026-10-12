@@ -151,7 +151,7 @@
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=12ec6de1f5e9b96e7ad8988cade3c3ed3464688b10fa0cefd4470314e4bdf7f4
+      // HA_TARIFF_V3_START sha256=141fc72d139b0a2ca1ecff66721921191eac4aab128c952ef56fd1fa92e4b632
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -893,7 +893,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       if (target && !target.disabled) target.focus({ preventScroll: true });
     }
   };
-  return { model, profile: activeProfile, currency, reset, load, markup, bind };
+  return { model, profile: activeProfile, currency, reset, load, markup, bind, ui: () => createUi({ language: language() }) };
 }
 this._tariffHostController = createTariffHostV3({ card: this, kind: 'insights', createModel: createEnergyTariffV3, legacyProfile: energyTariffProfileV3, createSettings: createTariffSettingsV3, createUi: createUiV3 });
 // HA_TARIFF_V3_END
