@@ -249,7 +249,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=f37ecb85a73abdd9ada8c8d41ba2fc96f977dd1bf004e56633ba47ef977fb8f2
+      // HA_TARIFF_V3_START sha256=60ba3f0b5e3c3c7397bff00051249bc55c7e13565a468ce731262912d9dc6f3b
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -295,16 +295,22 @@ function createEnergyTariffV3(input) {
   const record = value => value && typeof value === 'object' && !Array.isArray(value);
   const finite = value => typeof value === 'number' && Number.isFinite(value);
   const dateKey = value => {
-    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || value.startsWith('0000-')) return false;
     const stamp = Date.parse(value + 'T00:00:00Z');
     return Number.isFinite(stamp) && new Date(stamp).toISOString().slice(0, 10) === value;
   };
   const monthDay = value => typeof value === 'string' && /^\d{2}-\d{2}$/.test(value) && dateKey('2000-' + value);
   const timestamp = value => {
-    if (finite(value)) return Number.isFinite(new Date(value).getTime()) ? value : NaN;
-    // Explicit offsets only: never interpret a browser's local clock as UTC.
-    if (typeof value !== 'string' || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return NaN;
-    return Date.parse(value);
+    let stamp;
+    if (finite(value)) stamp = Math.trunc(value);
+    else {
+      // One shared calendar/offset contract; Date.parse alone normalizes Feb 30
+      // and 24:00, unlike the server. Milliseconds truncate in both consumers.
+      const match = typeof value === 'string' && value.match(/^(\d{4}-\d{2}-\d{2})T([01]\d|2[0-3]):([0-5]\d)(?::([0-5]\d)(?:\.\d+)?)?(Z|[+-](?:[01]\d|2[0-3]):[0-5]\d)$/);
+      if (!match || !dateKey(match[1])) return NaN;
+      stamp = Date.parse(value);
+    }
+    return finite(stamp) && stamp >= -62135596800000 && stamp <= 253402300799999 ? stamp : NaN;
   };
   const minutes = (value, end = false) => {
     if (end && value === '24:00') return 1440;
@@ -459,14 +465,21 @@ function createEnergyTariffV3(input) {
     const checkpoints = new Set([to - 1]);
     for (let t = (Math.floor(from / 60000) + 1) * 60000; t < to; t += 60000) checkpoints.add(t);
     if (dynamic) for (const price of dynamic) for (const t of [price.from, price.to]) if (t > from && t < to) checkpoints.add(t);
+    const zoneIds = new Set([first.zone]);
     for (const stamp of checkpoints) {
       const next = rateAt(stamp);
       if (!next.available) return { ...next, from, to };
       if (!samePrice(first, next)) return { available: false, reason: 'mixed_rate_bucket', from, to };
+      zoneIds.add(next.zone);
     }
     const energyCost = kwh * first.energyRate, variableCost = first.variableRate === null ? null : kwh * first.variableRate;
-    return { available: true, from, to, kwh, zone: first.zone, energyRate: first.energyRate,
-      variableRate: first.variableRate, energyCost, variableCost, usageCost: variableCost === null ? null : energyCost + variableCost };
+    const usageCost = variableCost === null ? null : energyCost + variableCost;
+    if (![energyCost, variableCost, usageCost].every(v => v === null || finite(v)))
+      return { available: false, reason: 'nonfinite_cost', from, to };
+    const ids = [...zoneIds].sort();
+    return { available: true, from, to, kwh, zone: ids.length === 1 ? ids[0] : null,
+      zones: ids, zoneAttribution: ids.length === 1 ? 'single' : 'multiple', energyRate: first.energyRate,
+      variableRate: first.variableRate, energyCost, variableCost, usageCost };
   };
   const priceBuckets = (rows, coverage) => {
     const issues = [], priced = [];
@@ -484,11 +497,16 @@ function createEnergyTariffV3(input) {
       else if (!ordered.length || ordered[0].from !== from || ordered.at(-1).to !== to || ordered.some((r, i) => i && r.from !== ordered[i - 1].to))
         issues.push({ reason: 'missing_measurement' });
     }
-    const complete = !issues.length;
-    const energyCost = complete ? priced.reduce((sum, r) => sum + r.energyCost, 0) : null;
-    const variableCost = complete && priced.every(r => r.variableCost !== null) ? priced.reduce((sum, r) => sum + r.variableCost, 0) : null;
-    return { complete, issues, rows: priced, kwh: complete ? priced.reduce((sum, r) => sum + r.kwh, 0) : null,
-      energyCost, variableCost, usageCost: energyCost !== null && variableCost !== null ? energyCost + variableCost : null,
+    let complete = !issues.length;
+    let kwh = complete ? priced.reduce((sum, r) => sum + r.kwh, 0) : null;
+    let energyCost = complete ? priced.reduce((sum, r) => sum + r.energyCost, 0) : null;
+    let variableCost = complete && priced.every(r => r.variableCost !== null) ? priced.reduce((sum, r) => sum + r.variableCost, 0) : null;
+    let usageCost = energyCost !== null && variableCost !== null ? energyCost + variableCost : null;
+    if (complete && ![kwh, energyCost, variableCost, usageCost].every(v => v === null || finite(v))) {
+      issues.push({ reason: 'nonfinite_total' }); complete = false;
+      kwh = energyCost = variableCost = usageCost = null;
+    }
+    return { complete, issues, rows: priced, kwh, energyCost, variableCost, usageCost,
       currency: p.currency ?? null, priceBasis: p.priceBasis ?? null, timezone: p.timezone ?? null,
       clock: { ...clock }, fixedMonthly: valid && finite(p.fixedMonthly) ? p.fixedMonthly : null };
   };
@@ -507,7 +525,13 @@ function energyTariffProfileV3(config, haConfig, kind) {
   const start = c.energy_day_hour_start ?? c.peak_hours?.start ?? 6;
   const end = c.energy_night_hour_start ?? c.peak_hours?.end ?? 22;
   const clockTime = value => Number.isInteger(value) && value >= 0 && value <= 24 ? `${String(value).padStart(2, '0')}:00` : 'invalid';
-  const day = start === end ? [{ from: '00:00', to: '24:00' }] : [{ from: clockTime(start), to: clockTime(end) }];
+  // Legacy weekday/weekend classification used the current calendar day, even
+  // after midnight. Custom overnight rules intentionally use the start day.
+  const day = start === end ? [{ from: '00:00', to: '24:00' }] :
+    Number.isInteger(start) && Number.isInteger(end) && start > end && start <= 24 && end >= 0 ?
+      [...(start < 24 ? [{ from: clockTime(start), to: '24:00' }] : []),
+        ...(end > 0 ? [{ from: '00:00', to: clockTime(end) }] : [])] :
+      [{ from: clockTime(start), to: clockTime(end) }];
   const zone = (id, energyRate) => ({ id, label: id, energyRate, variableRate: null });
   const profile = { schema: 1, name: 'Configured tariff', currency: c.currency || h.currency || '',
     timezone: h.time_zone || '', clock: { mode: 'civil' }, priceBasis: c.energy_price_basis || 'gross',
@@ -923,7 +947,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     }
     if (details.open) mount(root);
   };
-  return { model, currency, reset, load, markup, bind };
+  return { model, profile: activeProfile, currency, reset, load, markup, bind };
 }
 this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', createModel: createEnergyTariffV3, legacyProfile: energyTariffProfileV3, createSettings: createTariffSettingsV3, createUi: createUiV3 });
 // HA_TARIFF_V3_END
