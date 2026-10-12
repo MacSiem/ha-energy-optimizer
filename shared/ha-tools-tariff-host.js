@@ -179,7 +179,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       if (target && !target.disabled) target.focus({ preventScroll: true });
     }
   };
-  return { model, profile: activeProfile, currency, reset, load, markup, bind };
+  return { model, profile: activeProfile, currency, reset, load, markup, bind, ui: () => createUi({ language: language() }) };
 }
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { createTariffHostV3 };

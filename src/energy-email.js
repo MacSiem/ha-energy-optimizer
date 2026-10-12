@@ -1750,6 +1750,16 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       return hass.callWS({ type: 'ha_tools_email/' + command, ...payload });
     }
 
+    async _emailReadonlyWs(hass, message) {
+      const delay = Number.isFinite(this._emailReadonlyTimeoutMs) && this._emailReadonlyTimeoutMs > 0 ? this._emailReadonlyTimeoutMs : 15000;
+      let timer;
+      try {
+        return await Promise.race([hass.callWS(message), new Promise((_, reject) => {
+          timer = setTimeout(() => reject({code:'readonly_timeout'}), delay);
+        })]);
+      } finally { clearTimeout(timer); }
+    }
+
     async _loadEmailBackendConfig(options = {}) {
       const hass = this._hass;
       if (hass?.user?.is_admin !== true || hass.connected === false || hass.connection?.connected === false ||
@@ -1759,7 +1769,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       const token = this._emailContextToken();
       const operation = (async () => {
         try {
-          const resp = await hass.callWS({ type: 'ha_tools_email/get_config' });
+          const resp = await this._emailReadonlyWs(hass, { type: 'ha_tools_email/get_config' });
           if (!this._emailContextCurrent(token)) return null;
           this._emailBackendChecked = true;
           this._emailBackendMissing = false;
@@ -1770,7 +1780,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
           let reportsUnsupported = false;
           const previews = {};
           await Promise.all(['daily', 'weekly', 'monthly'].map(async cadence => {
-            try { previews[cadence] = await hass.callWS({ type: 'ha_tools_email/preview_energy_report', cadence }); }
+            try { previews[cadence] = await this._emailReadonlyWs(hass, { type: 'ha_tools_email/preview_energy_report', cadence }); }
             catch (e) { previews[cadence] = null; if (e?.code === 'unknown_command') reportsUnsupported = true; }
           }));
           if (!this._emailContextCurrent(token)) return null;
@@ -2529,11 +2539,9 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
     }
 
     _renderEnergyCalendar() {
-      const m = this._serverSchedules.model(), pl = this._lang === 'pl';
+      const m = this._serverSchedules.model(), pl = this._lang === 'pl', ui = this._getTariffHostV3().ui();
       const tr = (polish, english) => pl ? polish : english;
-      const stateNames = { success: tr('Sukces', 'Success'), partial: tr('Częściowo', 'Partial'), no_data: tr('Brak danych', 'No data'),
-        unconfirmed: tr('Niepotwierdzony', 'Unconfirmed'), error: tr('Błąd', 'Error'), not_checked: tr('Nie sprawdzono', 'Not checked') };
-      const status = value => `<p role="status" aria-live="polite" data-state="${_esc(value.state)}">${stateNames[value.state] || stateNames.not_checked}</p>`;
+      const status = value => `<p role="status" aria-live="polite" data-state="${_esc(value.state)}">${ui.statusHtml(value.state)}</p>`;
       const reasons = { initial: tr('Nie odczytano harmonogramów.', 'Schedules have not been read.'), loading: tr('Odczytywanie…', 'Reading…'),
         loaded: tr('Dane odczytane z serwera.', 'Data read from the server.'), saving: tr('Zapisywanie…', 'Saving…'),
         saved: tr('Zapis potwierdzony niezależnym odczytem wszystkich edytowanych pól.', 'Save confirmed by independent readback of all edited fields.'),
@@ -2580,7 +2588,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
         <dt>${tr('Podstawa / kompletność taryfy','Basis / tariff completeness')}</dt><dd>${basis} / ${p.tariff_complete === true ? tr('Kompletna','Complete') : p.tariff_complete === false ? tr('Częściowa','Partial') : tr('Nieznana','Unknown')}</dd></dl>
         <p>${tr('Zegar taryfy pozostaje niezależny od strefy kalendarza raportu. Podgląd nie wysyła emaila ani nie zapisuje historii.','The tariff clock remains independent of the report calendar timezone. Preview does not send email or save history.')}</p></section>` :
         m.previewStatus.reason !== 'initial' ? `<section class="schedule-preview">${status(m.previewStatus)}<p>${_esc(reasons[m.previewStatus.reason] || reasons.read_failed)}</p></section>` : '';
-      return `<style>
+      return `<style>${ui.css}
         .server-schedules{container-type:inline-size;container-name:energy-schedules;min-width:0;max-width:100%;overflow-wrap:anywhere}
         .server-schedule-list,.server-schedule-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
         .server-schedules article,.server-schedules fieldset{min-width:0;margin:12px 0;padding:12px;border:1px solid var(--bento-border);border-radius:10px}
@@ -2592,7 +2600,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       </style><section class="server-schedules"><h3>${tr('Kalendarz raportów energii','Energy report calendar')}</h3>${status(m.status)}<p>${_esc(reasons[m.status.reason] || reasons.read_failed)}</p>
       <div class="server-schedule-actions"><button id="schedule-refresh" type="button" ${m.reading || m.writing ? 'disabled' : ''}>${tr('Odśwież harmonogramy','Refresh schedules')}</button>
       <button id="schedule-new" type="button" ${editable && ['success','no_data'].includes(m.status.state) ? '' : 'disabled'}>${tr('Nowy harmonogram','New schedule')}</button></div>
-      <p>${tr('Poniedziałek=0. Dzień 31 używa ostatniego dnia krótszego miesiąca. Nieistniejąca godzina DST jest pomijana; powtórzona używa pierwszego wystąpienia. Serwer wyznacza kolejny termin.','Monday=0. Day 31 uses the last day of a shorter month. A nonexistent DST time is skipped; repeated times use the first occurrence. The server determines the next fire time.')}</p>
+      <p>${tr('Poniedziałek=0. Dzień 31 używa ostatniego dnia krótszego miesiąca. Nieistniejąca godzina DST przesuwa się do przodu o lukę; powtórzona używa pierwszego wystąpienia. Serwer wyznacza kolejny termin.','Monday=0. Day 31 uses the last day of a shorter month. A nonexistent DST time is shifted forward by the gap; repeated times use the first occurrence. The server determines the next fire time.')}</p>
       <div class="server-schedule-list">${rows.map((row,i)=>`<article><h4>${_esc(cadence(row.cadence))}</h4><p>ID: ${_esc(row.id)}</p><p>${_esc(row.time)} · ${row.enabled ? tr('Włączony','Enabled') : tr('Wyłączony','Disabled')} · ${_esc(row.effective_timezone ?? tr('Nieznana strefa','Unknown timezone'))}</p>
       <p>${tr('Kolejny termin','Next fire')}: ${_esc(row.next_fire ?? tr('Brak terminu','No scheduled fire'))}</p>
       ${row.cadence === 'weekly' ? `<p>${_esc(days[row.weekday] ?? tr('Nieznany dzień','Unknown weekday'))}</p>` : row.cadence === 'monthly' ? `<p>${tr('Dzień miesiąca','Day of month')}: ${_esc(row.month_day ?? '—')}</p>` : ''}
@@ -2850,7 +2858,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       const L = this._lang === 'pl';
       const manualLabel = L ? 'Ręcznie' : 'Manual';
       const sendingLabel = L ? 'Wysyłam...' : 'Sending...';
-      const lastSentLabel = L ? 'Ostatnio wysłano: ' : 'Last sent: ';
+      const lastSentLabel = this._emailBackendAvailable && !this._emailBackendReportsUnsupported ? (L ? 'Ostatnio przyjęto przez SMTP: ' : 'Last accepted by SMTP: ') : (L ? 'Ostatnio wysłano: ' : 'Last sent: ');
       const smtpConfig = this._renderSmtpSection();
       const canSend = this._hasHaToolsEmail();
       const backendReports = this._emailBackendAvailable && !this._emailBackendReportsUnsupported;
@@ -3111,10 +3119,16 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       this._scheduleBusy[cadence] = true;
       this._renderTab(); this._attachSendEvents();
       try {
-        await source.callWS({ type: 'ha_tools_email/send_now', kind: 'energy_report', cadence, recipients });
+        const acknowledgement = await source.callWS({ type: 'ha_tools_email/send_now', kind: 'energy_report', cadence, recipients });
         if (!this._emailContextCurrent(token)) return;
+        const accepted = acknowledgement?.status === 'accepted_by_smtp' || (acknowledgement?.status === undefined && acknowledgement?.success === true);
+        if (!accepted) {
+          const state = this._getTariffHostV3().ui().status('unconfirmed');
+          this._showToast(state.icon + ' ' + state.label + ': ' + (L ? 'Wynik wysyłki niepotwierdzony. Sprawdź historię.' : 'Send outcome unconfirmed. Inspect history.'));
+          return;
+        }
         this._lastSent[cadence] = new Date().toLocaleString((this._lang === 'pl' ? 'pl-PL' : 'en-US'), { hour12: false });
-        this._showToast('\u2705 ' + (L ? 'Raport wys\u0142any przez backend' : 'Report sent by backend'));
+        this._showToast('✓ ' + (L ? 'Przyjęte przez SMTP; doręczenie niepotwierdzone.' : 'Accepted by SMTP; delivery unconfirmed.'));
       } catch (e) {
         if (!this._emailContextCurrent(token)) return;
         this._showToast(this._lang === 'pl' ? 'Wynik wysyłki niepotwierdzony. Sprawdź historię; nie ponawiamy automatycznie.' : 'Send outcome unconfirmed. Inspect history; no automatic retry.');
