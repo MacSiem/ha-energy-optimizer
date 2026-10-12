@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "bundle": "ha-energy-optimizer.js",
+  "sources": [
+    {
+      "path": "src/optimizer.js",
+      "sha256": "d16486e8bd7041cb1e4f584cf242b3b9727958a8590ecae0e331985c2d19de20"
+    },
+    {
+      "path": "src/energy-insights.js",
+      "sha256": "0323e899df28d690c8e5ca8aeae3c16ca11d56d4bf34a03aed42e532cfdb76cc"
+    },
+    {
+      "path": "src/energy-email.js",
+      "sha256": "975b11f39d3c75eca8ad5374e7867f7d23e16c3c4ef3b0e8a12f530734805dcd"
+    },
+    {
+      "path": "src/chart-vendor.js",
+      "sha256": "79ae4ac54fc3d7549c5ac2492acb9947d3996f440cf21bcb85577648fd05c1ba"
+    }
+  ]
+}
