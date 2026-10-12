@@ -1,7 +1,7 @@
 'use strict';
 
 // Card-owned adapter: it never writes card YAML, helpers, schedules or SMTP.
-function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi }) {
+function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi, readTimeoutMs = 15000 }) {
   const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
   const language = () => card._hass?.locale?.language || card._hass?.language || card._lang || 'en';
   const text = (en, pl) => String(language()).startsWith('pl') ? pl : en;
@@ -31,6 +31,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     if (!same(association, next)) {
       card._sharedTariffProfile = null; card._sharedTariffAssociation = null;
       card._sharedTariffLoadedAt = 0; card._tariffEditorState = null;
+      card._sharedTariffReadStatus = 'not_checked';
       pending = null; cachedKey = undefined; cachedModel = undefined;
       editorRoot = null; editor = null;
     }
@@ -42,12 +43,18 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     if (card._sharedTariffLoadedAt && Date.now() - card._sharedTariffLoadedAt < 300000 && same(card._sharedTariffAssociation, token)) return true;
     if (pending) return pending;
     const operation = (async () => {
+      let timer;
       try {
-        const result = await hass.callWS({ type: 'ha_tools_email/get_tariff' });
+        const read = hass.callWS({ type: 'ha_tools_email/get_tariff' });
+        const result = await Promise.race([read, new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('tariff_read_timeout')), readTimeoutMs);
+        })]);
         if (!same(token, identity(card._hass))) return false;
-        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0) return false;
+        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0)
+          throw new Error('invalid_tariff_response');
         const profile = result.profile === null ? null : createModel(result.profile).valid ? clone(result.profile) : { schema: 0 };
         card._sharedTariffProfile = profile; card._sharedTariffAssociation = token; card._sharedTariffLoadedAt = Date.now();
+        card._sharedTariffReadStatus = 'success';
         const saved = state();
         // Refresh a form opened during this read only while its seed is intact.
         const pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved.profile) || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline);
@@ -58,7 +65,10 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
           saved._draftBaseline = clone(saved.draft);
         }
         return true;
-      } catch (_) { return false; }
+      } catch (_) {
+        if (same(token, identity(card._hass))) card._sharedTariffReadStatus = 'unconfirmed';
+        return false;
+      } finally { clearTimeout(timer); }
     })();
     pending = operation;
     operation.finally(() => { if (pending === operation) pending = null; });
@@ -78,6 +88,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     [data-tariff-details]>summary:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
     </style><details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
     ${Object.hasOwn(card._config || {}, 'tariff_profile') ? `<p>${text('This card uses its own configured tariff. Shared settings apply to cards using the shared profile.', 'Ta karta używa własnej skonfigurowanej taryfy. Ustawienia współdzielone dotyczą kart korzystających ze wspólnego profilu.')}</p>` : ''}
+    ${card._sharedTariffReadStatus === 'unconfirmed' ? `<p role="status">${text('Shared tariff could not be confirmed. Locally configured or last confirmed prices remain visible.', 'Nie udało się potwierdzić wspólnej taryfy. Widoczne są stawki skonfigurowane w karcie lub ostatnio potwierdzone.')}</p>` : ''}
     <div data-tariff-mount></div></details>`;
   const mount = root => {
     if (editorRoot !== root || !editor) {
@@ -90,6 +101,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       const refreshed = envelope => {
         card._sharedTariffProfile = clone(envelope.profile); card._sharedTariffAssociation = identity(card._hass);
         card._sharedTariffLoadedAt = Date.now();
+        card._sharedTariffReadStatus = 'success';
         // The editor finishes its pending state before the parent replaces DOM.
         queueMicrotask(() => {
           if (kind === 'insights') void card._fetchData();
