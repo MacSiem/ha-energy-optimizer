@@ -99,6 +99,74 @@ async function readEnergyHours(hass, hours) {
   return { ids, zone, start, end, todayStart, points, summary, daily, hourlyToday, counts };
 }
 
+// Pure measured Patterns projection. No globals, WS calls or synthetic flows.
+// Each hour is keyed by its absolute Recorder start, including repeated DST hours.
+const createEnergyPatternsV3 = (model, tariff, { days = 7 } = {}) => {
+  const requestedDays = days === 30 ? 30 : 7;
+  const zone = model?.zone || 'UTC';
+  const source = [...(model?.ids || [])];
+  const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23', weekday: 'short', timeZoneName: 'longOffset' });
+  const local = stamp => {
+    const parts = Object.fromEntries(fmt.formatToParts(new Date(stamp)).map(p => [p.type, p.value]));
+    return { key: `${parts.year}-${parts.month}-${parts.day}`, hour: Number(parts.hour), minute: Number(parts.minute), offset: parts.timeZoneName,
+      weekday: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(parts.weekday) };
+  };
+  const finite = n => typeof n === 'number' && Number.isFinite(n);
+  const hours = [];
+  if (model?.points && finite(model.start) && finite(model.end)) {
+    for (let stamp = model.start; stamp < model.end; stamp += ENERGY_HOUR) {
+      const point = model.points.get(stamp);
+      const kwh = finite(point?.kwh) && point.kwh >= 0 ? point.kwh : null;
+      hours.push({ id: String(stamp), from: stamp, to: stamp + ENERGY_HOUR, ...local(stamp), kwh,
+        unit: 'kWh', timezone: zone, source, missing: kwh === null });
+    }
+  }
+  const keys = [...new Set(hours.map(r => r.key))].slice(-requestedDays);
+  const included = new Set(keys);
+  const selected = hours.filter(r => included.has(r.key));
+  // The canonical tariff model rejects mixed-rate buckets; never split or interpolate them here.
+  const prices = tariff.priceBuckets(selected.map(r => ({ from: r.from, to: r.to, kwh: r.kwh })),
+    selected.length ? { from: selected[0].from, to: selected.at(-1).to } : undefined);
+  const priced = new Map(prices.rows.map(r => [r.from, r]));
+  for (const row of selected) {
+    const price = priced.get(row.from);
+    row.currency = prices.currency;
+    row.tariffTimezone = prices.timezone;
+    row.priceBasis = prices.priceBasis;
+    row.priceMissing = price?.available ? null : price?.reason || 'missing_rate';
+    row.tariffZone = price?.zone ?? null;
+    row.variableMissing = !price?.available || !finite(price.variableCost);
+    for (const field of ['energyCost', 'variableCost', 'usageCost'])
+      row[field] = price?.available && finite(price[field]) ? (price[field] === 0 ? 0 : price[field]) : null;
+  }
+  const groups = keys.map(key => {
+    const rows = selected.filter(r => r.key === key);
+    // Coverage is a full local day, not a presumed 24 hours. Partial first/today dates stay partial.
+    const finish = local(rows.at(-1).to);
+    const complete = rows[0].hour === 0 && rows[0].minute === 0 && local(rows[0].from - ENERGY_HOUR).key !== key &&
+      finish.key !== key && finish.hour === 0 && finish.minute === 0 && rows.every(r => !r.missing);
+    const sum = field => {
+      if (!complete || !rows.every(r => finite(r[field]))) return null;
+      const total = rows.reduce((n, r) => n + r[field], 0);
+      return finite(total) ? total : null;
+    };
+    return { id: key, key, from: rows[0].from, to: rows.at(-1).to, weekday: rows[0].weekday,
+      kwh: sum('kwh'), energyCost: sum('energyCost'), variableCost: sum('variableCost'), usageCost: sum('usageCost'),
+      unit: 'kWh', currency: prices.currency, timezone: zone, source, complete, missing: !complete,
+      measuredHours: rows.filter(r => !r.missing).length, hours: rows.length,
+      priceMissing: rows.find(r => r.priceMissing)?.priceMissing || null,
+      variableMissing: !complete || rows.some(r => r.variableMissing) };
+  });
+  const weekdays = Array.from({ length: 7 }, (_, weekday) => {
+    const rows = groups.filter(r => r.weekday === weekday && r.complete && finite(r.kwh));
+    return { weekday, count: rows.length, kwh: rows.length ? rows.reduce((n, r) => n + r.kwh / rows.length, 0) : null };
+  });
+  return { hours: selected, days: groups, weekdays, requestedDays, availableDays: keys.length, partialWindow: keys.length < requestedDays || groups.some(r => !r.complete),
+    timezone: zone, source, currency: prices.currency, priceBasis: prices.priceBasis, tariffTimezone: prices.timezone,
+    fixedMonthly: prices.fixedMonthly, from: selected[0]?.from ?? null, to: selected.at(-1)?.to ?? null };
+};
+
 class HaEnergyOptimizer extends HTMLElement {
   constructor() {
     super();
@@ -138,6 +206,7 @@ class HaEnergyOptimizer extends HTMLElement {
     this._timers.clear();
     this._renderScheduled = false;
     this._destroyAllCharts();
+    this._patternsResize?.disconnect();
   }
 
   _schedule(callback, delay) {
@@ -181,9 +250,26 @@ class HaEnergyOptimizer extends HTMLElement {
       } else if (hass && hass.themes) { _d = !!hass.themes.darkMode; }
       this.classList.toggle('bento-dark', _d);
     } catch (e) {}
+    const previousHass = this._hass;
+    if (previousHass && (previousHass.connection !== hass?.connection || previousHass.user?.id !== hass?.user?.id ||
+        previousHass.config?.time_zone !== hass?.config?.time_zone)) {
+      this._energyModel = null;
+      this._patternsDataset = null;
+      this._patternsState = null;
+      this._hasRealData = false;
+      this._lastStatsFetch = 0;
+      // A new session must not keep old measured rows visible during throttling.
+      this._lastRenderTime = 0;
+    }
     this._resetTariffContext(hass);
     this._hass = hass;
-    if (!hass) return;
+    if (!hass) { if (previousHass) this._render(); return; }
+    if (previousHass && previousHass.connection === hass.connection && previousHass.user?.id === hass.user?.id &&
+        previousHass.config?.time_zone === hass.config?.time_zone &&
+        (previousHass.locale?.language || previousHass.language) !== (hass.locale?.language || hass.language)) {
+      this._render();
+      return;
+    }
     try {
       const now = Date.now();
       if (!this._firstHassRender) {
@@ -235,12 +321,19 @@ class HaEnergyOptimizer extends HTMLElement {
     if (!this._hass || !this._hass.callWS) return;
     if (this._statsLoading) return;
     this._statsLoading = true;
+    const fetchHass = this._hass;
+    const fetchContext = [fetchHass.connection, fetchHass.user?.id, fetchHass.config?.time_zone];
+    const currentContext = () => this._hass != null && this._hass.connection === fetchContext[0] &&
+      this._hass.user?.id === fetchContext[1] && this._hass.config?.time_zone === fetchContext[2];
     this._energyError = null;
     try {
       await this._loadSharedTariffProfile();
-      const model = await readEnergyHours(this._hass, 24 * 15);
+      if (!currentContext()) return;
+      const model = await readEnergyHours(fetchHass, 24 * 31);
+      if (!currentContext()) return;
       if (model.noSensors || model.noSeries) throw new Error(model.noSeries ? 'Missing Energy Dashboard statistic series' : 'No Energy Dashboard grid import source');
       const today = model.summary(model.todayStart, model.end);
+      this._energyModel = model; // Patterns can expose measured rows without claiming a complete daily total.
       if (!today.complete) throw new Error('Incomplete Energy Dashboard hourly coverage');
       this._energyModel = model;
       this._todayWindow = today;
@@ -261,6 +354,7 @@ class HaEnergyOptimizer extends HTMLElement {
       this._generateRecommendations();
       this._generateComparisonData();
     } catch (err) {
+      if (!currentContext()) return;
       this._energyError = err;
       this._hasRealData = false;
       this._energyData = [];
@@ -268,12 +362,13 @@ class HaEnergyOptimizer extends HTMLElement {
       this._weeklyData = [];
       this._recommendations = [];
       this._comparisonData = null;
-      this._energyModel = null;
+      if (!String(err?.message).includes('Incomplete Energy Dashboard hourly coverage')) this._energyModel = null;
       this._todayWindow = null;
       this._dailyTotals = [];
       console.warn('Energy Optimizer: Energy statistics unavailable');
     } finally {
       this._statsLoading = false;
+      if (!currentContext() && this._hass?.callWS) void this._fetchEnergyStats();
       if (this.isConnected) this._render();
     }
   }
@@ -299,7 +394,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=60ba3f0b5e3c3c7397bff00051249bc55c7e13565a468ce731262912d9dc6f3b
+    // HA_TARIFF_V3_START sha256=cbdfcd793c6279fc28c00923575704e6307c93074b8d9cf3ac515ce577cfeea1
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -847,7 +942,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
 }
 
 // Card-owned adapter: it never writes card YAML, helpers, schedules or SMTP.
-function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi }) {
+function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi, readTimeoutMs = 15000 }) {
   const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
   const language = () => card._hass?.locale?.language || card._hass?.language || card._lang || 'en';
   const text = (en, pl) => String(language()).startsWith('pl') ? pl : en;
@@ -877,6 +972,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     if (!same(association, next)) {
       card._sharedTariffProfile = null; card._sharedTariffAssociation = null;
       card._sharedTariffLoadedAt = 0; card._tariffEditorState = null;
+      card._sharedTariffReadStatus = 'not_checked';
       pending = null; cachedKey = undefined; cachedModel = undefined;
       editorRoot = null; editor = null;
     }
@@ -888,12 +984,18 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     if (card._sharedTariffLoadedAt && Date.now() - card._sharedTariffLoadedAt < 300000 && same(card._sharedTariffAssociation, token)) return true;
     if (pending) return pending;
     const operation = (async () => {
+      let timer;
       try {
-        const result = await hass.callWS({ type: 'ha_tools_email/get_tariff' });
+        const read = hass.callWS({ type: 'ha_tools_email/get_tariff' });
+        const result = await Promise.race([read, new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('tariff_read_timeout')), readTimeoutMs);
+        })]);
         if (!same(token, identity(card._hass))) return false;
-        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0) return false;
+        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0)
+          throw new Error('invalid_tariff_response');
         const profile = result.profile === null ? null : createModel(result.profile).valid ? clone(result.profile) : { schema: 0 };
         card._sharedTariffProfile = profile; card._sharedTariffAssociation = token; card._sharedTariffLoadedAt = Date.now();
+        card._sharedTariffReadStatus = 'success';
         const saved = state();
         // Refresh a form opened during this read only while its seed is intact.
         const pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved.profile) || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline);
@@ -904,7 +1006,10 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
           saved._draftBaseline = clone(saved.draft);
         }
         return true;
-      } catch (_) { return false; }
+      } catch (_) {
+        if (same(token, identity(card._hass))) card._sharedTariffReadStatus = 'unconfirmed';
+        return false;
+      } finally { clearTimeout(timer); }
     })();
     pending = operation;
     operation.finally(() => { if (pending === operation) pending = null; });
@@ -924,6 +1029,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     [data-tariff-details]>summary:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
     </style><details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
     ${Object.hasOwn(card._config || {}, 'tariff_profile') ? `<p>${text('This card uses its own configured tariff. Shared settings apply to cards using the shared profile.', 'Ta karta używa własnej skonfigurowanej taryfy. Ustawienia współdzielone dotyczą kart korzystających ze wspólnego profilu.')}</p>` : ''}
+    ${card._sharedTariffReadStatus === 'unconfirmed' ? `<p role="status">${text('Shared tariff could not be confirmed. Locally configured or last confirmed prices remain visible.', 'Nie udało się potwierdzić wspólnej taryfy. Widoczne są stawki skonfigurowane w karcie lub ostatnio potwierdzone.')}</p>` : ''}
     <div data-tariff-mount></div></details>`;
   const mount = root => {
     if (editorRoot !== root || !editor) {
@@ -936,6 +1042,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       const refreshed = envelope => {
         card._sharedTariffProfile = clone(envelope.profile); card._sharedTariffAssociation = identity(card._hass);
         card._sharedTariffLoadedAt = Date.now();
+        card._sharedTariffReadStatus = 'success';
         // The editor finishes its pending state before the parent replaces DOM.
         queueMicrotask(() => {
           if (kind === 'insights') void card._fetchData();
@@ -1041,17 +1148,245 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'optimizer',
   }
 
   _render() {
+    const active = this.shadowRoot.activeElement;
+    const focusControl = active?.dataset?.patternControl;
+    const focusTab = active?.dataset?.tab;
+    const focusPicker = active?.matches('.energy-tab-picker select');
+    this._patternsResize?.disconnect();
     this._destroyAllCharts();
     this.shadowRoot.innerHTML = this._getStyles() + this._getTemplate();
     bindEnergySupport(this.shadowRoot, 'ha-energy-optimizer', this._hass?.locale?.language || this._hass?.language);
     this._setupEventListeners();
     this._bindTariffSettings();
     this._renderCurrentTab();
+    this._bindPatterns();
+    if (focusControl) this.shadowRoot.querySelector(`[data-pattern-control="${focusControl}"]`)?.focus();
+    else if (focusTab) this.shadowRoot.querySelector(`[data-tab="${focusTab}"]`)?.focus();
+    else if (focusPicker) this.shadowRoot.querySelector('.energy-tab-picker select')?.focus();
+  }
+
+  _patternsRows() {
+    const data = this._patternsDataset;
+    const state = this._patternsState;
+    return state.resolution === 'hour' ? data.hours.filter(r => r.key === state.day) : data.days;
+  }
+
+  _preparePatterns() {
+    const identity = JSON.stringify([this._energyModel?.ids || [], this._energyModel?.zone || 'UTC']);
+    const reset = !this._patternsState || this._patternsState.identity !== identity;
+    if (reset) {
+      this._patternsState = { identity, period: 7, view: 'chart', resolution: 'day', metric: 'kwh', type: 'line', day: null, selected: null };
+    }
+    this._patternsDataset = createEnergyPatternsV3(this._energyModel, this._getTariffV3(), { days: this._patternsState.period });
+    if (reset && !this._patternsDataset.days.some(r => r.complete) && this._patternsDataset.hours.some(r => !r.missing)) {
+      this._patternsState.resolution = 'hour';
+    }
+    this._selectPatternsRow();
+  }
+
+  _selectPatternsRow() {
+    const data = this._patternsDataset, state = this._patternsState;
+    if (!data.days.some(r => r.key === state.day)) state.day = data.days.at(-1)?.key ?? null;
+    const rows = this._patternsRows();
+    if (!rows.some(r => r.id === state.selected)) state.selected = rows.at(-1)?.id ?? null;
+  }
+
+  _patternsNumber(value) {
+    // Preserve exact nullable measured numbers in both Chart details and Data.
+    return typeof value !== 'number' || !Number.isFinite(value) ? this._text('Unavailable', 'Niedostępne') :
+      new Intl.NumberFormat(this._hass?.locale?.language || this._hass?.language || 'en',
+        { maximumSignificantDigits: 12, useGrouping: false }).format(value === 0 ? 0 : value);
+  }
+
+  _patternsRowLabel(row) {
+    if (this._patternsState.resolution === 'day') return row.key;
+    return `${row.key} ${String(row.hour).padStart(2, '0')}:${String(row.minute).padStart(2, '0')} ${row.offset}`;
+  }
+
+  _patternsDetail(row) {
+    if (!row) return this._text('No measured rows in this window.', 'Brak pomiarów w tym okresie.');
+    const cost = field => `${this._patternsNumber(row[field])} ${_esc(row.currency || '')}`;
+    return `<strong>${_esc(this._patternsRowLabel(row))}</strong><br>${_esc(new Date(row.from).toISOString())} — ${_esc(new Date(row.to).toISOString())}<br>
+      ${_esc(row.timezone)} · ${_esc(row.source.join(', '))}<br>
+      ${this._text('Consumption', 'Zużycie')}: ${_esc(this._patternsNumber(row.kwh))} kWh ·
+      ${this._text('Energy cost', 'Koszt energii')}: ${cost('energyCost')} ·
+      ${this._text('Variable fees', 'Opłaty zmienne')}: ${cost('variableCost')}<br>
+      ${row.missing ? this._text('Missing measurement or partial day', 'Brak pomiaru lub niepełny dzień') : this._text('Measured', 'Zmierzone')}
+      ${row.priceMissing ? ' · ' + this._text('Price unavailable', 'Cena niedostępna') + ': ' + _esc(this._patternsPriceReason(row.priceMissing)) : ''}
+      ${row.variableMissing && !row.priceMissing ? ' · ' + this._text('Variable fee unavailable', 'Opłata zmienna niedostępna') : ''}`;
+  }
+
+  _patternsPriceReason(reason) {
+    const known = {
+      mixed_rate_bucket: ['Mixed price within measured bucket', 'Różne ceny w zmierzonym przedziale'],
+      missing_rate: ['Missing historical rate', 'Brak stawki historycznej'],
+      invalid_measurement: ['Missing measurement', 'Brak pomiaru'],
+      invalid_profile: ['Invalid tariff profile', 'Nieprawidłowy profil taryfy'],
+      outside_validity: ['Outside tariff validity', 'Poza okresem ważności taryfy']
+    };
+    return known[reason] ? this._text(...known[reason]) : this._text('Tariff coverage unavailable', 'Brak pokrycia taryfą');
+  }
+
+  _patternsChart(width = 600) {
+    const rows = this._patternsRows(), state = this._patternsState;
+    const unit = state.metric === 'kwh' ? 'kWh' : this._patternsDataset.currency || this._text('Currency unavailable', 'Brak waluty');
+    const values = rows.map(r => r[state.metric]);
+    const known = values.filter(v => v !== null);
+    const low = Math.min(0, ...known), high = Math.max(0, ...known);
+    const upper = high === low ? low + 1 : high;
+    const w = Math.max(180, width), h = 250, left = 65, right = w - 15, top = 25, bottom = 195;
+    const x = i => left + (i + 0.5) * (right - left) / Math.max(1, rows.length);
+    const y = v => bottom - (v - low) / (upper - low) * (bottom - top);
+    let marks = '', path = '';
+    const flush = () => { if (path) marks += `<path data-pattern-segment d="${path}" fill="none" stroke="var(--bento-primary)" stroke-width="2"/>`; path = ''; };
+    values.forEach((value, i) => {
+      const identity = `data-pattern-id="${_esc(rows[i].id)}" data-pattern-value="${value === null ? 'null' : value}"`;
+      if (value === null) { flush(); marks += `<g ${identity}></g>`; return; }
+      const title = `${this._patternsRowLabel(rows[i])}: ${this._patternsNumber(value)} ${unit}`;
+      if (state.type === 'bar') {
+        const zero = y(0), py = y(value);
+        marks += `<rect ${identity} x="${x(i) - Math.max(1, (right-left)/Math.max(1, rows.length)*0.3)}" y="${Math.min(zero, py)}" width="${Math.max(2, (right-left)/Math.max(1, rows.length)*0.6)}" height="${Math.max(1, Math.abs(zero-py))}" fill="var(--bento-primary)"><title>${_esc(title)}</title></rect>`;
+      } else {
+        path += `${path ? ' L' : 'M'}${x(i)},${y(value)}`;
+        marks += `<circle ${identity} cx="${x(i)}" cy="${y(value)}" r="${rows[i].id === state.selected ? 5 : 3}" fill="var(--bento-primary)"><title>${_esc(title)}</title></circle>`;
+      }
+    });
+    flush();
+    const ticks = [low, (low + upper) / 2, upper];
+    const grid = ticks.map(v => `<line x1="${left}" x2="${right}" y1="${y(v)}" y2="${y(v)}" stroke="var(--bento-border)"/><text x="${left-8}" y="${y(v)+5}" text-anchor="end">${_esc(Number(v.toPrecision(4)))}</text>`).join('');
+    const label = i => state.resolution === 'hour' ? `${rows[i].hour}:${String(rows[i].minute).padStart(2, '0')}` : rows[i].key.slice(5);
+    const axis = rows.length ? [0, Math.floor((rows.length-1)/2), rows.length-1].filter((v,i,a) => a.indexOf(v) === i).map(i => `<text x="${x(i)}" y="220" text-anchor="middle">${_esc(label(i))}</text>`).join('') : '';
+    return `<svg data-pattern-chart data-unit="${_esc(unit)}" viewBox="0 0 ${w} ${h}" width="100%" height="250" role="img" aria-label="${_esc(this._text('Measured series; choose a row below for details', 'Seria pomiarowa; wybierz poniżej wiersz ze szczegółami'))}">
+      <text x="${left}" y="17">${_esc(unit)}</text>${grid}${marks}${axis}${!known.length ? `<text x="${(left+right)/2}" y="110" text-anchor="middle">${this._text('No data', 'Brak danych')}</text>` : ''}</svg>`;
+  }
+
+  _patternsMarkup(reuseProjection = false) {
+    if (!reuseProjection || !this._patternsDataset) this._preparePatterns();
+    else this._selectPatternsRow();
+    const data = this._patternsDataset, state = this._patternsState, rows = this._patternsRows();
+    const t = (en, pl) => this._text(en, pl);
+    const option = (value, current, label) => `<option value="${_esc(value)}" ${value === current ? 'selected' : ''}>${_esc(label)}</option>`;
+    const weekdays = data.weekdays.filter(r => r.count).map(r => {
+      // Known Sunday (UTC noon) anchors locale names without changing measurement timezone.
+      const day = new Intl.DateTimeFormat(this._hass?.locale?.language || this._hass?.language || 'en', { weekday: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2026, 0, 4 + r.weekday, 12)));
+      return `<li>${_esc(day)}: ${_esc(this._patternsNumber(r.kwh))} kWh · ${r.count} ${t('complete days', 'pełnych dni')}</li>`;
+    }).join('');
+    const selected = rows.find(r => r.id === state.selected);
+    return `<section class="patterns-measured" aria-label="${t('Measured patterns', 'Zmierzone wzorce')}">
+      <h3>${t('Your measured consumption', 'Twoje zmierzone zużycie')}</h3>
+      <p>${_esc(data.source.join(', ') || t('No Energy Dashboard grid source', 'Brak źródła sieciowego Energy Dashboard'))} · ${_esc(data.timezone)}</p>
+      <p>${data.from === null ? t('No data', 'Brak danych') : `${_esc(new Date(data.from).toISOString())} — ${_esc(new Date(data.to).toISOString())}`}</p>
+      <p>${data.availableDays}/${data.requestedDays} ${t('loaded local dates', 'wczytanych dat lokalnych')}${data.partialWindow ? ' · ' + t('Partial window', 'Niepełny okres') : ''}.
+      ${data.hours.filter(r => !r.missing).length}/${data.hours.length} ${t('measured hours', 'zmierzonych godzin')}.
+      ${t('Only complete local days are totalled. Measured hours remain available on partial dates. DST clock gaps have no bucket; repeated hours retain UTC offsets.', 'Sumujemy tylko pełne dni lokalne. Zmierzone godziny niepełnych dat pozostają dostępne. Luki po zmianie czasu nie mają przedziału; powtórzone godziny zachowują przesunięcie UTC.')}</p>
+      <div class="patterns-controls">
+        <label>${t('Period', 'Okres')}<select data-pattern-control="period">${option(7, state.period, t('7 days', '7 dni'))}${option(30, state.period, t('30 days (loaded data)', '30 dni (wczytane dane)'))}</select></label>
+        <label>${t('Resolution', 'Przedziały')}<select data-pattern-control="resolution">${option('day', state.resolution, t('Daily trend', 'Trend dzienny'))}${option('hour', state.resolution, t('Hours of selected date', 'Godziny wybranej daty'))}</select></label>
+        ${state.resolution === 'hour' ? `<label>${t('Local date', 'Data lokalna')}<select data-pattern-control="day">${data.days.map(r => option(r.key, state.day, r.key)).join('')}</select></label>` : ''}
+        <label>${t('Measure', 'Miara')}<select data-pattern-control="metric">${option('kwh', state.metric, t('Consumption · kWh', 'Zużycie · kWh'))}${option('energyCost', state.metric, t('Energy cost', 'Koszt energii'))}${option('variableCost', state.metric, t('Variable fees', 'Opłaty zmienne'))}</select></label>
+        <label>${t('Chart type', 'Typ wykresu')}<select data-pattern-control="type">${option('line', state.type, t('Line', 'Linia'))}${option('bar', state.type, t('Bars', 'Słupki'))}</select></label>
+      </div>
+      <div class="patterns-switch" role="group" aria-label="${t('Presentation', 'Prezentacja')}">
+        <button type="button" data-pattern-control="chart" aria-pressed="${state.view === 'chart'}">${t('Chart', 'Wykres')}</button>
+        <button type="button" data-pattern-control="data" aria-pressed="${state.view === 'data'}">${t('Data', 'Dane')}</button>
+      </div>
+      ${state.view === 'chart' ? `<div data-pattern-plot>${this._patternsChart()}</div>` : `<div class="patterns-table" data-pattern-control="table" tabindex="0" role="region" aria-label="${t('Measured data table', 'Tabela zmierzonych danych')}"><table>
+        <caption>${t('Exact measured values', 'Dokładne wartości zmierzone')} · kWh / ${_esc(data.currency || t('currency unavailable', 'brak waluty'))} · ${_esc(data.timezone)}</caption>
+        <thead><tr><th>${t('Date / hour', 'Data / godzina')}</th><th>kWh</th><th>${t('Energy cost', 'Koszt energii')} (${_esc(data.currency || '—')})</th><th>${t('Variable fees', 'Opłaty zmienne')} (${_esc(data.currency || '—')})</th><th>${t('Coverage', 'Pokrycie')}</th></tr></thead><tbody>
+        ${rows.map(r => `<tr data-pattern-row="${_esc(r.id)}" data-kwh="${r.kwh === null ? 'null' : r.kwh}" data-energy-cost="${r.energyCost === null ? 'null' : r.energyCost}" data-variable-cost="${r.variableCost === null ? 'null' : r.variableCost}" data-timezone="${_esc(r.timezone)}"><th scope="row">${_esc(this._patternsRowLabel(r))}<br><small>${_esc(new Date(r.from).toISOString())}</small></th><td>${_esc(this._patternsNumber(r.kwh))}</td><td>${_esc(this._patternsNumber(r.energyCost))}</td><td>${_esc(this._patternsNumber(r.variableCost))}</td><td>${r.missing ? t('Partial / missing', 'Niepełne / brak') : t('Measured', 'Zmierzone')}${r.priceMissing ? '<br>' + _esc(this._patternsPriceReason(r.priceMissing)) : ''}${r.variableMissing && !r.priceMissing ? '<br>' + t('Variable fee unavailable', 'Opłata zmienna niedostępna') : ''}</td></tr>`).join('')}
+        </tbody></table></div>`}
+      <div class="patterns-controls">
+        <button type="button" data-pattern-control="previous" ${!rows.length || rows[0].id === state.selected ? 'disabled' : ''}>${t('Previous row', 'Poprzedni wiersz')}</button>
+        <label>${t('Point details (arrows, Home / End)', 'Szczegóły punktu (strzałki, Home / End)')}<select data-pattern-control="point" ${!rows.length ? 'disabled' : ''}>${rows.map(r => option(r.id, state.selected, this._patternsRowLabel(r))).join('')}</select></label>
+        <button type="button" data-pattern-control="next" ${!rows.length || rows.at(-1).id === state.selected ? 'disabled' : ''}>${t('Next row', 'Następny wiersz')}</button>
+      </div>
+      <div data-pattern-detail role="status" aria-live="polite">${this._patternsDetail(selected)}</div>
+      <details data-pattern-weekdays${state.weekdaysOpen ? ' open' : ''}><summary data-pattern-control="weekdays">${t('Weekday averages · complete days only', 'Średnie według dnia tygodnia · tylko pełne dni')}</summary><ul>${weekdays || `<li>${t('No complete measured days', 'Brak pełnych zmierzonych dni')}</li>`}</ul></details>
+      <p>${t('Tariff', 'Taryfa')}: ${_esc(data.tariffTimezone || '—')} · ${_esc(data.priceBasis === 'gross' ? t('gross', 'brutto') : data.priceBasis === 'net' ? t('net', 'netto') : t('basis unavailable', 'brak podstawy ceny'))}.
+      ${t('Fixed monthly fee (separate; never added to daily/hourly costs)', 'Opłata stała miesięczna (osobno; nigdy nie doliczana do kosztów dziennych/godzinowych)')}: ${_esc(this._patternsNumber(data.fixedMonthly ?? null))} ${_esc(data.currency || '')}</p>
+      </section>`;
+  }
+
+  _bindPatterns() {
+    const panel = this.shadowRoot.getElementById('patterns');
+    if (!panel) return;
+    const state = this._patternsState;
+    const weekdayDetails = panel.querySelector('[data-pattern-weekdays]');
+    weekdayDetails?.addEventListener('toggle', () => { state.weekdaysOpen = weekdayDetails.open; });
+    const redraw = (focus, reuseProjection = true) => {
+      this._patternsResize?.disconnect();
+      panel.innerHTML = this._patternsMarkup(reuseProjection);
+      this._bindPatterns();
+      panel.querySelector(`[data-pattern-control="${focus}"]`)?.focus();
+    };
+    panel.querySelectorAll('select[data-pattern-control]').forEach(el => el.addEventListener('change', () => {
+      const field = el.dataset.patternControl;
+      state[field === 'period' ? 'period' : field === 'point' ? 'selected' : field] = field === 'period' ? Number(el.value) : el.value;
+      redraw(field, field !== 'period');
+    }));
+    panel.querySelectorAll('button[data-pattern-control]').forEach(el => el.addEventListener('click', () => {
+      const field = el.dataset.patternControl;
+      if (field === 'chart' || field === 'data') state.view = field;
+      else {
+        const rows = this._patternsRows(), index = rows.findIndex(r => r.id === state.selected);
+        state.selected = rows[Math.max(0, Math.min(rows.length-1, index + (field === 'previous' ? -1 : 1)))]?.id ?? null;
+      }
+      redraw(field === 'previous' || field === 'next' ? 'point' : field);
+    }));
+    panel.querySelector('[data-pattern-control="point"]')?.addEventListener('keydown', event => {
+      const rows = this._patternsRows();
+      const index = rows.findIndex(r => r.id === state.selected);
+      const moves = { ArrowLeft: index-1, ArrowUp: index-1, ArrowRight: index+1, ArrowDown: index+1, Home: 0, End: rows.length-1, Enter: index };
+      if (!Object.hasOwn(moves, event.key)) return;
+      event.preventDefault();
+      state.selected = rows[Math.max(0, Math.min(rows.length-1, moves[event.key]))]?.id ?? null;
+      redraw('point');
+    });
+    const plot = panel.querySelector('[data-pattern-plot]');
+    if (plot) {
+      const resize = () => {
+        if (!plot.isConnected || !this._patternsDataset || !this._patternsState) return;
+        plot.innerHTML = this._patternsChart(plot.clientWidth || 600);
+      };
+      resize();
+      plot.addEventListener('click', event => {
+        const svg = plot.querySelector('svg'), rect = svg.getBoundingClientRect();
+        if (!rect.width) return;
+        const rows = this._patternsRows(), w = Math.max(180, plot.clientWidth || 600);
+        const i = Math.max(0, Math.min(rows.length-1, Math.floor(((event.clientX-rect.left) / rect.width * w - 65) / (w-80) * rows.length)));
+        state.selected = rows[i]?.id ?? null;
+        redraw('point');
+      });
+      if (typeof ResizeObserver !== 'undefined') {
+        this._patternsResize = new ResizeObserver(resize);
+        this._patternsResize.observe(plot);
+      }
+    }
   }
 
   _getStyles() {
     return `
       <style>
+/* Measured Patterns: native 44px controls; dense points use a separate row navigator. */
+.patterns-measured { container-type:inline-size; container-name:measured-patterns; color:var(--bento-text,var(--primary-text-color)); font-size:14px; line-height:1.5; min-width:0; }
+.patterns-measured p,.patterns-measured [data-pattern-detail] { overflow-wrap:anywhere; }
+.patterns-controls,.patterns-switch { display:flex; flex-wrap:wrap; gap:8px; margin:12px 0; align-items:end; }
+.patterns-controls label { display:flex; flex-direction:column; gap:4px; min-width:0; max-width:100%; flex:1 1 180px; }
+.patterns-measured select,.patterns-measured button { box-sizing:border-box; min-height:44px; min-width:44px; max-width:100%; padding:8px 12px; font:inherit; white-space:normal; overflow-wrap:anywhere; color:var(--bento-text,var(--primary-text-color)); background:var(--card-background-color); border:1px solid var(--bento-border); border-radius:8px; }
+.patterns-switch button[aria-pressed="true"] { border:2px solid var(--bento-primary); background:var(--bento-primary-light); font-weight:600; }
+.patterns-measured button:disabled { opacity:.55; }
+.patterns-measured [data-pattern-plot] { width:100%; min-width:0; }
+.patterns-measured svg { display:block; max-width:100%; }
+.patterns-measured svg text { fill:var(--bento-text,var(--primary-text-color)); font:14px system-ui,sans-serif; }
+.patterns-measured [data-pattern-detail] { padding:12px; border:1px solid var(--bento-border); border-radius:8px; background:var(--bento-primary-light); }
+.patterns-measured summary { min-height:44px; cursor:pointer; padding:8px 0; box-sizing:border-box; }
+.patterns-table { max-width:100%; overflow:auto; margin:12px 0; }
+.patterns-table table { border-collapse:collapse; width:100%; font-size:14px; }
+.patterns-table th,.patterns-table td { text-align:left; padding:10px; border-bottom:1px solid var(--bento-border); vertical-align:top; }
+.patterns-table caption { text-align:left; padding:8px; }
+.patterns-table small { font-size:14px; }
+@container measured-patterns (max-width:500px) { .patterns-controls label { flex-basis:100%; } }
+
 /* Card-owned support footer; never depends on or mutates another component. */
 .donate-section[data-source="own-card"] { margin:24px 0 4px; padding:18px 20px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px; border:1px solid var(--bento-border); border-radius:var(--bento-radius-sm); background:var(--bento-primary-light); color:var(--bento-text); }
 .donate-section[data-source="own-card"] .donate-text { display:flex; flex-direction:column; gap:4px; flex:1; min-width:220px; }
@@ -1661,7 +1996,13 @@ canvas {
   td:nth-child(3) {
     min-width: 80px;
   }
-}</style>
+}
+/* Keep all measured Data columns visible, including fees and coverage on narrow cards. */
+.patterns-table th,.patterns-table td { display:table-cell; font-size:14px; }
+.patterns-table table { min-width:0; }
+.patterns-table th:first-child { min-width:140px; }
+.patterns-table td,.patterns-table th { overflow-wrap:anywhere; }
+</style>
     `;
   }
 
@@ -1686,7 +2027,7 @@ canvas {
   }
 
   _getTemplate() {
-    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2><div class="empty-state" role="status">${this._statsLoading ? this._text("Loading Energy Dashboard statistics…", "Ładowanie statystyk panelu Energia…") : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? this._text("No recent Recorder statistics for the configured grid import.", "Brak bieżących statystyk Recorder dla skonfigurowanego importu z sieci.") : this._energyError?.message?.includes('No Energy Dashboard grid import source') ? this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.") : this._energyError ? this._text("Energy statistics could not be loaded.", "Nie udało się wczytać statystyk energii.") : this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.")} <a href="/energy">${this._text("Open Energy Dashboard", "Otwórz panel Energia")}</a></div>${this._tariffDetailsMarkup()}${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
+    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2><div class="empty-state" role="status">${this._statsLoading ? this._text("Loading Energy Dashboard statistics…", "Ładowanie statystyk panelu Energia…") : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? this._text("No recent Recorder statistics for the configured grid import.", "Brak bieżących statystyk Recorder dla skonfigurowanego importu z sieci.") : this._energyError?.message?.includes('No Energy Dashboard grid import source') ? this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.") : this._energyError ? this._text("Energy statistics could not be loaded.", "Nie udało się wczytać statystyk energii.") : this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.")} <a href="/energy">${this._text("Open Energy Dashboard", "Otwórz panel Energia")}</a></div>${this._energyModel?.points ? `<div id="patterns">${this._patternsMarkup()}</div>` : ''}${this._tariffDetailsMarkup()}${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
     return `
       <div class="card-container">
         <h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>
@@ -1742,64 +2083,7 @@ canvas {
           </div>
         </div>
 
-        <div id="patterns" class="tab-content">
-          <div class="chart-container">
-            <div class="chart-title">
-              <span>${this._text("Weekly Heat Map", "Tygodniowa mapa zużycia")}</span>
-              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">${this._text("Energy intensity by day & hour", "Zużycie według dnia i godziny")}</span>
-            </div>
-            <canvas id="heatmap-canvas"></canvas>
-            <div class="heatmap-legend">
-              <div class="legend-item">
-                <div class="legend-color" style="background: #1e3a8a;"></div>
-                <span>${this._text("Low", "Niskie")}</span>
-              </div>
-              <div class="legend-item">
-                <div class="legend-color" style="background: #3b82f6;"></div>
-                <span>${this._text("Moderate", "Umiarkowane")}</span>
-              </div>
-              <div class="legend-item">
-                <div class="legend-color" style="background: #fbbf24;"></div>
-                <span>${this._text("High", "Wysokie")}</span>
-              </div>
-              <div class="legend-item">
-                <div class="legend-color" style="background: #dc2626;"></div>
-                <span>${this._text("Peak", "Szczyt")}</span>
-              </div>
-            </div>
-          </div>
-
-          <div class="stats-row">
-            <div class="stat-item">
-              <div class="stat-label">${this._text("Peak Usage", "Zużycie szczytowe")}</div>
-              <div class="stat-value">${(this._energyData.reduce((a, b) => Math.max(a, b), 0)).toFixed(2)} kWh</div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">${this._text("Off-Peak Usage", "Zużycie poza szczytem")}</div>
-              <div class="stat-value">${this._calculateOffPeakAverage() === null ? 'N/A' : this._calculateOffPeakAverage().toFixed(2) + ' kWh/h'}</div>
-            </div>
-            <div class="stat-item">
-              <div class="stat-label">${this._text("Ratio", "Proporcja")}</div>
-              <div class="stat-value">${this._calculatePeakRatio() === null ? 'N/A' : this._calculatePeakRatio().toFixed(1) + ':1'}</div>
-            </div>
-          </div>
-
-          <div class="chart-container">
-            <div class="chart-title">
-              <span>${this._text("7-Day Trend", "Trend z ostatnich 7 dni")}</span>
-              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">${this._text("Completed hourly measurements", "Ukończone pomiary godzinowe")}</span>
-            </div>
-            <div class="chart-plot"><canvas id="trend-chart"></canvas></div>
-          </div>
-
-          <div class="chart-container">
-            <div class="chart-title">
-              <span>${this._text("Daily Consumption", "Zużycie dzienne")}</span>
-              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">${this._text("Dates in Home Assistant timezone", "Daty w strefie czasowej Home Assistant")}</span>
-            </div>
-            <div class="chart-plot"><canvas id="weekday-chart"></canvas></div>
-          </div>
-        </div>
+        <div id="patterns" class="tab-content">${this._patternsMarkup()}</div>
 
         <div id="recommendations" class="tab-content">
           <div id="recommendations-list"></div>
@@ -1869,15 +2153,19 @@ canvas {
       tabEl.classList.add('active');
     }
 
+    const buttons = [...this.shadowRoot.querySelectorAll('.tab-button')];
+    buttons.forEach(button => {
+      const active = button.dataset.tab === tabName;
+      button.classList.toggle('active', active); button.setAttribute('aria-selected', String(active));
+    });
+    const picker = this.shadowRoot.querySelector('.energy-tab-picker select');
+    if (picker) picker.value = String(buttons.findIndex(button => button.dataset.tab === tabName));
+    if (tabName === 'patterns') return; // SVG observes its own size; navigation never refetches measurements.
     if (tabName === 'recommendations') this._renderRecommendations();
     // Draw charts after showing tab (needed for canvas sizing)
     this._schedule(() => {
       if (tabName === 'dashboard') {
         this._drawDashboardChart().catch(err => console.error('Dashboard chart error:', err));
-      } else if (tabName === 'patterns') {
-        this._drawHeatmap();
-        this._drawTrendChart().catch(err => console.error('Trend chart error:', err));
-        this._drawWeekdayChart().catch(err => console.error('Weekday chart error:', err));
       } else if (tabName === 'compare') {
         this._drawComparisonChart().catch(err => console.error('Comparison chart error:', err));
       }
@@ -2565,7 +2853,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=60ba3f0b5e3c3c7397bff00051249bc55c7e13565a468ce731262912d9dc6f3b
+      // HA_TARIFF_V3_START sha256=cbdfcd793c6279fc28c00923575704e6307c93074b8d9cf3ac515ce577cfeea1
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -3113,7 +3401,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
 }
 
 // Card-owned adapter: it never writes card YAML, helpers, schedules or SMTP.
-function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi }) {
+function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi, readTimeoutMs = 15000 }) {
   const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
   const language = () => card._hass?.locale?.language || card._hass?.language || card._lang || 'en';
   const text = (en, pl) => String(language()).startsWith('pl') ? pl : en;
@@ -3143,6 +3431,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     if (!same(association, next)) {
       card._sharedTariffProfile = null; card._sharedTariffAssociation = null;
       card._sharedTariffLoadedAt = 0; card._tariffEditorState = null;
+      card._sharedTariffReadStatus = 'not_checked';
       pending = null; cachedKey = undefined; cachedModel = undefined;
       editorRoot = null; editor = null;
     }
@@ -3154,12 +3443,18 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     if (card._sharedTariffLoadedAt && Date.now() - card._sharedTariffLoadedAt < 300000 && same(card._sharedTariffAssociation, token)) return true;
     if (pending) return pending;
     const operation = (async () => {
+      let timer;
       try {
-        const result = await hass.callWS({ type: 'ha_tools_email/get_tariff' });
+        const read = hass.callWS({ type: 'ha_tools_email/get_tariff' });
+        const result = await Promise.race([read, new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('tariff_read_timeout')), readTimeoutMs);
+        })]);
         if (!same(token, identity(card._hass))) return false;
-        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0) return false;
+        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0)
+          throw new Error('invalid_tariff_response');
         const profile = result.profile === null ? null : createModel(result.profile).valid ? clone(result.profile) : { schema: 0 };
         card._sharedTariffProfile = profile; card._sharedTariffAssociation = token; card._sharedTariffLoadedAt = Date.now();
+        card._sharedTariffReadStatus = 'success';
         const saved = state();
         // Refresh a form opened during this read only while its seed is intact.
         const pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved.profile) || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline);
@@ -3170,7 +3465,10 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
           saved._draftBaseline = clone(saved.draft);
         }
         return true;
-      } catch (_) { return false; }
+      } catch (_) {
+        if (same(token, identity(card._hass))) card._sharedTariffReadStatus = 'unconfirmed';
+        return false;
+      } finally { clearTimeout(timer); }
     })();
     pending = operation;
     operation.finally(() => { if (pending === operation) pending = null; });
@@ -3190,6 +3488,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     [data-tariff-details]>summary:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
     </style><details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
     ${Object.hasOwn(card._config || {}, 'tariff_profile') ? `<p>${text('This card uses its own configured tariff. Shared settings apply to cards using the shared profile.', 'Ta karta używa własnej skonfigurowanej taryfy. Ustawienia współdzielone dotyczą kart korzystających ze wspólnego profilu.')}</p>` : ''}
+    ${card._sharedTariffReadStatus === 'unconfirmed' ? `<p role="status">${text('Shared tariff could not be confirmed. Locally configured or last confirmed prices remain visible.', 'Nie udało się potwierdzić wspólnej taryfy. Widoczne są stawki skonfigurowane w karcie lub ostatnio potwierdzone.')}</p>` : ''}
     <div data-tariff-mount></div></details>`;
   const mount = root => {
     if (editorRoot !== root || !editor) {
@@ -3202,6 +3501,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       const refreshed = envelope => {
         card._sharedTariffProfile = clone(envelope.profile); card._sharedTariffAssociation = identity(card._hass);
         card._sharedTariffLoadedAt = Date.now();
+        card._sharedTariffReadStatus = 'success';
         // The editor finishes its pending state before the parent replaces DOM.
         queueMicrotask(() => {
           if (kind === 'insights') void card._fetchData();
@@ -4257,7 +4557,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=60ba3f0b5e3c3c7397bff00051249bc55c7e13565a468ce731262912d9dc6f3b
+      // HA_TARIFF_V3_START sha256=cbdfcd793c6279fc28c00923575704e6307c93074b8d9cf3ac515ce577cfeea1
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -4805,7 +5105,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
 }
 
 // Card-owned adapter: it never writes card YAML, helpers, schedules or SMTP.
-function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi }) {
+function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi, readTimeoutMs = 15000 }) {
   const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
   const language = () => card._hass?.locale?.language || card._hass?.language || card._lang || 'en';
   const text = (en, pl) => String(language()).startsWith('pl') ? pl : en;
@@ -4835,6 +5135,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     if (!same(association, next)) {
       card._sharedTariffProfile = null; card._sharedTariffAssociation = null;
       card._sharedTariffLoadedAt = 0; card._tariffEditorState = null;
+      card._sharedTariffReadStatus = 'not_checked';
       pending = null; cachedKey = undefined; cachedModel = undefined;
       editorRoot = null; editor = null;
     }
@@ -4846,12 +5147,18 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     if (card._sharedTariffLoadedAt && Date.now() - card._sharedTariffLoadedAt < 300000 && same(card._sharedTariffAssociation, token)) return true;
     if (pending) return pending;
     const operation = (async () => {
+      let timer;
       try {
-        const result = await hass.callWS({ type: 'ha_tools_email/get_tariff' });
+        const read = hass.callWS({ type: 'ha_tools_email/get_tariff' });
+        const result = await Promise.race([read, new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error('tariff_read_timeout')), readTimeoutMs);
+        })]);
         if (!same(token, identity(card._hass))) return false;
-        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0) return false;
+        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0)
+          throw new Error('invalid_tariff_response');
         const profile = result.profile === null ? null : createModel(result.profile).valid ? clone(result.profile) : { schema: 0 };
         card._sharedTariffProfile = profile; card._sharedTariffAssociation = token; card._sharedTariffLoadedAt = Date.now();
+        card._sharedTariffReadStatus = 'success';
         const saved = state();
         // Refresh a form opened during this read only while its seed is intact.
         const pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved.profile) || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline);
@@ -4862,7 +5169,10 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
           saved._draftBaseline = clone(saved.draft);
         }
         return true;
-      } catch (_) { return false; }
+      } catch (_) {
+        if (same(token, identity(card._hass))) card._sharedTariffReadStatus = 'unconfirmed';
+        return false;
+      } finally { clearTimeout(timer); }
     })();
     pending = operation;
     operation.finally(() => { if (pending === operation) pending = null; });
@@ -4882,6 +5192,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     [data-tariff-details]>summary:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
     </style><details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
     ${Object.hasOwn(card._config || {}, 'tariff_profile') ? `<p>${text('This card uses its own configured tariff. Shared settings apply to cards using the shared profile.', 'Ta karta używa własnej skonfigurowanej taryfy. Ustawienia współdzielone dotyczą kart korzystających ze wspólnego profilu.')}</p>` : ''}
+    ${card._sharedTariffReadStatus === 'unconfirmed' ? `<p role="status">${text('Shared tariff could not be confirmed. Locally configured or last confirmed prices remain visible.', 'Nie udało się potwierdzić wspólnej taryfy. Widoczne są stawki skonfigurowane w karcie lub ostatnio potwierdzone.')}</p>` : ''}
     <div data-tariff-mount></div></details>`;
   const mount = root => {
     if (editorRoot !== root || !editor) {
@@ -4894,6 +5205,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       const refreshed = envelope => {
         card._sharedTariffProfile = clone(envelope.profile); card._sharedTariffAssociation = identity(card._hass);
         card._sharedTariffLoadedAt = Date.now();
+        card._sharedTariffReadStatus = 'success';
         // The editor finishes its pending state before the parent replaces DOM.
         queueMicrotask(() => {
           if (kind === 'insights') void card._fetchData();
