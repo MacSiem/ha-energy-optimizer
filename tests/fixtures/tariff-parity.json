@@ -1,0 +1,655 @@
+{
+  "schema": 1,
+  "cases": [
+    {
+      "name": "net energy and fees, monthly charge separate",
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "UTC",
+        "clock": {
+          "mode": "civil"
+        },
+        "priceBasis": "net",
+        "defaultZone": "day",
+        "zones": [
+          {
+            "id": "day",
+            "energyRate": 0.5,
+            "variableRate": 0.2
+          }
+        ],
+        "rules": [],
+        "fixedMonthly": 7
+      },
+      "rows": [
+        {
+          "from": "2026-01-01T12:00Z",
+          "to": "2026-01-01T13:00Z",
+          "kwh": 10
+        }
+      ],
+      "expected": {
+        "complete": true,
+        "kwh": 10,
+        "energyCost": 5,
+        "variableCost": 2,
+        "usageCost": 7,
+        "fixedMonthly": 7,
+        "priceBasis": "net"
+      }
+    },
+    {
+      "name": "known zero rate and usage",
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "UTC",
+        "clock": {
+          "mode": "civil"
+        },
+        "priceBasis": "gross",
+        "defaultZone": "day",
+        "zones": [
+          {
+            "id": "day",
+            "energyRate": 0,
+            "variableRate": 0
+          }
+        ],
+        "rules": [],
+        "fixedMonthly": 7
+      },
+      "rows": [
+        {
+          "from": "2026-01-01T12:00Z",
+          "to": "2026-01-01T13:00Z",
+          "kwh": 0
+        }
+      ],
+      "expected": {
+        "complete": true,
+        "kwh": 0,
+        "usageCost": 0
+      }
+    },
+    {
+      "name": "both autumn DST prices use absolute measured hours",
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "Europe/Warsaw",
+        "clock": {
+          "mode": "civil"
+        },
+        "priceBasis": "gross",
+        "defaultZone": "day",
+        "zones": [
+          {
+            "id": "day",
+            "energyRate": 1,
+            "variableRate": 0
+          },
+          {
+            "id": "night",
+            "energyRate": 0.4,
+            "variableRate": 0
+          }
+        ],
+        "rules": [],
+        "fixedMonthly": 7,
+        "dynamic": {
+          "intervals": [
+            {
+              "from": "2026-10-25T00:00Z",
+              "to": "2026-10-25T01:00Z",
+              "energyRate": 1,
+              "variableRate": 0
+            },
+            {
+              "from": "2026-10-25T01:00Z",
+              "to": "2026-10-25T02:00Z",
+              "energyRate": 2,
+              "variableRate": 0
+            }
+          ]
+        }
+      },
+      "rows": [
+        {
+          "from": "2026-10-25T00:00Z",
+          "to": "2026-10-25T01:00Z",
+          "kwh": 2
+        },
+        {
+          "from": "2026-10-25T01:00Z",
+          "to": "2026-10-25T02:00Z",
+          "kwh": 3
+        }
+      ],
+      "expected": {
+        "complete": true,
+        "kwh": 5,
+        "energyCost": 8
+      }
+    },
+    {
+      "name": "spring DST skips civil hour without inventing zero",
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "Europe/Warsaw",
+        "clock": {
+          "mode": "civil"
+        },
+        "priceBasis": "gross",
+        "defaultZone": "day",
+        "zones": [
+          {
+            "id": "day",
+            "energyRate": 1,
+            "variableRate": 0
+          },
+          {
+            "id": "night",
+            "energyRate": 0.4,
+            "variableRate": 0
+          }
+        ],
+        "rules": [
+          {
+            "zone": "night",
+            "intervals": [
+              {
+                "from": "22:00",
+                "to": "06:00"
+              }
+            ]
+          }
+        ],
+        "fixedMonthly": 7
+      },
+      "rows": [
+        {
+          "from": "2026-03-29T00:00Z",
+          "to": "2026-03-29T01:00Z",
+          "kwh": 2
+        },
+        {
+          "from": "2026-03-29T01:00Z",
+          "to": "2026-03-29T02:00Z",
+          "kwh": 3
+        }
+      ],
+      "expected": {
+        "complete": true,
+        "kwh": 5,
+        "energyCost": 2
+      }
+    },
+    {
+      "name": "mixed price cannot split an hourly reading",
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "UTC",
+        "clock": {
+          "mode": "civil"
+        },
+        "priceBasis": "gross",
+        "defaultZone": "day",
+        "zones": [
+          {
+            "id": "day",
+            "energyRate": 1,
+            "variableRate": 0
+          },
+          {
+            "id": "night",
+            "energyRate": 0.4,
+            "variableRate": 0
+          }
+        ],
+        "rules": [
+          {
+            "zone": "night",
+            "intervals": [
+              {
+                "from": "12:30",
+                "to": "13:00"
+              }
+            ]
+          }
+        ],
+        "fixedMonthly": 7
+      },
+      "rows": [
+        {
+          "from": "2026-01-01T12:00Z",
+          "to": "2026-01-01T13:00Z",
+          "kwh": 2
+        }
+      ],
+      "expected": {
+        "complete": false,
+        "energyCost": null
+      },
+      "issueReasons": [
+        "mixed_rate_bucket"
+      ]
+    },
+    {
+      "name": "same price retains cost but cannot attribute usage to one zone",
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "UTC",
+        "clock": {
+          "mode": "civil"
+        },
+        "priceBasis": "gross",
+        "defaultZone": "day",
+        "zones": [
+          {
+            "id": "day",
+            "energyRate": 1,
+            "variableRate": 0
+          },
+          {
+            "id": "night",
+            "energyRate": 1,
+            "variableRate": 0
+          }
+        ],
+        "rules": [
+          {
+            "zone": "night",
+            "intervals": [
+              {
+                "from": "12:30",
+                "to": "13:00"
+              }
+            ]
+          }
+        ],
+        "fixedMonthly": 7
+      },
+      "rows": [
+        {
+          "from": "2026-01-01T12:00Z",
+          "to": "2026-01-01T13:00Z",
+          "kwh": 2
+        }
+      ],
+      "expected": {
+        "complete": true,
+        "energyCost": 2
+      },
+      "rowExpected": [
+        {
+          "zone": null,
+          "zones": [
+            "day",
+            "night"
+          ],
+          "zoneAttribution": "multiple"
+        }
+      ]
+    },
+    {
+      "name": "impossible calendar day",
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "UTC",
+        "clock": {
+          "mode": "civil"
+        },
+        "priceBasis": "gross",
+        "defaultZone": "day",
+        "zones": [
+          {
+            "id": "day",
+            "energyRate": 1,
+            "variableRate": 0
+          },
+          {
+            "id": "night",
+            "energyRate": 0.4,
+            "variableRate": 0
+          }
+        ],
+        "rules": [],
+        "fixedMonthly": 7
+      },
+      "rows": [
+        {
+          "from": "2026-02-30T12:00Z",
+          "to": "2026-02-30T13:00Z",
+          "kwh": 2
+        }
+      ],
+      "expected": {
+        "complete": false,
+        "energyCost": null
+      },
+      "issueReasons": [
+        "invalid_measurement"
+      ]
+    },
+    {
+      "name": "24 hour is not a valid instant",
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "UTC",
+        "clock": {
+          "mode": "civil"
+        },
+        "priceBasis": "gross",
+        "defaultZone": "day",
+        "zones": [
+          {
+            "id": "day",
+            "energyRate": 1,
+            "variableRate": 0
+          },
+          {
+            "id": "night",
+            "energyRate": 0.4,
+            "variableRate": 0
+          }
+        ],
+        "rules": [],
+        "fixedMonthly": 7
+      },
+      "rows": [
+        {
+          "from": "2026-01-01T24:00Z",
+          "to": "2026-01-02T01:00Z",
+          "kwh": 2
+        }
+      ],
+      "expected": {
+        "complete": false,
+        "energyCost": null
+      },
+      "issueReasons": [
+        "invalid_measurement"
+      ]
+    },
+    {
+      "name": "compact ISO is outside shared input contract",
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "UTC",
+        "clock": {
+          "mode": "civil"
+        },
+        "priceBasis": "gross",
+        "defaultZone": "day",
+        "zones": [
+          {
+            "id": "day",
+            "energyRate": 1,
+            "variableRate": 0
+          },
+          {
+            "id": "night",
+            "energyRate": 0.4,
+            "variableRate": 0
+          }
+        ],
+        "rules": [],
+        "fixedMonthly": 7
+      },
+      "rows": [
+        {
+          "from": "20260101T120000Z",
+          "to": "20260101T130000Z",
+          "kwh": 2
+        }
+      ],
+      "expected": {
+        "complete": false,
+        "energyCost": null
+      },
+      "issueReasons": [
+        "invalid_measurement"
+      ]
+    },
+    {
+      "name": "year zero is outside shared calendar",
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "UTC",
+        "clock": {
+          "mode": "civil"
+        },
+        "priceBasis": "gross",
+        "defaultZone": "day",
+        "zones": [
+          {
+            "id": "day",
+            "energyRate": 1,
+            "variableRate": 0
+          },
+          {
+            "id": "night",
+            "energyRate": 0.4,
+            "variableRate": 0
+          }
+        ],
+        "rules": [],
+        "fixedMonthly": 7
+      },
+      "rows": [
+        {
+          "from": "0000-01-01T12:00Z",
+          "to": "0000-01-01T13:00Z",
+          "kwh": 2
+        }
+      ],
+      "expected": {
+        "complete": false,
+        "energyCost": null
+      },
+      "issueReasons": [
+        "invalid_measurement"
+      ]
+    },
+    {
+      "name": "fractional numeric milliseconds truncate consistently",
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "UTC",
+        "clock": {
+          "mode": "civil"
+        },
+        "priceBasis": "gross",
+        "defaultZone": "day",
+        "zones": [
+          {
+            "id": "day",
+            "energyRate": 1,
+            "variableRate": 0
+          },
+          {
+            "id": "night",
+            "energyRate": 0.4,
+            "variableRate": 0
+          }
+        ],
+        "rules": [],
+        "fixedMonthly": 7
+      },
+      "rows": [
+        {
+          "from": 1791806400000.9,
+          "to": 1791810000000.9,
+          "kwh": 2
+        }
+      ],
+      "expected": {
+        "complete": true,
+        "energyCost": 2
+      },
+      "rowExpected": [
+        {
+          "from": 1791806400000,
+          "to": 1791810000000
+        }
+      ]
+    },
+    {
+      "name": "overflowing bucket cost is unavailable",
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "UTC",
+        "clock": {
+          "mode": "civil"
+        },
+        "priceBasis": "gross",
+        "defaultZone": "day",
+        "zones": [
+          {
+            "id": "day",
+            "energyRate": 1e+308,
+            "variableRate": 0
+          }
+        ],
+        "rules": [],
+        "fixedMonthly": 7
+      },
+      "rows": [
+        {
+          "from": "2026-01-01T12:00Z",
+          "to": "2026-01-01T13:00Z",
+          "kwh": 2
+        }
+      ],
+      "expected": {
+        "complete": false,
+        "energyCost": null
+      },
+      "issueReasons": [
+        "nonfinite_cost"
+      ]
+    },
+    {
+      "name": "overflowing total is unavailable",
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "UTC",
+        "clock": {
+          "mode": "civil"
+        },
+        "priceBasis": "gross",
+        "defaultZone": "day",
+        "zones": [
+          {
+            "id": "day",
+            "energyRate": 1e+308,
+            "variableRate": 0
+          }
+        ],
+        "rules": [],
+        "fixedMonthly": 7
+      },
+      "rows": [
+        {
+          "from": "2026-01-01T12:00Z",
+          "to": "2026-01-01T13:00Z",
+          "kwh": 1
+        },
+        {
+          "from": "2026-01-01T13:00Z",
+          "to": "2026-01-01T14:00Z",
+          "kwh": 1
+        }
+      ],
+      "expected": {
+        "complete": false,
+        "energyCost": null,
+        "kwh": null
+      },
+      "issueReasons": [
+        "nonfinite_total"
+      ]
+    },
+    {
+      "name": "unknown variable fee stays unknown",
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "UTC",
+        "clock": {
+          "mode": "civil"
+        },
+        "priceBasis": "gross",
+        "defaultZone": "day",
+        "zones": [
+          {
+            "id": "day",
+            "energyRate": 0.5
+          }
+        ],
+        "rules": [],
+        "fixedMonthly": 7
+      },
+      "rows": [
+        {
+          "from": "2026-01-01T12:00Z",
+          "to": "2026-01-01T13:00Z",
+          "kwh": 2
+        }
+      ],
+      "expected": {
+        "complete": true,
+        "energyCost": 1,
+        "variableCost": null,
+        "usageCost": null
+      }
+    },
+    {
+      "name": "explicit negative price stays negative",
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "UTC",
+        "clock": {
+          "mode": "civil"
+        },
+        "priceBasis": "gross",
+        "defaultZone": "day",
+        "zones": [
+          {
+            "id": "day",
+            "energyRate": -0.5,
+            "variableRate": 0
+          }
+        ],
+        "rules": [],
+        "fixedMonthly": 7,
+        "allowNegativeEnergy": true
+      },
+      "rows": [
+        {
+          "from": "2026-01-01T12:00Z",
+          "to": "2026-01-01T13:00Z",
+          "kwh": 2
+        }
+      ],
+      "expected": {
+        "complete": true,
+        "energyCost": -1,
+        "usageCost": -1
+      }
+    }
+  ]
+}
