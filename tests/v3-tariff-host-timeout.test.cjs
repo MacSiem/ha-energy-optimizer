@@ -24,5 +24,6 @@ test('a stale connection failure cannot mark the new connection read unconfirmed
  const {card,host}=setup();card._hass.callWS=()=>new Promise(()=>{});
  const pending=host.load();card._hass={...card._hass,user:{id:'new'},connection:{connected:true}};host.reset(card._hass);
  card._hass.callWS=async()=>({profile,revision:1,updated_at:null});assert.equal(await host.load(),true);
- await pending;assert.equal(card._sharedTariffReadStatus,'success');
+ assert.equal(await Promise.race([pending,new Promise(r=>setTimeout(()=>r('still pending'),100))]),false);
+ assert.equal(card._sharedTariffReadStatus,'success');
 });
