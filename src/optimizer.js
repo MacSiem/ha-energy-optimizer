@@ -137,7 +137,8 @@ const createEnergyPatternsV3 = (model, tariff, { days = 7 } = {}) => {
     row.priceMissing = price?.available ? null : price?.reason || 'missing_rate';
     row.tariffZone = price?.zone ?? null;
     row.variableMissing = !price?.available || !finite(price.variableCost);
-    for (const field of ['energyCost', 'variableCost', 'usageCost']) row[field] = price?.available && finite(price[field]) ? price[field] : null;
+    for (const field of ['energyCost', 'variableCost', 'usageCost'])
+      row[field] = price?.available && finite(price[field]) ? (price[field] === 0 ? 0 : price[field]) : null;
   }
   const groups = keys.map(key => {
     const rows = selected.filter(r => r.key === key);
@@ -1180,7 +1181,9 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'optimizer',
 
   _patternsNumber(value) {
     // Preserve exact nullable measured numbers in both Chart details and Data.
-    return value === null ? this._text('Unavailable', 'Niedostępne') : String(value);
+    return typeof value !== 'number' || !Number.isFinite(value) ? this._text('Unavailable', 'Niedostępne') :
+      new Intl.NumberFormat(this._hass?.locale?.language || this._hass?.language || 'en',
+        { maximumSignificantDigits: 12, useGrouping: false }).format(value === 0 ? 0 : value);
   }
 
   _patternsRowLabel(row) {
@@ -1227,7 +1230,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'optimizer',
     values.forEach((value, i) => {
       const identity = `data-pattern-id="${_esc(rows[i].id)}" data-pattern-value="${value === null ? 'null' : value}"`;
       if (value === null) { flush(); marks += `<g ${identity}></g>`; return; }
-      const title = `${this._patternsRowLabel(rows[i])}: ${value} ${unit}`;
+      const title = `${this._patternsRowLabel(rows[i])}: ${this._patternsNumber(value)} ${unit}`;
       if (state.type === 'bar') {
         const zero = y(0), py = y(value);
         marks += `<rect ${identity} x="${x(i) - Math.max(1, (right-left)/Math.max(1, rows.length)*0.3)}" y="${Math.min(zero, py)}" width="${Math.max(2, (right-left)/Math.max(1, rows.length)*0.6)}" height="${Math.max(1, Math.abs(zero-py))}" fill="var(--bento-primary)"><title>${_esc(title)}</title></rect>`;

@@ -23,7 +23,8 @@ function setup() {
   return { dom, card, factory: dom.window.patternsFactoryForTest, calls: () => calls };
 }
 function tariff() {
-  return { priceBuckets(rows) { return { currency: 'EUR', priceBasis: 'gross', timezone: 'Europe/Warsaw', fixedMonthly: 12,
+  return { priceBuckets(rows) { return { complete: false, energyCost: null, variableCost: null, usageCost: null, kwh: null,
+    currency: 'EUR', priceBasis: 'gross', timezone: 'Europe/Warsaw', fixedMonthly: 12,
     rows: rows.map((r, i) => r.kwh === null || i === 2 ? { from: r.from, to: r.to, available: false, reason: i === 2 ? 'mixed_rate_bucket' : 'invalid_measurement' } :
       { ...r, available: true, energyCost: r.kwh * -0.25, variableCost: r.kwh * 0.1, usageCost: r.kwh * -0.15, zone: 'night' }) }; } };
 }
