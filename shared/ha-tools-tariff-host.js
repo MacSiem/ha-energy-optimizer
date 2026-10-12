@@ -86,9 +86,9 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     [data-tariff-details]{margin:16px 0;min-width:0;max-width:100%}
     [data-tariff-details]>summary{min-height:44px;display:flex;align-items:center;padding:10px;border:1px solid var(--divider-color,#d8dce5);border-radius:10px;cursor:pointer;overflow-wrap:anywhere}
     [data-tariff-details]>summary:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
-    </style><details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
+    </style>${card._sharedTariffReadStatus === 'unconfirmed' ? `<p role="status">${text('Shared tariff could not be confirmed. Locally configured or last confirmed prices remain visible.', 'Nie udało się potwierdzić wspólnej taryfy. Widoczne są stawki skonfigurowane w karcie lub ostatnio potwierdzone.')}</p>` : ''}
+    <details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
     ${Object.hasOwn(card._config || {}, 'tariff_profile') ? `<p>${text('This card uses its own configured tariff. Shared settings apply to cards using the shared profile.', 'Ta karta używa własnej skonfigurowanej taryfy. Ustawienia współdzielone dotyczą kart korzystających ze wspólnego profilu.')}</p>` : ''}
-    ${card._sharedTariffReadStatus === 'unconfirmed' ? `<p role="status">${text('Shared tariff could not be confirmed. Locally configured or last confirmed prices remain visible.', 'Nie udało się potwierdzić wspólnej taryfy. Widoczne są stawki skonfigurowane w karcie lub ostatnio potwierdzone.')}</p>` : ''}
     <div data-tariff-mount></div></details>`;
   const mount = root => {
     if (editorRoot !== root || !editor) {
