@@ -299,7 +299,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=6db6afdaa933b5bd0eb510589f6c0f961a5156bc6ada12ba1dd2d08335a46600
+    // HA_TARIFF_V3_START sha256=f37ecb85a73abdd9ada8c8d41ba2fc96f977dd1bf004e56633ba47ef977fb8f2
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -887,7 +887,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     return operation;
   };
   const markup = () => `<style>
-    :host{container-type:inline-size;container-name:energy-card}
+    [data-energy-container]{container-type:inline-size;container-name:energy-card}
     .tabs{flex-wrap:wrap;overflow:visible;max-width:100%}
     .tabs>button{min-height:44px;min-width:44px;white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
     button{min-height:44px;min-width:44px}
@@ -934,6 +934,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   const bind = () => {
     const tabs = card.shadowRoot.querySelector('.tabs');
     if (tabs) {
+      tabs.parentElement.setAttribute('data-energy-container', '');
       const buttons = [...tabs.querySelectorAll('button')];
       tabs.setAttribute('role', 'tablist');
       tabs.setAttribute('aria-label', text('Energy views', 'Widoki energii'));
@@ -2534,7 +2535,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=6db6afdaa933b5bd0eb510589f6c0f961a5156bc6ada12ba1dd2d08335a46600
+      // HA_TARIFF_V3_START sha256=f37ecb85a73abdd9ada8c8d41ba2fc96f977dd1bf004e56633ba47ef977fb8f2
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -3122,7 +3123,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     return operation;
   };
   const markup = () => `<style>
-    :host{container-type:inline-size;container-name:energy-card}
+    [data-energy-container]{container-type:inline-size;container-name:energy-card}
     .tabs{flex-wrap:wrap;overflow:visible;max-width:100%}
     .tabs>button{min-height:44px;min-width:44px;white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
     button{min-height:44px;min-width:44px}
@@ -3169,6 +3170,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   const bind = () => {
     const tabs = card.shadowRoot.querySelector('.tabs');
     if (tabs) {
+      tabs.parentElement.setAttribute('data-energy-container', '');
       const buttons = [...tabs.querySelectorAll('button')];
       tabs.setAttribute('role', 'tablist');
       tabs.setAttribute('aria-label', text('Energy views', 'Widoki energii'));
@@ -4201,7 +4203,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=6db6afdaa933b5bd0eb510589f6c0f961a5156bc6ada12ba1dd2d08335a46600
+      // HA_TARIFF_V3_START sha256=f37ecb85a73abdd9ada8c8d41ba2fc96f977dd1bf004e56633ba47ef977fb8f2
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -4789,7 +4791,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     return operation;
   };
   const markup = () => `<style>
-    :host{container-type:inline-size;container-name:energy-card}
+    [data-energy-container]{container-type:inline-size;container-name:energy-card}
     .tabs{flex-wrap:wrap;overflow:visible;max-width:100%}
     .tabs>button{min-height:44px;min-width:44px;white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
     button{min-height:44px;min-width:44px}
@@ -4836,6 +4838,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   const bind = () => {
     const tabs = card.shadowRoot.querySelector('.tabs');
     if (tabs) {
+      tabs.parentElement.setAttribute('data-energy-container', '');
       const buttons = [...tabs.querySelectorAll('button')];
       tabs.setAttribute('role', 'tablist');
       tabs.setAttribute('aria-label', text('Energy views', 'Widoki energii'));
