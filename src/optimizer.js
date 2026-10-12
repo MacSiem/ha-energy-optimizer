@@ -2240,23 +2240,29 @@ async _drawComparisonChart() {
     if (!container) return;
     const result = this._todayTariffCosts();
     const number = value => typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : this._text('No data', 'Brak danych');
-    const rateNumber = value => typeof value === 'number' && Number.isFinite(value) ? value.toFixed(4) : this._text('No data', 'Brak danych');
+    const rateNumber = value => typeof value === 'number' && Number.isFinite(value) ? String(value) : this._text('No data', 'Brak danych');
     const unit = _esc(result.currency || '');
     const groups = new Map();
     if (result.complete) for (const row of result.rows) {
-      const key = `${row.zone}|${row.energyRate}|${row.variableRate}`;
+      const key = JSON.stringify([row.zones || [row.zone], row.energyRate, row.variableRate]);
       if (!groups.has(key)) groups.set(key, { ...row, kwh: 0, energyCost: 0, variableCost: row.variableCost === null ? null : 0 });
       const group = groups.get(key); group.kwh += row.kwh; group.energyCost += row.energyCost;
       if (group.variableCost !== null) group.variableCost += row.variableCost;
     }
-    const profile = this._config.tariff_profile;
+    const profile = this._getTariffHostV3().profile();
+    const zoneLabel = row => {
+      const label = id => profile?.zones?.find(zone => zone.id === id)?.label || id;
+      return row.zoneAttribution === 'multiple'
+        ? `${this._text('Multiple zones (same rate)', 'Wiele stref (ta sama stawka)')}: ${row.zones.map(label).join(', ')}`
+        : label(row.zone);
+    };
     container.innerHTML = `<h3>${this._text('Tariff costs', 'Koszty taryfy')}</h3>
       <p>${this._text('Measured grid import × configured prices. Energy and fees are shown separately.', 'Zmierzony import z sieci × skonfigurowane stawki. Energia i opłaty są pokazane osobno.')}</p>
       <p>${_esc(this._todayWindow?.start || '')} — ${_esc(this._todayWindow?.end || '')} · ${_esc(result.timezone || '')} · ${result.priceBasis === 'net' ? this._text('net', 'netto') : this._text('gross', 'brutto')}</p>
       ${!result.complete ? `<p role="status">${this._text('Cost unavailable: incomplete measurements or tariff. Configure a valid tariff and check source coverage.', 'Koszt niedostępny: niepełne pomiary lub taryfa. Skonfiguruj poprawną taryfę i sprawdź kompletność źródeł.')}</p>` : `
       <div style="max-width:100%;overflow:auto"><table><caption>${this._text('Measured consumption by tariff zone', 'Zmierzony import według stref taryfy')}</caption><thead><tr>
         <th>${this._text('Zone', 'Strefa')}</th><th>kWh</th><th>${this._text('Energy rate', 'Stawka energii')} (${unit}/kWh)</th><th>${this._text('Energy cost', 'Koszt energii')} (${unit})</th><th>${this._text('Variable fees', 'Opłaty zmienne')} (${unit})</th>
-      </tr></thead><tbody>${[...groups.values()].map(row => `<tr><th scope="row">${_esc(profile?.zones?.find(zone => zone.id === row.zone)?.label || row.zone)}</th><td>${number(row.kwh)}</td><td>${rateNumber(row.energyRate)}</td><td>${number(row.energyCost)}</td><td>${number(row.variableCost)}</td></tr>`).join('')}</tbody></table></div>`}
+      </tr></thead><tbody>${[...groups.values()].map(row => `<tr><th scope="row">${_esc(zoneLabel(row))}</th><td>${number(row.kwh)}</td><td>${rateNumber(row.energyRate)}</td><td>${number(row.energyCost)}</td><td>${number(row.variableCost)}</td></tr>`).join('')}</tbody></table></div>`}
       <p>${this._text('Measured usage', 'Zmierzony import')}: ${number(result.kwh)} kWh</p>
       <p><b>${this._text('Energy cost', 'Koszt energii')}: ${number(result.energyCost)} ${unit}</b></p>
       <p>${this._text('Variable fees', 'Opłaty zmienne')}: ${number(result.variableCost)} ${unit}</p>

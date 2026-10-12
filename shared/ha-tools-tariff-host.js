@@ -151,7 +151,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     }
     if (details.open) mount(root);
   };
-  return { model, currency, reset, load, markup, bind };
+  return { model, profile: activeProfile, currency, reset, load, markup, bind };
 }
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { createTariffHostV3 };
