@@ -179,3 +179,14 @@ test('the actual backend revision conflict requests explicit reconciliation', as
     assert.equal(f.state.draft.name, 'Draft'); assert.equal(f.calls.length, 1);
   } finally { f.dom.window.close(); }
 });
+test('an explicit read publishes only the confirmed stored profile to the owning card', async () => {
+  const { createTariffSettingsV3 } = require('../shared/ha-tools-tariff-settings.js');
+  const dom = new JSDOM('<div id="root"></div>'), loaded = [];
+  const state = { profile: null, revision: null, status: 'not_checked', busy: false };
+  const h = { user: { id: 'a', is_admin: false }, connection: { connected: true }, config: { currency: 'EUR', time_zone: 'UTC' },
+    callWS: async () => ({ profile: profile(), revision: 2, updated_at: '2026-10-12T10:00:00Z' }) };
+  const editor = createTariffSettingsV3({ root: dom.window.document.querySelector('#root'), getHass: () => h, state,
+    validate: createEnergyTariffV3, onLoaded: envelope => loaded.push(envelope) });
+  try { await editor.load(); assert.equal(loaded.length, 1); assert.equal(loaded[0].revision, 2); assert.deepEqual(loaded[0].profile, profile()); }
+  finally { dom.window.close(); }
+});
