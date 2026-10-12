@@ -249,7 +249,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=0c58f10060ef07b2f91e0a77889039240d91a2fb7be3d90fbf6968d962e98b77
+      // HA_TARIFF_V3_START sha256=38f8a1e3992af5ee7af310bcd9e6b1859fa1b306fcc8b37c2de149f31c360bc9
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -591,7 +591,8 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   const seed = profile => invalidMarker(profile) ? blank() : clone(profile) || blank();
   if (!object(state.draft) || invalidMarker(state.draft)) state.draft = seed(state.profile);
   if (!statuses()[state.status]) state.status = 'not_checked';
-  let epoch = 0, operation = 0, association;
+  if (invalidMarker(state.profile) && state.status === 'not_checked') state.status = 'error';
+  let epoch = 0, operation = 0, association, resumeFocus = null;
   const auth = () => {
     const h = getHass();
     return { user: h?.user?.id, admin: h?.user?.is_admin === true, connection: h?.connection,
@@ -600,7 +601,9 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   const observe = () => {
     const now = auth();
     if (association && (association.user !== now.user || association.admin !== now.admin ||
-      association.connection !== now.connection || association.connected !== now.connected || association.ws !== now.ws)) epoch++;
+      association.connection !== now.connection || association.connected !== now.connected || association.ws !== now.ws)) {
+      epoch++; resumeFocus = null;
+    }
     association = now;
     return now;
   };
@@ -721,7 +724,11 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
 .ht-tariff-v3 *{box-sizing:border-box;min-width:0}.ht-tariff-v3 h3,.ht-tariff-v3 p{overflow-wrap:anywhere}.ht-tariff-v3 fieldset{border:1px solid var(--divider-color,#d8dce5);border-radius:14px;margin:12px 0;padding:12px}.ht-tariff-v3 legend{max-width:100%;overflow-wrap:anywhere}.ht-tariff-v3 .ht-tariff-grid,.ht-tariff-v3 .ht-tariff-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:12px;margin:8px 0}.ht-tariff-v3 .ht-tariff-field{display:flex;flex-direction:column;gap:6px;overflow-wrap:anywhere}.ht-tariff-v3 input,.ht-tariff-v3 select,.ht-tariff-v3 textarea,.ht-tariff-v3 button{font:inherit;color:inherit;border:1px solid var(--divider-color,#c7cdd9);border-radius:10px;background:var(--secondary-background-color,#f7f8fa);min-height:44px;max-width:100%;width:100%;padding:10px}.ht-tariff-v3 textarea{resize:vertical;min-height:110px}.ht-tariff-v3 button{cursor:pointer;width:auto;white-space:normal;overflow-wrap:anywhere}.ht-tariff-v3 button:disabled{cursor:default;opacity:.6}.ht-tariff-v3 :is(input,select,textarea,button):focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}.ht-tariff-v3 .ht-tariff-days,.ht-tariff-v3 .ht-tariff-actions{display:flex;flex-wrap:wrap;gap:8px}.ht-tariff-v3 .ht-tariff-days label{display:flex;align-items:center;gap:8px;min-height:44px}.ht-tariff-v3 input[type=checkbox]{width:24px;min-height:24px;height:24px}.ht-tariff-v3 [role=status]{padding:12px;border-radius:12px;overflow-wrap:anywhere;background:var(--secondary-background-color,#f1f3f6);margin:12px 0}.ht-tariff-v3 [data-status=success]{color:var(--bento-success,#16804a);background:var(--bento-success-light,#e8f5ed)}.ht-tariff-v3 [data-status=error]{color:var(--error-color,#ba1a1a)}.ht-tariff-v3 [data-status=unconfirmed],.ht-tariff-v3 [data-status=partial]{color:var(--warning-color,#a15b00)}.ht-tariff-v3 details{margin:12px 0}.ht-tariff-v3 summary{min-height:44px;cursor:pointer}`;
   function render() {
     const focused = root.querySelector(':focus');
-    const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed } : null;
+    const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed } : resumeFocus;
+    const documentFocus = root.ownerDocument.activeElement, ownerRoot = root.getRootNode();
+    const externalFocus = documentFocus && documentFocus !== root.ownerDocument.body &&
+      documentFocus !== ownerRoot.host && !root.contains(documentFocus);
+    if (focused && state.busy) resumeFocus = focusKey;
     const a = observe();
     if (state.busy && (!available(a) || !a.admin) && state.message) unknown();
     const p = state.draft;
@@ -797,8 +804,9 @@ ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is 
       const target = [...root.querySelectorAll('input,select,textarea,button')].find(el =>
         (focusKey.path && el.dataset.path === focusKey.path) || (focusKey.action && el.dataset.action === focusKey.action) ||
         (focusKey.weekday && el.dataset.weekday === focusKey.weekday) || (focusKey.feed && el.dataset.feed === focusKey.feed));
-      if (target && !target.disabled) target.focus();
+      if (target && !target.disabled && !externalFocus) target.focus();
     }
+    if (!state.busy) resumeFocus = null;
   }
   return { render, load, cancel };
 }
@@ -810,7 +818,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   const text = (en, pl) => String(language()).startsWith('pl') ? pl : en;
   const identity = hass => ({ user: hass?.user?.id, connection: hass?.connection });
   const same = (a, b) => a?.user === b?.user && a?.connection === b?.connection;
-  let association = identity(card._hass), pending = null, cachedKey, cachedModel, editorRoot, editor;
+  let association = identity(card._hass), pending = null, cachedKey, cachedModel, editorRoot, editor, focusKey = null;
   const state = () => (card._tariffEditorState ||= { profile: null, revision: null, status: 'not_checked', busy: false });
   const effectiveConfig = () => {
     const config = card._config || {};
@@ -837,6 +845,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       card._sharedTariffReadStatus = 'not_checked';
       pending = null; cachedKey = undefined; cachedModel = undefined;
       editorRoot = null; editor = null;
+      focusKey = null;
     }
     association = next;
   };
@@ -877,7 +886,13 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     operation.finally(() => { if (pending === operation) pending = null; });
     return operation;
   };
-  const markup = () => `<style>
+  const markup = () => {
+    const active = card.shadowRoot?.activeElement;
+    focusKey = active?.closest('[data-tariff-details]') ? {
+      summary: active.tagName === 'SUMMARY', path: active.dataset.path,
+      action: active.dataset.action, weekday: active.dataset.weekday, feed: active.dataset.feed
+    } : null;
+    return `<style>
     [data-energy-container]{container-type:inline-size;container-name:energy-card}
     .tabs{flex-wrap:wrap;overflow:visible;max-width:100%}
     .tabs>button{min-height:44px;min-width:44px;white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
@@ -893,6 +908,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     <details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
     ${Object.hasOwn(card._config || {}, 'tariff_profile') ? `<p>${text('This card uses its own configured tariff. Shared settings apply to cards using the shared profile.', 'Ta karta używa własnej skonfigurowanej taryfy. Ustawienia współdzielone dotyczą kart korzystających ze wspólnego profilu.')}</p>` : ''}
     <div data-tariff-mount></div></details>`;
+  };
   const mount = root => {
     if (editorRoot !== root || !editor) {
       const saved = state();
@@ -965,6 +981,14 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       });
     }
     if (details.open) mount(root);
+    if (focusKey) {
+      const key = focusKey; focusKey = null;
+      const target = key.summary ? details.querySelector('summary') : details.open &&
+        [...root.querySelectorAll('input,select,textarea,button')].find(el =>
+          (key.path && el.dataset.path === key.path) || (key.action && el.dataset.action === key.action) ||
+          (key.weekday && el.dataset.weekday === key.weekday) || (key.feed && el.dataset.feed === key.feed));
+      if (target && !target.disabled) target.focus({ preventScroll: true });
+    }
   };
   return { model, profile: activeProfile, currency, reset, load, markup, bind };
 }
