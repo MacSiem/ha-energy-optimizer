@@ -299,7 +299,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=8d2bb80b3eae3e3fb6af62b70ae0cb826d97d04e51c1ce459d63e40eafe9f6ea
+    // HA_TARIFF_V3_START sha256=6db6afdaa933b5bd0eb510589f6c0f961a5156bc6ada12ba1dd2d08335a46600
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -871,9 +871,14 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
         const profile = result.profile === null ? null : createModel(result.profile).valid ? clone(result.profile) : { schema: 0 };
         card._sharedTariffProfile = profile; card._sharedTariffAssociation = token; card._sharedTariffLoadedAt = Date.now();
         const saved = state();
+        // Refresh a form opened during this read only while its seed is intact.
+        const pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved.profile) || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline);
         saved.profile = clone(profile); saved.revision = result.revision; saved.updated_at = result.updated_at ?? null;
         saved.backendAvailable = true;
-        if (!saved.draft) saved.draft = profile && createModel(profile).valid ? clone(profile) : undefined;
+        if (pristine) {
+          saved.draft = profile && createModel(profile).valid ? clone(profile) : undefined;
+          saved._draftBaseline = clone(saved.draft);
+        }
         return true;
       } catch (_) { return false; }
     })();
@@ -882,6 +887,14 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     return operation;
   };
   const markup = () => `<style>
+    :host{container-type:inline-size;container-name:energy-card}
+    .tabs{flex-wrap:wrap;overflow:visible;max-width:100%}
+    .tabs>button{min-height:44px;min-width:44px;white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
+    button{min-height:44px;min-width:44px}
+    .energy-tab-picker{display:none;margin:12px 0}
+    .energy-tab-picker select{font:inherit;color:var(--primary-text-color,#172033);background:var(--card-background-color,#fff);width:100%;max-width:100%;min-height:44px;border:1px solid var(--divider-color,#d8dce5);border-radius:10px;padding:10px}
+    .energy-tab-picker select:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
+    @container energy-card (max-width:279.99px){.tabs{display:none}.energy-tab-picker{display:block}}
     [data-tariff-details]{margin:16px 0;min-width:0;max-width:100%}
     [data-tariff-details]>summary{min-height:44px;display:flex;align-items:center;padding:10px;border:1px solid var(--divider-color,#d8dce5);border-radius:10px;cursor:pointer;overflow-wrap:anywhere}
     [data-tariff-details]>summary:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
@@ -915,9 +928,38 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
           if (details) { details.open = false; details.querySelector('summary')?.focus(); }
         } });
     }
+    if (!Object.hasOwn(state(), '_draftBaseline')) state()._draftBaseline = clone(state().draft);
     editor.render();
   };
   const bind = () => {
+    const tabs = card.shadowRoot.querySelector('.tabs');
+    if (tabs) {
+      const buttons = [...tabs.querySelectorAll('button')];
+      tabs.setAttribute('role', 'tablist');
+      tabs.setAttribute('aria-label', text('Energy views', 'Widoki energii'));
+      let picker = card.shadowRoot.querySelector('.energy-tab-picker select');
+      if (!picker) {
+        const label = document.createElement('label'); label.className = 'energy-tab-picker';
+        picker = document.createElement('select'); label.append(picker); tabs.before(label);
+        picker.addEventListener('change', () => buttons[Number(picker.value)]?.click());
+      }
+      picker.setAttribute('aria-label', text('Energy view', 'Widok energii'));
+      picker.replaceChildren(...buttons.map((button, index) => {
+        const option = document.createElement('option'); option.value = String(index);
+        option.textContent = button.textContent.trim(); option.selected = button.classList.contains('active');
+        button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(option.selected));
+        if (!button.dataset.energyPickerBound) {
+          button.dataset.energyPickerBound = 'true';
+          button.addEventListener('click', () => queueMicrotask(() => {
+            buttons.forEach((item, i) => {
+              const active = item.classList.contains('active'); item.setAttribute('aria-selected', String(active));
+              if (active) picker.value = String(i);
+            });
+          }));
+        }
+        return option;
+      }));
+    }
     const details = card.shadowRoot.querySelector('[data-tariff-details]');
     if (!details) return;
     const root = details.querySelector('[data-tariff-mount]');
@@ -2492,7 +2534,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=8d2bb80b3eae3e3fb6af62b70ae0cb826d97d04e51c1ce459d63e40eafe9f6ea
+      // HA_TARIFF_V3_START sha256=6db6afdaa933b5bd0eb510589f6c0f961a5156bc6ada12ba1dd2d08335a46600
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -3064,9 +3106,14 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
         const profile = result.profile === null ? null : createModel(result.profile).valid ? clone(result.profile) : { schema: 0 };
         card._sharedTariffProfile = profile; card._sharedTariffAssociation = token; card._sharedTariffLoadedAt = Date.now();
         const saved = state();
+        // Refresh a form opened during this read only while its seed is intact.
+        const pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved.profile) || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline);
         saved.profile = clone(profile); saved.revision = result.revision; saved.updated_at = result.updated_at ?? null;
         saved.backendAvailable = true;
-        if (!saved.draft) saved.draft = profile && createModel(profile).valid ? clone(profile) : undefined;
+        if (pristine) {
+          saved.draft = profile && createModel(profile).valid ? clone(profile) : undefined;
+          saved._draftBaseline = clone(saved.draft);
+        }
         return true;
       } catch (_) { return false; }
     })();
@@ -3075,6 +3122,14 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     return operation;
   };
   const markup = () => `<style>
+    :host{container-type:inline-size;container-name:energy-card}
+    .tabs{flex-wrap:wrap;overflow:visible;max-width:100%}
+    .tabs>button{min-height:44px;min-width:44px;white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
+    button{min-height:44px;min-width:44px}
+    .energy-tab-picker{display:none;margin:12px 0}
+    .energy-tab-picker select{font:inherit;color:var(--primary-text-color,#172033);background:var(--card-background-color,#fff);width:100%;max-width:100%;min-height:44px;border:1px solid var(--divider-color,#d8dce5);border-radius:10px;padding:10px}
+    .energy-tab-picker select:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
+    @container energy-card (max-width:279.99px){.tabs{display:none}.energy-tab-picker{display:block}}
     [data-tariff-details]{margin:16px 0;min-width:0;max-width:100%}
     [data-tariff-details]>summary{min-height:44px;display:flex;align-items:center;padding:10px;border:1px solid var(--divider-color,#d8dce5);border-radius:10px;cursor:pointer;overflow-wrap:anywhere}
     [data-tariff-details]>summary:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
@@ -3108,9 +3163,38 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
           if (details) { details.open = false; details.querySelector('summary')?.focus(); }
         } });
     }
+    if (!Object.hasOwn(state(), '_draftBaseline')) state()._draftBaseline = clone(state().draft);
     editor.render();
   };
   const bind = () => {
+    const tabs = card.shadowRoot.querySelector('.tabs');
+    if (tabs) {
+      const buttons = [...tabs.querySelectorAll('button')];
+      tabs.setAttribute('role', 'tablist');
+      tabs.setAttribute('aria-label', text('Energy views', 'Widoki energii'));
+      let picker = card.shadowRoot.querySelector('.energy-tab-picker select');
+      if (!picker) {
+        const label = document.createElement('label'); label.className = 'energy-tab-picker';
+        picker = document.createElement('select'); label.append(picker); tabs.before(label);
+        picker.addEventListener('change', () => buttons[Number(picker.value)]?.click());
+      }
+      picker.setAttribute('aria-label', text('Energy view', 'Widok energii'));
+      picker.replaceChildren(...buttons.map((button, index) => {
+        const option = document.createElement('option'); option.value = String(index);
+        option.textContent = button.textContent.trim(); option.selected = button.classList.contains('active');
+        button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(option.selected));
+        if (!button.dataset.energyPickerBound) {
+          button.dataset.energyPickerBound = 'true';
+          button.addEventListener('click', () => queueMicrotask(() => {
+            buttons.forEach((item, i) => {
+              const active = item.classList.contains('active'); item.setAttribute('aria-selected', String(active));
+              if (active) picker.value = String(i);
+            });
+          }));
+        }
+        return option;
+      }));
+    }
     const details = card.shadowRoot.querySelector('[data-tariff-details]');
     if (!details) return;
     const root = details.querySelector('[data-tariff-mount]');
@@ -4117,7 +4201,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=8d2bb80b3eae3e3fb6af62b70ae0cb826d97d04e51c1ce459d63e40eafe9f6ea
+      // HA_TARIFF_V3_START sha256=6db6afdaa933b5bd0eb510589f6c0f961a5156bc6ada12ba1dd2d08335a46600
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -4689,9 +4773,14 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
         const profile = result.profile === null ? null : createModel(result.profile).valid ? clone(result.profile) : { schema: 0 };
         card._sharedTariffProfile = profile; card._sharedTariffAssociation = token; card._sharedTariffLoadedAt = Date.now();
         const saved = state();
+        // Refresh a form opened during this read only while its seed is intact.
+        const pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved.profile) || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline);
         saved.profile = clone(profile); saved.revision = result.revision; saved.updated_at = result.updated_at ?? null;
         saved.backendAvailable = true;
-        if (!saved.draft) saved.draft = profile && createModel(profile).valid ? clone(profile) : undefined;
+        if (pristine) {
+          saved.draft = profile && createModel(profile).valid ? clone(profile) : undefined;
+          saved._draftBaseline = clone(saved.draft);
+        }
         return true;
       } catch (_) { return false; }
     })();
@@ -4700,6 +4789,14 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     return operation;
   };
   const markup = () => `<style>
+    :host{container-type:inline-size;container-name:energy-card}
+    .tabs{flex-wrap:wrap;overflow:visible;max-width:100%}
+    .tabs>button{min-height:44px;min-width:44px;white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
+    button{min-height:44px;min-width:44px}
+    .energy-tab-picker{display:none;margin:12px 0}
+    .energy-tab-picker select{font:inherit;color:var(--primary-text-color,#172033);background:var(--card-background-color,#fff);width:100%;max-width:100%;min-height:44px;border:1px solid var(--divider-color,#d8dce5);border-radius:10px;padding:10px}
+    .energy-tab-picker select:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
+    @container energy-card (max-width:279.99px){.tabs{display:none}.energy-tab-picker{display:block}}
     [data-tariff-details]{margin:16px 0;min-width:0;max-width:100%}
     [data-tariff-details]>summary{min-height:44px;display:flex;align-items:center;padding:10px;border:1px solid var(--divider-color,#d8dce5);border-radius:10px;cursor:pointer;overflow-wrap:anywhere}
     [data-tariff-details]>summary:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
@@ -4733,9 +4830,38 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
           if (details) { details.open = false; details.querySelector('summary')?.focus(); }
         } });
     }
+    if (!Object.hasOwn(state(), '_draftBaseline')) state()._draftBaseline = clone(state().draft);
     editor.render();
   };
   const bind = () => {
+    const tabs = card.shadowRoot.querySelector('.tabs');
+    if (tabs) {
+      const buttons = [...tabs.querySelectorAll('button')];
+      tabs.setAttribute('role', 'tablist');
+      tabs.setAttribute('aria-label', text('Energy views', 'Widoki energii'));
+      let picker = card.shadowRoot.querySelector('.energy-tab-picker select');
+      if (!picker) {
+        const label = document.createElement('label'); label.className = 'energy-tab-picker';
+        picker = document.createElement('select'); label.append(picker); tabs.before(label);
+        picker.addEventListener('change', () => buttons[Number(picker.value)]?.click());
+      }
+      picker.setAttribute('aria-label', text('Energy view', 'Widok energii'));
+      picker.replaceChildren(...buttons.map((button, index) => {
+        const option = document.createElement('option'); option.value = String(index);
+        option.textContent = button.textContent.trim(); option.selected = button.classList.contains('active');
+        button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(option.selected));
+        if (!button.dataset.energyPickerBound) {
+          button.dataset.energyPickerBound = 'true';
+          button.addEventListener('click', () => queueMicrotask(() => {
+            buttons.forEach((item, i) => {
+              const active = item.classList.contains('active'); item.setAttribute('aria-selected', String(active));
+              if (active) picker.value = String(i);
+            });
+          }));
+        }
+        return option;
+      }));
+    }
     const details = card.shadowRoot.querySelector('[data-tariff-details]');
     if (!details) return;
     const root = details.querySelector('[data-tariff-mount]');
