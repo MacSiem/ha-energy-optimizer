@@ -269,10 +269,10 @@ test('ordinary HA locale changes refresh Send labels and retain last-sent text a
     card._render();
     card.hass = { ...hass, language: 'en', locale: { language: 'en' } };
     assert.match(card.shadowRoot.getElementById('send-daily').textContent, /Send Daily/);
-    assert.equal(card.shadowRoot.getElementById('last-daily').textContent, 'Last sent: 10:21');
+    assert.equal(card.shadowRoot.getElementById('last-daily').textContent, 'Last send request: 10:21');
     card.hass = { ...hass, language: 'pl', locale: { language: 'pl' } };
     assert.match(card.shadowRoot.getElementById('send-daily').textContent, /Wyślij raport dzienny/);
-    assert.equal(card.shadowRoot.getElementById('last-daily').textContent, 'Ostatnio wysłano: 10:21');
+    assert.equal(card.shadowRoot.getElementById('last-daily').textContent, 'Ostatnie żądanie wysyłki: 10:21');
     assert.equal(card.shadowRoot.getElementById('send-daily').disabled, true);
   } finally { dom.window.close(); }
 });
