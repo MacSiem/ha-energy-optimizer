@@ -74,18 +74,19 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
         if (createModel(profile).valid) saved.draft = clone(profile);
       }
       editorRoot = root;
+      const refreshed = envelope => {
+        card._sharedTariffProfile = clone(envelope.profile); card._sharedTariffAssociation = identity(card._hass);
+        card._sharedTariffLoadedAt = Date.now();
+        // The editor finishes its pending state before the parent replaces DOM.
+        queueMicrotask(() => {
+          if (kind === 'insights') void card._fetchData();
+          if (kind === 'email') void card._fetchAllPeriodStats().then(() => card._render());
+          card._render();
+        });
+      };
       editor = createSettings({ root, getHass: () => card._hass, language, state: saved, validate: createModel,
         ui: () => createUi({ language: language() }),
-        onSaved: envelope => {
-          card._sharedTariffProfile = clone(envelope.profile); card._sharedTariffAssociation = identity(card._hass);
-          card._sharedTariffLoadedAt = Date.now();
-          // The editor finishes its pending state before the parent replaces DOM.
-          queueMicrotask(() => {
-            if (kind === 'insights') void card._fetchData();
-            if (kind === 'email') void card._fetchAllPeriodStats();
-            card._render();
-          });
-        },
+        onSaved: refreshed, onLoaded: refreshed,
         onCancel: () => {
           card._tariffSettingsOpen = false;
           const details = root.closest('[data-tariff-details]');

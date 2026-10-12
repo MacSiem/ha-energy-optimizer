@@ -2,7 +2,7 @@
 
 // Vendor inside each card's closure. The parent owns state and its mount; no
 // global registration, helper services, SMTP configuration or browser storage.
-function createTariffSettingsV3({ root, getHass, language = 'en', state, validate, onSaved, onCancel, ui }) {
+function createTariffSettingsV3({ root, getHass, language = 'en', state, validate, onSaved, onLoaded, onCancel, ui }) {
   if (!root || !state || typeof getHass !== 'function' || typeof validate !== 'function') throw new TypeError('tariff_settings_adapter');
   const translations = new Map();
   const pl = () => String(typeof language === 'function' ? language() : language).startsWith('pl');
@@ -84,6 +84,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
       state.draft = pristine ? clone(result.profile) || blank() : draft;
       if (pristine) { state.feedText = undefined; state.feedError = null; }
       message(result.profile ? 'not_checked' : 'no_data', t('Stored tariff loaded. Review the fields before saving.', 'Wczytano taryfę. Sprawdź pola przed zapisem.'));
+      if (current(token) && typeof onLoaded === 'function') onLoaded(clone(result));
     } catch (_) {
       if (current(token)) { state.backendAvailable = false; message('error', t('Tariff backend unavailable or response invalid. Draft preserved.', 'Backend taryf jest niedostępny lub odpowiedź jest błędna. Zachowano szkic.')); }
       else unknown();
