@@ -480,6 +480,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
         changed: () => { if (this._activeTab === 'schedule') this._renderTab(); } });
       this._attemptHistory = createHaToolsEmailHistory({ escape: _esc, changed: () => { if (this._activeTab === 'history') this._renderTab(); } });
       this._lastSent = {};
+      this._lastSentOutcome = {};
       this._sending = false;
       this._firstRender = false;
       this._lastRenderTime = 0;
@@ -1690,6 +1691,8 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       this._smtpTesting = false;
       this._sending = false;
       this._scheduleSaveFocus = null;
+      this._lastSent = {};
+      this._lastSentOutcome = {};
     }
 
     _resetEmailContext(hass) {
@@ -2858,7 +2861,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       const L = this._lang === 'pl';
       const manualLabel = L ? 'Ręcznie' : 'Manual';
       const sendingLabel = L ? 'Wysyłam...' : 'Sending...';
-      const lastSentLabel = this._emailBackendAvailable && !this._emailBackendReportsUnsupported ? (L ? 'Ostatnio przyjęto przez SMTP: ' : 'Last accepted by SMTP: ') : (L ? 'Ostatnio wysłano: ' : 'Last sent: ');
+      const lastSentLabel = cadence => this._lastSentOutcome[cadence] === 'accepted_by_smtp' ? (L ? 'Ostatnio przyjęto przez SMTP: ' : 'Last accepted by SMTP: ') : (L ? 'Ostatnie żądanie wysyłki: ' : 'Last send request: ');
       const smtpConfig = this._renderSmtpSection();
       const canSend = this._hasHaToolsEmail();
       const backendReports = this._emailBackendAvailable && !this._emailBackendReportsUnsupported;
@@ -2872,17 +2875,17 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
         ${(this._emailBackendAvailable || this._hasLegacyHaToolsEmail()) ? `<div style="font-size:12px;color:var(--bento-text-secondary);margin:16px 0 12px;padding:10px;background:var(--bento-primary-light);border-radius:var(--bento-radius-xs)">${L ? '💡 Konfiguracja SMTP: <a href="/config/integrations/integration/ha_tools_email">Ustawienia \u2192 Urz\u0105dzenia i us\u0142ugi \u2192 HA Tools Email \u2192 Konfiguruj</a>' : '💡 SMTP settings: <a href="/config/integrations/integration/ha_tools_email">Settings \u2192 Devices &amp; services \u2192 HA Tools Email \u2192 Configure</a>'}</div>` : ''}
         <div class="schedule-card">
           <div class="schedule-row"><div class="schedule-name">\u2600\uFE0F ${L ? 'Wy\u015Blij raport dzienny' : 'Send Daily Report Now'}</div><span class="badge badge-pr">${manualLabel}</span></div>
-          <div id="last-daily" class="last-sent">${this._lastSent.daily ? lastSentLabel + this._lastSent.daily : ''}</div>
+          <div id="last-daily" class="last-sent">${this._lastSent.daily ? lastSentLabel('daily') + this._lastSent.daily : ''}</div>
           <div class="btn-row"><button class="btn btn-primary" id="send-daily" ${this._sending || !canSend ? 'disabled' : ''}>${this._sending ? `<span class="spinner"></span>${sendingLabel}` : (L ? '\u2600\uFE0F Wyślij raport dzienny' : '\u2600\uFE0F Send Daily')}</button></div>
         </div>
         <div class="schedule-card">
           <div class="schedule-row"><div class="schedule-name">\u{1F4C6} ${L ? 'Wy\u015Blij raport tygodniowy' : 'Send Weekly Report Now'}</div><span class="badge badge-pr">${manualLabel}</span></div>
-          <div id="last-weekly" class="last-sent">${this._lastSent.weekly ? lastSentLabel + this._lastSent.weekly : ''}</div>
+          <div id="last-weekly" class="last-sent">${this._lastSent.weekly ? lastSentLabel('weekly') + this._lastSent.weekly : ''}</div>
           <div class="btn-row"><button class="btn btn-primary" id="send-weekly" ${this._sending || !canSend ? 'disabled' : ''}>${this._sending ? `<span class="spinner"></span>${sendingLabel}` : (L ? '\u{1F4E4} Wyślij raport tygodniowy' : '\u{1F4E4} Send Weekly')}</button></div>
         </div>
         <div class="schedule-card">
           <div class="schedule-row"><div class="schedule-name">\u{1F4C8} ${L ? 'Wy\u015Blij raport miesi\u0119czny' : 'Send Monthly Report Now'}</div><span class="badge badge-pr">${manualLabel}</span></div>
-          <div id="last-monthly" class="last-sent">${this._lastSent.monthly ? lastSentLabel + this._lastSent.monthly : ''}</div>
+          <div id="last-monthly" class="last-sent">${this._lastSent.monthly ? lastSentLabel('monthly') + this._lastSent.monthly : ''}</div>
           <div class="btn-row"><button class="btn btn-primary" id="send-monthly" ${this._sending || !canSend ? 'disabled' : ''}>${this._sending ? `<span class="spinner"></span>${sendingLabel}` : (L ? '\u{1F4C8} Wyślij raport miesięczny' : '\u{1F4C8} Send Monthly')}</button></div>
         </div>
         <div class="schedule-card">
@@ -2890,7 +2893,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
           <div class="schedule-meta">${backendReports
             ? (L ? 'Tryb backendu u\u017Cywa wysy\u0142ki daily/weekly/monthly przez send_now.' : 'Backend mode uses daily/weekly/monthly send_now actions.')
             : (L ? 'Tekstowe podsumowanie aktualnych danych energii.' : 'Plain-text summary of current energy stats.')}</div>
-          <div id="last-quick" class="last-sent">${this._lastSent.quick ? lastSentLabel + this._lastSent.quick : ''}</div>
+          <div id="last-quick" class="last-sent">${this._lastSent.quick ? lastSentLabel('quick') + this._lastSent.quick : ''}</div>
           <div class="btn-row"><button class="btn btn-ok" id="send-quick" ${quickDisabled ? 'disabled' : ''}>\u26A1 ${L ? 'Wy\u015Blij' : 'Send Quick Summary'}</button></div>
         </div>`;
     }
@@ -3127,6 +3130,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
           this._showToast(state.icon + ' ' + state.label + ': ' + (L ? 'Wynik wysyłki niepotwierdzony. Sprawdź historię.' : 'Send outcome unconfirmed. Inspect history.'));
           return;
         }
+        this._lastSentOutcome[cadence] = 'accepted_by_smtp';
         this._lastSent[cadence] = new Date().toLocaleString((this._lang === 'pl' ? 'pl-PL' : 'en-US'), { hour12: false });
         this._showToast('✓ ' + (L ? 'Przyjęte przez SMTP; doręczenie niepotwierdzone.' : 'Accepted by SMTP; delivery unconfirmed.'));
       } catch (e) {
@@ -3231,6 +3235,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
         const plainText = `${typeName} ${L ? 'raport energii' : 'Energy Report'} - ${dateStr}\n${windowText}\n${L ? '\u0141\u0105cznie' : 'Total'}: ${totalKwh.toFixed(2)} kWh / ${this._formatCost(totalCost)} ${currency}\n${devices.map(d => `${d.name}: ${(d.month||0).toFixed(2)} kWh`).join('\n')}`;
         // Built-in SMTP via ha_tools_email
         await this._sendViaHaToolsEmail(recipient || '', title, plainText, html);
+        this._lastSentOutcome[type] = 'request_completed';
         this._lastSent[type] = nowStr;
         this._showToast(`\u2705 ${typeName} ${L ? 'wys\u0142any!' : 'sent!'}`);
       } catch (e) { this._showToast('\u274C Error: ' + (e.message || 'Check HA logs')); }
