@@ -73,8 +73,8 @@ async function readEnergyHours(hass, hours) {
     let cost = complete && rate && (hass.config?.currency) ? 0 : null;
     // A caller may provide an explicit currency when HA has none.
     if (complete && rate?.currency) cost = 0;
-    for (const [, point] of selected) {
-      const price = rate?.(point.hour, point.weekday);
+    for (const [stamp, point] of selected) {
+      const price = rate?.(point.hour, point.weekday, stamp, point.kwh);
       if (price === null || price === undefined || point.kwh === null) cost = null;
       else if (cost !== null) cost += point.kwh * price;
     }
@@ -291,22 +291,271 @@ class HaEnergyOptimizer extends HTMLElement {
     }
   }
 
+  _getTariffV3() {
+    // HA_TARIFF_V3_START sha256=07247e2da089113db39b29cee5befd839be905af517463ae4b1b33739cf7c0de
+
+// Canonical, side-effect-free tariff model. Consumers vendor this factory inside
+// their own scope. Rates are user settings, never a country's assumed defaults.
+function createEnergyTariffV3(input) {
+  const errors = [];
+  const fail = (path, reason) => errors.push({ path, reason });
+  const record = value => value && typeof value === 'object' && !Array.isArray(value);
+  const finite = value => typeof value === 'number' && Number.isFinite(value);
+  const dateKey = value => {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const stamp = Date.parse(value + 'T00:00:00Z');
+    return Number.isFinite(stamp) && new Date(stamp).toISOString().slice(0, 10) === value;
+  };
+  const monthDay = value => typeof value === 'string' && /^\d{2}-\d{2}$/.test(value) && dateKey('2000-' + value);
+  const timestamp = value => {
+    if (finite(value)) return Number.isFinite(new Date(value).getTime()) ? value : NaN;
+    // Explicit offsets only: never interpret a browser's local clock as UTC.
+    if (typeof value !== 'string' || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value)) return NaN;
+    return Date.parse(value);
+  };
+  const minutes = (value, end = false) => {
+    if (end && value === '24:00') return 1440;
+    if (typeof value !== 'string' || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) return NaN;
+    return Number(value.slice(0, 2)) * 60 + Number(value.slice(3));
+  };
+  const p = record(input) ? input : {};
+  if (!record(input)) fail('profile', 'invalid_profile');
+  if (p.schema !== 1) fail('schema', 'unsupported_schema');
+  if (typeof p.currency !== 'string' || !/^[A-Z]{3}$/.test(p.currency)) fail('currency', 'invalid_currency');
+  if (!['gross', 'net'].includes(p.priceBasis)) fail('priceBasis', 'invalid_price_basis');
+  let formatter;
+  try {
+    if (typeof p.timezone !== 'string' || !p.timezone) throw new Error('timezone');
+    formatter = new Intl.DateTimeFormat('en-CA', { timeZone: p.timezone,
+      calendar: 'gregory', numberingSystem: 'latn', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  } catch (_) { fail('timezone', 'invalid_timezone'); }
+  const clock = record(p.clock) ? { ...p.clock } : {};
+  if (!['civil', 'fixed'].includes(clock.mode)) fail('clock.mode', 'invalid_clock');
+  if (clock.mode === 'fixed' && (!Number.isInteger(clock.offsetMinutes) || clock.offsetMinutes < -840 || clock.offsetMinutes > 840))
+    fail('clock.offsetMinutes', 'invalid_offset');
+  for (const key of ['validFrom', 'validTo']) if (p[key] != null && !dateKey(p[key])) fail(key, 'invalid_date');
+  if (dateKey(p.validFrom) && dateKey(p.validTo) && p.validFrom > p.validTo) fail('validTo', 'reversed_validity');
+  if (p.fixedMonthly != null && (!finite(p.fixedMonthly) || p.fixedMonthly < 0)) fail('fixedMonthly', 'invalid_fee');
+  const energyRate = (value, path) => {
+    if (!finite(value) || (value < 0 && p.allowNegativeEnergy !== true)) fail(path, 'invalid_rate');
+    return value;
+  };
+  const variableRate = (value, path) => {
+    if (value == null) return null;
+    if (!finite(value) || value < 0) fail(path, 'invalid_fee');
+    return value;
+  };
+  const zones = new Map();
+  if (!Array.isArray(p.zones) || !p.zones.length || p.zones.length > 32) fail('zones', 'invalid_zones');
+  for (const [i, z] of (Array.isArray(p.zones) ? p.zones : []).entries()) {
+    const path = `zones.${i}`;
+    if (!record(z) || typeof z.id !== 'string' || !/^[\w-]{1,64}$/.test(z.id) || zones.has(z.id)) {
+      fail(path, 'invalid_zone'); continue;
+    }
+    zones.set(z.id, { zone: z.id, label: typeof z.label === 'string' ? z.label : z.id,
+      energyRate: energyRate(z.energyRate, path + '.energyRate'), variableRate: variableRate(z.variableRate, path + '.variableRate') });
+  }
+  const defaultZone = p.defaultZone == null ? null : p.defaultZone;
+  if (defaultZone !== null && !zones.has(defaultZone)) fail('defaultZone', 'unknown_zone');
+  const parseRules = (value, kind) => {
+    if (value == null) return [];
+    if (!Array.isArray(value) || value.length > 512) { fail(kind, 'invalid_rules'); return []; }
+    return value.map((r, i) => {
+      const path = `${kind}.${i}`;
+      if (!record(r)) { fail(path, 'invalid_rule'); return null; }
+      if (!zones.has(r.zone)) fail(path + '.zone', 'unknown_zone');
+      const priority = r.priority == null ? 0 : r.priority;
+      if (!Number.isInteger(priority) || Math.abs(priority) > 10000) fail(path + '.priority', 'invalid_priority');
+      let weekdays = null, dates = null, season = null;
+      if (r.weekdays != null) {
+        if (!Array.isArray(r.weekdays) || !r.weekdays.length || r.weekdays.some(d => !Number.isInteger(d) || d < 0 || d > 6)) fail(path + '.weekdays', 'invalid_weekdays');
+        else weekdays = new Set(r.weekdays);
+      }
+      if (r.dates != null || kind === 'exceptions') {
+        if (!Array.isArray(r.dates) || !r.dates.length || r.dates.length > 3660 || r.dates.some(d => !dateKey(d))) fail(path + '.dates', 'invalid_dates');
+        else dates = new Set(r.dates);
+      }
+      if (r.season != null) {
+        if (!record(r.season) || !monthDay(r.season.from) || !monthDay(r.season.to)) fail(path + '.season', 'invalid_season');
+        else season = { from: r.season.from, to: r.season.to };
+      }
+      const intervals = [];
+      if (!Array.isArray(r.intervals) || !r.intervals.length || r.intervals.length > 48) fail(path + '.intervals', 'invalid_intervals');
+      else for (const [j, interval] of r.intervals.entries()) {
+        const from = minutes(interval?.from), to = minutes(interval?.to, true);
+        if (!Number.isFinite(from) || !Number.isFinite(to) || from === to) fail(`${path}.intervals.${j}`, 'invalid_interval');
+        else intervals.push({ from, to });
+      }
+      return { zone: r.zone, priority, weekdays, dates, season, intervals };
+    }).filter(Boolean);
+  };
+  const rules = parseRules(p.rules, 'rules'), exceptions = parseRules(p.exceptions, 'exceptions');
+  let dynamic = null;
+  if (p.dynamic != null) {
+    if (!record(p.dynamic) || !Array.isArray(p.dynamic.intervals) || p.dynamic.intervals.length > 10000) fail('dynamic', 'invalid_dynamic');
+    else {
+      dynamic = p.dynamic.intervals.map((r, i) => {
+        const from = timestamp(r?.from), to = timestamp(r?.to);
+        if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) fail(`dynamic.intervals.${i}`, 'invalid_interval');
+        return { from, to, zone: 'dynamic', label: 'Dynamic',
+          energyRate: energyRate(r?.energyRate, `dynamic.intervals.${i}.energyRate`),
+          variableRate: variableRate(r?.variableRate, `dynamic.intervals.${i}.variableRate`) };
+      }).sort((a, b) => a.from - b.from);
+      for (let i = 1; i < dynamic.length; i++) if (dynamic[i].from < dynamic[i - 1].to) fail('dynamic', 'overlapping_prices');
+    }
+  }
+  const valid = errors.length === 0;
+  const unavailable = reason => ({ available: false, reason });
+  const localParts = stamp => {
+    if (clock.mode === 'fixed') {
+      const d = new Date(stamp + clock.offsetMinutes * 60000);
+      return { date: d.toISOString().slice(0, 10), minute: d.getUTCHours() * 60 + d.getUTCMinutes() };
+    }
+    const values = Object.fromEntries(formatter.formatToParts(stamp).filter(v => v.type !== 'literal').map(v => [v.type, v.value]));
+    return { date: `${values.year}-${values.month}-${values.day}`, minute: Number(values.hour) * 60 + Number(values.minute) };
+  };
+  const matchesDay = (rule, day) => {
+    if (rule.dates && !rule.dates.has(day)) return false;
+    if (rule.weekdays && !rule.weekdays.has(new Date(day + 'T00:00:00Z').getUTCDay())) return false;
+    const mmdd = day.slice(5), s = rule.season;
+    return !s || (s.from <= s.to ? mmdd >= s.from && mmdd <= s.to : mmdd >= s.from || mmdd <= s.to);
+  };
+  const matches = (rule, day, minute) => rule.intervals.some(interval => {
+    if (interval.from < interval.to) return minute >= interval.from && minute < interval.to && matchesDay(rule, day);
+    if (minute >= interval.from) return matchesDay(rule, day);
+    if (minute < interval.to) {
+      const previousDay = new Date(Date.parse(day + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10);
+      return matchesDay(rule, previousDay);
+    }
+    return false;
+  });
+  const rateAt = instant => {
+    if (!valid) return unavailable('invalid_profile');
+    const stamp = timestamp(instant);
+    if (!Number.isFinite(stamp)) return unavailable('invalid_timestamp');
+    const local = localParts(stamp);
+    if ((p.validFrom && local.date < p.validFrom) || (p.validTo && local.date > p.validTo)) return unavailable('outside_validity');
+    if (dynamic) {
+      // Price periods use absolute timestamps, so repeated DST hours are distinct.
+      let low = 0, high = dynamic.length;
+      while (low < high) { const mid = (low + high) >>> 1; if (dynamic[mid].from <= stamp) low = mid + 1; else high = mid; }
+      const price = dynamic[low - 1];
+      return price && stamp < price.to ? { available: true, ...price, date: local.date } : unavailable('missing_rate');
+    }
+    const special = exceptions.filter(r => matches(r, local.date, local.minute));
+    const candidates = special.length ? special : rules.filter(r => matches(r, local.date, local.minute));
+    let zone = defaultZone;
+    if (candidates.length) {
+      const priority = Math.max(...candidates.map(r => r.priority));
+      const ids = new Set(candidates.filter(r => r.priority === priority).map(r => r.zone));
+      if (ids.size !== 1) return unavailable('ambiguous_rules');
+      zone = [...ids][0];
+    }
+    return zones.has(zone) ? { available: true, ...zones.get(zone), date: local.date } : unavailable('missing_rate');
+  };
+  const samePrice = (a, b) => a.available && b.available && a.energyRate === b.energyRate && a.variableRate === b.variableRate;
+  const priceBucket = row => {
+    const from = timestamp(row?.from), to = timestamp(row?.to), kwh = row?.kwh;
+    if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from || to - from > 86400000 || !finite(kwh) || kwh < 0)
+      return { available: false, reason: 'invalid_measurement', from, to };
+    const first = rateAt(from);
+    if (!first.available) return { ...first, from, to };
+    // Never apportion an aggregate measurement across different prices. Every
+    // minute boundary and every dynamic boundary is checked, including the end.
+    const checkpoints = new Set([to - 1]);
+    for (let t = (Math.floor(from / 60000) + 1) * 60000; t < to; t += 60000) checkpoints.add(t);
+    if (dynamic) for (const price of dynamic) for (const t of [price.from, price.to]) if (t > from && t < to) checkpoints.add(t);
+    for (const stamp of checkpoints) {
+      const next = rateAt(stamp);
+      if (!next.available) return { ...next, from, to };
+      if (!samePrice(first, next)) return { available: false, reason: 'mixed_rate_bucket', from, to };
+    }
+    const energyCost = kwh * first.energyRate, variableCost = first.variableRate === null ? null : kwh * first.variableRate;
+    return { available: true, from, to, kwh, zone: first.zone, energyRate: first.energyRate,
+      variableRate: first.variableRate, energyCost, variableCost, usageCost: variableCost === null ? null : energyCost + variableCost };
+  };
+  const priceBuckets = (rows, coverage) => {
+    const issues = [], priced = [];
+    if (!valid) issues.push({ reason: 'invalid_profile' });
+    if (!Array.isArray(rows) || !rows.length) issues.push({ reason: 'no_data' });
+    for (const [index, row] of (Array.isArray(rows) ? rows : []).entries()) {
+      const result = priceBucket(row); priced.push({ index, ...result });
+      if (!result.available) issues.push({ index, reason: result.reason });
+    }
+    const ordered = [...priced].sort((a, b) => a.from - b.from);
+    for (let i = 1; i < ordered.length; i++) if (ordered[i].from < ordered[i - 1].to) issues.push({ index: ordered[i].index, reason: 'overlapping_measurement' });
+    if (coverage != null) {
+      const from = timestamp(coverage.from), to = timestamp(coverage.to);
+      if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) issues.push({ reason: 'invalid_coverage' });
+      else if (!ordered.length || ordered[0].from !== from || ordered.at(-1).to !== to || ordered.some((r, i) => i && r.from !== ordered[i - 1].to))
+        issues.push({ reason: 'missing_measurement' });
+    }
+    const complete = !issues.length;
+    const energyCost = complete ? priced.reduce((sum, r) => sum + r.energyCost, 0) : null;
+    const variableCost = complete && priced.every(r => r.variableCost !== null) ? priced.reduce((sum, r) => sum + r.variableCost, 0) : null;
+    return { complete, issues, rows: priced, kwh: complete ? priced.reduce((sum, r) => sum + r.kwh, 0) : null,
+      energyCost, variableCost, usageCost: energyCost !== null && variableCost !== null ? energyCost + variableCost : null,
+      currency: p.currency ?? null, priceBasis: p.priceBasis ?? null, timezone: p.timezone ?? null,
+      clock: { ...clock }, fixedMonthly: valid && finite(p.fixedMonthly) ? p.fixedMonthly : null };
+  };
+  return { valid, errors, rateAt, priceBuckets };
+}
+
+function energyTariffProfileV3(config, haConfig, kind) {
+  const c = config || {}, h = haConfig || {};
+  if (Object.hasOwn(c, 'tariff_profile')) return c.tariff_profile;
+  const isOptimizer = kind === 'optimizer';
+  const number = value => typeof value === 'number' && Number.isFinite(value) ? value : null;
+  // Older Optimizer YAML accepted decimal strings. Preserve those explicit
+  // prices, while refusing empty strings, booleans and automatic sample rates.
+  const optimizerNumber = value => number(value) ?? (typeof value === 'string' && value.trim() && Number.isFinite(Number(value)) ? Number(value) : null);
+  const mode = c.energy_tariff_mode || (isOptimizer && c.off_peak_rate != null ? 'day_night' : 'flat');
+  const start = c.energy_day_hour_start ?? c.peak_hours?.start ?? 6;
+  const end = c.energy_night_hour_start ?? c.peak_hours?.end ?? 22;
+  const clockTime = value => Number.isInteger(value) && value >= 0 && value <= 24 ? `${String(value).padStart(2, '0')}:00` : 'invalid';
+  const day = start === end ? [{ from: '00:00', to: '24:00' }] : [{ from: clockTime(start), to: clockTime(end) }];
+  const zone = (id, energyRate) => ({ id, label: id, energyRate, variableRate: null });
+  const profile = { schema: 1, name: 'Configured tariff', currency: c.currency || h.currency || '',
+    timezone: h.time_zone || '', clock: { mode: 'civil' }, priceBasis: c.energy_price_basis || 'gross',
+    fixedMonthly: null, defaultZone: 'flat', zones: [], rules: [] };
+  if (mode === 'flat') profile.zones = [zone('flat', isOptimizer ? optimizerNumber(c.peak_rate ?? c.energy_price) : number(c.energy_price))];
+  else if (mode === 'day_night') {
+    profile.zones = [zone('day', isOptimizer ? optimizerNumber(c.peak_rate ?? c.energy_price) : number(c.energy_price_day)),
+      zone('night', isOptimizer ? optimizerNumber(c.off_peak_rate) : number(c.energy_price_night))];
+    profile.defaultZone = 'night'; profile.rules = [{ zone: 'day', intervals: day }];
+  } else if (mode === 'weekday_weekend') {
+    profile.zones = [zone('weekday', number(c.energy_price_weekday)), zone('weekend', number(c.energy_price_weekend))];
+    profile.defaultZone = 'weekday'; profile.rules = [{ zone: 'weekend', weekdays: [0, 6], intervals: [{ from: '00:00', to: '24:00' }] }];
+  } else if (mode === 'mixed') {
+    profile.zones = [zone('wd_day', number(c.energy_price_wd_day)), zone('wd_night', number(c.energy_price_wd_night)),
+      zone('we_day', number(c.energy_price_we_day)), zone('we_night', number(c.energy_price_we_night))];
+    profile.defaultZone = 'wd_night'; profile.rules = [
+      { zone: 'wd_day', weekdays: [1, 2, 3, 4, 5], intervals: day },
+      { zone: 'we_night', weekdays: [0, 6], intervals: [{ from: '00:00', to: '24:00' }] },
+      { zone: 'we_day', weekdays: [0, 6], priority: 1, intervals: day }];
+  } else profile.schema = 0;
+  return profile;
+}
+const profile = energyTariffProfileV3(this._config, this._hass?.config, 'optimizer');
+const key = JSON.stringify(profile);
+if (this._tariffV3Model && this._tariffV3Key === key) return this._tariffV3Model;
+this._tariffV3Key = key;
+return (this._tariffV3Model = createEnergyTariffV3(profile));
+// HA_TARIFF_V3_END
+  }
+
+  _todayTariffCosts() {
+    const model = this._energyModel;
+    if (!model?.points) return this._getTariffV3().priceBuckets([]);
+    const rows = [...model.points].filter(([stamp]) => stamp >= model.todayStart && stamp < model.end)
+      .map(([stamp, point]) => ({ from: stamp, to: stamp + ENERGY_HOUR, kwh: point.kwh }));
+    return this._getTariffV3().priceBuckets(rows, { from: model.todayStart, to: model.end });
+  }
+
   _generateRecommendations() {
+    // Kept as an internal navigation compatibility hook. No hypothetical savings.
     this._recommendations = [];
-    if (!this._hasRealData) return;
-    const peakRate = this._config.peak_rate == null || this._config.peak_rate === '' ? NaN : Number(this._config.peak_rate);
-    const offPeakRate = this._config.off_peak_rate == null || this._config.off_peak_rate === '' ? NaN : Number(this._config.off_peak_rate);
-    if (!Number.isFinite(peakRate) || !Number.isFinite(offPeakRate) || peakRate <= offPeakRate) return;
-    const start = this._config.peak_hours?.start ?? 6;
-    const end = this._config.peak_hours?.end ?? 22;
-    const peakKwh = this._energyData.slice(start, end).reduce((sum, value) => sum + (value ?? 0), 0);
-    if (peakKwh <= 0) return;
-    this._recommendations = [{
-      id: 1, icon: '↘', title: this._text('Consider shifting flexible loads to off-peak', 'Rozważ przeniesienie elastycznego zużycia poza godziny szczytu'),
-      description: this._text(`Measured grid import during configured peak hours: ${peakKwh.toFixed(2)} kWh today. This is a scenario, not a measured appliance saving.`, `Zmierzony import z sieci w skonfigurowanych godzinach szczytu: ${peakKwh.toFixed(2)} kWh dzisiaj. To scenariusz, a nie zmierzona oszczędność urządzeń.`),
-      savings: peakKwh * 0.3 * (peakRate - offPeakRate),
-      difficulty: 'manual', impact: 'medium'
-    }];
   }
 
   _generateComparisonData() {
@@ -985,7 +1234,7 @@ canvas {
         <div class="tabs" role="tablist">
           <button class="tab-button active" data-tab="dashboard" role="tab" aria-selected="${this._currentTab === 'dashboard'}">${this._text("Dashboard", "Przegląd")}</button>
           <button class="tab-button" data-tab="patterns" role="tab" aria-selected="${this._currentTab === 'patterns'}">${this._text("Patterns", "Wzorce")}</button>
-          <button class="tab-button" data-tab="recommendations" role="tab" aria-selected="${this._currentTab === 'recommendations'}">${this._text("Recommendations", "Zalecenia")}</button>
+          <button class="tab-button" data-tab="recommendations" role="tab" aria-selected="${this._currentTab === 'recommendations'}">${this._text("Tariff costs", "Koszty taryfy")}</button>
           <button class="tab-button" data-tab="compare" role="tab" aria-selected="${this._currentTab === 'compare'}">${this._text("Compare", "Porównanie")}</button>
         </div>
 
@@ -999,23 +1248,17 @@ canvas {
             <div class="summary-card alt">
               <span class="summary-label">${this._text("Cost Estimate", "Koszt okresu")}</span>
               <div class="summary-value">${this._calculateTodayCost() === null ? 'N/A' : this._calculateTodayCost().toFixed(2)}</div>
-              <span class="summary-label">${_esc(this._config.currency || this._hass?.config?.currency || '')}${(this._config.off_peak_rate && this._config.peak_rate !== this._config.off_peak_rate) ? this._text(' (configured dual tariff)', ' (skonfigurowana taryfa dwustrefowa)') : ''}</span>
+              <span class="summary-label">${_esc(this._todayTariffCosts().currency || '')} ${this._text('energy only', 'sama energia')}</span>
             </div>
-            ${(this._config.off_peak_rate && this._config.peak_rate !== this._config.off_peak_rate) ? `
-            <div class="summary-card" style="border-left:3px solid var(--success)">
-              <span class="summary-label">${this._text("Potential Savings", "Możliwe oszczędności")}</span>
-              <div class="summary-value">${this._calculatePotentialSavings() === null ? 'N/A' : this._calculatePotentialSavings().toFixed(2)}</div>
-              <span class="summary-label">${_esc(this._config.currency || this._hass?.config?.currency || '')}${this._text('/day scenario for 30% shifted', '/dzień w scenariuszu przeniesienia 30% zużycia')}</span>
-            </div>` : `
             <div class="summary-card warn">
               <span class="summary-label">${this._text("Peak Hour", "Godzina szczytu")}</span>
               <div class="summary-value">${this._getPeakHour() === null ? 'N/A' : this._getPeakHour() + ':00'}</div>
               <span class="summary-label">${this._text("Highest consumption", "Największe zużycie")}</span>
-            </div>`}
+            </div>
             <div class="summary-card">
-              <span class="summary-label">${this._text("Efficiency Score", "Wskaźnik efektywności")}</span>
-              <div class="summary-value">N/A</div>
-              <span class="summary-label">/ 100</span>
+              <span class="summary-label">${this._text("Measured hours", "Zmierzone godziny")}</span>
+              <div class="summary-value">${this._todayTariffCosts().rows.length}</div>
+              <span class="summary-label">${this._text("Completed Recorder buckets", "Zakończone przedziały Recorder")}</span>
             </div>
           </div>
 
@@ -1555,20 +1798,28 @@ async _drawComparisonChart() {
   _renderRecommendations() {
     const container = this.shadowRoot.getElementById('recommendations-list');
     if (!container) return;
-    if (!this._recommendations.length) { container.textContent = this._text('No evidence-based savings scenario available. A time-dependent tariff and measured consumption are needed to compare peak and off-peak hours.', 'Brak scenariusza oszczędności opartego na danych. Porównanie godzin szczytu i poza szczytem wymaga taryfy zależnej od czasu oraz zmierzonego zużycia.'); return; }
-    container.innerHTML = this._recommendations.map(rec => `
-      <div class="recommendation ${_esc(rec.impact)}">
-        <div class="rec-icon">${_esc(rec.icon)}</div>
-        <div class="rec-content">
-          <div class="rec-title">${_esc(rec.title)}</div>
-          <div class="rec-description">${_esc(rec.description)}</div>
-          <div class="rec-footer">
-            <div class="savings-badge">${this._text('Scenario', 'Scenariusz')}: ${_esc(rec.savings.toFixed(2))} ${_esc(this._config.currency || this._hass?.config?.currency || '')}${this._text('/day', '/dzień')}</div>
-            <div class="difficulty-badge">${rec.difficulty === 'manual' ? this._text('manual', 'ręcznie') : _esc(rec.difficulty)}</div>
-          </div>
-        </div>
-      </div>
-    `).join('');
+    const result = this._todayTariffCosts();
+    const number = value => typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : this._text('No data', 'Brak danych');
+    const unit = _esc(result.currency || '');
+    const groups = new Map();
+    if (result.complete) for (const row of result.rows) {
+      const key = `${row.zone}|${row.energyRate}|${row.variableRate}`;
+      if (!groups.has(key)) groups.set(key, { ...row, kwh: 0, energyCost: 0, variableCost: row.variableCost === null ? null : 0 });
+      const group = groups.get(key); group.kwh += row.kwh; group.energyCost += row.energyCost;
+      if (group.variableCost !== null) group.variableCost += row.variableCost;
+    }
+    const profile = this._config.tariff_profile;
+    container.innerHTML = `<h3>${this._text('Tariff costs', 'Koszty taryfy')}</h3>
+      <p>${this._text('Measured grid import × configured prices. Energy and fees are shown separately.', 'Zmierzony import z sieci × skonfigurowane stawki. Energia i opłaty są pokazane osobno.')}</p>
+      <p>${_esc(this._todayWindow?.start || '')} — ${_esc(this._todayWindow?.end || '')} · ${_esc(result.timezone || '')} · ${result.priceBasis === 'net' ? this._text('net', 'netto') : this._text('gross', 'brutto')}</p>
+      ${!result.complete ? `<p role="status">${this._text('Cost unavailable: incomplete measurements or tariff. Configure a valid tariff and check source coverage.', 'Koszt niedostępny: niepełne pomiary lub taryfa. Skonfiguruj poprawną taryfę i sprawdź kompletność źródeł.')}</p>` : `
+      <div style="max-width:100%;overflow:auto"><table><caption>${this._text('Measured consumption by tariff zone', 'Zmierzony import według stref taryfy')}</caption><thead><tr>
+        <th>${this._text('Zone', 'Strefa')}</th><th>kWh</th><th>${this._text('Energy rate', 'Stawka energii')} (${unit}/kWh)</th><th>${this._text('Energy cost', 'Koszt energii')} (${unit})</th><th>${this._text('Variable fees', 'Opłaty zmienne')} (${unit})</th>
+      </tr></thead><tbody>${[...groups.values()].map(row => `<tr><th scope="row">${_esc(profile?.zones?.find(zone => zone.id === row.zone)?.label || row.zone)}</th><td>${number(row.kwh)}</td><td>${number(row.energyRate)}</td><td>${number(row.energyCost)}</td><td>${number(row.variableCost)}</td></tr>`).join('')}</tbody></table></div>`}
+      <p><b>${this._text('Energy cost', 'Koszt energii')}: ${number(result.energyCost)} ${unit}</b></p>
+      <p>${this._text('Variable fees', 'Opłaty zmienne')}: ${number(result.variableCost)} ${unit}</p>
+      <p>${this._text('Usage cost (energy + variable fees)', 'Koszt zużycia (energia + opłaty zmienne)')}: ${number(result.usageCost)} ${unit}</p>
+      <p>${this._text('Fixed monthly fees (shown separately, not added to this period)', 'Stałe opłaty miesięczne (osobno, nie doliczane do tego okresu)')}: ${number(result.fixedMonthly)} ${unit}</p>`;
   }
 
   _calculateTodayUsage() {
@@ -1576,33 +1827,7 @@ async _drawComparisonChart() {
   }
 
   _calculateTodayCost() {
-    const configuredPeak = this._config.peak_rate ?? this._config.energy_price;
-    const peakRate = configuredPeak == null || configuredPeak === '' ? NaN : Number(configuredPeak);
-    const offPeakRate = Number(this._config.off_peak_rate ?? peakRate);
-    if (!Number.isFinite(peakRate) || !Number.isFinite(offPeakRate) || peakRate < 0 || offPeakRate < 0 || !(this._config.currency || this._hass?.config?.currency)) return null;
-    const peakStart = this._config.peak_hours?.start || 6;
-    const peakEnd = this._config.peak_hours?.end || 22;
-    let cost = 0;
-    this._energyData.forEach((kwh, hour) => {
-      const rate = (hour >= peakStart && hour < peakEnd) ? peakRate : offPeakRate;
-      cost += (kwh ?? 0) * rate;
-    });
-    return cost;
-  }
-
-  _calculatePotentialSavings() {
-    const peakRate = this._config.peak_rate == null || this._config.peak_rate === '' ? NaN : Number(this._config.peak_rate);
-    const offPeakRate = this._config.off_peak_rate == null || this._config.off_peak_rate === '' ? NaN : Number(this._config.off_peak_rate);
-    if (!Number.isFinite(peakRate) || !Number.isFinite(offPeakRate) || peakRate <= offPeakRate) return null;
-    const peakStart = this._config.peak_hours?.start || 6;
-    const peakEnd = this._config.peak_hours?.end || 22;
-    let savings = 0;
-    this._energyData.forEach((kwh, hour) => {
-      if (hour >= peakStart && hour < peakEnd) {
-        savings += (kwh ?? 0) * (peakRate - offPeakRate) * 0.3;
-      }
-    });
-    return savings;
+    return this._todayTariffCosts().energyCost;
   }
 
   _getPeakHour() {

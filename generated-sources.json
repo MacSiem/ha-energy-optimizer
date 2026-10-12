@@ -4,19 +4,23 @@
   "sources": [
     {
       "path": "src/optimizer.js",
-      "sha256": "d16486e8bd7041cb1e4f584cf242b3b9727958a8590ecae0e331985c2d19de20"
+      "sha256": "5d551b3a29a79f121fba4900230793bbce2e489d443c85439547e42f2f198618"
     },
     {
       "path": "src/energy-insights.js",
-      "sha256": "0323e899df28d690c8e5ca8aeae3c16ca11d56d4bf34a03aed42e532cfdb76cc"
+      "sha256": "56bba42ec5181e485ce0806f02e842157400ff17b67c81be8e21c2d9ef55bc78"
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "975b11f39d3c75eca8ad5374e7867f7d23e16c3c4ef3b0e8a12f530734805dcd"
+      "sha256": "42348fc63b7260e4f926f3ddc473b80b608e6fdf614033bd55a3f25d64ffeec1"
     },
     {
       "path": "src/chart-vendor.js",
       "sha256": "79ae4ac54fc3d7549c5ac2492acb9947d3996f440cf21bcb85577648fd05c1ba"
     }
-  ]
+  ],
+  "sharedTariff": {
+    "path": "shared/ha-tools-energy-tariff.js",
+    "sha256": "07247e2da089113db39b29cee5befd839be905af517463ae4b1b33739cf7c0de"
+  }
 }

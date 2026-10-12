@@ -208,4 +208,40 @@ function createEnergyTariffV3(input) {
   return { valid, errors, rateAt, priceBuckets };
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { createEnergyTariffV3 };
+function energyTariffProfileV3(config, haConfig, kind) {
+  const c = config || {}, h = haConfig || {};
+  if (Object.hasOwn(c, 'tariff_profile')) return c.tariff_profile;
+  const isOptimizer = kind === 'optimizer';
+  const number = value => typeof value === 'number' && Number.isFinite(value) ? value : null;
+  // Older Optimizer YAML accepted decimal strings. Preserve those explicit
+  // prices, while refusing empty strings, booleans and automatic sample rates.
+  const optimizerNumber = value => number(value) ?? (typeof value === 'string' && value.trim() && Number.isFinite(Number(value)) ? Number(value) : null);
+  const mode = c.energy_tariff_mode || (isOptimizer && c.off_peak_rate != null ? 'day_night' : 'flat');
+  const start = c.energy_day_hour_start ?? c.peak_hours?.start ?? 6;
+  const end = c.energy_night_hour_start ?? c.peak_hours?.end ?? 22;
+  const clockTime = value => Number.isInteger(value) && value >= 0 && value <= 24 ? `${String(value).padStart(2, '0')}:00` : 'invalid';
+  const day = start === end ? [{ from: '00:00', to: '24:00' }] : [{ from: clockTime(start), to: clockTime(end) }];
+  const zone = (id, energyRate) => ({ id, label: id, energyRate, variableRate: null });
+  const profile = { schema: 1, name: 'Configured tariff', currency: c.currency || h.currency || '',
+    timezone: h.time_zone || '', clock: { mode: 'civil' }, priceBasis: c.energy_price_basis || 'gross',
+    fixedMonthly: null, defaultZone: 'flat', zones: [], rules: [] };
+  if (mode === 'flat') profile.zones = [zone('flat', isOptimizer ? optimizerNumber(c.peak_rate ?? c.energy_price) : number(c.energy_price))];
+  else if (mode === 'day_night') {
+    profile.zones = [zone('day', isOptimizer ? optimizerNumber(c.peak_rate ?? c.energy_price) : number(c.energy_price_day)),
+      zone('night', isOptimizer ? optimizerNumber(c.off_peak_rate) : number(c.energy_price_night))];
+    profile.defaultZone = 'night'; profile.rules = [{ zone: 'day', intervals: day }];
+  } else if (mode === 'weekday_weekend') {
+    profile.zones = [zone('weekday', number(c.energy_price_weekday)), zone('weekend', number(c.energy_price_weekend))];
+    profile.defaultZone = 'weekday'; profile.rules = [{ zone: 'weekend', weekdays: [0, 6], intervals: [{ from: '00:00', to: '24:00' }] }];
+  } else if (mode === 'mixed') {
+    profile.zones = [zone('wd_day', number(c.energy_price_wd_day)), zone('wd_night', number(c.energy_price_wd_night)),
+      zone('we_day', number(c.energy_price_we_day)), zone('we_night', number(c.energy_price_we_night))];
+    profile.defaultZone = 'wd_night'; profile.rules = [
+      { zone: 'wd_day', weekdays: [1, 2, 3, 4, 5], intervals: day },
+      { zone: 'we_night', weekdays: [0, 6], intervals: [{ from: '00:00', to: '24:00' }] },
+      { zone: 'we_day', weekdays: [0, 6], priority: 1, intervals: day }];
+  } else profile.schema = 0;
+  return profile;
+}
+
+if (typeof module !== 'undefined' && module.exports) module.exports = { createEnergyTariffV3, energyTariffProfileV3 };
