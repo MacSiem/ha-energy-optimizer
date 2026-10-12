@@ -8,6 +8,161 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
   // Component-local persistence retains this card's existing localStorage keys.
   const haToolsPersistence = { _cache: {}, _hass: null, setHass(h) { this._hass = h; }, async save(k, d) { try { localStorage.setItem('ha-tools-' + k, JSON.stringify(d)); } catch(e) { console.debug('[ha-energy-email] caught:', e); } }, async load(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } }, loadSync(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } } };
 
+// BEGIN vendored ha-tools-email-history factory
+// Pure ES-module factory. Vendor this function inside each consumer's own IIFE.
+// Neither the controller nor renderer sends, saves, retries, or reads on open.
+function createHaToolsEmailHistory({ escape = value => String(value == null ? '' : value).replace(/[&<>"']/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]), clock = () => Date.now(),
+  setTimer = setTimeout, clearTimer = clearTimeout, changed = () => {} } = {}) {
+  const kinds = new Set(['manual', 'test', 'log_digest', 'energy_report']);
+  const cadences = new Set(['daily', 'weekly', 'monthly']);
+  const outcomes = new Set(['accepted_by_smtp', 'preparation_failed', 'authentication_failed',
+    'recipients_refused', 'partial_acceptance', 'tls_failed', 'transport_outcome_unknown',
+    'send_failed', 'cancelled_outcome_unknown', 'outcome_unknown']);
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const periodPattern = /^(daily:\d{4}-\d{2}-\d{2}|weekly:\d{4}-W\d{2}|monthly:\d{4}-\d{2})$/;
+  let epoch = 0, context = null, pending = null, cancelPending = null;
+  const empty = status => ({ status, attempts: [], limit: 128, retentionDays: 90, observedAt: null });
+  const controller = { state: empty('idle'), timeoutMs: 10000 };
+  const publish = state => { controller.state = state; changed(); };
+  controller.discard = () => {
+    epoch++;
+    if (cancelPending) cancelPending();
+    cancelPending = null; pending = null;
+    publish(empty('idle'));
+  };
+  controller.setContext = hass => {
+    const next = { admin: hass?.user?.is_admin === true,
+      user: hass?.user?.id ?? hass?.user, connection: hass?.connection ?? null,
+      online: !!hass && hass.connected !== false && hass.connection?.connected !== false,
+      timezone: typeof hass?.config?.time_zone === 'string' ? hass.config.time_zone : null };
+    if (context && (context.admin !== next.admin || context.user !== next.user ||
+      context.connection !== next.connection || context.online !== next.online)) controller.discard();
+    context = next;
+    return next.admin && next.online;
+  };
+  function decode(value) {
+    if (!value || value.schema !== 1 || value.limit !== 128 || value.retention_days !== 90 ||
+      !Array.isArray(value.attempts)) return empty('unconfirmed');
+    const now = clock(), cutoff = now - 90 * 86400000, seen = new Set(), rows = [];
+    let partial = value.attempts.length > 128;
+    for (const raw of value.attempts.slice(0, 128)) {
+      const stamp = typeof raw?.timestamp === 'string' && raw.timestamp.length <= 64 &&
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}:\d{2})$/.test(raw.timestamp) ? Date.parse(raw.timestamp) : NaN;
+      if (!raw || typeof raw.id !== 'string' || !uuid.test(raw.id) ||
+        !Number.isFinite(stamp) || stamp < cutoff || stamp > now || seen.has(raw.id.toLowerCase())) {
+        partial = true; continue;
+      }
+      seen.add(raw.id.toLowerCase());
+      const source = ['manual', 'schedule', 'unknown'].includes(raw.source) ? raw.source : 'unknown';
+      const kind = kinds.has(raw.kind) ? raw.kind : null;
+      const cadence = cadences.has(raw.cadence) ? raw.cadence : null;
+      const period = typeof raw.period === 'string' && periodPattern.test(raw.period) ? raw.period : null;
+      const scheduleRef = typeof raw.schedule_ref === 'string' && /^[0-9a-f]{64}$/.test(raw.schedule_ref) ? raw.schedule_ref : null;
+      const recipientCount = Number.isInteger(raw.recipient_count) && raw.recipient_count >= 0 && raw.recipient_count <= 100000 ? raw.recipient_count : null;
+      const outcome = outcomes.has(raw.outcome) ? raw.outcome : 'outcome_unknown';
+      if (source !== raw.source || kind !== raw.kind || cadence !== raw.cadence || period !== raw.period ||
+        scheduleRef !== raw.schedule_ref || recipientCount !== raw.recipient_count || outcome !== raw.outcome) partial = true;
+      rows.push({ id: raw.id, timestamp: raw.timestamp, source, kind, cadence, period,
+        schedule_ref: scheduleRef, recipient_count: recipientCount, outcome });
+    }
+    return { ...empty(partial ? 'partial' : 'ready'), attempts: rows, observedAt: new Date(now).toISOString() };
+  }
+  controller.refresh = hass => {
+    if (!controller.setContext(hass)) return Promise.resolve(controller.state);
+    if (pending) return pending;
+    const token = ++epoch;
+    publish(empty('loading'));
+    let timer;
+    const invalidated = new Promise(resolve => { cancelPending = () => resolve({ stale: true }); });
+    const deadline = new Promise(resolve => { timer = setTimer(() => resolve({ timeout: true }), controller.timeoutMs); });
+    const read = Promise.resolve().then(() => {
+      if (token !== epoch) return { stale: true };
+      return hass.callWS({ type: 'ha_tools_email/get_attempt_history' });
+    }).then(value => ({ value }), () => ({ failed: true }));
+    pending = Promise.race([read, deadline, invalidated]).then(result => {
+      clearTimer(timer);
+      if (token !== epoch) return controller.state;
+      pending = null; cancelPending = null;
+      if (result.stale) return controller.state;
+      publish(result.timeout ? empty('unconfirmed') : result.failed ? empty('error') : decode(result.value));
+      // The request epoch changes after the timeout; late results have no side effects.
+      epoch++;
+      return controller.state;
+    });
+    return pending;
+  };
+  controller.render = (language = 'en') => {
+    const pl = language === 'pl', state = controller.state;
+    let timezone = context?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    try { new Intl.DateTimeFormat('en', { timeZone: timezone }).format(); }
+    catch (_) { timezone = 'UTC'; }
+    const labels = pl ? ['Data', 'Źródło', 'Rodzaj', 'Częstotliwość', 'Okres', 'Odbiorcy (liczba)', 'Wynik'] :
+      ['Date', 'Source', 'Kind', 'Cadence', 'Period', 'Recipient count', 'Outcome'];
+    const text = {
+      idle: pl ? 'Nie sprawdzono. Odśwież, aby odczytać historię serwera.' : 'Not checked. Refresh to read server history.',
+      loading: pl ? 'Wczytywanie historii serwera…' : 'Loading server history…',
+      error: pl ? 'Historia niedostępna. Możesz ponownie odczytać dane.' : 'History unavailable. You can read the data again.',
+      unconfirmed: pl ? 'Odczyt niepotwierdzony. Nie pokazujemy wcześniejszych wierszy.' : 'Read unconfirmed. Previous rows are not shown.',
+      partial: pl ? 'Częściowy odczyt: pokazano wyłącznie poprawne metadane.' : 'Partial read: only valid metadata is shown.',
+      ready: state.attempts.length ? (pl ? 'Odczytano zachowaną historię.' : 'Retained history read.') :
+        (pl ? 'Brak zachowanych prób wysyłki.' : 'No retained send attempts.')
+    };
+    const date = stamp => {
+      const dt = new Date(stamp);
+      return `${dt.toLocaleString(pl ? 'pl-PL' : 'en-US', { timeZone: timezone })} (${stamp})`;
+    };
+    const range = state.attempts.map(row => row.timestamp).sort((a, b) => Date.parse(a) - Date.parse(b));
+    const outcomeLabels = pl ? {
+      accepted_by_smtp: 'Przyjęte przez serwer SMTP', preparation_failed: 'Błąd przygotowania',
+      authentication_failed: 'Błąd uwierzytelnienia', recipients_refused: 'Odbiorcy odrzuceni',
+      partial_acceptance: 'Częściowe przyjęcie przez SMTP', tls_failed: 'Błąd TLS',
+      transport_outcome_unknown: 'Nieznany wynik transportu', send_failed: 'Błąd wysyłania',
+      cancelled_outcome_unknown: 'Przerwano; wynik nieznany', outcome_unknown: 'Wynik nieznany'
+    } : {
+      accepted_by_smtp: 'Accepted by SMTP server', preparation_failed: 'Preparation failed',
+      authentication_failed: 'Authentication failed', recipients_refused: 'Recipients refused',
+      partial_acceptance: 'Partial SMTP acceptance', tls_failed: 'TLS failed',
+      transport_outcome_unknown: 'Transport outcome unknown', send_failed: 'Send failed',
+      cancelled_outcome_unknown: 'Cancelled; outcome unknown', outcome_unknown: 'Outcome unknown'
+    };
+    const sourceLabels = pl ? { manual: 'Ręcznie', schedule: 'Harmonogram', unknown: 'Nieznane' } :
+      { manual: 'Manual', schedule: 'Scheduled', unknown: 'Unknown' };
+    const kindLabels = pl ? { manual: 'Wiadomość', test: 'Test', log_digest: 'Raport dziennika', energy_report: 'Raport energii' } :
+      { manual: 'Message', test: 'Test', log_digest: 'Log digest', energy_report: 'Energy report' };
+    const cadenceLabels = pl ? { daily: 'Codziennie', weekly: 'Co tydzień', monthly: 'Co miesiąc' } :
+      { daily: 'Daily', weekly: 'Weekly', monthly: 'Monthly' };
+    const periodLabel = value => {
+      if (value === null) return '—';
+      const [cadence, key] = value.split(':');
+      const prefix = pl ? { daily: 'Dzień', weekly: 'Tydzień', monthly: 'Miesiąc' } :
+        { daily: 'Day', weekly: 'Week', monthly: 'Month' };
+      return `${prefix[cadence]} ${key}`;
+    };
+    const rows = state.attempts.map(row => [date(row.timestamp), sourceLabels[row.source], kindLabels[row.kind] ?? '—', cadenceLabels[row.cadence] ?? '—',
+      periodLabel(row.period), row.recipient_count ?? '—', outcomeLabels[row.outcome]]);
+    return `<section class="attempt-history" aria-label="${pl ? 'Historia prób SMTP' : 'SMTP attempt history'}">
+      <h3>${pl ? 'Serwerowa historia prób wysyłki' : 'Server send attempt history'}</h3>
+      <p>${pl ? 'Metadane prób z serwera Home Assistant. Przyjęcie przez SMTP nie potwierdza dostarczenia. Wyniki nieznane i częściowe nie uruchamiają ponownej wysyłki.' :
+        'Attempt metadata from your Home Assistant server. SMTP acceptance does not confirm delivery. Unknown and partial outcomes do not trigger another send.'}</p>
+      <p>${pl ? 'Strefa czasu widoku' : 'Display timezone'}: ${escape(timezone)}.</p>
+      <p>${pl ? 'Maksymalnie 128 prób / 90 dni. To zachowany zakres, nie pełna historia.' : 'At most 128 attempts / 90 days. This is the retained range, not a complete history.'}</p>
+      <p>${pl ? 'Odczytano o' : 'Read at'}: ${state.observedAt ? escape(date(state.observedAt)) : '—'}. ${pl ? 'Zakres dotyczy chwili odczytu.' : 'The range describes the time of this read.'}</p>
+      <p>${pl ? 'Najstarsza' : 'Oldest'}: ${range.length ? escape(date(range[0])) : '—'} · ${pl ? 'Najnowsza' : 'Newest'}: ${range.length ? escape(date(range[range.length - 1])) : '—'}</p>
+      <div class="history-actions"><button type="button" id="history-refresh" ${state.status === 'loading' ? 'aria-busy="true"' : ''}>${pl ? 'Odśwież historię' : 'Refresh history'}</button>
+      <button type="button" id="history-discard">${pl ? 'Odrzuć odczyt' : 'Discard read'}</button></div>
+      <p role="status" aria-live="polite">${text[state.status]}</p>
+      ${rows.length ? `<table class="history-records" role="table"><caption>${pl ? 'Zachowane metadane prób' : 'Retained attempt metadata'}</caption><thead role="rowgroup"><tr role="row">${labels.map(label => `<th scope="col" role="columnheader">${label}</th>`).join('')}</tr></thead>
+        <tbody role="rowgroup">${rows.map((cells, index) => {
+          const row = state.attempts[index];
+          return `<tr role="row" data-attempt-id="${escape(row.id)}" data-source="${escape(row.source)}" data-kind="${escape(row.kind ?? '')}" data-cadence="${escape(row.cadence ?? '')}" data-period="${escape(row.period ?? '')}" data-outcome="${escape(row.outcome)}">${cells.map((cell, i) => `<td role="cell" data-label="${labels[i]}">${escape(cell)}</td>`).join('')}</tr>`;
+        }).join('')}</tbody></table>` : ''}
+    </section>`;
+  };
+  return controller;
+}
+// END vendored ha-tools-email-history factory
+
   const OWN_SUPPORT_FOOTER = ENERGY_OPTIMIZER_DONATE_HTML;
   const LOCAL_BENTO_CSS = `.donate-section[data-source="own-card"]{margin:24px 0 4px;padding:18px 20px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--bento-border);border-radius:var(--bento-radius-sm);background:var(--bento-primary-light);color:var(--bento-text)}.donate-section[data-source="own-card"] .donate-text{display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px}.donate-section[data-source="own-card"] .donate-buttons{display:flex;flex-wrap:wrap;gap:8px}.donate-section[data-source="own-card"] a{color:var(--bento-primary);font-weight:700;text-decoration:none}`;
 
@@ -55,6 +210,7 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         notify_service: '',
       };
       this._activeTab = 'overview';
+      this._attemptHistory = createHaToolsEmailHistory({ escape: _esc, changed: () => { if (this._activeTab === 'history') this._renderTab(); } });
       this._lastSent = {};
       this._sending = false;
       this._firstRender = false;
@@ -137,6 +293,8 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
         if (language) this._lang = language.startsWith('pl') ? 'pl' : 'en';
         this._resetTariffContext(hass);
         this._hass = hass;
+        this._attemptHistory.setContext(hass);
+        if (this._activeTab === 'history') this._render();
         if (!hass) return;
         const now = Date.now();
         if (!this._firstRender) {
@@ -1540,7 +1698,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       --bento-shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
       --bento-shadow-md: 0 4px 12px rgba(0,0,0,0.4);
     }
-          .card { background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-md); padding: 20px; box-shadow: var(--bento-shadow-sm); box-sizing: border-box; max-width: 100%; overflow: hidden; }
+          .card { container-type: inline-size; container-name: energy-email-card; background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-md); padding: 20px; box-shadow: var(--bento-shadow-sm); box-sizing: border-box; max-width: 100%; overflow: hidden; }
           .header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
           .header-icon { font-size: 24px; }
           .header-title { font-size: 17px; font-weight: 700; color: var(--bento-text); }
@@ -1683,6 +1841,24 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
           }
 
 
+
+          .card button,.card select{min-height:44px;box-sizing:border-box}
+          .card .tabs{flex-wrap:wrap;overflow:visible}
+          .card .tab-btn{white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
+          .email-tab-picker{display:none}
+          .history-actions{display:flex;flex-wrap:wrap;gap:8px}
+          .attempt-history{overflow-wrap:anywhere;color:var(--bento-text)}
+          .history-records{width:100%;border-collapse:collapse}
+          .history-records th,.history-records td{padding:10px;text-align:left;border-bottom:1px solid var(--bento-border);overflow-wrap:anywhere}
+          @container energy-email-card (max-width:499px){
+            .history-records thead{position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden}
+            .history-records,.history-records tbody{display:block}
+            .history-records tbody tr{display:block;border:1px solid var(--bento-border);border-radius:10px;margin-block:12px;padding:8px}
+            .history-records tbody td{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:10px;border:0;padding:8px}
+            .history-records tbody td::before{content:attr(data-label);font-weight:600}
+          }
+          @container energy-email-card (max-width:279px){.card .tabs{display:none !important}.email-tab-picker{display:block}.email-tab-picker select{width:100%}}
+
   </style>
 
         <div class="card">
@@ -1693,12 +1869,14 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
               <div class="header-sub">${recipientDisplay} \u00A0\u2022\u00A0 <span id="price-display" style="cursor:pointer;color:var(--bento-primary);border-bottom:1px dashed var(--bento-primary)" title="${L ? 'Kliknij aby zmieni\u0107' : 'Click to change'}">${_esc(this._tariffCurrency())} ${_esc(this._getTariffLabel())} \u270E</span></div>
             </div>
           </div>
-          <div class="tabs">
+          <label class="email-tab-picker">${L ? 'Widok' : 'View'}<select id="email-tab-select" aria-label="${L ? 'Widok' : 'View'}">${['overview','schedule','preview','send','config','history'].map((tab,i)=>`<option value="${tab}" ${this._activeTab===tab?'selected':''}>${(L?['Przegląd','Harmonogram','Podgląd','Wyślij teraz','Ustawienia','Historia']:['Overview','Schedule','Preview','Send Now','Config','History'])[i]}</option>`).join('')}</select></label>
+          <div class="tabs" role="tablist" aria-label="${L ? 'Widoki Energy Email' : 'Energy Email views'}">
             <button class="tab-btn ${this._activeTab === 'overview' ? 'active' : ''}" data-tab="overview">\u{1F4CA} ${L ? "Przegląd" : "Overview"}</button>
             <button class="tab-btn ${this._activeTab === 'schedule' ? 'active' : ''}" data-tab="schedule">\u{1F4C5} ${L ? "Harmonogram" : "Schedule"}</button>
             <button class="tab-btn ${this._activeTab === 'preview' ? 'active' : ''}" data-tab="preview">\u{1F4CB} ${L ? "Podgląd" : "Preview"}</button>
             <button class="tab-btn ${this._activeTab === 'send' ? 'active' : ''}" data-tab="send">\u{1F4E4} ${L ? "Wyślij teraz" : "Send Now"}</button>
             <button class="tab-btn ${this._activeTab === 'config' ? 'active' : ''}" data-tab="config">\u2699\uFE0F ${L ? "Ustawienia" : "Config"}</button>
+            <button class="tab-btn ${this._activeTab === 'history' ? 'active' : ''}" data-tab="history">${L ? 'Historia' : 'History'}</button>
           </div>
           <div id="tab-content"></div>
           ${this._tariffDetailsMarkup()}
@@ -1710,12 +1888,15 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       this.shadowRoot.querySelectorAll('.tab-btn').forEach(t => {
         t.addEventListener('click', () => {
           this._activeTab = t.dataset.tab;
+          if (this._activeTab === 'history') this._attemptHistory.setContext(this._hass);
+          const picker = this.shadowRoot.getElementById('email-tab-select'); if (picker) picker.value = this._activeTab;
           history.replaceState(null, '', location.pathname + '#' + this._toolId + '/' + this._activeTab);
           this.shadowRoot.querySelectorAll('.tab-btn').forEach(x => x.classList.remove('active'));
           t.classList.add('active');
           this._renderTab();
         });
       });
+      this.shadowRoot.getElementById('email-tab-select')?.addEventListener('change', event => this.setActiveTab(event.target.value));
       this._renderTab();
       this._bindTariffSettings();
       this._bindEmailEvents();
@@ -1810,7 +1991,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
     _renderTab() {
       const el = this.shadowRoot.getElementById('tab-content');
       if (!el) return;
-      if (this._hass?.user?.is_admin !== true && ['schedule', 'send', 'config'].includes(this._activeTab)) {
+      if (this._hass?.user?.is_admin !== true && ['schedule', 'send', 'config', 'history'].includes(this._activeTab)) {
         el.innerHTML = `<div class="empty-state" role="status">${this._lang === 'pl' ? 'Tylko administrator może zmieniać ustawienia i wysyłać raporty. Podgląd energii jest dostępny w zakładce Przegląd.' : 'Only administrators can change settings and send reports. Energy data remains available in Overview.'}</div>`;
         return;
       }
@@ -1820,6 +2001,14 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
         case 'preview':  el.innerHTML = this._tabPreview(); break;
         case 'send':     el.innerHTML = this._tabSend(); this._attachSendEvents(); break;
         case 'config':   el.innerHTML = this._tabConfig(); this._attachConfigEvents(); break;
+        case 'history': {
+          const focusId = this.shadowRoot.activeElement?.id;
+          el.innerHTML = this._attemptHistory.render(this._lang);
+          el.querySelector('#history-refresh')?.addEventListener('click', () => this._refreshAttemptHistory());
+          el.querySelector('#history-discard')?.addEventListener('click', () => this._discardAttemptHistory());
+          if (focusId) this.shadowRoot.getElementById(focusId)?.focus({preventScroll:true});
+          break;
+        }
       }
     }
 
@@ -2721,6 +2910,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
     }
 
     disconnectedCallback() {
+      this._attemptHistory.discard();
       this._timers.forEach(timer => clearTimeout(timer));
       this._timers.clear();
       this._renderScheduled = false;
@@ -2735,8 +2925,12 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       return timer;
     }
 
+    _refreshAttemptHistory() { return this._attemptHistory.refresh(this._hass); }
+    _discardAttemptHistory() { this._attemptHistory.discard(); }
+
     setActiveTab(tabId) {
       this._activeTab = tabId;
+      if (tabId === 'history') this._attemptHistory.setContext(this._hass);
       this._render();
     }
   }
