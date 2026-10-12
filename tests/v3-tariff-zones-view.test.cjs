@@ -31,3 +31,12 @@ test('an explicitly tiny custom rate remains visible instead of rounding to zero
  assert.equal(Number(cells[2].textContent),0.0000001);
  }finally{dom.window.close();}
 });
+
+test('ordinary rerender preserves the selected tariff tab and visible content together',()=>{
+ const {dom,card}=setup();try {
+ card._render();card._render();
+ assert.equal(card.shadowRoot.querySelector('[data-tab="recommendations"]').getAttribute('aria-selected'),'true');
+ assert.equal(card.shadowRoot.querySelector('[data-tab="dashboard"]').getAttribute('aria-selected'),'false');
+ assert.equal(card.shadowRoot.querySelector('.tab-content.active').id,'recommendations');
+ }finally{dom.window.close();}
+});
