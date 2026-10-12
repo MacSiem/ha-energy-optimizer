@@ -151,7 +151,7 @@
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=cbdfcd793c6279fc28c00923575704e6307c93074b8d9cf3ac515ce577cfeea1
+      // HA_TARIFF_V3_START sha256=0c58f10060ef07b2f91e0a77889039240d91a2fb7be3d90fbf6968d962e98b77
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -479,6 +479,10 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     return object(v) ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v;
   });
   const equal = (a, b) => canonical(a) === canonical(b);
+  const validProfile = profile => { try { return validate(profile)?.valid === true; } catch (_) { return false; } };
+  // The server returns only this bounded marker when persisted validation fails.
+  // Its confirmed revision lets an administrator explicitly replace the profile.
+  const invalidMarker = profile => object(profile) && profile.schema === 0 && Object.keys(profile).length === 1;
   const statuses = () => ({ success: t('Success', 'Sukces'), partial: t('Partial', 'Częściowo'),
     unconfirmed: t('Unconfirmed', 'Niepotwierdzony'), error: t('Error', 'Błąd'),
     not_checked: t('Not checked', 'Nie sprawdzono'), no_data: t('No data', 'Brak danych') });
@@ -486,7 +490,8 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   const blank = () => ({ schema: 1, type: 'Custom', name: '', currency: getHass()?.config?.currency || '',
     timezone: getHass()?.config?.time_zone || '', clock: { mode: 'civil' }, priceBasis: 'gross',
     fixedMonthly: null, defaultZone: null, zones: [], rules: [], exceptions: [] });
-  if (!object(state.draft)) state.draft = clone(state.profile) || blank();
+  const seed = profile => invalidMarker(profile) ? blank() : clone(profile) || blank();
+  if (!object(state.draft) || invalidMarker(state.draft)) state.draft = seed(state.profile);
   if (!statuses()[state.status]) state.status = 'not_checked';
   let epoch = 0, operation = 0, association;
   const auth = () => {
@@ -518,9 +523,8 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     return Promise.race([pending, new Promise((_, reject) => { timer = setTimeout(() => reject({ code: 'timeout' }), 15000); })])
       .finally(() => clearTimeout(timer));
   };
-  const validProfile = profile => { try { return validate(profile)?.valid === true; } catch (_) { return false; } };
   const envelope = value => object(value) && Object.hasOwn(value, 'profile') &&
-    (value.profile === null || (object(value.profile) && validProfile(value.profile))) && Number.isSafeInteger(value.revision) && value.revision >= 0 &&
+    (value.profile === null || invalidMarker(value.profile) || (object(value.profile) && validProfile(value.profile))) && Number.isSafeInteger(value.revision) && value.revision >= 0 &&
     Object.hasOwn(value, 'updated_at') && (value.updated_at === null ||
       (typeof value.updated_at === 'string' && /T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value.updated_at) && Number.isFinite(Date.parse(value.updated_at))));
   const message = (status, text) => { state.status = status; state.message = text; };
@@ -530,7 +534,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     if (state.busy) return;
     const token = ticket();
     if (!available(token)) { message('error', t('Tariff backend unavailable.', 'Backend taryf jest niedostępny.')); render(); return; }
-    const pristine = equal(state.draft, state.profile || blank()), draft = clone(state.draft);
+    const pristine = equal(state.draft, seed(state.profile)), draft = clone(state.draft);
     state.busy = true; state.message = t('Loading stored tariff…', 'Wczytywanie zapisanej taryfy…'); render();
     try {
       const result = await call(token, { type: 'ha_tools_email/get_tariff' });
@@ -538,9 +542,11 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
       if (!envelope(result)) throw { code: 'malformed' };
       state.profile = clone(result.profile); state.revision = result.revision; state.updated_at = result.updated_at;
       state.backendAvailable = true;
-      state.draft = pristine ? clone(result.profile) || blank() : draft;
+      state.draft = pristine ? seed(result.profile) : draft;
       if (pristine) { state.feedText = undefined; state.feedError = null; }
-      message(result.profile ? 'not_checked' : 'no_data', t('Stored tariff loaded. Review the fields before saving.', 'Wczytano taryfę. Sprawdź pola przed zapisem.'));
+      if (invalidMarker(result.profile)) message('error', t('The stored tariff is invalid. Review and save a replacement; costs stay unavailable until a valid profile is confirmed.',
+        'Zapisana taryfa jest niepoprawna. Sprawdź i zapisz nowy profil; koszty pozostają niedostępne do potwierdzenia poprawnej taryfy.'));
+      else message(result.profile ? 'not_checked' : 'no_data', t('Stored tariff loaded. Review the fields before saving.', 'Wczytano taryfę. Sprawdź pola przed zapisem.'));
       if (current(token) && typeof onLoaded === 'function') onLoaded(clone(result));
     } catch (_) {
       if (current(token)) { state.backendAvailable = false; message('error', t('Tariff backend unavailable or response invalid. Draft preserved.', 'Backend taryf jest niedostępny lub odpowiedź jest błędna. Zachowano szkic.')); }
@@ -582,7 +588,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   const cancel = () => {
     // A dispatched save cannot be undone safely. The button remains disabled.
     if (state.busy) return;
-    operation++; state.draft = clone(state.profile) || blank(); state.feedError = null; state.feedText = undefined;
+    operation++; state.draft = seed(state.profile); state.feedError = null; state.feedText = undefined;
     message('not_checked', ''); render(); if (typeof onCancel === 'function') onCancel();
   };
   const read = path => path.split('.').reduce((value, key) => value?.[key], state.draft);
@@ -625,6 +631,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
       !a.admin ? `<p>${esc(t('Household access: read only.', 'Dostęp domownika: tylko odczyt.'))}</p>` : ''}${
       !available(a) || state.backendAvailable === false ? `<p>${esc(t('Tariff backend unavailable. No local fallback.', 'Backend taryf jest niedostępny. Brak lokalnego zapisu zastępczego.'))}</p>` :
         !Number.isSafeInteger(state.revision) ? `<p>${esc(t('Backend availability not checked. Load the tariff first.', 'Dostępność backendu nie została sprawdzona. Najpierw wczytaj taryfę.'))}</p>` : ''}
+${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is invalid. Create and save a valid replacement. No rates were guessed.', 'Zapisana taryfa jest niepoprawna. Utwórz i zapisz poprawny profil. Nie przyjęto domyślnych stawek.'))}</p>` : ''}
 <div class="ht-tariff-grid">${field('type', t('Tariff name type', 'Typ nazwy taryfy'), 'text', ['Custom', 'G11', 'G12', 'G12w', 'G12n'].map(v => [v, v]))}${field('name', t('Name (optional PGE label)', 'Nazwa (opcjonalnie nazwa PGE)'))}${field('currency', t('Currency ISO 4217', 'Waluta ISO 4217'))}${field('timezone', t('IANA timezone', 'Strefa czasowa IANA'))}${field('clock.mode', t('Tariff clock', 'Zegar taryfy'), 'text', [['civil', t('Civil time (DST)', 'Czas lokalny (zmiana czasu)')], ['fixed', t('Fixed UTC offset', 'Stałe przesunięcie UTC')]])}${field('clock.offsetMinutes', t('Fixed offset minutes', 'Stałe przesunięcie w minutach'), 'number')}${field('priceBasis', t('Price basis', 'Podstawa ceny'), 'text', [['gross', t('Gross', 'Brutto')], ['net', t('Net', 'Netto')]])}${field('validFrom', t('Valid from (optional)', 'Ważna od (opcjonalnie)'), 'date')}${field('validTo', t('Valid to (optional)', 'Ważna do (opcjonalnie)'), 'date')}${field('fixedMonthly', t('Fixed monthly fee (separate)', 'Opłata stała miesięczna (osobno)'), 'number')}</div>
 <h3>${esc(t('Energy and variable fees per kWh', 'Energia i opłaty zmienne za kWh'))}</h3><p>${esc(t('Empty = unknown; zero is a known zero. Fixed monthly fees are shown separately, never prorated.', 'Puste = nieznane; zero jest znaną wartością zero. Opłata stała jest osobna, bez proporcjonalnego naliczania.'))}</p>${
 (p.zones || []).map((_, i) => `<fieldset><legend>${esc(t('Zone', 'Strefa'))} ${i + 1}</legend><div class="ht-tariff-grid">${field(`zones.${i}.id`, t('Zone ID', 'ID strefy'))}${field(`zones.${i}.label`, t('Zone label', 'Etykieta strefy'))}${field(`zones.${i}.energyRate`, t('Energy / kWh', 'Energia / kWh'), 'number')}${field(`zones.${i}.variableRate`, t('Variable fees / kWh (optional)', 'Opłaty zmienne / kWh (opcjonalne)'), 'number')}</div>${mutable() ? button(`remove-zone:${i}`, t('Remove zone', 'Usuń strefę')) : ''}</fieldset>`).join('')}${mutable() ? button('add-zone', t('Add zone', 'Dodaj strefę')) : ''}${field('defaultZone', t('Default zone (optional)', 'Strefa domyślna (opcjonalna)'), 'text', zoneChoices())}
@@ -784,9 +791,9 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     [data-tariff-details]{margin:16px 0;min-width:0;max-width:100%}
     [data-tariff-details]>summary{min-height:44px;display:flex;align-items:center;padding:10px;border:1px solid var(--divider-color,#d8dce5);border-radius:10px;cursor:pointer;overflow-wrap:anywhere}
     [data-tariff-details]>summary:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
-    </style><details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
+    </style>${card._sharedTariffReadStatus === 'unconfirmed' ? `<p role="status">${text('Shared tariff could not be confirmed. Locally configured or last confirmed prices remain visible.', 'Nie udało się potwierdzić wspólnej taryfy. Widoczne są stawki skonfigurowane w karcie lub ostatnio potwierdzone.')}</p>` : ''}
+    <details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
     ${Object.hasOwn(card._config || {}, 'tariff_profile') ? `<p>${text('This card uses its own configured tariff. Shared settings apply to cards using the shared profile.', 'Ta karta używa własnej skonfigurowanej taryfy. Ustawienia współdzielone dotyczą kart korzystających ze wspólnego profilu.')}</p>` : ''}
-    ${card._sharedTariffReadStatus === 'unconfirmed' ? `<p role="status">${text('Shared tariff could not be confirmed. Locally configured or last confirmed prices remain visible.', 'Nie udało się potwierdzić wspólnej taryfy. Widoczne są stawki skonfigurowane w karcie lub ostatnio potwierdzone.')}</p>` : ''}
     <div data-tariff-mount></div></details>`;
   const mount = root => {
     if (editorRoot !== root || !editor) {
