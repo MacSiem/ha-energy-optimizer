@@ -44,5 +44,10 @@
     "path": "shared/ha-tools-email-history.js",
     "sha256": "9482e7df0e0521e3197029611151e362c6ece6b417ad4f906e5463734b6d8da2",
     "inlineSha256": "995a1b0c8b7624d7cbcf14cb806dcb490254760628bd08d791f74be1583c578a"
+  },
+  "sharedEmailSchedules": {
+    "path": "shared/ha-tools-email-schedules.js",
+    "sha256": "cc6452dcc447d51b79c8823fd60c792da705989212869b6f454bad134156d313",
+    "inlineSha256": "a7d9cfeca73f3d1580f5b44148c144d6c88df10ea0abbd14d51714051ba8fb49"
   }
 }
