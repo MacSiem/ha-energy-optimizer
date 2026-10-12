@@ -27,7 +27,7 @@ for (const language of ['en', 'pl']) {
     const connection=new dom.window.EventTarget();connection.connected=true;
     const callWS=async msg=>{if(msg.type.endsWith('/list_schedules'))return {schedules:rows};if(msg.type.endsWith('/set_schedule')){writes.push(msg);const row={...msg.schedule,effective_timezone:msg.schedule.timezone||'UTC',next_fire:null};rows=rows.filter(r=>r.id!==row.id).concat(row);return {schedules:rows};}throw Error('Unexpected fixture read');};
     try {
-      card.hass={...hass,language,user:{id:'qa',is_admin:true},connection,config:{time_zone:'UTC'},callWS};
+      card.hass={...hass,language,locale:{language},user:{id:'qa',is_admin:true},connection,config:{time_zone:'UTC'},callWS};
       card._emailBackendAvailable=true;card._emailBackendConfig={smtp_configured:true};card.setActiveTab('schedule');await settle();
       const root=card.shadowRoot;assert.match(root.querySelector('.server-schedules [data-result-state="no_data"]').textContent,language==='pl'?/Brak danych/:/No data/);
       for(const cadence of ['daily','weekly','monthly']){
@@ -37,7 +37,7 @@ for (const language of ['en', 'pl']) {
         const edit=root.querySelector(`[data-calendar-edit="${rows.at(-1).id}"]`);edit.click();const enabled=root.getElementById('schedule-enabled');enabled.checked=true;enabled.dispatchEvent(new dom.window.Event('change'));root.getElementById('schedule-save').click();await settle();assert.equal(writes.at(-1).schedule.enabled,true);
       }
       assert.equal(writes.length,6);assert.deepEqual(writes.map(w=>w.schedule.enabled),[false,true,false,true,false,true]);
-      const other=language==='pl'?'en':'pl';card.hass={...card._hass,language:other};assert.match(root.querySelector('.server-schedules [data-result-state="success"]').textContent,other==='pl'?/Sukces/:/Success/);
+      const other=language==='pl'?'en':'pl';card.hass={...card._hass,language:other,locale:{language:other}};assert.match(root.querySelector('.server-schedules [data-result-state="success"]').textContent,other==='pl'?/Sukces/:/Success/);
       card.hass={...card._hass,user:{id:'household',is_admin:false}};assert.equal(root.getElementById('schedule-new'),null);assert.equal(writes.length,6);
     }finally{dom.window.close();}
   });
