@@ -70,3 +70,67 @@ test('legacy modes are retained by the shared adapter without overwriting config
     assert.equal(JSON.stringify(config), before);
   }
 });
+
+for (const type of ['ha-energy-optimizer', 'ha-energy-insights', 'ha-energy-email']) {
+  test(`${type} opens its visual tariff settings without writes and keeps household access read-only`, () => {
+    const { dom, card } = setup(type);
+    try {
+      const calls = []; card._hass.user.id = 'fixture-user'; card._hass.connection = { connected: true };
+      card._hass.callWS = async request => { calls.push(request); throw Error('No API call expected'); };
+      card._config.show_support = false; card._schedule = () => {}; card._render();
+      const details = card.shadowRoot.querySelector('[data-tariff-details]'); assert.ok(details);
+      details.open = true; details.dispatchEvent(new dom.window.Event('toggle'));
+      const currency = card.shadowRoot.querySelector('[data-path="currency"]'); assert.ok(currency);
+      assert.equal(currency.value, 'CHF'); assert.equal(currency.disabled, true);
+      assert.equal(card.shadowRoot.querySelector('[data-action="save"]'), null); assert.equal(calls.length, 0);
+    } finally { dom.window.close(); }
+  });
+  test(`${type} validates a proposed profile separately from its active card config`, () => {
+    const { dom, card } = setup(type);
+    try { const before = JSON.stringify(card._config); assert.equal(card._getTariffV3({ schema: 0 }).valid, false);
+      assert.equal(card._getTariffV3().valid, true); assert.equal(JSON.stringify(card._config), before);
+    } finally { dom.window.close(); }
+  });
+}
+test('a shared tariff read changes the effective prices without overwriting legacy config', async () => {
+  const { dom, card } = setup('ha-energy-optimizer');
+  try {
+    delete card._config.tariff_profile; card._config.energy_price = 0.7;
+    const before = JSON.stringify(card._config), calls = [];
+    card._hass.user.id = 'a'; card._hass.connection = { connected: true };
+    card._hass.callWS = async request => { calls.push(request); return { profile: profile(), revision: 3, updated_at: '2026-10-12T10:00:00Z' }; };
+    await card._loadSharedTariffProfile();
+    assert.deepEqual(calls.map(call => call.type), ['ha_tools_email/get_tariff']);
+    assert.equal(card._getTariffV3().rateAt('2026-01-01T02:00Z').energyRate, 0.4);
+    assert.equal(card._tariffCurrency(), 'CHF'); assert.equal(JSON.stringify(card._config), before);
+  } finally { dom.window.close(); }
+});
+test('an old connection tariff read cannot replace the new connection profile', async () => {
+  const { dom, card } = setup('ha-energy-optimizer');
+  try {
+    delete card._config.tariff_profile; let resolve;
+    card._hass.user.id = 'a'; card._hass.connection = { connected: true };
+    card._hass.callWS = () => new Promise(r => { resolve = r; });
+    const pending = card._loadSharedTariffProfile();
+    card._hass = { ...card._hass, user: { id: 'b', is_admin: false }, connection: { connected: true } };
+    resolve({ profile: profile(), revision: 3, updated_at: '2026-10-12T10:00:00Z' }); await pending;
+    assert.equal(card._sharedTariffProfile ?? null, null);
+  } finally { dom.window.close(); }
+});
+test('Insights prices both repeated DST buckets in the hour shown by its chart', async () => {
+  const { dom, card } = setup('ha-energy-insights');
+  try {
+    const NativeDate = dom.window.Date, end = Date.parse('2026-10-25T03:00Z');
+    dom.window.Date = class extends NativeDate { constructor(...args) { super(...(args.length ? args : [end])); } static now() { return end; } };
+    card._hass.config.time_zone = 'Europe/Warsaw';
+    card._config.tariff_profile = { ...profile(), timezone: 'Europe/Warsaw', dynamic: { intervals: [
+      { from: '2026-10-24T22:00Z', to: '2026-10-25T00:00Z', energyRate: 1, variableRate: 0 },
+      { from: '2026-10-25T00:00Z', to: '2026-10-25T01:00Z', energyRate: 2, variableRate: 0 },
+      { from: '2026-10-25T01:00Z', to: '2026-10-25T02:00Z', energyRate: 3, variableRate: 0 },
+      { from: '2026-10-25T02:00Z', to: '2026-10-25T03:00Z', energyRate: 4, variableRate: 0 }] } };
+    card._hass.callWS = async request => request.type === 'energy/get_prefs' ? { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.synthetic' }] } :
+      request.type === 'recorder/get_statistics_metadata' ? { 'sensor.synthetic': { has_sum: true, statistics_unit_of_measurement: 'kWh', unit_class: 'energy' } } :
+      { 'sensor.synthetic': Array.from({ length: 720 }, (_, i) => ({ start: end - (720 - i) * 3600000, change: 1 })) };
+    await card._fetchData(); assert.equal(card._data.todayCost, 11); assert.equal(card._data.dailyCosts[2], 5);
+  } finally { dom.window.close(); }
+});
