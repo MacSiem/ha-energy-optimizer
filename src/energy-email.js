@@ -3565,7 +3565,7 @@ this._installTariffConsumerV3();
       const data = { subject, body };
       if (html) data.html = html;
       if (to) data.to = to;
-      await hass.callService('ha_tools_email', 'send', data);
+      await hass.callService('ha_tools_email', 'send', data, undefined, false);
     }
 
     // --- SMTP Configuration via ha_tools_email ---
@@ -3649,7 +3649,7 @@ this._installTariffConsumerV3();
       this._smtpTesting = true;
       this._render();
       try {
-        await source.callService('ha_tools_email', 'test', {});
+        await source.callService('ha_tools_email', 'test', {}, undefined, false);
         if (this._emailContextCurrent(token)) this._setEmailActionResult('smtp', 'unconfirmed', 'request_completed');
       } catch (_) {
         if (this._emailContextCurrent(token)) this._setEmailActionResult('smtp', 'unconfirmed', 'transport_unknown');

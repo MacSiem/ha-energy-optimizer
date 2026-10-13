@@ -16,7 +16,7 @@ function fixture({backend=false}={}){
 for(const kind of ['legacy','smtp'])for(const outcome of ['resolved','rejected'])test(`${kind} ${outcome} is Unconfirmed and never exposes raw transport errors`,async()=>{
  const f=fixture();try{const {work}=await f.start(kind);assert.equal(f.calls.length,1);outcome==='resolved'?f.resolve():f.reject(new Error('SECRET smtp://password@private.example'));await work;
  const region=f.root.querySelector(`[data-email-result="${kind==='smtp'?'smtp':'send'}"]`);assert.ok(region);assert.ok(region.querySelector('[data-result-state="unconfirmed"]'));assert.doesNotMatch(region.textContent,/SECRET|password|private.example|sent!|Test OK/i);assert.match(region.textContent,/unconfirmed/i);
- f.card._lang='pl';f.card._render();const pl=f.root.querySelector(`[data-email-result="${kind==='smtp'?'smtp':'send'}"]`);assert.match(pl.textContent,/Niepotwierdzony/);assert.doesNotMatch(pl.textContent,/Request completed|Delivery unconfirmed/);assert.equal(f.calls.length,1);
+ f.card.hass={...f.hass,language:'pl',locale:{language:'pl'}};f.card._render();const pl=f.root.querySelector(`[data-email-result="${kind==='smtp'?'smtp':'send'}"]`);assert.match(pl.textContent,/Niepotwierdzony/);assert.doesNotMatch(pl.textContent,/Request completed|Delivery unconfirmed/);assert.equal(f.calls.length,1);
  }finally{f.close()}
 });
 for(const [ack,state] of [[{status:'accepted_by_smtp'},'success'],[{success:true},'success'],[{},'unconfirmed'],[null,'unconfirmed'],[{success:true,status:'failed'},'unconfirmed'],[{success:false,status:'accepted_by_smtp'},'unconfirmed']])test(`backend acknowledgement ${JSON.stringify(ack)} maps to ${state}`,async()=>{

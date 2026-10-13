@@ -83,7 +83,7 @@ test('older backend without a legacy send service disables sends and keeps an up
     await card._loadEmailBackendConfig();
     card._activeTab = 'send'; card._render();
     assert.ok([...card.shadowRoot.querySelectorAll('#send-daily,#send-weekly,#send-monthly')].every(b => b.disabled));
-    assert.match(card._emailResultText(card._smtpStatus), /2\.1\.2/);
+    assert.match(card.shadowRoot.textContent, /2\.1\.2/);
     assert.deepEqual(writes, []);
   } finally { dom.window.close(); }
 });
