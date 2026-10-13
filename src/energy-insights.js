@@ -143,6 +143,7 @@
 
     setConfig(config) {
       this._config = { ...this._config, ...(config || {}) };
+      this._observeTariffContextV3();
       this._syncSupport();
     }
     _getTariffV3(proposed) {
@@ -902,8 +903,78 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'insights', 
     _tariffCurrency() { return this._getTariffHostV3().currency(); }
     _loadSharedTariffProfile() { return this._getTariffHostV3().load(); }
     _tariffDetailsMarkup() { return this._getTariffHostV3().markup(); }
-    _bindTariffSettings() { this._getTariffHostV3().bind(); }
+    _bindTariffSettings() {
+      if (this._tariffWriteUnconfirmedV3) {
+        this._tariffEditorState ||= { profile: null, revision: null, status: 'not_checked', busy: false };
+        this._tariffEditorState.writeUnconfirmed = true;
+      }
+      this._getTariffHostV3().bind();
+    }
     _resetTariffContext(nextHass) { this._getTariffHostV3().reset(nextHass); }
+
+    // Owned by this card. No shared global state and no polling/retry path.
+    _createTariffConsumerV3(createGuard) {
+      const guard = createGuard({ getHass: () => this._hass, getContext: () => this._tariffContextV3() });
+      const call = guard.call;
+      guard.call = (token, request, admin = false) => {
+        const dispatched = request.type === 'ha_tools_email/set_tariff' && !guard.occupied() && guard.current(token, admin);
+        const result = call(token, request, admin);
+        if (dispatched && guard.occupied()) {
+          // Persists across mount/authority purges. An ACK cannot clear this fence.
+          this._tariffWriteUnconfirmedV3 = true;
+        }
+        return result;
+      };
+      return { guard, onRefresh: () => {
+        // Only explicit editor Load or independently confirmed Save reaches here.
+        this._tariffWriteUnconfirmedV3 = false;
+        this._repriceTariffV3();
+      } };
+
+    }
+    _installTariffConsumerV3() {
+      const guard = this._tariffHostController.guard;
+      let active = true;
+      const unsubscribe = guard.subscribe(() => queueMicrotask(() => {
+        // Setters assign the prospective hass before this pure render executes.
+        if (active) this._repriceTariffV3();
+      }));
+      this._tariffConsumerUnsubscribeV3 = () => { active = false; unsubscribe(); };
+    }
+    _tariffContextV3() {
+      return { config: this._config, tab: this._activeTab, range: this._activeTab || 'overview',
+        sources: this._tariffSourceIds || [], windowEnd: this._tariffWindowEnd ?? null };
+    }
+    _observeTariffContextV3() { this._getTariffHostV3().guard.observe(); }
+    _createEnergyReadV3() {
+      const host = this._getTariffHostV3(), source = this._hass;
+      this._tariffWindowEnd = Math.floor(Date.now() / ENERGY_HOUR) * ENERGY_HOUR;
+      let token = host.guard.observe();
+      const current = () => host.guard.current(token);
+      const assertCurrent = () => { if (!current()) throw { code: 'energy_context_changed' }; };
+      // The facade preserves readEnergyHours' complete source/unit/window behavior.
+      const hass = { ...source, callWS: async request => {
+        assertCurrent();
+        const result = await source.callWS.call(source, request);
+        assertCurrent();
+        if (request.type === 'energy/get_prefs') {
+          this._tariffSourceIds = energyImportIds(result);
+          token = host.guard.observe();
+        }
+        return result;
+      } };
+      return { hass, current };
+    }
+
+    _repriceTariffV3() {
+      if (this._insightsEnergyModel) {
+        try { this._projectInsightsV3(this._insightsEnergyModel); this._error = null; }
+        catch (error) { this._error = error.message || this._t('error'); }
+      }
+      this._updateContent();
+      if (this._chartJsReady) this._renderCharts();
+    }
+
 
     _tariffRateForHour(stamp) {
       return this._getTariffV3().priceBuckets([{ from: stamp, to: stamp + ENERGY_HOUR, kwh: 1 }]).energyCost;
@@ -980,10 +1051,11 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'insights', 
     }
 
     connectedCallback() {
-      // Cleanup on disconnect
+      this._tariffHostController?.guard.resume();
     }
 
     disconnectedCallback() {
+      this._tariffHostController?.guard.suspend();
       this._timers.forEach(timer => clearTimeout(timer));
       this._timers.clear();
       Object.values(this._charts).forEach(c => {
@@ -1014,15 +1086,32 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'insights', 
     }
 
     async _fetchData() {
-      if (!this._hass || !this._hass.callWS) return;
-      this._loading = true;
-      this._error = null;
-      this._data = null;
+      if (!this._hass?.callWS || this._insightsReadPending) return;
+      const read = this._createEnergyReadV3();
+      this._insightsReadPending = true;
+      this._loading = true; this._error = null;
       if (this._domBuilt) this._updateLoadingState();
-
       try {
+        const model = await readEnergyHours(read.hass, 720);
+        if (!read.current()) return;
         await this._loadSharedTariffProfile();
-        const model = await readEnergyHours(this._hass, 720);
+        if (!read.current()) return;
+        this._insightsEnergyModel = model;
+        this._projectInsightsV3(model);
+      } catch (err) {
+        if (!read.current()) return;
+        this._error = err.message || this._t('error');
+      } finally {
+        this._insightsReadPending = false;
+        this._loading = false;
+        if (read.current()) {
+          this._updateContent();
+          if (this._chartJsReady) this._renderCharts();
+        }
+      }
+    }
+
+    _projectInsightsV3(model) {
         if (model.noSensors || model.noSeries) {
           this._data = { sensors: model.ids, noSensors: model.noSensors, noSeries: model.noSeries };
         } else {
@@ -1048,16 +1137,6 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'insights', 
             weeklyCosts: weekDays.map(day => day.cost), monthlyCosts: monthDays.map(day => day.cost),
             windows: { daily: today, weekly: week, monthly: month }, zone: model.zone };
         }
-
-        this._loading = false;
-        this._updateContent();
-        if (this._chartJsReady) this._renderCharts();
-      } catch (err) {
-        console.error('[ha-energy-insights]', err);
-        this._error = err.message || this._t('error');
-        this._loading = false;
-        this._updateContent();
-      }
     }
 
     _getRecommendation(trendDiff, todayKwh) {
@@ -1556,6 +1635,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'insights', 
       shadow.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           this._activeTab = btn.dataset.tab;
+          this._observeTariffContextV3();
           localStorage.setItem('ha-tools-energy-insights-active-tab', this._activeTab);
           history.replaceState(null, '', location.pathname + '#' + this._toolId + '/' + this._activeTab);
           // Update tab content only (no full DOM rebuild)
@@ -1569,6 +1649,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'insights', 
 
     setActiveTab(tabId) {
       this._activeTab = tabId;
+      this._observeTariffContextV3();
       this._render();
     }
 

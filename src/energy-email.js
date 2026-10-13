@@ -665,6 +665,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
         energy_night_hour_start: Number.isInteger(Number(cfg.energy_night_hour_start)) ? Number(cfg.energy_night_hour_start) : this._config.energy_night_hour_start,
         notify_service: cfg.notify_service || this._config.notify_service || '',
       };
+      this._observeTariffContextV3();
       if (this._hass?.states) this._render();
     }
 
@@ -1430,8 +1431,83 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
     _tariffCurrency() { return this._getTariffHostV3().currency(); }
     _loadSharedTariffProfile() { return this._getTariffHostV3().load(); }
     _tariffDetailsMarkup() { return this._getTariffHostV3().markup(); }
-    _bindTariffSettings() { this._getTariffHostV3().bind(); }
+    _bindTariffSettings() {
+      if (this._tariffWriteUnconfirmedV3) {
+        this._tariffEditorState ||= { profile: null, revision: null, status: 'not_checked', busy: false };
+        this._tariffEditorState.writeUnconfirmed = true;
+      }
+      this._getTariffHostV3().bind();
+    }
     _resetTariffContext(nextHass) { this._getTariffHostV3().reset(nextHass); }
+
+    // Owned by this card. No shared global state and no polling/retry path.
+    _createTariffConsumerV3(createGuard) {
+      const guard = createGuard({ getHass: () => this._hass, getContext: () => this._tariffContextV3() });
+      const call = guard.call;
+      guard.call = (token, request, admin = false) => {
+        const dispatched = request.type === 'ha_tools_email/set_tariff' && !guard.occupied() && guard.current(token, admin);
+        const result = call(token, request, admin);
+        if (dispatched && guard.occupied()) {
+          // Persists across mount/authority purges. An ACK cannot clear this fence.
+          this._tariffWriteUnconfirmedV3 = true;
+        }
+        return result;
+      };
+      return { guard, onRefresh: () => {
+        // Only explicit editor Load or independently confirmed Save reaches here.
+        this._tariffWriteUnconfirmedV3 = false;
+        this._repriceTariffV3();
+      } };
+
+    }
+    _installTariffConsumerV3() {
+      const guard = this._tariffHostController.guard;
+      let active = true;
+      const unsubscribe = guard.subscribe(() => queueMicrotask(() => {
+        // Setters assign the prospective hass before this pure render executes.
+        if (active) this._repriceTariffV3();
+      }));
+      this._tariffConsumerUnsubscribeV3 = () => { active = false; unsubscribe(); };
+    }
+    _tariffContextV3() {
+      return { config: this._config, tab: this._activeTab, range: [this._overviewPeriod, this._reportPeriod],
+        sources: this._tariffSourceIds || [], windowEnd: this._tariffWindowEnd ?? null };
+    }
+    _observeTariffContextV3() { this._getTariffHostV3().guard.observe(); }
+    _createEnergyReadV3() {
+      const host = this._getTariffHostV3(), source = this._hass;
+      this._tariffWindowEnd = Math.floor(Date.now() / ENERGY_HOUR) * ENERGY_HOUR;
+      let token = host.guard.observe();
+      const current = () => host.guard.current(token);
+      const assertCurrent = () => { if (!current()) throw { code: 'energy_context_changed' }; };
+      // The facade preserves readEnergyHours' complete source/unit/window behavior.
+      const hass = { ...source, callWS: async request => {
+        assertCurrent();
+        const result = await source.callWS.call(source, request);
+        assertCurrent();
+        if (request.type === 'energy/get_prefs') {
+          this._tariffSourceIds = energyImportIds(result);
+          token = host.guard.observe();
+        }
+        return result;
+      } };
+      return { hass, current };
+    }
+
+    _repriceTariffV3() {
+      for (const period of ['day', 'week', 'month']) {
+        if (this[`_periodStatus_${period}`] !== 'ready') continue;
+        const measured = this[`_periodRaw_${period}`];
+        if (!measured) continue;
+        const rows = new Map(measured.map(row => [row.id, row]));
+        this[`_periodCache_${period}`] = this[`_periodCache_${period}`].map(row => {
+          const source = rows.get(row.entity_id);
+          return source ? { ...row, cost: this._bucketCost(source.buckets, source.unit) } : row;
+        });
+      }
+      this._render();
+    }
+
 
     _tariffRateForHour(stamp) {
       return this._getTariffV3().priceBuckets([{ from: stamp, to: stamp + ENERGY_HOUR, kwh: 1 }]).energyCost;
@@ -1899,22 +1975,23 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       if (!hours || !this._hass?.callWS) return;
       const cacheKey = `_periodCache_${period}`;
       const statusKey = `_periodStatus_${period}`;
-      this[cacheKey] = [];
+      const read = this._createEnergyReadV3();
       this[statusKey] = 'no_data';
       const end = new Date(Math.floor(Date.now() / 3600000) * 3600000);
       const start = new Date(end.getTime() - hours * 3600000);
       this[`_periodWindow_${period}`] = { start: start.toISOString(), end: end.toISOString() };
       try {
-        await this._loadSharedTariffProfile();
-        const prefs = await this._hass.callWS({ type: 'energy/get_prefs' });
+        const prefs = await read.hass.callWS({ type: 'energy/get_prefs' });
         const ids = energyImportIds(prefs);
         if (!ids.length) { this[statusKey] = 'no_sources'; return; }
-        const rawMetadata = await this._hass.callWS({ type: 'recorder/get_statistics_metadata', statistic_ids: ids });
+        const rawMetadata = await read.hass.callWS({ type: 'recorder/get_statistics_metadata', statistic_ids: ids });
         const metadata = Array.isArray(rawMetadata) ? Object.fromEntries(rawMetadata.map(row => [row.statistic_id, row])) : (rawMetadata || {});
-        const stats = await this._hass.callWS({ type: 'recorder/statistics_during_period',
+        const stats = await read.hass.callWS({ type: 'recorder/statistics_during_period',
           start_time: start.toISOString(), end_time: end.toISOString(), statistic_ids: ids,
           period: 'hour', types: ['change'] });
-        const result = [];
+        await this._loadSharedTariffProfile();
+        if (!read.current()) return false;
+        const result = [], measured = [];
         const hasSamples = ids.some(id => stats?.[id]?.length);
         for (const id of ids) {
           const meta = metadata[id];
@@ -1934,13 +2011,17 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
           }
           if (buckets.size !== hours) { this[statusKey] = hasSamples ? 'partial' : 'no_data'; return; }
           const kwh = [...buckets.values()].reduce((sum, value) => sum + value * energyFactor(unit), 0);
-          result.push({ name: this._hass.states?.[id]?.attributes?.friendly_name || id,
+          measured.push({ id, unit, buckets });
+          result.push({ name: read.hass.states?.[id]?.attributes?.friendly_name || id,
             key: id, entity_id: id, month: kwh, lastMonth: null, cost: this._bucketCost(buckets, unit), source: 'recorder' });
         }
+        if (!read.current()) return false;
+        this[`_periodRaw_${period}`] = measured;
         this[cacheKey] = result;
         this[statusKey] = 'ready';
         this[`_periodCacheTime_${period}`] = Date.now();
       } catch (e) {
+        if (!read.current()) return false;
         this[statusKey] = 'error';
         console.warn('Energy Email: complete Recorder period data unavailable');
       }
@@ -1950,9 +2031,12 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
     async _fetchAllPeriodStats() {
       if (this._periodRefreshPromise) return this._periodRefreshPromise;
       this._lastPeriodRefresh = Date.now();
-      this._periodRefreshPromise = Promise.all([
-        this._fetchRecorderStats('day'), this._fetchRecorderStats('week'), this._fetchRecorderStats('month')
-      ]);
+      // One accepted source/window epoch for each complete period; no cross-period race.
+      this._periodRefreshPromise = (async () => {
+        for (const period of ['day', 'week', 'month']) {
+          if (await this._fetchRecorderStats(period) === false) break;
+        }
+      })();
       try { await this._periodRefreshPromise; }
       finally { this._periodRefreshPromise = null; }
     }
@@ -2256,6 +2340,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       this.shadowRoot.querySelectorAll('.tab-btn').forEach(t => {
         t.addEventListener('click', () => {
           this._activeTab = t.dataset.tab;
+          this._observeTariffContextV3();
           if (this._activeTab === 'schedule') { this._serverSchedules.setContext(this._hass); this._serverSchedules.ensureRead(); }
           if (this._activeTab === 'history') this._attemptHistory.setContext(this._hass);
           const picker = this.shadowRoot.getElementById('email-tab-select'); if (picker) picker.value = this._activeTab;
@@ -2352,7 +2437,8 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
           if (Number.isFinite(val) && val >= 0) {
             if (!await this._saveToHelper('price', String(val))) return;
             this._config.energy_price = val;
-            this._fetchAllPeriodStats().then(() => this._render());
+            this._observeTariffContextV3();
+            this._repriceTariffV3();
             this._render();
           }
         };
@@ -2421,6 +2507,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
         btn.addEventListener('click', () => {
           const p = btn.dataset.period;
           this._overviewPeriod = p;
+          this._observeTariffContextV3();
           this._devicePage = 0;
           // Refresh recorder stats if cache is older than 60s
           const cacheTime = this[`_periodCacheTime_${p}`] || 0;
@@ -2438,7 +2525,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
 
     _attachPeriodEvents() {
       this.shadowRoot.querySelectorAll('.period-btn').forEach(btn => {
-        btn.addEventListener('click', () => { this._reportPeriod = btn.dataset.period; this._renderTab(); });
+        btn.addEventListener('click', () => { this._reportPeriod = btn.dataset.period; this._observeTariffContextV3(); this._renderTab(); });
       });
     }
 
@@ -2968,7 +3055,8 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
         if (Number.isFinite(val) && val >= 0) {
           if (!await this._saveToHelper('price', String(val))) return;
           this._config.energy_price = val;
-          this._fetchAllPeriodStats().then(() => this._render());
+          this._observeTariffContextV3();
+          this._repriceTariffV3();
           this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Stawka zapisana' : 'Price saved'));
           this._render();
         }
@@ -3378,7 +3466,10 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       this._schedule(() => toast.classList.remove('show'), 3500);
     }
 
+    connectedCallback() { this._tariffHostController?.guard.resume(); }
+
     disconnectedCallback() {
+      this._tariffHostController?.guard.suspend();
       this._clearEmailContext();
       this._serverSchedules.discard();
       this.shadowRoot.getElementById('tab-content')?.replaceChildren();
@@ -3402,6 +3493,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
 
     setActiveTab(tabId) {
       this._activeTab = tabId;
+      this._observeTariffContextV3();
       if (tabId === 'schedule') { this._serverSchedules.setContext(this._hass); this._serverSchedules.ensureRead(); }
       if (tabId === 'history') this._attemptHistory.setContext(this._hass);
       this._render();

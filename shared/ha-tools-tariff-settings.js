@@ -1,8 +1,10 @@
 'use strict';
+// Node-only dependency; runtime consumers vendor the guard in their own closure.
+if (typeof module !== 'undefined' && module.exports) var { createTariffGuardV3 } = require('./ha-tools-tariff-guard.js');
 
 // Vendor inside each card's closure. The parent owns state and its mount; no
 // global registration, helper services, SMTP configuration or browser storage.
-function createTariffSettingsV3({ root, getHass, language = 'en', state, validate, onSaved, onLoaded, onCancel, ui }) {
+function createTariffSettingsV3({ root, getHass, language = 'en', state, validate, onSaved, onLoaded, onCancel, ui, guard }) {
   if (!root || !state || typeof getHass !== 'function' || typeof validate !== 'function') throw new TypeError('tariff_settings_adapter');
   const translations = new Map();
   const pl = () => String(typeof language === 'function' ? language() : language).startsWith('pl');
@@ -37,57 +39,44 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   if (!object(state.draft) || invalidMarker(state.draft)) state.draft = seed(state.profile);
   if (!statuses()[state.status]) state.status = 'not_checked';
   if (invalidMarker(state.profile) && state.status === 'not_checked') state.status = 'error';
-  let epoch = 0, operation = 0, association, resumeFocus = null;
-  const auth = () => {
-    const h = getHass();
-    return { user: h?.user?.id, admin: h?.user?.is_admin === true, connection: h?.connection,
-      connected: h?.connection?.connected !== false, ws: typeof h?.callWS === 'function' };
-  };
-  const observe = () => {
-    const now = auth();
-    if (association && (association.user !== now.user || association.admin !== now.admin ||
-      association.connection !== now.connection || association.connected !== now.connected || association.ws !== now.ws)) {
-      epoch++; resumeFocus = null;
-    }
-    association = now;
-    return now;
-  };
-  const available = a => !!a.user && !!a.connection && a.connected && a.ws;
-  const ticket = () => ({ ...observe(), epoch, operation: ++operation });
-  const current = (token, admin = false) => {
-    const a = observe();
-    return token.operation === operation && token.epoch === epoch && token.user === a.user &&
-      token.connection === a.connection && available(a) && (!admin || a.admin);
-  };
-  const call = (token, payload, admin = false) => {
-    if (!current(token, admin)) return Promise.reject({ code: 'authority_changed' });
-    // No retry: a timeout may still have committed on the server.
-    let timer;
-    let pending;
-    try { pending = Promise.resolve(getHass().callWS(payload)); }
-    catch (error) { return Promise.reject(error); }
-    return Promise.race([pending, new Promise((_, reject) => { timer = setTimeout(() => reject({ code: 'timeout' }), 15000); })])
-      .finally(() => clearTimeout(timer));
-  };
+  guard ||= createTariffGuardV3({ getHass });
+  let operation = 0, association, resumeFocus = null, disposed = false;
+  const observe = () => (association = guard.observe());
+  const available = a => guard.available(a);
+  const ticket = () => ({ ...observe(), operation: ++operation });
+  const current = (token, admin = false) => token.operation === operation && guard.current(token, admin);
+  const call = (token, payload, admin = false) => current(token, admin)
+    ? guard.call(token, payload, admin) : Promise.reject({ code: 'authority_changed' });
+  const unsubscribe = guard.subscribe(() => {
+    if (disposed) return;
+    operation++; resumeFocus = null;
+    state.profile = null; state.revision = null; state.updated_at = null;
+    state.draft = blank(); state._draftBaseline = clone(state.draft);
+    state.feedText = undefined; state.feedError = null; state.backendAvailable = false;
+    state.busy = false; state.status = 'unconfirmed'; state.message = '';
+    // This mount may already have been detached; erase it too, synchronously.
+    root.replaceChildren();
+  });
+  const unsubscribeWire = guard.subscribeWire(() => { if (!disposed && root.isConnected && available(guard.observe())) render(); });
   const envelope = value => object(value) && Object.hasOwn(value, 'profile') &&
     (value.profile === null || invalidMarker(value.profile) || (object(value.profile) && validProfile(value.profile))) && Number.isSafeInteger(value.revision) && value.revision >= 0 &&
     Object.hasOwn(value, 'updated_at') && (value.updated_at === null ||
       (typeof value.updated_at === 'string' && /T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value.updated_at) && Number.isFinite(Date.parse(value.updated_at))));
   const message = (status, text) => { state.status = status; state.message = text; };
-  const unknown = () => message('unconfirmed', t('Saving was not confirmed. Check the stored tariff before retrying. Your draft is preserved.',
-    'Nie potwierdzono zapisu. Sprawdź zapisaną taryfę przed ponowieniem. Szkic został zachowany.'));
+  const unknown = () => { state.writeUnconfirmed = true; message('unconfirmed', t('Saving was not confirmed. Check the stored tariff before retrying. Your draft is preserved.',
+    'Nie potwierdzono zapisu. Sprawdź zapisaną taryfę przed ponowieniem. Szkic został zachowany.')); };
   const load = async () => {
-    if (state.busy) return;
+    if (disposed || state.busy || guard.occupied()) return;
     const token = ticket();
     if (!available(token)) { message('error', t('Tariff backend unavailable.', 'Backend taryf jest niedostępny.')); render(); return; }
     const pristine = equal(state.draft, seed(state.profile)), draft = clone(state.draft);
     state.busy = true; state.message = t('Loading stored tariff…', 'Wczytywanie zapisanej taryfy…'); render();
     try {
       const result = await call(token, { type: 'ha_tools_email/get_tariff' });
-      if (!current(token)) { unknown(); return; }
+      if (!current(token)) return;
       if (!envelope(result)) throw { code: 'malformed' };
       state.profile = clone(result.profile); state.revision = result.revision; state.updated_at = result.updated_at;
-      state.backendAvailable = true;
+      state.backendAvailable = true; state.writeUnconfirmed = false;
       state.draft = pristine ? seed(result.profile) : draft;
       if (pristine) { state.feedText = undefined; state.feedError = null; }
       if (invalidMarker(result.profile)) message('error', t('The stored tariff is invalid. Review and save a replacement; costs stay unavailable until a valid profile is confirmed.',
@@ -96,13 +85,12 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
       if (current(token) && typeof onLoaded === 'function') onLoaded(clone(result));
     } catch (_) {
       if (current(token)) { state.backendAvailable = false; message('error', t('Tariff backend unavailable or response invalid. Draft preserved.', 'Backend taryf jest niedostępny lub odpowiedź jest błędna. Zachowano szkic.')); }
-      else unknown();
-    } finally { state.busy = false; render(); }
+    } finally { if (current(token)) { state.busy = false; render(); } }
   };
   const save = async () => {
-    if (state.busy) return;
+    if (disposed || state.busy || guard.occupied()) return;
     const token = ticket();
-    if (!available(token) || !token.admin || state.backendAvailable === false || !Number.isSafeInteger(state.revision)) {
+    if (!available(token) || !token.admin || state.writeUnconfirmed || state.backendAvailable === false || !Number.isSafeInteger(state.revision)) {
       message('error', t('Admin access and a loaded tariff backend are required.', 'Wymagane uprawnienia administratora i wczytany backend taryf.')); render(); return;
     }
     if (state.feedError) { message('error', state.feedError); render(); return; }
@@ -117,23 +105,25 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     state.busy = true; message('not_checked', t('Saving; waiting for stored readback…', 'Zapis; oczekiwanie na odczyt zapisanego profilu…')); render();
     try {
       const written = await call(token, { type: 'ha_tools_email/set_tariff', profile: proposed, expected_revision: previousRevision }, true);
-      if (!current(token, true)) { unknown(); return; }
+      if (!current(token, true)) return;
       if (!object(written) || !Number.isSafeInteger(written.revision) || written.revision !== previousRevision + 1) { unknown(); return; }
       const stored = await call(token, { type: 'ha_tools_email/get_tariff' }, true);
-      if (!current(token, true)) { unknown(); return; }
+      if (!current(token, true)) return;
       if (!envelope(stored) || stored.updated_at === null || stored.revision !== written.revision || !equal(stored.profile, proposed)) { unknown(); return; }
+      state.writeUnconfirmed = false;
       state.profile = clone(stored.profile); state.draft = clone(stored.profile); state.revision = stored.revision; state.updated_at = stored.updated_at;
       message('success', t('Tariff saved and confirmed by stored readback.', 'Taryfa zapisana i potwierdzona odczytem.'));
       if (current(token, true) && typeof onSaved === 'function') onSaved(clone(stored));
     } catch (error) {
-      if (current(token, true) && ['conflict', 'revision_conflict', 'tariff_revision_conflict'].includes(error?.code))
+      if (current(token, true) && ['conflict', 'revision_conflict', 'tariff_revision_conflict'].includes(error?.code)) {
+        state.writeUnconfirmed = true;
         message('error', t('Revision conflict. Load the stored tariff and reconcile your draft.', 'Konflikt wersji. Wczytaj zapisaną taryfę i porównaj ze szkicem.'));
-      else unknown();
-    } finally { state.busy = false; render(); }
+      } else if (current(token)) unknown();
+    } finally { if (current(token)) { state.busy = false; render(); } }
   };
   const cancel = () => {
     // A dispatched save cannot be undone safely. The button remains disabled.
-    if (state.busy) return;
+    if (disposed || state.busy || guard.occupied()) return;
     operation++; state.draft = seed(state.profile); state.feedError = null; state.feedText = undefined;
     message('not_checked', ''); render(); if (typeof onCancel === 'function') onCancel();
   };
@@ -143,7 +133,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     for (const key of keys.slice(0, -1)) { if (!object(at[key]) && !Array.isArray(at[key])) at[key] = {}; at = at[key]; }
     at[keys.at(-1)] = value;
   };
-  const mutable = () => observe().admin && !state.busy && available(association);
+  const mutable = () => observe().admin && !state.busy && !guard.occupied() && available(association);
   const field = (path, label, kind = 'text', choices) => {
     const value = read(path);
     const attrs = `data-path="${esc(path)}" aria-label="${esc(label)}"${mutable() ? '' : ' disabled'}`;
@@ -168,6 +158,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   const css = `.ht-tariff-v3{box-sizing:border-box;color:var(--primary-text-color,#172033);font:inherit;width:100%;min-width:0;max-width:100%;padding:12px;background:var(--ha-card-background,var(--card-background-color,#fff));border-radius:var(--bento-radius,20px)}
 .ht-tariff-v3 *{box-sizing:border-box;min-width:0}.ht-tariff-v3 h3,.ht-tariff-v3 p{overflow-wrap:anywhere}.ht-tariff-v3 fieldset{border:1px solid var(--divider-color,#d8dce5);border-radius:14px;margin:12px 0;padding:12px}.ht-tariff-v3 legend{max-width:100%;overflow-wrap:anywhere}.ht-tariff-v3 .ht-tariff-grid,.ht-tariff-v3 .ht-tariff-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:12px;margin:8px 0}.ht-tariff-v3 .ht-tariff-field{display:flex;flex-direction:column;gap:6px;overflow-wrap:anywhere}.ht-tariff-v3 input,.ht-tariff-v3 select,.ht-tariff-v3 textarea,.ht-tariff-v3 button{font:inherit;color:inherit;border:1px solid var(--divider-color,#c7cdd9);border-radius:10px;background:var(--secondary-background-color,#f7f8fa);min-height:44px;max-width:100%;width:100%;padding:10px}.ht-tariff-v3 textarea{resize:vertical;min-height:110px}.ht-tariff-v3 button{cursor:pointer;width:auto;white-space:normal;overflow-wrap:anywhere}.ht-tariff-v3 button:disabled{cursor:default;opacity:.6}.ht-tariff-v3 :is(input,select,textarea,button):focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}.ht-tariff-v3 .ht-tariff-days,.ht-tariff-v3 .ht-tariff-actions{display:flex;flex-wrap:wrap;gap:8px}.ht-tariff-v3 .ht-tariff-days label{display:flex;align-items:center;gap:8px;min-height:44px}.ht-tariff-v3 input[type=checkbox]{width:24px;min-height:24px;height:24px}.ht-tariff-v3 [role=status]{padding:12px;border-radius:12px;overflow-wrap:anywhere;background:var(--secondary-background-color,#f1f3f6);margin:12px 0}.ht-tariff-v3 [data-status=success]{color:var(--bento-success,#16804a);background:var(--bento-success-light,#e8f5ed)}.ht-tariff-v3 [data-status=error]{color:var(--error-color,#ba1a1a)}.ht-tariff-v3 [data-status=unconfirmed],.ht-tariff-v3 [data-status=partial]{color:var(--warning-color,#a15b00)}.ht-tariff-v3 details{margin:12px 0}.ht-tariff-v3 summary{min-height:44px;cursor:pointer}`;
   function render() {
+    if (disposed) return;
     const active = root.getRootNode().activeElement;
     const focused = active && root.contains(active) ? active : root.querySelector(':focus');
     const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed } : resumeFocus;
@@ -183,12 +174,12 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
       !available(a) || state.backendAvailable === false ? `<p>${esc(t('Tariff backend unavailable. No local fallback.', 'Backend taryf jest niedostępny. Brak lokalnego zapisu zastępczego.'))}</p>` :
         !Number.isSafeInteger(state.revision) ? `<p>${esc(t('Backend availability not checked. Load the tariff first.', 'Dostępność backendu nie została sprawdzona. Najpierw wczytaj taryfę.'))}</p>` : ''}
 ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is invalid. Create and save a valid replacement. No rates were guessed.', 'Zapisana taryfa jest niepoprawna. Utwórz i zapisz poprawny profil. Nie przyjęto domyślnych stawek.'))}</p>` : ''}
-<div class="ht-tariff-grid">${field('type', t('Tariff name type', 'Typ nazwy taryfy'), 'text', ['Custom', 'G11', 'G12', 'G12w', 'G12n'].map(v => [v, v]))}${field('name', t('Name (optional PGE label)', 'Nazwa (opcjonalnie nazwa PGE)'))}${field('currency', t('Currency ISO 4217', 'Waluta ISO 4217'))}${field('timezone', t('IANA timezone', 'Strefa czasowa IANA'))}${field('clock.mode', t('Tariff clock', 'Zegar taryfy'), 'text', [['civil', t('Civil time (DST)', 'Czas lokalny (zmiana czasu)')], ['fixed', t('Fixed UTC offset', 'Stałe przesunięcie UTC')]])}${field('clock.offsetMinutes', t('Fixed offset minutes', 'Stałe przesunięcie w minutach'), 'number')}${field('priceBasis', t('Price basis', 'Podstawa ceny'), 'text', [['gross', t('Gross', 'Brutto')], ['net', t('Net', 'Netto')]])}${field('validFrom', t('Valid from (optional)', 'Ważna od (opcjonalnie)'), 'date')}${field('validTo', t('Valid to (optional)', 'Ważna do (opcjonalnie)'), 'date')}${field('fixedMonthly', t('Fixed monthly fee (separate)', 'Opłata stała miesięczna (osobno)'), 'number')}</div>
+<div class="ht-tariff-grid">${field('type', t('Tariff name type', 'Typ nazwy taryfy'), 'text', ['Custom', 'G11', 'G12', 'G12w', 'G12n'].map(v => [v, v]))}${field('name', t('Tariff name (optional)', 'Nazwa taryfy (opcjonalna)'))}${field('currency', t('Currency ISO 4217', 'Waluta ISO 4217'))}${field('timezone', t('IANA timezone', 'Strefa czasowa IANA'))}${field('clock.mode', t('Tariff clock', 'Zegar taryfy'), 'text', [['civil', t('Civil time (DST)', 'Czas lokalny (zmiana czasu)')], ['fixed', t('Fixed UTC offset', 'Stałe przesunięcie UTC')]])}${field('clock.offsetMinutes', t('Fixed offset minutes', 'Stałe przesunięcie w minutach'), 'number')}${field('priceBasis', t('Price basis', 'Podstawa ceny'), 'text', [['gross', t('Gross', 'Brutto')], ['net', t('Net', 'Netto')]])}${field('validFrom', t('Valid from (optional)', 'Ważna od (opcjonalnie)'), 'date')}${field('validTo', t('Valid to (optional)', 'Ważna do (opcjonalnie)'), 'date')}${field('fixedMonthly', t('Fixed monthly fee (separate)', 'Opłata stała miesięczna (osobno)'), 'number')}</div>
 <h3>${esc(t('Energy and variable fees per kWh', 'Energia i opłaty zmienne za kWh'))}</h3><p>${esc(t('Empty = unknown; zero is a known zero. Fixed monthly fees are shown separately, never prorated.', 'Puste = nieznane; zero jest znaną wartością zero. Opłata stała jest osobna, bez proporcjonalnego naliczania.'))}</p>${
 (p.zones || []).map((_, i) => `<fieldset><legend>${esc(t('Zone', 'Strefa'))} ${i + 1}</legend><div class="ht-tariff-grid">${field(`zones.${i}.id`, t('Zone ID', 'ID strefy'))}${field(`zones.${i}.label`, t('Zone label', 'Etykieta strefy'))}${field(`zones.${i}.energyRate`, t('Energy / kWh', 'Energia / kWh'), 'number')}${field(`zones.${i}.variableRate`, t('Variable fees / kWh (optional)', 'Opłaty zmienne / kWh (opcjonalne)'), 'number')}</div>${mutable() ? button(`remove-zone:${i}`, t('Remove zone', 'Usuń strefę')) : ''}</fieldset>`).join('')}${mutable() ? button('add-zone', t('Add zone', 'Dodaj strefę')) : ''}${field('defaultZone', t('Default zone (optional)', 'Strefa domyślna (opcjonalna)'), 'text', zoneChoices())}
 <h3>${esc(t('Schedule rules', 'Reguły harmonogramu'))}</h3>${rows('rules')}${mutable() ? button('add-rule', t('Add rule', 'Dodaj regułę')) : ''}<h3>${esc(t('Date exceptions', 'Wyjątki dat'))}</h3>${rows('exceptions')}${mutable() ? button('add-exception', t('Add date exception', 'Dodaj wyjątek daty')) : ''}
 <details><summary>${esc(t('Advanced: absolute dynamic price feed', 'Zaawansowane: bezwzględne przedziały cen dynamicznych'))}</summary><p>${esc(t('Optional dynamic feed overrides schedule prices. Use explicit UTC/offset timestamps. Only this feed uses JSON.', 'Opcjonalny feed dynamiczny zastępuje ceny harmonogramu. Użyj znaczników UTC lub z przesunięciem. JSON służy wyłącznie temu feedowi.'))}</p><label class="ht-tariff-field"><span>${esc(t('Dynamic feed JSON (empty = off)', 'Feed dynamiczny JSON (pusty = wyłączony)'))}</span><textarea data-feed="true"${mutable() ? '' : ' disabled'}>${esc(state.feedText ?? (p.dynamic == null ? '' : JSON.stringify(p.dynamic, null, 2)))}</textarea></label>${field('allowNegativeEnergy', t('Negative energy prices', 'Ujemne ceny energii'), 'text', [['false', t('Disabled', 'Wyłączone')], ['true', t('Explicitly allowed', 'Jawnie dozwolone')]])}</details>
-<div role="status" aria-live="polite" data-status="${esc(state.status)}">${statusHtml()}${state.message ? ': ' + esc(localMessage()) : ''}</div><div class="ht-tariff-actions"><button type="button" data-action="load"${state.busy || !available(a) ? ' disabled' : ''}>${esc(t('Load stored tariff', 'Wczytaj zapisaną taryfę'))}</button>${a.admin ? `<button type="button" data-action="save"${state.busy || !available(a) || state.backendAvailable === false || !Number.isSafeInteger(state.revision) ? ' disabled' : ''}>${esc(t('Save tariff', 'Zapisz taryfę'))}</button><button type="button" data-action="cancel"${state.busy ? ' disabled' : ''}>${esc(t('Cancel', 'Anuluj'))}</button>` : ''}</div></section>`;
+<div role="status" aria-live="polite" data-status="${esc(state.status)}">${statusHtml()}${state.message ? ': ' + esc(localMessage()) : ''}</div><div class="ht-tariff-actions"><button type="button" data-action="load"${state.busy || guard.occupied() || !available(a) ? ' disabled' : ''}>${esc(t('Load stored tariff', 'Wczytaj zapisaną taryfę'))}</button>${a.admin ? `<button type="button" data-action="save"${state.busy || guard.occupied() || !available(a) || state.writeUnconfirmed || state.backendAvailable === false || !Number.isSafeInteger(state.revision) ? ' disabled' : ''}>${esc(t('Save tariff', 'Zapisz taryfę'))}</button><button type="button" data-action="cancel"${state.busy || guard.occupied() ? ' disabled' : ''}>${esc(t('Cancel', 'Anuluj'))}</button>` : ''}</div></section>`;
     root.querySelectorAll('[data-path]').forEach(el => el.addEventListener('input', () => {
       if (!mutable()) { render(); return; }
       const path = el.dataset.path;
@@ -254,7 +245,7 @@ ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is 
     }
     if (!state.busy) resumeFocus = null;
   }
-  return { render, load, cancel };
+  return { render, load, cancel, dispose: () => { disposed = true; operation++; unsubscribe(); unsubscribeWire(); } };
 }
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { createTariffSettingsV3 };

@@ -201,7 +201,10 @@ class HaEnergyOptimizer extends HTMLElement {
     this._generateRecommendations();
     this._generateComparisonData();
   }
+  connectedCallback() { this._tariffHostController?.guard.resume(); }
+
   disconnectedCallback() {
+    this._tariffHostController?.guard.suspend();
     this._timers.forEach(timer => clearTimeout(timer));
     this._timers.clear();
     this._renderScheduled = false;
@@ -233,6 +236,7 @@ class HaEnergyOptimizer extends HTMLElement {
 
   setConfig(config) {
     this._config = config || { title: 'Energy Optimizer' };
+    this._observeTariffContextV3();
     this._generateRecommendations();
     this._generateComparisonData();
     if (this._hass) this._render();
@@ -321,15 +325,13 @@ class HaEnergyOptimizer extends HTMLElement {
     if (!this._hass || !this._hass.callWS) return;
     if (this._statsLoading) return;
     this._statsLoading = true;
-    const fetchHass = this._hass;
-    const fetchContext = [fetchHass.connection, fetchHass.user?.id, fetchHass.config?.time_zone];
-    const currentContext = () => this._hass != null && this._hass.connection === fetchContext[0] &&
-      this._hass.user?.id === fetchContext[1] && this._hass.config?.time_zone === fetchContext[2];
+    const read = this._createEnergyReadV3();
+    const currentContext = read.current;
     this._energyError = null;
     try {
-      await this._loadSharedTariffProfile();
+      const model = await readEnergyHours(read.hass, 24 * 31);
       if (!currentContext()) return;
-      const model = await readEnergyHours(fetchHass, 24 * 31);
+      await this._loadSharedTariffProfile();
       if (!currentContext()) return;
       if (model.noSensors || model.noSeries) throw new Error(model.noSeries ? 'Missing Energy Dashboard statistic series' : 'No Energy Dashboard grid import source');
       const today = model.summary(model.todayStart, model.end);
@@ -368,7 +370,6 @@ class HaEnergyOptimizer extends HTMLElement {
       console.warn('Energy Optimizer: Energy statistics unavailable');
     } finally {
       this._statsLoading = false;
-      if (!currentContext() && this._hass?.callWS) void this._fetchEnergyStats();
       if (this.isConnected) this._render();
     }
   }
@@ -1145,8 +1146,76 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'optimizer',
   _tariffCurrency() { return this._getTariffHostV3().currency(); }
   _loadSharedTariffProfile() { return this._getTariffHostV3().load(); }
   _tariffDetailsMarkup() { return this._getTariffHostV3().markup(); }
-  _bindTariffSettings() { this._getTariffHostV3().bind(); }
+  _bindTariffSettings() {
+      if (this._tariffWriteUnconfirmedV3) {
+        this._tariffEditorState ||= { profile: null, revision: null, status: 'not_checked', busy: false };
+        this._tariffEditorState.writeUnconfirmed = true;
+      }
+      this._getTariffHostV3().bind();
+    }
   _resetTariffContext(nextHass) { this._getTariffHostV3().reset(nextHass); }
+
+    // Owned by this card. No shared global state and no polling/retry path.
+    _createTariffConsumerV3(createGuard) {
+      const guard = createGuard({ getHass: () => this._hass, getContext: () => this._tariffContextV3() });
+      const call = guard.call;
+      guard.call = (token, request, admin = false) => {
+        const dispatched = request.type === 'ha_tools_email/set_tariff' && !guard.occupied() && guard.current(token, admin);
+        const result = call(token, request, admin);
+        if (dispatched && guard.occupied()) {
+          // Persists across mount/authority purges. An ACK cannot clear this fence.
+          this._tariffWriteUnconfirmedV3 = true;
+        }
+        return result;
+      };
+      return { guard, onRefresh: () => {
+        // Only explicit editor Load or independently confirmed Save reaches here.
+        this._tariffWriteUnconfirmedV3 = false;
+        this._repriceTariffV3();
+      } };
+
+    }
+    _installTariffConsumerV3() {
+      const guard = this._tariffHostController.guard;
+      let active = true;
+      const unsubscribe = guard.subscribe(() => queueMicrotask(() => {
+        // Setters assign the prospective hass before this pure render executes.
+        if (active) this._repriceTariffV3();
+      }));
+      this._tariffConsumerUnsubscribeV3 = () => { active = false; unsubscribe(); };
+    }
+    _tariffContextV3() {
+      return { config: this._config, tab: this._currentTab, range: this._patternsState?.period || 7,
+        sources: this._tariffSourceIds || [], windowEnd: this._tariffWindowEnd ?? null };
+    }
+    _observeTariffContextV3() { this._getTariffHostV3().guard.observe(); }
+    _createEnergyReadV3() {
+      const host = this._getTariffHostV3(), source = this._hass;
+      this._tariffWindowEnd = Math.floor(Date.now() / ENERGY_HOUR) * ENERGY_HOUR;
+      let token = host.guard.observe();
+      const current = () => host.guard.current(token);
+      const assertCurrent = () => { if (!current()) throw { code: 'energy_context_changed' }; };
+      // The facade preserves readEnergyHours' complete source/unit/window behavior.
+      const hass = { ...source, callWS: async request => {
+        assertCurrent();
+        const result = await source.callWS.call(source, request);
+        assertCurrent();
+        if (request.type === 'energy/get_prefs') {
+          this._tariffSourceIds = energyImportIds(result);
+          token = host.guard.observe();
+        }
+        return result;
+      } };
+      return { hass, current };
+    }
+
+    _repriceTariffV3() {
+      this._generateRecommendations();
+      this._generateComparisonData();
+      if (this._energyModel) this._preparePatterns();
+      this._render();
+    }
+
 
   _todayTariffCosts() {
     const model = this._energyModel;
@@ -1354,6 +1423,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'optimizer',
     panel.querySelectorAll('select[data-pattern-control]').forEach(el => el.addEventListener('change', () => {
       const field = el.dataset.patternControl;
       state[field === 'period' ? 'period' : field === 'point' ? 'selected' : field] = field === 'period' ? Number(el.value) : el.value;
+      if (field === 'period') this._observeTariffContextV3();
       redraw(field, field !== 'period');
     }));
     panel.querySelectorAll('button[data-pattern-control]').forEach(el => el.addEventListener('click', () => {
@@ -2144,6 +2214,7 @@ canvas {
         button.classList.add('active');
         button.setAttribute('aria-selected', 'true');
         this._currentTab = button.dataset.tab;
+        this._observeTariffContextV3();
         this._showTab(button.dataset.tab);
       });
     });
