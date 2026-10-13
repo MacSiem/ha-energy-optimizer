@@ -395,7 +395,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=209867d9fb5a66fdfd93cdda5d6968f5382f181d40b499aa49a3a3da5d3cb01d
+    // HA_TARIFF_V3_START sha256=f7925257f3e8d97e307b5d1eb6002ce2440f1c651968dc62c7c61a008c25ee2b
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1132,7 +1132,8 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     const active = card.shadowRoot?.activeElement;
     focusKey = active?.closest('[data-tariff-details]') ? {
       summary: active.tagName === 'SUMMARY', path: active.dataset.path,
-      action: active.dataset.action, weekday: active.dataset.weekday, feed: active.dataset.feed
+      action: active.dataset.action, weekday: active.dataset.weekday, feed: active.dataset.feed,
+      selection: typeof active.selectionStart === 'number' ? { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection } : null
     } : null;
     return `<style>
     [data-energy-container]{container-type:inline-size;container-name:energy-card}
@@ -1236,7 +1237,13 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
         [...root.querySelectorAll('input,select,textarea,button')].find(el =>
           (key.path && el.dataset.path === key.path) || (key.action && el.dataset.action === key.action) ||
           (key.weekday && el.dataset.weekday === key.weekday) || (key.feed && el.dataset.feed === key.feed));
-      if (target && !target.disabled) target.focus({ preventScroll: true });
+      if (target && !target.disabled) {
+        target.focus({ preventScroll: true });
+        if (key.selection && typeof target.selectionStart === 'number') {
+          const length = target.value.length;
+          target.setSelectionRange(Math.min(key.selection.start, length), Math.min(key.selection.end, length), key.selection.direction || 'none');
+        }
+      }
     }
   };
   return { model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, ui: () => createUi({ language: language() }) };
@@ -3060,7 +3067,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=209867d9fb5a66fdfd93cdda5d6968f5382f181d40b499aa49a3a3da5d3cb01d
+      // HA_TARIFF_V3_START sha256=f7925257f3e8d97e307b5d1eb6002ce2440f1c651968dc62c7c61a008c25ee2b
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -3797,7 +3804,8 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     const active = card.shadowRoot?.activeElement;
     focusKey = active?.closest('[data-tariff-details]') ? {
       summary: active.tagName === 'SUMMARY', path: active.dataset.path,
-      action: active.dataset.action, weekday: active.dataset.weekday, feed: active.dataset.feed
+      action: active.dataset.action, weekday: active.dataset.weekday, feed: active.dataset.feed,
+      selection: typeof active.selectionStart === 'number' ? { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection } : null
     } : null;
     return `<style>
     [data-energy-container]{container-type:inline-size;container-name:energy-card}
@@ -3901,7 +3909,13 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
         [...root.querySelectorAll('input,select,textarea,button')].find(el =>
           (key.path && el.dataset.path === key.path) || (key.action && el.dataset.action === key.action) ||
           (key.weekday && el.dataset.weekday === key.weekday) || (key.feed && el.dataset.feed === key.feed));
-      if (target && !target.disabled) target.focus({ preventScroll: true });
+      if (target && !target.disabled) {
+        target.focus({ preventScroll: true });
+        if (key.selection && typeof target.selectionStart === 'number') {
+          const length = target.value.length;
+          target.setSelectionRange(Math.min(key.selection.start, length), Math.min(key.selection.end, length), key.selection.direction || 'none');
+        }
+      }
     }
   };
   return { model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, ui: () => createUi({ language: language() }) };
@@ -5413,7 +5427,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=209867d9fb5a66fdfd93cdda5d6968f5382f181d40b499aa49a3a3da5d3cb01d
+      // HA_TARIFF_V3_START sha256=f7925257f3e8d97e307b5d1eb6002ce2440f1c651968dc62c7c61a008c25ee2b
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -6150,7 +6164,8 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     const active = card.shadowRoot?.activeElement;
     focusKey = active?.closest('[data-tariff-details]') ? {
       summary: active.tagName === 'SUMMARY', path: active.dataset.path,
-      action: active.dataset.action, weekday: active.dataset.weekday, feed: active.dataset.feed
+      action: active.dataset.action, weekday: active.dataset.weekday, feed: active.dataset.feed,
+      selection: typeof active.selectionStart === 'number' ? { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection } : null
     } : null;
     return `<style>
     [data-energy-container]{container-type:inline-size;container-name:energy-card}
@@ -6254,7 +6269,13 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
         [...root.querySelectorAll('input,select,textarea,button')].find(el =>
           (key.path && el.dataset.path === key.path) || (key.action && el.dataset.action === key.action) ||
           (key.weekday && el.dataset.weekday === key.weekday) || (key.feed && el.dataset.feed === key.feed));
-      if (target && !target.disabled) target.focus({ preventScroll: true });
+      if (target && !target.disabled) {
+        target.focus({ preventScroll: true });
+        if (key.selection && typeof target.selectionStart === 'number') {
+          const length = target.value.length;
+          target.setSelectionRange(Math.min(key.selection.start, length), Math.min(key.selection.end, length), key.selection.direction || 'none');
+        }
+      }
     }
   };
   return { model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, ui: () => createUi({ language: language() }) };
