@@ -1125,6 +1125,7 @@ this._installTariffConsumerV3();
           this._firstHassRender = true;
           this._activeTab = localStorage.getItem('ha-tools-energy-insights-active-tab') || 'overview';
           this._loadChartJs();
+          this._lastDataFetch = now;
           this._fetchData();
           this._render();
           this._lastRenderTime = now;
