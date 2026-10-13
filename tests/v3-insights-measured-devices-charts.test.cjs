@@ -230,7 +230,8 @@ test('device disclosure retains keyboard focus/open state across locale without 
   const f = await fixture(); try {
     await f.card._readInsightDevicesV3(); const count = f.calls.length;
     const disclosure = f.card.shadowRoot.querySelectorAll('[data-insights-device-details]')[1];
-    disclosure.open = true; disclosure.dispatchEvent(new f.dom.window.Event('toggle'));
+    // Native toggle is queued; an immediate locale repaint must read actual open state.
+    disclosure.open = true;
     disclosure.querySelector('summary').focus();
     f.card.hass = { ...f.hass, language: 'pl', locale: { language: 'pl' } }; await flush();
     const focused = f.card.shadowRoot.activeElement;
