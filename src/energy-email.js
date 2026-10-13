@@ -1889,6 +1889,7 @@ this._installTariffConsumerV3();
       this._helpersChecked = false;
       this._smtpStatus = null;
       this._sendResult = null;
+      this._legacyActionResult = null;
       this._smtpTesting = !!this._smtpRequest;
       this._sending = !!this._emailSendRequest;
       this._scheduleSaveFocus = null;
@@ -2252,9 +2253,11 @@ this._installTariffConsumerV3();
       if (!pending) return;
       const root = this.shadowRoot;
       const visible = el => el && !el.disabled && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
-      const busy = pending.id === 'btn-smtp-test' ? this._smtpTesting : this._sending;
+      const legacy = /^(enable|disable)-(daily|weekly|monthly)$/.test(pending.id);
+      const busy = legacy ? !!this._automationRequest : pending.id === 'btn-smtp-test' ? this._smtpTesting : this._sending;
+      const alternate = legacy ? root.getElementById(pending.id.replace(/^(enable|disable)/, value => value === 'enable' ? 'disable' : 'enable')) : null;
       const anchor = root.getElementById('tab-content');
-      const target = busy ? anchor : [root.getElementById(pending.id), root.getElementById('email-tab-' + pending.tab), root.getElementById('email-tab-select'), anchor].find(visible);
+      const target = busy ? anchor : [root.getElementById(pending.id), alternate, root.getElementById('email-tab-' + pending.tab), root.getElementById('email-tab-select'), anchor].find(visible);
       if (visible(target)) { pending.anchor = target; target.focus({ preventScroll: true }); }
       if (!busy || root.activeElement !== pending.anchor) this._clearActionFocus();
     }
@@ -2465,6 +2468,9 @@ this._installTariffConsumerV3();
           ${this._getTariffHostV3().ui().css}
           .email-action-result{padding:12px;border:1px solid var(--bento-border);border-radius:10px;margin:12px 0;overflow-wrap:anywhere}
           .email-action-result p{margin:8px 0 0;line-height:1.5}
+          .card a{color:var(--bento-primary);text-underline-offset:2px}
+          :host(.bento-dark) .card a{color:#93c5fd}
+          .ht-result-state--not_checked,.ht-result-state--no_data{color:var(--bento-text-secondary,#64748b)}
           .card button,.card select{min-height:44px;min-width:44px;box-sizing:border-box}
           .card :is(button,input,select,[tabindex]):focus-visible{outline:3px solid var(--bento-primary);outline-offset:2px}
           .header>div:last-child{min-width:0}.header-sub{overflow-wrap:anywhere}
@@ -3011,8 +3017,8 @@ this._installTariffConsumerV3();
           </div>
           <div class="btn-row">
             ${ex ? (state === 'on'
-              ? `<button class="btn btn-ok" id="${disableId}">${L ? 'Wy\u0142\u0105cz' : 'Disable'}</button><button class="btn" id="update-${createId}">\u{1F504} ${L ? 'Aktualizuj' : 'Update'}</button>`
-              : `<button class="btn btn-primary" id="${enableId}">${L ? 'W\u0142\u0105cz' : 'Enable'}</button><button class="btn" id="update-${createId}">\u{1F504} ${L ? 'Aktualizuj' : 'Update'}</button>`)
+              ? `<button class="btn btn-ok" id="${disableId}" ${this._automationRequest ? 'disabled' : ''}>${L ? 'Wy\u0142\u0105cz' : 'Disable'}</button><button class="btn" id="update-${createId}">\u{1F504} ${L ? 'Aktualizuj' : 'Update'}</button>`
+              : `<button class="btn btn-primary" id="${enableId}" ${this._automationRequest ? 'disabled' : ''}>${L ? 'W\u0142\u0105cz' : 'Enable'}</button><button class="btn" id="update-${createId}">\u{1F504} ${L ? 'Aktualizuj' : 'Update'}</button>`)
               : state === 'missing' ? `<button class="btn btn-primary" id="${createId}">\u2795 ${L ? 'Utw\u00F3rz automatyzacj\u0119' : 'Create Automation'}</button>` : ''}
           </div>
         </div>`;
@@ -3029,6 +3035,7 @@ this._installTariffConsumerV3();
           : '<b>No email recipient.</b> Set an email in the field above or a default recipient in <a href="/config/integrations/integration/ha_tools_email">Settings \u2192 Devices &amp; services \u2192 HA Tools Email \u2192 Configure</a>.'}</div>` : ''}
         ${['daily', 'weekly', 'monthly'].map(c => this._renderLegacyScheduleCard(c)).join('')}
         <div class="section-title">${L ? 'Starsze automatyzacje HA' : 'Legacy HA Automations'}</div>
+        ${this._legacyActionMarkup()}
         ${scheduleCard(
           '\u2600\uFE0F', 'Raport dzienny', 'Daily Report', dailyState,
           `${L ? 'Codziennie o' : 'Every day at'} ${sd.daily}`,
@@ -3375,14 +3382,40 @@ this._installTariffConsumerV3();
 
     // --- HA service calls ---
 
+    _legacyActionMarkup() {
+      const r = this._legacyActionResult;
+      if (!r) return '';
+      const pl = this._lang === 'pl', ui = this._getTariffHostV3().ui();
+      const action = r.enable ? (pl ? 'Włączenie' : 'Enable') : (pl ? 'Wyłączenie' : 'Disable');
+      const explanation = r.state === 'success'
+        ? (pl ? 'Żądany stan potwierdzony w Home Assistant.' : 'Requested state confirmed in Home Assistant.')
+        : r.state === 'not_checked'
+          ? (pl ? 'Żądanie trwa; stan niepotwierdzony.' : 'Request in progress; state unconfirmed.')
+          : (pl ? 'Wynik niepotwierdzony. Sprawdź stan w HA przed ponowieniem.' : 'Outcome unconfirmed. Check the state in HA before retrying.');
+      return `<div class="email-action-result" data-automation-result role="status" aria-live="polite">${ui.statusHtml(r.state)}<p>${_esc(action)}: <code>${_esc(r.entity)}</code></p><p>${_esc(explanation)}</p></div>`;
+    }
+
     async _toggleAuto(entity_id, enable) {
-      if (!this._requireAdmin()) return;
-      if (!this._hass) return;
+      if (!this._requireAdmin() || this._automationRequest || typeof enable !== 'boolean') return;
+      const cadence = ['daily', 'weekly', 'monthly'].find(value => entity_id === 'automation.send_' + value + '_energy_report');
+      const before = this._hass?.states?.[entity_id]?.state, expected = enable ? 'on' : 'off';
+      if (!cadence || !['on', 'off'].includes(before) || before === expected) return;
+      const token = this._emailContextToken(), source = this._hass;
+      const request = this._automationRequest = {};
+      this._legacyActionResult = { state: 'not_checked', entity: entity_id, enable };
+      this._rememberActionFocus((enable ? 'enable-' : 'disable-') + cadence);
+      this._renderTab();
       try {
-        await this._hass.callService('automation', enable ? 'turn_on' : 'turn_off', { entity_id });
-        this._showToast(`\u2705 Automation ${enable ? 'enabled' : 'disabled'}`);
-        this._schedule(() => this._renderTab(), 800);
-      } catch (e) { this._showToast('\u274C Error: ' + (e.message || 'Unknown error')); }
+        await source.callService('automation', enable ? 'turn_on' : 'turn_off', { entity_id }, undefined, false);
+        if (!this._emailContextCurrent(token)) return;
+        const confirmed = this._hass?.states?.[entity_id]?.state === expected;
+        this._legacyActionResult = { state: confirmed ? 'success' : 'unconfirmed', entity: entity_id, enable };
+      } catch (_) {
+        if (this._emailContextCurrent(token)) this._legacyActionResult = { state: 'unconfirmed', entity: entity_id, enable };
+      } finally {
+        if (this._automationRequest === request) this._automationRequest = null;
+        if (this.isConnected) this._renderTab();
+      }
     }
 
     _emailResultText(result) {

@@ -23,5 +23,5 @@ for(const change of ['user','role','connection','offline','reconnect','detach'])
  }finally{f.close()}
 });
 test('missing, unknown or already requested automation state causes no service call',async()=>{
- const f=await fixture();try{await f.card._toggleAuto(id,false);await f.card._toggleAuto('automation.absent',true);f.hass.states[id].state='unavailable';await f.card._toggleAuto(id,true);assert.equal(f.calls.length,0)}finally{f.close()}
+ const f=await fixture();try{f.resolve();await f.card._toggleAuto(id,false);await f.card._toggleAuto('automation.absent',true);f.hass.states[id].state='unavailable';await f.card._toggleAuto(id,true);assert.equal(f.calls.length,0)}finally{f.close()}
 });
