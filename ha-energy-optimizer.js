@@ -6698,6 +6698,8 @@ this._installTariffConsumerV3();
         this._tariffEditorState.writeUnconfirmed = true;
       }
       this._getTariffHostV3().bind();
+      // Email owns its named navigation and stable IDs; discard the host's generic duplicate.
+      this.shadowRoot.querySelector('.energy-tab-picker')?.remove();
     }
     _resetTariffContext(nextHass) { this._getTariffHostV3().reset(nextHass); }
 
@@ -7404,7 +7406,7 @@ this._installTariffConsumerV3();
       const focusId = focus?.id;
       const selection = typeof focus?.selectionStart === 'number' ? [focus.selectionStart, focus.selectionEnd, focus.selectionDirection] : null;
       const formFields = [...this.shadowRoot.querySelectorAll('input[id], select[id], textarea[id]')]
-        .filter(field => !field.id.startsWith('schedule-'))
+        .filter(field => !field.id.startsWith('schedule-') && field.id !== 'email-tab-select')
         .map(field => ({ id: field.id, value: field.value, checked: field.checked }));
       const L = this._lang === 'pl';
       const recipient = this._getRecipient();
