@@ -24,7 +24,7 @@ function backendFixture({ legacy = true, modern = false } = {}) {
   const writes = [];
   const begin = Date.parse('2026-10-04T12:00:00Z');
   card._hass = {
-    user: { is_admin: true }, config: { currency: 'EUR' }, states: {},
+    user: { id: 'legacy-backend-fixture', is_admin: true }, connection: { connected: true }, config: { currency: 'EUR' }, states: {},
     services: legacy ? { ha_tools_email: { send: {} } } : {},
     callService: async (domain, service, data) => writes.push({ domain, service, data }),
     callWS: async msg => {

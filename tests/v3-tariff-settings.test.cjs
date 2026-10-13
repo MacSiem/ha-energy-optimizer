@@ -136,7 +136,7 @@ test('late user switch during load rejects the prior account response', async ()
   const f = fixture(() => new Promise(r => { resolve = r; }));
   try { const pending = f.editor.load(); f.setHass({ ...f.current(), user: { id: 'other', is_admin: true } });
     resolve({ profile: { ...profile(), name: 'stale' }, revision: 9, updated_at: '2026-10-12T10:00:00Z' }); await pending;
-    assert.equal(f.state.profile.name, 'My tariff'); assert.equal(f.state.revision, 4); assert.equal(f.state.status, 'unconfirmed');
+    assert.equal(f.state.profile, null); assert.equal(f.state.revision, null); assert.equal(f.state.status, 'unconfirmed'); assert.equal(f.root.textContent.includes('My tariff'), false); assert.equal(f.root.textContent.includes('stale'), false);
   } finally { f.dom.window.close(); }
 });
 test('invalid dynamic JSON blocks mutation and the dynamic field cannot replace visual rules', async () => {

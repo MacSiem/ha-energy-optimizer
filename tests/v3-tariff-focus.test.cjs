@@ -25,7 +25,8 @@ test('successful confirmed Save returns focus to the same action after its busy 
 test('known invalid stored profile is initially Error, not an unchecked validation result',()=>{
  const dom=new JSDOM('<main></main>');try{
  const root=dom.window.document.querySelector('main');const state={profile:{schema:0},revision:1,status:'not_checked',busy:false};
- const editor=createTariffSettingsV3({root,getHass:()=>({config:{currency:'EUR',time_zone:'UTC'},user:{id:'fixture',is_admin:true},connection:{connected:true},callWS:async()=>{throw Error('No API');}}),state,validate:createEnergyTariffV3});editor.render();
+ const hass={config:{currency:'EUR',time_zone:'UTC'},user:{id:'fixture',is_admin:true},connection:{connected:true},callWS:async()=>{throw Error('No API');}};
+ const editor=createTariffSettingsV3({root,getHass:()=>hass,state,validate:createEnergyTariffV3});editor.render();
  assert.equal(state.status,'error');assert.equal(root.querySelector('[data-result-state]').dataset.resultState,'error');
  }finally{dom.window.close();}
 });
