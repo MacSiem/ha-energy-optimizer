@@ -1151,6 +1151,7 @@ this._installTariffConsumerV3();
         this._resetTariffContext(hass);
         this._hass = hass;
         if (!hass) return;
+        this.classList.toggle('bento-dark', hass.themes?.darkMode === true);
 
         const now = Date.now();
         if (!this._firstHassRender) {
@@ -1791,7 +1792,7 @@ this._installTariffConsumerV3();
           .insights-measured button{white-space:normal;cursor:pointer}.insights-measured button:disabled{opacity:.55;cursor:default}.insights-measured button[aria-pressed=true]{border-color:var(--bento-primary);background:var(--bento-primary-light)}
           .insights-measured :is(button,select,input,summary,a):focus-visible{outline:3px solid var(--bento-primary);outline-offset:2px}
           .insights-measured a{display:inline-flex;align-items:center;min-height:44px;color:var(--bento-primary)}
-          .insights-measured svg{display:block;max-width:100%;touch-action:pan-y}.insights-measured svg text{fill:var(--bento-text-secondary);font:11px system-ui}
+          .insights-measured svg{display:block;max-width:100%;touch-action:pan-y}.insights-measured svg text{fill:var(--bento-text-secondary);font:12px system-ui}
           .insights-data-row,.insights-device,.insights-point-detail{padding:14px;margin:10px 0;border:1px solid var(--bento-border);border-radius:10px;overflow-wrap:anywhere;min-width:0}
           .insights-point-detail{background:var(--bento-primary-light)}.insights-device-heading{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:baseline}.insights-device-heading span{font-weight:650;font-variant-numeric:tabular-nums}
           .insights-measured summary{min-height:44px;cursor:pointer;padding:12px 0}.insights-measured dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:8px 16px;font-size:13px;line-height:1.5}.insights-measured dd{margin:0}.insights-measured dt{color:var(--bento-text-secondary)}
