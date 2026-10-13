@@ -26,7 +26,7 @@ for(const kind of ['legacy','smtp','backend'])for(const change of ['user','offli
  const f=fixture({backend:kind==='backend'});try{const {work}=await f.start(kind);assert.equal(f.calls.length,1);
  if(change==='detach'){f.card.remove();f.w.document.body.append(f.card);f.card._render()}
  else {const h={...f.hass};if(change==='user')h.user={id:'two',is_admin:true};if(change==='offline')h.connected=false;if(change==='connection')h.connection={connected:true};f.card.hass=h;}
- if(kind==='smtp')await f.card._testSmtp();else await f.card._sendReport('daily');assert.equal(f.calls.length,1,'context change must not release an unsettled send');
+ if(kind==='smtp')void f.card._testSmtp();else void f.card._sendReport('daily');await flush();assert.equal(f.calls.length,1,'context change must not release an unsettled send');
  f.resolve({status:'accepted_by_smtp'});await work;assert.equal(f.root.querySelector('[data-email-result]'),null);assert.equal(f.card._lastSent.daily,undefined);assert.equal(f.card._sending,false);assert.equal(f.card._smtpTesting,false);
  }finally{f.close()}
 });

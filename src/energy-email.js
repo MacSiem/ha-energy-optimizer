@@ -1877,8 +1877,9 @@ this._installTariffConsumerV3();
       this._configEntriesChecked = false;
       this._helpersChecked = false;
       this._smtpStatus = null;
-      this._smtpTesting = false;
-      this._sending = false;
+      this._sendResult = null;
+      this._smtpTesting = !!this._smtpRequest;
+      this._sending = !!this._emailSendRequest;
       this._scheduleSaveFocus = null;
       this._lastSent = {};
       this._lastSentOutcome = {};
@@ -2450,6 +2451,9 @@ this._installTariffConsumerV3();
 
 
 
+          ${this._getTariffHostV3().ui().css}
+          .email-action-result{padding:12px;border:1px solid var(--bento-border);border-radius:10px;margin:12px 0;overflow-wrap:anywhere}
+          .email-action-result p{margin:8px 0 0;line-height:1.5}
           .card button,.card select{min-height:44px;min-width:44px;box-sizing:border-box}
           .card :is(button,input,select,[tabindex]):focus-visible{outline:3px solid var(--bento-primary);outline-offset:2px}
           .header>div:last-child{min-width:0}.header-sub{overflow-wrap:anywhere}
@@ -2802,7 +2806,7 @@ this._installTariffConsumerV3();
     }
 
     _tabSchedule() {
-      return this._renderSmtpSection() + `<button class="btn" id="email-config-refresh" type="button">${this._lang === 'pl' ? 'Odczytaj status SMTP' : 'Read SMTP status'}</button>` + this._renderEnergyCalendar() + this._renderLegacyScheduleTab(true);
+      return this._renderSmtpSection() + this._emailResultMarkup('send', this._sendResult) + `<button class="btn" id="email-config-refresh" type="button">${this._lang === 'pl' ? 'Odczytaj status SMTP' : 'Read SMTP status'}</button>` + this._renderEnergyCalendar() + this._renderLegacyScheduleTab(true);
     }
 
     _renderEnergyCalendar() {
@@ -3134,6 +3138,7 @@ this._installTariffConsumerV3();
         ? (L ? 'Wyślij raport energii przez HA Tools Email 2.1.2+.' : 'Send an energy report using HA Tools Email 2.1.2+.')
         : (L ? 'R\u0119cznie wy\u015Blij raport energii poprzez ha_tools_email.' : 'Manually trigger an energy report via ha_tools_email.');
       return `
+        ${this._emailResultMarkup('send', this._sendResult)}
         <div class="info-row">\u{1F4E4}\u00A0 ${modeText}</div>
         ${smtpConfig}
         ${(this._emailBackendAvailable || this._hasLegacyHaToolsEmail()) ? `<div style="font-size:12px;color:var(--bento-text-secondary);margin:16px 0 12px;padding:10px;background:var(--bento-primary-light);border-radius:var(--bento-radius-xs)">${L ? '💡 Konfiguracja SMTP: <a href="/config/integrations/integration/ha_tools_email">Ustawienia \u2192 Urz\u0105dzenia i us\u0142ugi \u2192 HA Tools Email \u2192 Konfiguruj</a>' : '💡 SMTP settings: <a href="/config/integrations/integration/ha_tools_email">Settings \u2192 Devices &amp; services \u2192 HA Tools Email \u2192 Configure</a>'}</div>` : ''}
@@ -3369,18 +3374,47 @@ this._installTariffConsumerV3();
       } catch (e) { this._showToast('\u274C Error: ' + (e.message || 'Unknown error')); }
     }
 
+    _emailResultText(result) {
+      const pl = this._lang === 'pl';
+      const texts = {
+        accepted_by_smtp: ['Accepted by SMTP; delivery unconfirmed.', 'Przyjęte przez SMTP; doręczenie niepotwierdzone.'],
+        request_completed: ['Request completed; SMTP acceptance and delivery unconfirmed. Inspect History before retrying.', 'Żądanie zakończone; przyjęcie przez SMTP i doręczenie niepotwierdzone. Przed ponowieniem sprawdź Historię.'],
+        transport_unknown: ['Send outcome unconfirmed. Inspect History; no automatic retry.', 'Wynik wysyłki niepotwierdzony. Sprawdź Historię; nie ponawiamy automatycznie.'],
+        no_data: ['Complete Recorder data is unavailable for this period. No email was sent.', 'Brak kompletnych danych Recorder dla tego okresu. Nie wysłano emaila.'],
+        smtp_unconfigured: ['Configure SMTP in HA Tools Email before sending.', 'Przed wysyłką skonfiguruj SMTP w HA Tools Email.'],
+        integration_missing: ['HA Tools Email service is unavailable. No email was sent.', 'Usługa HA Tools Email jest niedostępna. Nie wysłano emaila.'],
+        upgrade_required: ['Update HA Tools Email to 2.1.2 or newer. No test was sent.', 'Zaktualizuj HA Tools Email do 2.1.2 lub nowszego. Nie wysłano testu.'],
+        not_tested: ['SMTP is configured. No test was sent; use Send Now to request a report.', 'SMTP jest skonfigurowany. Nie wysłano testu; użyj Wyślij teraz, aby zamówić raport.'],
+        prepare_failed: ['The report could not be prepared. No email was sent. Check HA logs.', 'Nie udało się przygotować raportu. Nie wysłano emaila. Sprawdź logi HA.']
+      };
+      return (texts[result?.reason] || texts.transport_unknown)[pl ? 1 : 0];
+    }
+
+    _emailResultMarkup(kind, result) {
+      if (!result) return '';
+      const ui = this._getTariffHostV3().ui();
+      return `<div class="email-action-result" data-email-result="${kind}" role="status">${ui.statusHtml(result.state)}<p>${_esc(this._emailResultText(result))}</p></div>`;
+    }
+
+    _setEmailActionResult(kind, state, reason) {
+      const result = { state, reason };
+      if (kind === 'smtp') this._smtpStatus = result; else this._sendResult = result;
+      const status = this._getTariffHostV3().ui().status(state);
+      this._showToast(status.icon + ' ' + status.label + ': ' + this._emailResultText(result));
+    }
+
     async _sendReportViaBackend(cadence, options = {}) {
       if (!this._requireAdmin()) return;
       if (this._emailBackendReportsUnsupported) return this._sendReport(cadence);
-      if (!this._hass || this._sending) return;
-      const L = this._lang === 'pl';
+      if (!this._hass || this._sending || this._emailSendRequest) return;
       if (!['daily', 'weekly', 'monthly'].includes(cadence)) return;
       if (!this._emailBackendConfig?.smtp_configured) {
-        this._showToast('\u274C ' + (L ? 'SMTP nie skonfigurowany w backendzie ha_tools_email' : 'SMTP is not configured in ha_tools_email backend'));
-        return;
+        this._setEmailActionResult('send', 'error', 'smtp_unconfigured'); this._renderTab(); return;
       }
       const recipients = options.recipients ?? this._scheduleRecipients(cadence);
       const token = this._emailContextToken(), source = this._hass;
+      const request = this._emailSendRequest = {};
+      this._sendResult = null;
       this._rememberActionFocus('send-' + cadence);
       this._sending = true;
       this._scheduleBusy[cadence] = true;
@@ -3388,33 +3422,30 @@ this._installTariffConsumerV3();
       try {
         const acknowledgement = await source.callWS({ type: 'ha_tools_email/send_now', kind: 'energy_report', cadence, recipients });
         if (!this._emailContextCurrent(token)) return;
-        const accepted = acknowledgement?.status === 'accepted_by_smtp' || (acknowledgement?.status === undefined && acknowledgement?.success === true);
-        if (!accepted) {
-          const state = this._getTariffHostV3().ui().status('unconfirmed');
-          this._showToast(state.icon + ' ' + state.label + ': ' + (L ? 'Wynik wysyłki niepotwierdzony. Sprawdź historię.' : 'Send outcome unconfirmed. Inspect history.'));
-          return;
-        }
+        const accepted = acknowledgement?.success !== false && (acknowledgement?.status === 'accepted_by_smtp' || (acknowledgement?.status === undefined && acknowledgement?.success === true));
+        if (!accepted) { this._setEmailActionResult('send', 'unconfirmed', 'transport_unknown'); return; }
         this._lastSentOutcome[cadence] = 'accepted_by_smtp';
         this._lastSent[cadence] = new Date().toLocaleString((this._lang === 'pl' ? 'pl-PL' : 'en-US'), { hour12: false });
-        this._showToast('✓ ' + (L ? 'Przyjęte przez SMTP; doręczenie niepotwierdzone.' : 'Accepted by SMTP; delivery unconfirmed.'));
-      } catch (e) {
-        if (!this._emailContextCurrent(token)) return;
-        this._showToast(this._lang === 'pl' ? 'Wynik wysyłki niepotwierdzony. Sprawdź historię; nie ponawiamy automatycznie.' : 'Send outcome unconfirmed. Inspect history; no automatic retry.');
+        this._setEmailActionResult('send', 'success', 'accepted_by_smtp');
+      } catch (_) {
+        if (this._emailContextCurrent(token)) this._setEmailActionResult('send', 'unconfirmed', 'transport_unknown');
       } finally {
-        if (!this._emailContextCurrent(token)) return;
-        this._sending = false;
-        this._scheduleBusy[cadence] = false;
-        this._renderTab(); this._attachSendEvents();
+        if (this._emailSendRequest === request) { this._emailSendRequest = null; this._sending = false; }
+        if (this._emailContextCurrent(token)) this._scheduleBusy[cadence] = false;
+        if (this.isConnected) this._renderTab();
       }
     }
 
     async _sendReport(type) {
       if (!this._requireAdmin()) return;
-      if (!this._hass || this._sending) return;
+      if (!this._hass || this._sending || this._emailSendRequest) return;
       if (this._emailBackendAvailable && !this._emailBackendReportsUnsupported && ['daily', 'weekly', 'monthly'].includes(type)) {
         await this._sendReportViaBackend(type);
         return;
       }
+      const token = this._emailContextToken(), request = this._emailSendRequest = {};
+      let dispatched = false;
+      this._sendResult = null;
       this._rememberActionFocus('send-' + type);
       this._sending = true;
       this._renderTab(); this._attachSendEvents();
@@ -3425,7 +3456,7 @@ this._installTariffConsumerV3();
       const dateStr = new Date().toISOString().split('T')[0];
       const nowStr = new Date().toLocaleString((this._lang === 'pl' ? 'pl-PL' : 'en-US'), { hour12: false });
       try {
-        if (!this._hasHaToolsEmail()) throw new Error(L ? 'Integracja HA Tools Email nie jest zainstalowana. Zainstaluj j\u0105 z HACS i ustaw SMTP w Konfiguruj.' : 'The HA Tools Email integration is not installed. Install it from HACS and set up SMTP in Configure.');
+        if (!this._hasHaToolsEmail()) { this._setEmailActionResult('send', 'error', 'integration_missing'); return; }
         // Get device data — fetch from recorder for period reports
         const periodMap = { daily: 'day', weekly: 'week', monthly: 'month', quick: 'week' };
         const periodKey = periodMap[type] || 'week';
@@ -3437,9 +3468,10 @@ this._installTariffConsumerV3();
         };
         // Fetch fresh recorder stats
         await this._fetchRecorderStats(periodKey);
+        if (!this._emailContextCurrent(token)) return;
         const cached = this[`_periodCache_${periodKey}`];
         if (this[`_periodStatus_${periodKey}`] !== 'ready' || !cached?.length) {
-          throw new Error(L ? 'Brak kompletnych danych Recorder dla tego okresu.' : 'Complete Recorder data is unavailable for this period.');
+          this._setEmailActionResult('send', 'no_data', 'no_data'); return;
         }
         const devices = [...cached].sort((a, b) => b.month - a.month);
         const window = this[`_periodWindow_${periodKey}`];
@@ -3499,12 +3531,19 @@ this._installTariffConsumerV3();
         const title = `\u26A1 ${typeName} ${L ? 'raport energii' : 'Energy Report'} \u2013 ${dateStr}`;
         const plainText = `${typeName} ${L ? 'raport energii' : 'Energy Report'} - ${dateStr}\n${windowText}\n${L ? '\u0141\u0105cznie' : 'Total'}: ${totalKwh.toFixed(2)} kWh / ${this._formatCost(totalCost)} ${currency}\n${devices.map(d => `${d.name}: ${(d.month||0).toFixed(2)} kWh`).join('\n')}`;
         // Built-in SMTP via ha_tools_email
+        if (!this._emailContextCurrent(token)) return;
+        dispatched = true;
         await this._sendViaHaToolsEmail(recipient || '', title, plainText, html);
+        if (!this._emailContextCurrent(token)) return;
         this._lastSentOutcome[type] = 'request_completed';
         this._lastSent[type] = nowStr;
-        this._showToast(`\u2705 ${typeName} ${L ? 'wys\u0142any!' : 'sent!'}`);
-      } catch (e) { this._showToast('\u274C Error: ' + (e.message || 'Check HA logs')); }
-      finally { this._sending = false; this._renderTab(); this._attachSendEvents(); }
+        this._setEmailActionResult('send', 'unconfirmed', 'request_completed');
+      } catch (_) {
+        if (this._emailContextCurrent(token)) this._setEmailActionResult('send', dispatched ? 'unconfirmed' : 'error', dispatched ? 'transport_unknown' : 'prepare_failed');
+      } finally {
+        if (this._emailSendRequest === request) { this._emailSendRequest = null; this._sending = false; }
+        if (this.isConnected) this._renderTab();
+      }
     }
 
     // --- HA Tools Email (built-in SMTP) ---
@@ -3533,11 +3572,7 @@ this._installTariffConsumerV3();
 
     _renderSmtpSection() {
       const L = this._lang === 'pl';
-      const statusBadge = this._smtpStatus
-        ? (this._smtpStatus.ok
-          ? `<span class="badge badge-ok">\u2705 Test OK ${_esc(this._smtpStatus.time || '')}</span>`
-          : `<span class="badge badge-er">\u274C ${_esc(this._smtpStatus.error || '')}</span>`)
-        : '';
+      const statusBadge = this._emailResultMarkup('smtp', this._smtpStatus);
       if (this._emailBackendAvailable) {
         const cfg = this._emailBackendConfig || {};
         const compatibilityNotice = this._emailBackendReportsUnsupported
@@ -3567,12 +3602,13 @@ this._installTariffConsumerV3();
             <div class="smtp-title">${L ? 'SMTP nie skonfigurowany w ha_tools_email' : 'SMTP Not Configured in ha_tools_email'}</div>
             <div class="smtp-detail">${L ? 'Ustaw serwer, login i has\u0142o w' : 'Set the server, login and password in'} <b>${L ? '<a href="/config/integrations/integration/ha_tools_email">Ustawienia \u2192 Urz\u0105dzenia i us\u0142ugi \u2192 HA Tools Email \u2192 Konfiguruj</a>' : '<a href="/config/integrations/integration/ha_tools_email">Settings \u2192 Devices &amp; services \u2192 HA Tools Email \u2192 Configure</a>'}</b></div>
           </div></div>
+          ${statusBadge}
         </div>`;
       }
       if (this._hasLegacyHaToolsEmail()) {
         return `<div class="smtp-section">
           <div class="smtp-header"><div class="smtp-icon">\u2705</div><div>
-            <div class="smtp-title">${L ? 'SMTP skonfigurowany (legacy ha_tools_email)' : 'SMTP Configured (legacy ha_tools_email)'}</div>
+            <div class="smtp-title">${L ? 'Usługi HA Tools Email dostępne (legacy)' : 'HA Tools Email services available (legacy)'}</div>
             <div class="smtp-detail">${L ? 'U\u017Cywam us\u0142ug Home Assistant ha_tools_email.send/test.' : 'Using Home Assistant ha_tools_email.send/test services.'}</div>
           </div></div>
           <div class="smtp-actions" style="margin-top:12px">
@@ -3590,49 +3626,36 @@ this._installTariffConsumerV3();
             ? (L ? 'Zainstaluj HA Tools Email z <a href="/hacs">HACS</a>, następnie <a href="/config/integrations">Ustawienia → Urządzenia i usługi → Dodaj integrację → HA Tools Email</a>, a dopiero potem ustaw SMTP w Konfiguruj.' : 'Install HA Tools Email from <a href="/hacs">HACS</a>, then <a href="/config/integrations">Settings → Devices &amp; services → Add integration → HA Tools Email</a>, then set up SMTP in Configure.')
             : (L ? 'Sprawdź połączenie z Home Assistant i status HA Tools Email w <a href="/config/integrations">Ustawienia → Urządzenia i usługi</a>.' : 'Check the Home Assistant connection and HA Tools Email status in <a href="/config/integrations">Settings → Devices &amp; services</a>.')}</div>
         </div></div>
+        ${statusBadge}
       </div>`;
     }
 
     async _testSmtp() {
       const token = this._emailContextToken();
-      if (!this._requireAdmin()) return;
-      if (!this._hass || this._smtpTesting) return;
+      if (!this._requireAdmin() || !this._hass || this._smtpTesting || this._smtpRequest) return;
       if (this._emailBackendReportsUnsupported && !this._hasLegacyHaToolsEmail()) {
-        this._smtpStatus = { ok: false, error: (this._lang === 'pl' ? 'Zaktualizuj HA Tools Email do 2.1.2+' : 'Update HA Tools Email to 2.1.2+') };
-        this._showToast('⚠️ ' + this._smtpStatus.error);
-        this._render();
-        return;
+        this._setEmailActionResult('smtp', 'error', 'upgrade_required'); this._render(); return;
       }
       if (this._emailBackendAvailable && !this._emailBackendConfig?.smtp_configured) {
-        this._smtpStatus = { ok: false, error: (this._lang === 'pl' ? 'SMTP nie skonfigurowany' : 'SMTP not configured') };
-        this._showToast('\u274C ' + this._smtpStatus.error);
-        this._render();
-        return;
+        this._setEmailActionResult('smtp', 'error', 'smtp_unconfigured'); this._render(); return;
       }
-      if (this._emailBackendAvailable && !this._hasLegacyHaToolsEmail()) {
-        this._smtpStatus = { ok: true, service: 'ha_tools_email/ws', time: new Date().toLocaleTimeString((this._lang === 'pl' ? 'pl-PL' : 'en-US')) };
-        this._showToast('\u2139\uFE0F ' + (this._lang === 'pl' ? 'Backend SMTP jest skonfigurowany. U\u017Cyj Send Now, aby wys\u0142a\u0107 raport testowy.' : 'Backend SMTP is configured. Use Send Now to send a test report.'));
-        this._render();
-        return;
+      if (!this._hass.services?.ha_tools_email?.test) {
+        this._setEmailActionResult('smtp', this._emailBackendAvailable ? 'not_checked' : 'error', this._emailBackendAvailable ? 'not_tested' : 'integration_missing');
+        this._render(); return;
       }
-      if (!this._hasLegacyHaToolsEmail()) { this._showToast('\u274C ' + (this._lang === 'pl' ? 'ha_tools_email nie zainstalowany' : 'ha_tools_email not installed')); return; }
+      const source = this._hass, request = this._smtpRequest = {};
+      this._smtpStatus = null;
       this._rememberActionFocus('btn-smtp-test');
       this._smtpTesting = true;
       this._render();
       try {
-        const hass = this._hass;
-        await hass.callService('ha_tools_email', 'test', {});
-        if (!this._emailContextCurrent(token)) return;
-        this._smtpStatus = { ok: true, service: 'ha_tools_email', time: new Date().toLocaleTimeString((this._lang === 'pl' ? 'pl-PL' : 'en-US')) };
-        this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Testowy email wysy\u0142any!' : 'Test email sent!'));
-      } catch (e) {
-        if (!this._emailContextCurrent(token)) return;
-        this._smtpStatus = { ok: false, error: this._lang === 'pl' ? 'Wynik testu niepotwierdzony; sprawdź logi HA.' : 'Test outcome unconfirmed; inspect HA logs.' };
-        this._showToast('\u274C SMTP test failed: ' + this._smtpStatus.error);
+        await source.callService('ha_tools_email', 'test', {});
+        if (this._emailContextCurrent(token)) this._setEmailActionResult('smtp', 'unconfirmed', 'request_completed');
+      } catch (_) {
+        if (this._emailContextCurrent(token)) this._setEmailActionResult('smtp', 'unconfirmed', 'transport_unknown');
       } finally {
-        if (!this._emailContextCurrent(token)) return;
-        this._smtpTesting = false;
-        this._render();
+        if (this._smtpRequest === request) { this._smtpRequest = null; this._smtpTesting = false; }
+        if (this.isConnected) this._render();
       }
     }
 

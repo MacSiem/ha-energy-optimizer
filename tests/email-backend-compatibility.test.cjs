@@ -83,7 +83,7 @@ test('older backend without a legacy send service disables sends and keeps an up
     await card._loadEmailBackendConfig();
     card._activeTab = 'send'; card._render();
     assert.ok([...card.shadowRoot.querySelectorAll('#send-daily,#send-weekly,#send-monthly')].every(b => b.disabled));
-    assert.match(card.shadowRoot.textContent, /2\.1\.2/);
+    assert.match(card._emailResultText(card._smtpStatus), /2\.1\.2/);
     assert.deepEqual(writes, []);
   } finally { dom.window.close(); }
 });
@@ -120,8 +120,9 @@ test('older backend without a send service does not claim a successful SMTP test
   try {
     await card._loadEmailBackendConfig();
     await card._testSmtp();
-    assert.equal(card._smtpStatus.ok, false);
-    assert.match(card._smtpStatus.error, /2\.1\.2/);
+    assert.equal(card._smtpStatus.state, 'error');
+    assert.equal(card._smtpStatus.reason, 'upgrade_required');
+    assert.match(card._emailResultText(card._smtpStatus), /2\.1\.2/);
     assert.deepEqual(writes, []);
   } finally { dom.window.close(); }
 });
