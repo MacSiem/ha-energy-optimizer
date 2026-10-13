@@ -1,0 +1,87 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
+const { JSDOM } = require('jsdom');
+const code = (process.env.EMAIL_SOURCE_PATH ? [process.env.EMAIL_SOURCE_PATH] : ['src/optimizer.js','src/energy-insights.js','src/energy-email.js','src/chart-vendor.js']).map(p => readFileSync(join(__dirname,'..',p),'utf8')).join('');
+function fixture() {
+  const dom = new JSDOM('<input id="outside">', {runScripts:'dangerously',url:'http://localhost/'});
+  dom.window.eval(code);
+  const card = dom.window.document.createElement('ha-energy-email');
+  card._firstRender = true; card._discoveryDone = true; card._schedule = () => {};
+  card._config.show_support = false; card._config.energy_price = 0.5;
+  const writes = []; let resolve, reject;
+  const pending = new Promise((yes,no) => { resolve=yes; reject=no; });
+  card._hass = {user:{id:'admin',is_admin:true}, connection:{connected:true}, states:{}, config:{currency:'EUR',time_zone:'UTC'}, language:'en',locale:{language:'en'}, services:{ha_tools_email:{send:{},test:{}}}, callWS: request => {writes.push(request); return pending;},callService: (...args) => {writes.push(args); return pending;}};
+  card._emailBackendAvailable = true; card._emailBackendConfig = {smtp_configured:true};
+  for (const p of ['day','week','month']) {
+    card[`_periodCache_${p}`] = Array.from({length:41},(_,i)=>({name:`Source ${i+1}`,entity_id:`sensor.import_${i+1}`,month:42-i,lastMonth:0,cost:(42-i)*0.5}));
+    card[`_periodStatus_${p}`]='ready'; card[`_periodCacheTime_${p}`]=Date.now();
+  }
+  dom.window.document.body.append(card); card.setActiveTab('send');
+  return {dom,card,writes,resolve,reject,root:card.shadowRoot};
+}
+for (const cadence of ['daily','weekly','monthly']) for (const outcome of ['success','failure']) test(`backend ${cadence} keeps a usable focus while pending and returns after ${outcome}`, async () => {
+  const f=fixture(); try {
+    f.root.getElementById(`send-${cadence}`).focus();
+    const work=f.card._sendReport(cadence);
+    assert.ok(f.root.activeElement && !f.root.activeElement.disabled, 'pending focus remains usable');
+    f.card._render();
+    outcome==='success' ? f.resolve({status:'accepted_by_smtp'}) : f.reject(new Error('synthetic failure'));
+    await work;
+    assert.equal(f.root.activeElement?.id,`send-${cadence}`); assert.equal(f.writes.length,1);
+  } finally {f.dom.window.close();}
+});
+for (const move of ['outside','another control','another tab','new user']) test(`late send does not steal focus after ${move}`, async () => {
+  const f=fixture(); try {
+    f.root.getElementById('send-daily').focus(); const work=f.card._sendReport('daily');
+    let target;
+    if(move==='outside') {target=f.dom.window.document.getElementById('outside');target.focus();}
+    if(move==='another control') {target=f.root.getElementById('price-display');target.focus();}
+    if(move==='another tab') {f.card.setActiveTab('overview');target=f.root.querySelector('[data-period="week"]');target.focus();}
+    if(move==='new user') {f.card._clearEmailContext();f.card._hass={...f.card._hass,user:{id:'next',is_admin:true}};f.card._render();target=f.root.getElementById('price-display');target.focus();}
+    f.resolve({status:'accepted_by_smtp'}); await work;
+    assert.equal(f.dom.window.document.activeElement === f.card ? f.root.activeElement?.id : f.dom.window.document.activeElement?.id,target.id);
+  } finally {f.dom.window.close();}
+});
+for (const outcome of ['success','failure']) test(`SMTP test restores focus after ${outcome}`, async () => {
+  const f=fixture(); try {
+    f.root.getElementById('btn-smtp-test').focus(); const work=f.card._testSmtp();
+    assert.ok(f.root.activeElement && !f.root.activeElement.disabled);
+    outcome==='success' ? f.resolve({}) : f.reject(new Error('synthetic failure')); await work;
+    assert.equal(f.root.activeElement?.id,'btn-smtp-test');assert.equal(f.writes.length,1);
+  } finally {f.dom.window.close();}
+});
+test('legacy quick failure returns focus without sending when Recorder data is incomplete',async()=>{
+  const f=fixture();try {
+    f.card._emailBackendAvailable=false;f.card._render();f.card._fetchRecorderStats=async()=>{f.card._periodStatus_week='partial';};
+    f.root.getElementById('send-quick').focus();await f.card._sendReport('quick');
+    assert.equal(f.root.activeElement?.id,'send-quick');assert.equal(f.writes.length,0);
+  }finally{f.dom.window.close();}
+});
+test('period/page selection survives rerender and page boundary falls back to selected period',()=>{
+  const f=fixture();try {
+    f.card.setActiveTab('overview');let target=f.root.querySelector('[data-period="week"]');target.focus();target.click();
+    assert.equal(f.root.activeElement?.dataset.period,'week');
+    target=f.root.querySelector('[data-page-next]');target.focus();target.click();assert.ok(f.root.activeElement?.hasAttribute('data-page-next'));
+    f.root.activeElement.click();assert.equal(f.root.activeElement?.dataset.period,'week');
+    f.card._periodCache_week=f.card._periodCache_week.slice(0,1);f.card._renderTab();assert.equal(f.root.querySelectorAll('.device-row').length,1);
+  }finally{f.dom.window.close();}
+});
+test('admin price is a named button; Escape, cancel and successful zero-rate save return focus',async()=>{
+  const f=fixture();try {
+    const button=f.root.getElementById('price-display');assert.equal(button.tagName,'BUTTON');assert.ok(button.getAttribute('aria-label'));
+    button.focus();button.click();f.root.getElementById('price-input').dispatchEvent(new f.dom.window.KeyboardEvent('keydown',{key:'Escape'}));assert.equal(f.root.activeElement?.id,'price-display');
+    f.root.activeElement.click();f.root.getElementById('price-cancel').focus();f.root.activeElement.click();assert.equal(f.root.activeElement?.id,'price-display');
+    f.root.activeElement.click();f.root.getElementById('price-input').value='0';f.root.getElementById('price-save').focus();f.root.activeElement.click();await new Promise(r=>setImmediate(r));
+    assert.equal(f.card._config.energy_price,0);assert.equal(f.root.activeElement?.id,'price-display');
+  }finally{f.dom.window.close();}
+});
+test('price save does not steal outside focus; household price stays readable',async()=>{
+  const f=fixture();try {
+    f.card._saveToHelper=()=>new Promise(r=>{f.save=r;});f.root.getElementById('price-display').click();f.root.getElementById('price-save').focus();f.root.activeElement.click();
+    f.dom.window.document.getElementById('outside').focus();f.save(true);await new Promise(r=>setImmediate(r));assert.equal(f.dom.window.document.activeElement.id,'outside');
+    f.card._hass={...f.card._hass,user:{id:'household',is_admin:false}};f.card._render();assert.equal(f.root.getElementById('price-display').tagName,'SPAN');
+  }finally{f.dom.window.close();}
+});
