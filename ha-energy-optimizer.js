@@ -1276,7 +1276,7 @@ this._installTariffConsumerV3();
       let active = true;
       const unsubscribe = guard.subscribe(() => queueMicrotask(() => {
         // Setters assign the prospective hass before this pure render executes.
-        if (active) this._repriceTariffV3();
+        if (active && this.ownerDocument?.defaultView?.document) this._repriceTariffV3();
       }));
       this._tariffConsumerUnsubscribeV3 = () => { active = false; unsubscribe(); };
     }
@@ -3934,7 +3934,7 @@ this._installTariffConsumerV3();
       let active = true;
       const unsubscribe = guard.subscribe(() => queueMicrotask(() => {
         // Setters assign the prospective hass before this pure render executes.
-        if (active) this._repriceTariffV3();
+        if (active && this.ownerDocument?.defaultView?.document) this._repriceTariffV3();
       }));
       this._tariffConsumerUnsubscribeV3 = () => { active = false; unsubscribe(); };
     }
@@ -6277,7 +6277,7 @@ this._installTariffConsumerV3();
       let active = true;
       const unsubscribe = guard.subscribe(() => queueMicrotask(() => {
         // Setters assign the prospective hass before this pure render executes.
-        if (active) this._repriceTariffV3();
+        if (active && this.ownerDocument?.defaultView?.document) this._repriceTariffV3();
       }));
       this._tariffConsumerUnsubscribeV3 = () => { active = false; unsubscribe(); };
     }
