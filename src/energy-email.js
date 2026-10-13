@@ -556,6 +556,17 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     }
 
     set hass(hass) {
+    try {
+      var _bg = (getComputedStyle(this).getPropertyValue('--card-background-color') || getComputedStyle(this).getPropertyValue('--primary-background-color') || '').trim();
+      var _d = false;
+      if (_bg) {
+        var _h, _r, _g, _b, _m;
+        if (_bg.charAt(0) === '#') { _h = _bg.slice(1); if (_h.length === 3) _h = _h.replace(/(.)/g, '$1$1'); _r = parseInt(_h.slice(0,2),16); _g = parseInt(_h.slice(2,4),16); _b = parseInt(_h.slice(4,6),16); }
+        else { _m = _bg.match(/[\d.]+/g); if (_m) { _r = +_m[0]; _g = +_m[1]; _b = +_m[2]; } }
+        if (_r != null) _d = (0.2126*_r + 0.7152*_g + 0.0722*_b) / 255 < 0.5;
+      } else if (hass && hass.themes) { _d = !!hass.themes.darkMode; }
+      this.classList.toggle('bento-dark', _d);
+    } catch (e) {}
       try {
         const previousLanguage = this._lang;
         const language = hass?.locale?.language || hass?.language;

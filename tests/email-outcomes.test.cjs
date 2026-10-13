@@ -49,3 +49,11 @@ for(const kind of ['legacy','smtp','backend'])test(`${kind} blocks both report a
  f.resolve({status:'accepted_by_smtp'});await work;
  }finally{f.close()}
 });
+
+test('HA theme and explicit card backgrounds select readable result colours without sending',()=>{
+ const f=fixture();try{f.card.hass={...f.hass,themes:{darkMode:true}};assert.ok(f.card.classList.contains('bento-dark'));
+ f.card.style.setProperty('--card-background-color','#fff');f.card.hass={...f.hass,themes:{darkMode:true}};assert.equal(f.card.classList.contains('bento-dark'),false);
+ f.card.style.setProperty('--card-background-color','#182132');f.card.hass={...f.hass,themes:{darkMode:false}};assert.ok(f.card.classList.contains('bento-dark'));
+ f.card.style.removeProperty('--card-background-color');f.card.hass={...f.hass,themes:{darkMode:false}};assert.equal(f.card.classList.contains('bento-dark'),false);assert.equal(f.calls.length,0);
+ }finally{f.close()}
+});
