@@ -3625,31 +3625,57 @@ this._installTariffConsumerV3();
       this._config = { ...config };
       this._render();
     }
+    set hass(hass) {
+      this._hass = hass;
+      this._render();
+    }
     _dispatch() {
       this.dispatchEvent(new CustomEvent('config-changed', { detail: { config: this._config }, bubbles: true, composed: true }));
     }
+    _syncFields() {
+      const pl=String(this._hass?.locale?.language || this._hass?.language || navigator.language || '').startsWith('pl');
+      for(const [key,en,label] of [['title','Title','Tytuł'],['currency','Currency','Waluta'],['energy_price','Energy price','Cena energii']]) {
+        const node=this.shadowRoot.querySelector('label[for="cf_'+key+'"]');if(node)node.textContent=pl?label:en;
+      }
+      const values = { title: this._config.title ?? 'Energy Email Reports', currency: this._config.currency ?? this._hass?.config?.currency ?? '', energy_price: this._config.energy_price ?? '' };
+      for (const [key, value] of Object.entries(values)) {
+        const field = this.shadowRoot.getElementById('cf_' + key);
+        const next = String(value);
+        if (field.value === next) continue;
+        // Keep the node and selection when HA echoes or replaces the configuration.
+        const selection = this.shadowRoot.activeElement === field
+          ? [field.selectionStart, field.selectionEnd, field.selectionDirection] : null;
+        field.value = next;
+        if (selection) field.setSelectionRange(...selection);
+      }
+    }
     _render() {
+      if (this.shadowRoot.getElementById('cf_title')) {
+        this._syncFields();
+        return;
+      }
       this.shadowRoot.innerHTML = `
         <style>
               :host { display:block; padding:16px; }
               h3 { margin:0 0 16px; font-size:15px; font-weight:600; color:var(--bento-text, var(--primary-text-color,#1e293b)); }
-              input { outline:none; transition:border-color .2s; }
+              input { min-height:44px; box-sizing:border-box; outline:none; transition:border-color .2s; }
+              input:focus-visible { outline:3px solid var(--primary-color,#3b82f6); outline-offset:2px; }
+              input[type="checkbox"] { flex:0 0 44px; }
               input:focus { border-color:var(--bento-primary, var(--primary-color,#3b82f6)); }
           </style>
         <h3>Energy Email Reports</h3>
               <div style="margin-bottom:12px;">
-                <label style="display:block;font-weight:500;margin-bottom:4px;font-size:13px;">Title</label>
-                <input type="text" id="cf_title" value="${_esc(this._config?.title || 'Energy Email Reports')}"
-                  style="width:100%;padding:8px 12px;border:1px solid var(--divider-color,#e2e8f0);border-radius:8px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#1e293b);font-size:14px;box-sizing:border-box;">
-              </div>
-              </div>
-              <div style="margin-bottom:12px;">
-                <label style="display:block;font-weight:500;margin-bottom:4px;font-size:13px;">Currency</label>
-                <input type="text" id="cf_currency" value="${_esc(this._config?.currency || this._hass?.config?.currency || '')}"
+                <label for="cf_title" style="display:block;font-weight:500;margin-bottom:4px;font-size:13px;">Title</label>
+                <input type="text" id="cf_title" value="${_esc(this._config?.title ?? 'Energy Email Reports')}"
                   style="width:100%;padding:8px 12px;border:1px solid var(--divider-color,#e2e8f0);border-radius:8px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#1e293b);font-size:14px;box-sizing:border-box;">
               </div>
               <div style="margin-bottom:12px;">
-                <label style="display:block;font-weight:500;margin-bottom:4px;font-size:13px;">Energy price</label>
+                <label for="cf_currency" style="display:block;font-weight:500;margin-bottom:4px;font-size:13px;">Currency</label>
+                <input type="text" id="cf_currency" value="${_esc(this._config?.currency ?? this._hass?.config?.currency ?? '')}"
+                  style="width:100%;padding:8px 12px;border:1px solid var(--divider-color,#e2e8f0);border-radius:8px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#1e293b);font-size:14px;box-sizing:border-box;">
+              </div>
+              <div style="margin-bottom:12px;">
+                <label for="cf_energy_price" style="display:block;font-weight:500;margin-bottom:4px;font-size:13px;">Energy price</label>
                 <input type="text" id="cf_energy_price" value="${_esc(this._config?.energy_price ?? '')}"
                   style="width:100%;padding:8px 12px;border:1px solid var(--divider-color,#e2e8f0);border-radius:8px;background:var(--card-background-color,#fff);color:var(--primary-text-color,#1e293b);font-size:14px;box-sizing:border-box;">
               </div>
@@ -3669,6 +3695,7 @@ this._installTariffConsumerV3();
             this._config = { ...this._config, energy_price: e.target.value };
             this._dispatch();
           });
+      this._syncFields();
     }
     connectedCallback() { this._render(); }
   }
