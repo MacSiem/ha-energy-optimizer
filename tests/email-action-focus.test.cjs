@@ -104,3 +104,12 @@ test('shared tariff action opens and focuses its editable settings without a wri
     const details=f.root.querySelector('[data-tariff-details]');assert.ok(details.open);assert.ok(details.contains(f.root.activeElement));assert.equal(f.writes.length,0);
   }finally{f.dom.window.close();}
 });
+test('compact navigation has one picker and stays synchronized after changing views',()=>{
+  const f=fixture();try {
+    assert.equal(f.root.querySelectorAll('.email-tab-picker select,.energy-tab-picker select').length,1);
+    f.card.setActiveTab('overview');assert.equal(f.root.getElementById('email-tab-select').value,'overview');
+    const select=f.root.getElementById('email-tab-select');select.focus();select.value='preview';select.dispatchEvent(new f.dom.window.Event('change'));
+    assert.equal(f.card._activeTab,'preview');assert.equal(f.root.activeElement?.id,'email-tab-select');assert.equal(f.root.getElementById('email-tab-select').value,'preview');
+    f.card.setActiveTab('send');assert.equal(f.root.getElementById('email-tab-select').value,'send');
+  }finally{f.dom.window.close();}
+});
