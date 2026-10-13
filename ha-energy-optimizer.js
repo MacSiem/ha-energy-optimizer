@@ -2926,6 +2926,12 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
   // Component-local XSS protection: never reads from or publishes a global helper.
   const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"\']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+  const _insightsCopyV3 = value => {
+    const clone = value == null ? value : JSON.parse(JSON.stringify(value));
+    const freeze = item => { if (item && typeof item === 'object') { Object.values(item).forEach(freeze); Object.freeze(item); } return item; };
+    return freeze(clone);
+  };
+
   /**
    * HA Energy Insights - Bento Light Mode Panel Tool
    * Energy monitoring with cost tracking, device breakdown, and efficiency recommendations
@@ -2956,6 +2962,11 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
       this._lastDataHash = '';
       this._lastDataFetch = 0;
       this._timers = new Set();
+      this._insightDeviceState = { status: 'not_read', raw: null };
+      this._insightDeviceRange = 'weekly';
+      this._insightDeviceDetails = new Set();
+      this._insightChartStates = {};
+      this._insightRenderEpoch = 0;
 
       // Configuration
       this._config = {
@@ -3960,32 +3971,46 @@ this._installTariffConsumerV3();
     _installTariffConsumerV3() {
       const guard = this._tariffHostController.guard;
       let active = true;
-      const unsubscribe = guard.subscribe(() => queueMicrotask(() => {
+      const unsubscribe = guard.subscribe(() => {
+        this._clearInsightDevicesV3();
+        queueMicrotask(() => {
         // Setters assign the prospective hass before this pure render executes.
         if (active && this.ownerDocument?.defaultView?.document) this._repriceTariffV3();
+        });
+      });
+      const unsubscribeWire = guard.subscribeWire(() => queueMicrotask(() => {
+        // A public timeout never releases raw occupancy; update the read control only
+        // when the original wire actually settles, without starting another read.
+        if (active && this.isConnected && this.ownerDocument?.defaultView?.document) this._updateContent();
       }));
-      this._tariffConsumerUnsubscribeV3 = () => { active = false; unsubscribe(); };
+      this._tariffConsumerUnsubscribeV3 = () => { active = false; unsubscribe(); unsubscribeWire(); };
     }
     _tariffContextV3() {
       return { config: this._config, tab: this._activeTab, range: this._activeTab || 'overview',
         sources: this._tariffSourceIds || [], windowEnd: this._tariffWindowEnd ?? null };
     }
     _observeTariffContextV3() { this._getTariffHostV3().guard.observe(); }
-    _createEnergyReadV3() {
+    _createEnergyReadV3({ devices = false } = {}) {
       const host = this._getTariffHostV3(), source = this._hass;
-      this._tariffWindowEnd = Math.floor(Date.now() / ENERGY_HOUR) * ENERGY_HOUR;
+      if (!devices) this._tariffWindowEnd = Math.floor(Date.now() / ENERGY_HOUR) * ENERGY_HOUR;
       let token = host.guard.observe();
       const current = () => host.guard.current(token);
       const assertCurrent = () => { if (!current()) throw { code: 'energy_context_changed' }; };
       // The facade preserves readEnergyHours' complete source/unit/window behavior.
       const hass = { ...source, callWS: async request => {
         assertCurrent();
-        const result = await source.callWS.call(source, request);
+        const result = devices ? await host.guard.call(token, request) : await source.callWS.call(source, request);
         assertCurrent();
-        if (request.type === 'energy/get_prefs') {
+        if (!devices && request.type === 'energy/get_prefs') {
+          const knownPrefs = this._insightDeviceState?.raw?.preferences || this._insightSourceCacheV3?.preferences;
+          if (knownPrefs && JSON.stringify(knownPrefs.device_consumption ?? null) !== JSON.stringify(result?.device_consumption ?? null))
+            this._clearInsightDevicesV3();
           this._tariffSourceIds = energyImportIds(result);
           token = host.guard.observe();
+          this._insightSourceCacheV3 = { preferences: _insightsCopyV3(result), current };
         }
+        if (!devices && request.type === 'recorder/get_statistics_metadata' && this._insightSourceCacheV3?.current === current)
+          this._insightSourceCacheV3.metadata = _insightsCopyV3(result);
         return result;
       } };
       return { hass, current };
@@ -4068,6 +4093,8 @@ this._installTariffConsumerV3();
         this._syncChartTheme();
         this._syncSupport();
 
+        if (previousLanguage !== this._lang) return; // A locale gesture only reprojects cached measurements.
+
         // Fetch new data every 5 minutes (recorder stats don't change often)
         if (!this._lastDataFetch || (now - this._lastDataFetch) > 300000) {
           this._lastDataFetch = now;
@@ -4083,6 +4110,9 @@ this._installTariffConsumerV3();
     }
 
     disconnectedCallback() {
+      this._insightResize?.disconnect();
+      this._insightRenderEpoch++;
+      this._clearInsightDevicesV3();
       this._tariffHostController?.guard.suspend();
       this._timers.forEach(timer => clearTimeout(timer));
       this._timers.clear();
@@ -4105,16 +4135,10 @@ this._installTariffConsumerV3();
 
     // ===== DATA LOADING =====
 
-    _loadChartJs() {
-      if (HA_ENERGY_CHART) {
-        this._chartJsReady = true;
-        return;
-      }
-      this._chartJsReady = false;
-    }
+    _loadChartJs() { this._chartJsReady = true; } // Insights SVG needs no vendor or network load.
 
     async _fetchData() {
-      if (!this._hass?.callWS || this._insightsReadPending) return;
+      if (!this._hass?.callWS || this._insightsReadPending || this._insightDevicePending || this._getTariffHostV3().guard.occupied()) return;
       const read = this._createEnergyReadV3();
       this._insightsReadPending = true;
       this._loading = true; this._error = null;
@@ -4146,13 +4170,13 @@ this._installTariffConsumerV3();
           const rate = (_hour, _weekday, stamp) => this._tariffRateForHour(stamp);
           rate.currency = this._tariffCurrency();
           const today = model.summary(model.todayStart, model.end, rate);
-          if (!today.complete) throw new Error('Incomplete Energy Dashboard hourly coverage');
+          // Keep partial measured intervals inspectable; summary() already preserves null totals.
           const week = model.summary(model.end - 168 * ENERGY_HOUR, model.end, rate);
           const previous = model.summary(model.end - 336 * ENERGY_HOUR, model.end - 168 * ENERGY_HOUR, rate);
           const month = model.summary(model.start, model.end, rate);
           const weekDays = model.daily(model.end - 168 * ENERGY_HOUR, model.end, rate);
           const monthDays = model.daily(model.start, model.end, rate);
-          this._data = { sensors: model.ids, noSensors: false, topDevices: [],
+          this._data = { sensors: model.ids, noSensors: false,
             todayKwh: today.total, todayCost: today.cost, thisWeekKwh: week.total, prevWeekKwh: previous.total,
             monthKwh: month.total, weekCost: week.cost, monthCost: month.cost,
             dailyCosts: model.hourlyToday.map((kwh, hour) => {
@@ -4167,6 +4191,412 @@ this._installTariffConsumerV3();
         }
     }
 
+    // Measured Insights: local projection only. No display action dispatches a read.
+    _insightTextV3(en, pl) { return this._lang === 'pl' ? pl : en; }
+    _insightNumberV3(value) {
+      // String preserves every measured digit; use the locale decimal separator only.
+      if (typeof value !== 'number' || !Number.isFinite(value)) return this._insightTextV3('Unavailable', 'Niedostępne');
+      const decimal = new Intl.NumberFormat(this._lang).formatToParts(1.1).find(p => p.type === 'decimal')?.value || '.';
+      return String(value === 0 ? 0 : value).replace('.', decimal);
+    }
+    _insightLocalV3(stamp, zone) {
+      const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit',
+        day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZoneName: 'longOffset' })
+        .formatToParts(new Date(stamp)).map(part => [part.type, part.value]));
+      return { key: `${p.year}-${p.month}-${p.day}`, hour: Number(p.hour), minute: Number(p.minute), offset: p.timeZoneName };
+    }
+    _insightWindowV3(period = this._activeTab) {
+      const model = this._insightsEnergyModel;
+      const zone = this._hass?.config?.time_zone || model?.zone || 'UTC';
+      const to = model?.end ?? Math.floor(Date.now() / ENERGY_HOUR) * ENERGY_HOUR;
+      let from = period === 'monthly' ? model?.start ?? to - 720 * ENERGY_HOUR : to - 168 * ENERGY_HOUR;
+      if (period === 'daily') {
+        const today = this._insightLocalV3(Date.now(), zone).key;
+        from = to;
+        for (let stamp = to - 26 * ENERGY_HOUR; stamp < to; stamp += ENERGY_HOUR) {
+          if (this._insightLocalV3(stamp, zone).key === today) { from = stamp; break; }
+        }
+      }
+      const first = this._insightLocalV3(from, zone);
+      return { from, to, zone, period, boundaryComplete: period !== 'daily' || (first.hour === 0 && first.minute === 0) };
+    }
+    _clearInsightDevicesV3() {
+      this._insightDeviceEpoch = (this._insightDeviceEpoch || 0) + 1;
+      this._insightDeviceState = { status: 'not_read', raw: null };
+      this._insightDeviceProjectionV3 = null;
+      this._insightSourceCacheV3 = null;
+      this._insightDeviceDetails.clear();
+      this._insightDevicePage = 0;
+    }
+    _configuredInsightDevicesV3(prefs) {
+      return (Array.isArray(prefs?.device_consumption) ? prefs.device_consumption : []).map((device, index) => ({
+        id: typeof device?.stat_consumption === 'string' ? device.stat_consumption : '',
+        name: typeof device?.name === 'string' ? device.name : '',
+        includedIn: typeof device?.included_in_stat === 'string' ? device.included_in_stat : null,
+        key: String(index) + ':' + (typeof device?.stat_consumption === 'string' ? device.stat_consumption : '')
+      }));
+    }
+    _insightMetadataV3(raw) {
+      if (!Array.isArray(raw)) return raw && typeof raw === 'object' ? raw : {};
+      const result = Object.create(null);
+      for (const row of raw) if (typeof row?.statistic_id === 'string') {
+        const id = row.statistic_id;
+        result[id] = Object.hasOwn(result, id) ? null : row;
+      }
+      return result;
+    }
+    _insightEnergyMetadataV3(id, metadata) {
+      const row = Object.hasOwn(metadata, id) ? metadata[id] : null;
+      const unit = row?.statistics_unit_of_measurement ?? row?.unit_of_measurement;
+      return !!id && row?.has_sum === true && (row.statistic_id == null || row.statistic_id === id) &&
+        (row.unit_class == null || row.unit_class === 'energy') && ['Wh', 'kWh', 'MWh'].includes(unit);
+    }
+    _readInsightDevicesV3() {
+      if (this._insightDevicePending) return this._insightDevicePending;
+      const host = this._getTariffHostV3();
+      const token = host.guard.observe();
+      if (!host.guard.available(token) || host.guard.occupied() || this._insightsReadPending) {
+        this._insightDeviceState = { status: host.guard.available(token) ? 'busy' : 'unavailable', raw: null };
+        this._updateContent(); return Promise.resolve();
+      }
+      const period = ['daily', 'weekly', 'monthly'].includes(this._activeTab) ? this._activeTab : this._insightDeviceRange;
+      const window = this._insightWindowV3(period);
+      const epoch = this._insightDeviceEpoch || 0;
+      const read = this._createEnergyReadV3({ devices: true });
+      const current = () => read.current() && epoch === (this._insightDeviceEpoch || 0);
+      const readFocus = this._captureInsightFocusV3();
+      this._insightDeviceState = { status: 'reading', raw: null };
+      this._updateContent();
+      const operation = (async () => {
+        try {
+          // Reuse only the exact complete preferences/metadata from the original guarded grid read.
+          const cached = this._insightSourceCacheV3?.current() ? this._insightSourceCacheV3 : null;
+          const prefs = cached?.preferences ?? _insightsCopyV3(await read.hass.callWS({ type: 'energy/get_prefs' }));
+          if (!current()) return;
+          if (!prefs || typeof prefs !== 'object' || (prefs.device_consumption != null && !Array.isArray(prefs.device_consumption))) throw new Error('invalid_preferences');
+          const devices = this._configuredInsightDevicesV3(prefs);
+          const ids = [...new Set(devices.map(d => d.id).filter(Boolean))];
+          let metadata = cached?.metadata ?? {};
+          if (ids.length && !ids.every(id => Object.hasOwn(this._insightMetadataV3(metadata), id)))
+            metadata = _insightsCopyV3(await read.hass.callWS({ type: 'recorder/get_statistics_metadata', statistic_ids: ids }));
+          if (!current()) return;
+          const mapped = this._insightMetadataV3(metadata);
+          const supported = ids.filter(id => this._insightEnergyMetadataV3(id, mapped));
+          const statistics = supported.length && window.to > window.from ? _insightsCopyV3(await read.hass.callWS({
+            type: 'recorder/statistics_during_period', start_time: new Date(window.from).toISOString(),
+            end_time: new Date(window.to).toISOString(), statistic_ids: supported, period: 'hour', types: ['change']
+          })) : {};
+          if (!current()) return;
+          // Complete responses, including unselected/out-of-window rows, remain immutable.
+          this._insightDeviceState = { status: 'ready', current, window, raw: _insightsCopyV3({ preferences: prefs, metadata, statistics }) };
+        } catch (_) {
+          if (current()) this._insightDeviceState = { status: 'error', raw: null };
+        }
+      })();
+      this._insightDevicePending = operation;
+      operation.then(() => {
+        if (this._insightDevicePending === operation) this._insightDevicePending = null;
+        if (this.isConnected && this.ownerDocument?.defaultView?.document) {
+          const active = this.ownerDocument.activeElement;
+          const restore = current() && readFocus?.key === 'read-devices' && (!this.shadowRoot.activeElement || this.shadowRoot.activeElement.dataset.insightsControl === 'read-devices') && (active === this || active === this.ownerDocument.body);
+          this._updateContent();
+          if (restore) this._restoreInsightFocusV3(readFocus);
+        }
+      });
+      return operation;
+    }
+    _insightDeviceRowsV3() {
+      const state = this._insightDeviceState;
+      if (!state?.raw || !state.current?.()) return [];
+      const { window, raw } = state, metadata = this._insightMetadataV3(raw.metadata);
+      const expectedHours = (window.to - window.from) / ENERGY_HOUR, tariff = this._getTariffV3();
+      const cached = this._insightDeviceProjectionV3;
+      if (cached?.raw === raw && cached.tariff === tariff) return cached.rows;
+      const rows = this._configuredInsightDevicesV3(raw.preferences).map(device => {
+        const md = metadata[device.id], sourceUnit = md?.statistics_unit_of_measurement ?? md?.unit_of_measurement;
+        const base = { ...device, name: device.name || (typeof md?.name === 'string' ? md.name : '') || device.id || this._insightTextV3('Invalid configured source', 'Nieprawidłowe źródło w konfiguracji'),
+          sourceUnit: typeof sourceUnit === 'string' ? sourceUnit : null, unit: 'kWh', from: window.from, to: window.to,
+          timezone: window.zone, source: [device.id], expectedHours, measuredHours: 0, kwh: null, recordedKwh: null,
+          energyCost: null, currency: this._tariffCurrency(), records: [] };
+        if (!this._insightEnergyMetadataV3(device.id, metadata)) return { ...base, status: 'unsupported' };
+        if (expectedHours === 0) return { ...base, status: 'empty' };
+        if (!Object.hasOwn(raw.statistics || {}, device.id)) return { ...base, status: 'absent' };
+        const series = raw.statistics[device.id];
+        if (!Array.isArray(series)) return { ...base, status: 'invalid' };
+        if (!series.length) return { ...base, status: 'empty' };
+        const points = new Map(), factor = energyFactor(sourceUnit);
+        for (const bucket of series) {
+          const from = energyTimestamp(bucket?.start), to = bucket?.end == null ? from + ENERGY_HOUR : energyTimestamp(bucket.end);
+          if (!Number.isFinite(from) || from % ENERGY_HOUR || to - from !== ENERGY_HOUR ||
+            (bucket.statistic_id != null && bucket.statistic_id !== device.id)) return { ...base, status: 'invalid' };
+          if (from < window.from || from >= window.to) continue;
+          if (points.has(from) || (bucket.change != null && (typeof bucket.change !== 'number' || !Number.isFinite(bucket.change) || bucket.change < 0)))
+            return { ...base, status: 'invalid' };
+          const kwh = bucket.change == null ? null : bucket.change * factor;
+          if (kwh !== null && !Number.isFinite(kwh)) return { ...base, status: 'invalid' };
+          points.set(from, kwh);
+        }
+        const records = [];
+        for (let from = window.from; from < window.to; from += ENERGY_HOUR)
+          records.push({ from, to: from + ENERGY_HOUR, kwh: points.has(from) ? points.get(from) : null });
+        const measured = records.filter(r => r.kwh !== null), measuredHours = measured.length;
+        const sum = measured.reduce((n, row) => n + row.kwh, 0);
+        if (!Number.isFinite(sum)) return { ...base, status: 'invalid' };
+        const recordedKwh = measuredHours ? sum : null;
+        const complete = expectedHours > 0 && measuredHours === expectedHours && window.boundaryComplete;
+        const price = complete ? tariff.priceBuckets(records) : null;
+        return { ...base, records, measuredHours, recordedKwh, kwh: complete ? recordedKwh : null,
+          energyCost: price?.energyCost ?? null, currency: price?.currency || base.currency,
+          status: complete ? 'complete' : measuredHours ? 'partial' : 'unknown' };
+      });
+      this._insightDeviceProjectionV3 = { raw, tariff, rows };
+      return rows;
+    }
+    _insightStatusV3(status) {
+      const labels = { not_read: ['Not read', 'Nie odczytano'], reading: ['Reading measurements…', 'Odczytywanie pomiarów…'],
+        busy: ['Another read is in progress. Try again when it finishes.', 'Trwa inny odczyt. Spróbuj po jego zakończeniu.'],
+        unavailable: ['Connection unavailable', 'Połączenie niedostępne'], error: ['Read failed. Use Read devices to retry.', 'Odczyt nie powiódł się. Ponów przyciskiem Odczytaj urządzenia.'],
+        complete: ['Measured', 'Zmierzone'], partial: ['Partial coverage', 'Niepełne pokrycie'], empty: ['No measurements', 'Brak pomiarów'],
+        absent: ['Source not returned', 'Źródło nie zostało zwrócone'], unsupported: ['Unsupported energy metadata', 'Nieobsługiwane metadane energii'],
+        invalid: ['Invalid measurements', 'Nieprawidłowe pomiary'], unknown: ['Measurements unknown', 'Pomiary nieznane'] };
+      return this._insightTextV3(...(labels[status] || labels.not_read));
+    }
+    _insightPagerV3(page, pages, previous, next) {
+      const t = (en, pl) => this._insightTextV3(en, pl);
+      return `<nav class="insights-controls" aria-label="${t('Pages', 'Strony')}"><button type="button" data-insights-control="${previous}" ${page === 0 ? 'disabled' : ''}>${t('Previous', 'Poprzednia')}</button>
+        <span>${t('Page', 'Strona')} ${page + 1}/${pages}</span><button type="button" data-insights-control="${next}" ${page + 1 >= pages ? 'disabled' : ''}>${t('Next', 'Następna')}</button></nav>`;
+    }
+    _renderInsightDevicesV3() {
+      const t = (en, pl) => this._insightTextV3(en, pl), n = value => _esc(this._insightNumberV3(value));
+      const rows = this._insightDeviceRowsV3();
+      const state = this._insightDeviceState || { status: 'not_read' };
+      const filter = (this._insightDeviceFilter || '').toLocaleLowerCase(this._lang);
+      const selected = rows.filter(r => `${r.name} ${r.id}`.toLocaleLowerCase(this._lang).includes(filter));
+      const pages = Math.max(1, Math.ceil(selected.length / 10));
+      this._insightDevicePage = Math.max(0, Math.min(pages - 1, this._insightDevicePage || 0));
+      const period = ['daily', 'weekly', 'monthly'].includes(this._activeTab) ? this._activeTab : this._insightDeviceRange;
+      const window = state.window || this._insightWindowV3(period);
+      const host = this._getTariffHostV3();
+      const disabled = !!this._insightDevicePending || this._insightsReadPending || host.guard.occupied() || !host.guard.available(host.guard.observe());
+      return `<section class="insights-measured" data-insights-devices aria-label="${t('Configured devices', 'Skonfigurowane urządzenia')}">
+        <h3>${t('Configured devices', 'Skonfigurowane urządzenia')}</h3>
+        <p>${t('Recorded device consumption. Submeters can overlap; these readings are not added to grid import.', 'Zarejestrowane zużycie urządzeń. Podliczniki mogą się nakładać; tych odczytów nie dodajemy do importu z sieci.')}</p>
+        <div class="insights-controls">${!['daily', 'weekly', 'monthly'].includes(this._activeTab) ? `<label>${t('Period', 'Okres')}<select data-insights-control="device-range">${['daily', 'weekly', 'monthly'].map(key => `<option value="${key}" ${period === key ? 'selected' : ''}>${this._t(key)}</option>`).join('')}</select></label>` : ''}
+          <button type="button" data-insights-control="read-devices" ${disabled ? 'disabled' : ''}>${t('Read devices', 'Odczytaj urządzenia')}</button></div>
+        <p>${_esc(new Date(window.from).toISOString())} — ${_esc(new Date(window.to).toISOString())} · ${_esc(window.zone)}</p>
+        ${state.status !== 'ready' ? `<p role="status">${this._insightStatusV3(state.status)}</p>` : !rows.length ? `<p role="status">${t('No configured devices in Energy Dashboard.', 'Brak skonfigurowanych urządzeń w panelu Energia.')}</p>` : ''}
+        ${rows.length ? `<label class="insights-search">${t('Find a device or source', 'Znajdź urządzenie lub źródło')}<input type="search" data-insights-control="device-search" value="${_esc(this._insightDeviceFilter || '')}"></label>
+          <p>${selected.length}/${rows.length} ${t('configured sources', 'skonfigurowanych źródeł')}</p>
+          ${selected.slice(this._insightDevicePage * 10, this._insightDevicePage * 10 + 10).map(row => `<article class="insights-device" data-insights-device="${_esc(row.id)}">
+            <div class="insights-device-heading"><strong>${_esc(row.name)}</strong><span>${n(row.kwh)} kWh</span></div>
+            <p>${this._insightStatusV3(row.status)}${row.status === 'partial' ? ` · ${t('Measured subset', 'Zmierzona część')}: ${n(row.recordedKwh)} kWh` : ''}</p>
+            <details data-insights-device-details="${_esc(row.key)}" ${this._insightDeviceDetails.has(row.key) ? 'open' : ''}><summary>${t('Source and measurement details', 'Źródło i szczegóły pomiaru')}</summary><dl>
+              <dt>${t('Source', 'Źródło')}</dt><dd>${_esc(row.id || t('Unavailable', 'Niedostępne'))}</dd>
+              <dt>${t('Original unit', 'Jednostka źródłowa')}</dt><dd>${_esc(row.sourceUnit || t('Unavailable', 'Niedostępne'))}</dd>
+              <dt>${t('Interval (UTC)', 'Przedział (UTC)')}</dt><dd>${_esc(new Date(row.from).toISOString())} — ${_esc(new Date(row.to).toISOString())}</dd>
+              <dt>${t('Timezone', 'Strefa czasu')}</dt><dd>${_esc(row.timezone)}</dd>
+              <dt>${t('Coverage', 'Pokrycie')}</dt><dd>${row.measuredHours}/${row.expectedHours} ${t('measured hours', 'zmierzonych godzin')}${!window.boundaryComplete ? ' · ' + t('Local midnight is not a whole measured hour', 'Lokalna północ nie pokrywa się z pełną godziną pomiaru') : ''}</dd>
+              <dt>${t('Energy cost', 'Koszt energii')}</dt><dd>${n(row.energyCost)} ${_esc(row.currency)}</dd>
+              ${row.includedIn ? `<dt>${t('Included in source', 'Zawarte w źródle')}</dt><dd>${_esc(row.includedIn)}</dd>` : ''}</dl></details></article>`).join('')}
+          ${this._insightPagerV3(this._insightDevicePage, pages, 'device-previous', 'device-next')}` : ''}
+        <a href="/energy">${t('Energy Dashboard', 'Panel Energia')}</a></section>`;
+    }
+    _prepareInsightChartV3(period) {
+      const model = this._insightsEnergyModel, window = this._insightWindowV3(period);
+      const source = [...(model?.ids || [])], zone = model?.zone || window.zone;
+      // Same absolute identities and complete-day rule as Optimizer Patterns. Unlike
+      // the 7/30-date slice there, keep ALL records in Insights' existing rolling window.
+      const tariff = this._getTariffV3(), projectionKey = JSON.stringify([period, source, zone, window.from, window.to]);
+      const cache = this._insightProjectionCacheV3;
+      let dataset = cache?.model === model && cache.tariff === tariff && cache.key === projectionKey ? cache.dataset : null;
+      if (!dataset) {
+      const hours = [];
+      if (model?.points) for (let from = window.from; from < window.to; from += ENERGY_HOUR) {
+        const point = model.points.get(from), kwh = typeof point?.kwh === 'number' && Number.isFinite(point.kwh) ? point.kwh : null;
+        hours.push({ id: String(from), from, to: from + ENERGY_HOUR, ...this._insightLocalV3(from, zone),
+          kwh, recordedKwh: kwh, source, timezone: zone, unit: 'kWh', missing: kwh === null,
+          complete: kwh !== null, measuredHours: kwh === null ? 0 : 1, hours: 1 });
+      }
+      const prices = tariff.priceBuckets(hours.map(r => ({ from: r.from, to: r.to, kwh: r.kwh })));
+      const priced = new Map(prices.rows.map(row => [row.from, row]));
+      for (const row of hours) {
+        const price = priced.get(row.from);
+        row.currency = prices.currency; row.energyCost = price?.available ? price.energyCost : null;
+        row.variableCost = price?.available ? price.variableCost : null;
+        row.priceMissing = !price?.available;
+      }
+      const keys = [...new Set(hours.map(row => row.key))];
+      const days = keys.map(key => {
+        const records = hours.filter(row => row.key === key), first = records[0], last = records.at(-1);
+        const finish = this._insightLocalV3(last.to, zone);
+        const complete = first.hour === 0 && first.minute === 0 && finish.key !== key && finish.hour === 0 && finish.minute === 0 && records.every(r => !r.missing);
+        const sum = field => {
+          if (!records.every(r => typeof r[field] === 'number' && Number.isFinite(r[field]))) return null;
+          const value = records.reduce((n, r) => n + r[field], 0);
+          return Number.isFinite(value) ? value : null;
+        };
+        const known = records.filter(r => !r.missing), subset = known.reduce((n, r) => n + r.kwh, 0);
+        return { id: key, key, from: first.from, to: last.to, kwh: complete ? sum('kwh') : null,
+          recordedKwh: known.length && Number.isFinite(subset) ? subset : null,
+          energyCost: complete ? sum('energyCost') : null, variableCost: complete ? sum('variableCost') : null,
+          source, timezone: zone, unit: 'kWh', currency: prices.currency, complete, missing: !complete,
+          measuredHours: known.length, hours: records.length, records, priceMissing: records.some(r => r.priceMissing) };
+      });
+        dataset = { hours, days, source, timezone: zone, currency: prices.currency, window };
+        this._insightProjectionCacheV3 = { model, tariff, key: projectionKey, dataset };
+      }
+      const identity = JSON.stringify([source, zone, window.from, window.to]);
+      const previous = this._insightChartStates[period];
+      this._insightChartState = previous?.identity === identity ? previous : {
+        identity, view: previous?.view || 'chart', resolution: period === 'daily' ? 'hour' : previous?.resolution || 'day',
+        metric: previous?.metric || 'kwh', type: previous?.type || 'bar', selected: null, page: 0
+      };
+      this._insightChartStates[period] = this._insightChartState;
+      this._insightChartDataset = dataset;
+      const rows = this._insightChartRowsV3(), state = this._insightChartState;
+      if (!rows.some(r => r.id === state.selected)) state.selected = rows.at(-1)?.id ?? null;
+      state.page = Math.max(0, Math.min(Math.max(0, Math.ceil(rows.length / 40) - 1), state.page));
+    }
+    _insightChartRowsV3() {
+      return this._insightChartDataset?.[this._insightChartState?.resolution === 'hour' ? 'hours' : 'days'] || [];
+    }
+    _insightRowLabelV3(row) {
+      return row.hour == null ? row.key : `${row.key} ${String(row.hour).padStart(2, '0')}:${String(row.minute).padStart(2, '0')} ${row.offset}`;
+    }
+    _insightRowDetailV3(row) {
+      if (!row) return this._insightTextV3('No completed intervals in this window.', 'Brak zakończonych przedziałów w tym okresie.');
+      const t = (en, pl) => this._insightTextV3(en, pl), n = value => _esc(this._insightNumberV3(value));
+      return `<strong>${_esc(this._insightRowLabelV3(row))}</strong><p>${_esc(new Date(row.from).toISOString())} — ${_esc(new Date(row.to).toISOString())} UTC<br>${_esc(row.timezone)} · ${_esc(row.source.join(', '))}</p>
+        <p>${t('Consumption', 'Zużycie')}: ${n(row.kwh)} kWh · ${t('Energy cost', 'Koszt energii')}: ${n(row.energyCost)} ${_esc(row.currency || '')} · ${t('Variable fees', 'Opłaty zmienne')}: ${n(row.variableCost)} ${_esc(row.currency || '')}</p>
+        <p>${row.measuredHours}/${row.hours} ${t('measured hours', 'zmierzonych godzin')} · ${row.missing ? t('Partial / missing', 'Niepełne / brak') : t('Measured', 'Zmierzone')}
+          ${row.missing && row.recordedKwh !== null ? ` · ${t('Measured subset', 'Zmierzona część')}: ${n(row.recordedKwh)} kWh` : ''}
+          ${row.priceMissing ? ' · ' + t('Tariff coverage unavailable', 'Brak pokrycia taryfą') : ''}</p>`;
+    }
+    _insightSvgV3(width = 600) {
+      const rows = this._insightChartRowsV3(), state = this._insightChartState;
+      const unit = state.metric === 'kwh' ? 'kWh' : this._insightChartDataset.currency || this._insightTextV3('Currency unavailable', 'Brak waluty');
+      const values = rows.map(row => typeof row[state.metric] === 'number' && Number.isFinite(row[state.metric]) ? row[state.metric] : null), known = values.filter(v => typeof v === 'number' && Number.isFinite(v));
+      const low = Math.min(0, ...known), high = Math.max(0, ...known), upper = high === low ? low + 1 : high;
+      const w = Math.max(180, width), left = Math.min(68, w * 0.24), right = w - 12, top = 28, bottom = 218;
+      const x = i => left + (i + 0.5) * (right - left) / Math.max(1, rows.length);
+      const y = value => bottom - (value - low) / (upper - low) * (bottom - top);
+      let marks = '', path = '';
+      const flush = () => { if (path) marks += `<path d="${path}" fill="none" stroke="var(--bento-primary)" stroke-width="2"/>`; path = ''; };
+      values.forEach((value, i) => {
+        const attrs = `data-insights-mark="${_esc(rows[i].id)}" data-value="${value == null ? 'null' : value}"`;
+        const title = `${this._insightRowLabelV3(rows[i])}: ${this._insightNumberV3(value)} ${unit}`;
+        if (value == null) { flush(); marks += `<g ${attrs}><title>${_esc(title)}</title><path d="M${x(i)-3},${bottom-3}l6,6m-6,0l6,-6" stroke="var(--bento-text-secondary)"/></g>`; return; }
+        if (state.type === 'line') {
+          path += `${path ? ' L' : 'M'}${x(i)},${y(value)}`;
+          marks += `<circle ${attrs} cx="${x(i)}" cy="${y(value)}" r="${state.selected === rows[i].id ? 5 : 2.5}" fill="var(--bento-primary)"><title>${_esc(title)}</title></circle>`;
+        } else {
+          const bar = Math.max(1, (right-left) / Math.max(1, rows.length) * 0.65);
+          marks += `<rect ${attrs} x="${x(i)-bar/2}" y="${Math.min(y(0), y(value))}" width="${bar}" height="${Math.max(1, Math.abs(y(0)-y(value)))}" rx="2" fill="var(--bento-primary)" opacity="${state.selected === rows[i].id ? 1 : 0.7}"><title>${_esc(title)}</title></rect>`;
+        }
+      });
+      flush();
+      const grid = [low, (low + upper) / 2, upper].map(value => `<line x1="${left}" x2="${right}" y1="${y(value)}" y2="${y(value)}" stroke="var(--bento-border)"/><text x="${left-6}" y="${y(value)+4}" text-anchor="end">${_esc(new Intl.NumberFormat(this._lang, { maximumSignificantDigits: 3 }).format(value))}</text>`).join('');
+      const axes = [0, Math.floor((rows.length-1)/2), rows.length-1].filter((i, index, all) => i >= 0 && all.indexOf(i) === index).map(i => `<text x="${x(i)}" y="242" text-anchor="middle">${_esc(state.resolution === 'hour' ? `${rows[i].hour}:${String(rows[i].minute).padStart(2, '0')}` : rows[i].key.slice(5))}</text>`).join('');
+      return `<svg data-insights-chart data-unit="${_esc(unit)}" viewBox="0 0 ${w} 262" width="100%" height="262" role="img" aria-label="${this._insightTextV3('Measured consumption; use point controls below for exact values', 'Zmierzone zużycie; dokładne wartości w wyborze punktu poniżej')}"><text x="${left}" y="18">${_esc(unit)}</text>${grid}${marks}${axes}</svg>`;
+    }
+    _renderInsightChartV3(period) {
+      this._prepareInsightChartV3(period);
+      const t = (en, pl) => this._insightTextV3(en, pl), state = this._insightChartState, data = this._insightChartDataset;
+      const rows = this._insightChartRowsV3(), pages = Math.max(1, Math.ceil(rows.length / 40));
+      const option = (value, selected, label) => `<option value="${_esc(value)}" ${value === selected ? 'selected' : ''}>${_esc(label)}</option>`;
+      const selected = rows.find(r => r.id === state.selected);
+      const unit = state.metric === 'kwh' ? 'kWh' : data.currency || t('Currency unavailable', 'Brak waluty');
+      return `<section class="insights-measured" data-insights-analysis aria-label="${this._t(period)}">
+        <h3>${this._t(period)} · ${t('Recorded consumption', 'Zarejestrowane zużycie')}</h3>
+        <p>${_esc(data.source.join(', '))} · ${_esc(data.timezone)}<br>${_esc(new Date(data.window.from).toISOString())} — ${_esc(new Date(data.window.to).toISOString())}</p>
+        <div class="insights-controls">
+          ${period !== 'daily' ? `<label>${t('Intervals', 'Przedziały')}<select data-insights-control="resolution">${option('day', state.resolution, t('Local dates', 'Daty lokalne'))}${option('hour', state.resolution, t('All measured hours', 'Wszystkie godziny pomiaru'))}</select></label>` : ''}
+          <label>${t('Measure', 'Miara')}<select data-insights-control="metric">${option('kwh', state.metric, 'kWh')}${option('energyCost', state.metric, t('Energy cost', 'Koszt energii'))}${option('variableCost', state.metric, t('Variable fees', 'Opłaty zmienne'))}</select></label>
+          <label>${t('Chart type', 'Typ wykresu')}<select data-insights-control="type">${option('bar', state.type, t('Bars', 'Słupki'))}${option('line', state.type, t('Line', 'Linia'))}</select></label></div>
+        <div class="insights-controls" role="group" aria-label="${t('Presentation', 'Prezentacja')}"><button type="button" data-insights-control="chart" aria-pressed="${state.view === 'chart'}">${t('Chart', 'Wykres')}</button><button type="button" data-insights-control="data" aria-pressed="${state.view === 'data'}">${t('Data', 'Dane')}</button></div>
+        ${state.view === 'chart' ? `<div data-insights-plot>${this._insightSvgV3()}</div>` : `<div data-insights-data>${rows.slice(state.page * 40, state.page * 40 + 40).map(row => `<article class="insights-data-row" data-insights-row="${_esc(row.id)}" data-value="${row[state.metric] == null ? 'null' : row[state.metric]}"><p>${_esc(this._insightNumberV3(row[state.metric]))} ${_esc(unit)}</p>${this._insightRowDetailV3(row)}</article>`).join('')}</div>${this._insightPagerV3(state.page, pages, 'previous-page', 'next-page')}`}
+        <label>${t('Point details (arrows, Home / End)', 'Szczegóły punktu (strzałki, Home / End)')}<select data-insights-control="point" ${!rows.length ? 'disabled' : ''}>${rows.map(row => option(row.id, state.selected, this._insightRowLabelV3(row))).join('')}</select></label>
+        <div class="insights-controls"><button type="button" data-insights-control="previous-point" ${!rows.length || state.selected === rows[0]?.id ? 'disabled' : ''}>${t('Previous point', 'Poprzedni punkt')}</button><button type="button" data-insights-control="next-point" ${!rows.length || state.selected === rows.at(-1)?.id ? 'disabled' : ''}>${t('Next point', 'Następny punkt')}</button></div>
+        <div class="insights-point-detail" data-insights-detail role="status" aria-live="polite">${this._insightRowDetailV3(selected)}</div>
+        <p>${t('Gaps are not zero. Only complete local days have daily totals. All original hourly intervals remain in Data; no bucket is split across local midnight. Fixed monthly charges are separate.', 'Luki nie oznaczają zera. Sumy dzienne dotyczą tylko pełnych dni lokalnych. Wszystkie oryginalne godziny są dostępne w Danych; nie dzielimy przedziałów przez lokalną północ. Opłaty stałe miesięczne są osobne.')}</p>
+      </section>${this._renderInsightDevicesV3()}`;
+    }
+    _captureInsightFocusV3() {
+      const active = this.shadowRoot.activeElement;
+      if (!active?.dataset.insightsControl) return null;
+      return { key: active.dataset.insightsControl, start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection };
+    }
+    _restoreInsightFocusV3(focus) {
+      if (!focus) return;
+      const controls = [...this.shadowRoot.querySelectorAll('[data-insights-control]')];
+      let target = controls.find(el => el.dataset.insightsControl === focus.key);
+      if (target?.disabled && ['previous-page', 'next-page', 'device-previous', 'device-next'].includes(focus.key)) {
+        const keys = focus.key.startsWith('device-') ? ['device-previous', 'device-next', 'device-search'] : ['previous-page', 'next-page', 'data'];
+        target = controls.find(el => keys.includes(el.dataset.insightsControl) && !el.disabled);
+      }
+      if (!target || target.disabled) return;
+      target.focus({ preventScroll: true });
+      if (typeof focus.start === 'number' && typeof target.setSelectionRange === 'function')
+        target.setSelectionRange(focus.start, focus.end, focus.direction || 'none');
+    }
+    _bindInsightContentV3() {
+      const redraw = focus => { this._updateContent(); this._restoreInsightFocusV3(focus); };
+      this.shadowRoot.querySelectorAll('[data-insights-device-details]').forEach(el => {
+        if (el.dataset.insightsBound) return; el.dataset.insightsBound = 'true';
+        el.addEventListener('toggle', () => { if (el.isConnected) el.open ? this._insightDeviceDetails.add(el.dataset.insightsDeviceDetails) : this._insightDeviceDetails.delete(el.dataset.insightsDeviceDetails); });
+      });
+      this.shadowRoot.querySelectorAll('[data-insights-control]').forEach(el => {
+        if (el.dataset.insightsBound) return; el.dataset.insightsBound = 'true';
+        const key = el.dataset.insightsControl;
+        if (key === 'device-search') {
+          el.addEventListener('input', () => { const focus = this._captureInsightFocusV3(); this._insightDeviceFilter = el.value; this._insightDevicePage = 0; redraw(focus); });
+          return;
+        }
+        el.addEventListener(el.tagName === 'SELECT' ? 'change' : 'click', () => {
+          const focus = { key }, state = this._insightChartState;
+          if (key === 'read-devices') { this._readInsightDevicesV3(); return; }
+          if (key === 'device-range') { this._insightDeviceRange = el.value; this._clearInsightDevicesV3(); }
+          else if (key === 'device-previous' || key === 'device-next') this._insightDevicePage += key === 'device-next' ? 1 : -1;
+          else if (state) {
+            if (key === 'chart' || key === 'data') state.view = key;
+            else if (key === 'resolution' || key === 'metric' || key === 'type') { state[key] = el.value; state.page = 0; }
+            else if (key === 'point') state.selected = el.value;
+            else if (key === 'previous-page' || key === 'next-page') state.page += key === 'next-page' ? 1 : -1;
+            else if (key === 'previous-point' || key === 'next-point') {
+              const rows = this._insightChartRowsV3(), index = rows.findIndex(r => r.id === state.selected);
+              state.selected = rows[Math.max(0, Math.min(rows.length - 1, index + (key === 'next-point' ? 1 : -1)))]?.id ?? null;
+              focus.key = 'point';
+            }
+          }
+          redraw(focus);
+        });
+        if (key === 'point') el.addEventListener('keydown', event => {
+          const rows = this._insightChartRowsV3(), state = this._insightChartState, index = rows.findIndex(r => r.id === state.selected);
+          const moves = { ArrowLeft: index - 1, ArrowUp: index - 1, ArrowRight: index + 1, ArrowDown: index + 1, Home: 0, End: rows.length - 1 };
+          if (!Object.hasOwn(moves, event.key)) return;
+          event.preventDefault(); state.selected = rows[Math.max(0, Math.min(rows.length - 1, moves[event.key]))]?.id ?? null;
+          redraw({ key: 'point' });
+        });
+      });
+      const plot = this.shadowRoot.querySelector('[data-insights-plot]');
+      if (!plot || plot.dataset.insightsBound) return;
+      plot.dataset.insightsBound = 'true';
+      const epoch = this._insightRenderEpoch, dataset = this._insightChartDataset;
+      const current = () => this.isConnected && plot.isConnected && epoch === this._insightRenderEpoch && dataset === this._insightChartDataset;
+      const resize = () => { if (current() && plot.clientWidth > 0) plot.innerHTML = this._insightSvgV3(plot.clientWidth); };
+      resize();
+      plot.addEventListener('click', event => {
+        if (!current()) return;
+        const rect = plot.querySelector('svg')?.getBoundingClientRect();
+        if (!rect?.width) return;
+        const rows = this._insightChartRowsV3(), width = Math.max(180, plot.clientWidth || 600), left = Math.min(68, width * 0.24);
+        const index = Math.max(0, Math.min(rows.length - 1, Math.floor(((event.clientX - rect.left) / rect.width * width - left) / (width - 12 - left) * rows.length)));
+        this._insightChartState.selected = rows[index]?.id ?? null;
+        redraw({ key: 'point' });
+      });
+      if (typeof ResizeObserver !== 'undefined') { this._insightResize = new ResizeObserver(resize); this._insightResize.observe(plot); }
+    }
+
     _getRecommendation(trendDiff, todayKwh) {
       return this._lang === 'pl' ? 'Pokazano wyłącznie zarejestrowany import z sieci; bez pomiaru urządzeń nie można przypisać zużycia konkretnym odbiornikom.' : 'Only recorded grid import is shown; without device measurements, usage cannot be attributed to appliances.';
     }
@@ -4177,6 +4607,8 @@ this._installTariffConsumerV3();
       const body = this.shadowRoot?.querySelector('.panel-body');
       if (!body) return;
       if (this._loading) {
+        this._insightResize?.disconnect();
+        this._insightRenderEpoch++;
         body.innerHTML = this._renderLoading();
       }
     }
@@ -4186,6 +4618,9 @@ this._installTariffConsumerV3();
         this._render();
         return;
       }
+      const focus = this._captureInsightFocusV3();
+      this._insightResize?.disconnect();
+      this._insightRenderEpoch++;
       // Targeted DOM update — replace only panel-body content
       const body = this.shadowRoot?.querySelector('.panel-body');
       if (!body) return;
@@ -4197,6 +4632,8 @@ this._installTariffConsumerV3();
         body.innerHTML = this._renderTabContent();
       }
       this._bindTariffSettings();
+      this._bindInsightContentV3();
+      this._restoreInsightFocusV3(focus);
       // Update tab bar active state
       this.shadowRoot.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === this._activeTab);
@@ -4234,12 +4671,28 @@ this._installTariffConsumerV3();
       this._domBuilt = true;
       this._bindEvents();
       this._bindTariffSettings();
+      this._bindInsightContentV3();
       this._syncSupport();
     }
 
     _getStyles() {
       return `
         <style>${LOCAL_BENTO_CSS}
+
+          .insights-measured{margin:18px 0;padding:18px;border:1px solid var(--bento-border);border-radius:var(--bento-radius);background:var(--bento-card);min-width:0;color:var(--bento-text)}
+          .insights-measured h3{margin:0 0 12px;font-size:18px}.insights-measured p{line-height:1.55;overflow-wrap:anywhere;font-size:13px}
+          .insights-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin:12px 0}.insights-controls>span{align-self:center}
+          .insights-measured label{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:13px;flex:1}
+          .insights-measured button,.insights-measured select,.insights-measured input{min-width:44px;min-height:44px;max-width:100%;padding:10px 12px;border:1px solid var(--bento-border);border-radius:8px;background:var(--bento-card);color:var(--bento-text);font:inherit;box-sizing:border-box}
+          .insights-measured button{white-space:normal;cursor:pointer}.insights-measured button:disabled{opacity:.55;cursor:default}.insights-measured button[aria-pressed=true]{border-color:var(--bento-primary);background:var(--bento-primary-light)}
+          .insights-measured :is(button,select,input,summary,a):focus-visible{outline:3px solid var(--bento-primary);outline-offset:2px}
+          .insights-measured a{display:inline-flex;align-items:center;min-height:44px;color:var(--bento-primary)}
+          .insights-measured svg{display:block;max-width:100%;touch-action:pan-y}.insights-measured svg text{fill:var(--bento-text-secondary);font:11px system-ui}
+          .insights-data-row,.insights-device,.insights-point-detail{padding:14px;margin:10px 0;border:1px solid var(--bento-border);border-radius:10px;overflow-wrap:anywhere;min-width:0}
+          .insights-point-detail{background:var(--bento-primary-light)}.insights-device-heading{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:baseline}.insights-device-heading span{font-weight:650;font-variant-numeric:tabular-nums}
+          .insights-measured summary{min-height:44px;cursor:pointer;padding:12px 0}.insights-measured dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:8px 16px;font-size:13px;line-height:1.5}.insights-measured dd{margin:0}.insights-measured dt{color:var(--bento-text-secondary)}
+          @container energy-card (max-width:500px){.insights-measured{padding:12px}.insights-controls label{flex-basis:100%}.insights-device-heading{grid-template-columns:minmax(0,1fr)}.insights-measured dl{grid-template-columns:minmax(0,1fr)}.insights-measured dt{margin-top:6px}}
+
 
           * { box-sizing: border-box; }
 
@@ -4416,13 +4869,13 @@ this._installTariffConsumerV3();
     }
 
     _renderTabContent() {
-      if (!this._data) return '';
+      if (!this._data) return this._renderInsightDevicesV3();
 
       if (this._data.noSensors) {
-        return `<div class="no-sensors">${this._t('noSensors')} <a href="/energy">Energy Dashboard</a></div>`;
+        return `<div class="no-sensors">${this._t('noSensors')} <a href="/energy">Energy Dashboard</a></div>${this._renderInsightDevicesV3()}`;
       }
       if (this._data.noSeries) {
-        return `<div class="no-sensors" role="status">${this._t('noSeries')}</div>`;
+        return `<div class="no-sensors" role="status">${this._t('noSeries')}</div>${this._renderInsightDevicesV3()}`;
       }
 
       switch (this._activeTab) {
@@ -4479,44 +4932,12 @@ this._installTariffConsumerV3();
         </div>
       `;
 
-      if (d.topDevices && d.topDevices.length > 0) {
-        const maxKwh = d.topDevices[0].kwh || 1;
-        html += `<div class="section-title">${this._t('topDevices')}</div><div class="device-list">`;
-        d.topDevices.forEach((dev, i) => {
-          const pct = Math.round((dev.kwh / maxKwh) * 100);
-          const valStr = dev.uom === 'W'
-            ? `${dev.rawVal.toFixed(0)} W`
-            : `${dev.kwh.toFixed(2)} kWh`;
-          html += `
-            <div class="device-row">
-              <div class="device-rank">#${i + 1}</div>
-              <div class="device-name" title="${_esc(dev.entity_id)}">${_esc(dev.name)}</div>
-              <div class="device-bar-wrap"><div class="device-bar" style="width:${pct}%"></div></div>
-              <div class="device-value">${valStr}</div>
-            </div>
-          `;
-        });
-        html += `</div>`;
-      }
+      html += this._renderInsightDevicesV3();
 
       return html;
     }
 
-    _renderChartTab(period) {
-      const labels = {
-        daily: 'hourlyConsumption',
-        weekly: 'dailyConsumption',
-        monthly: 'monthlyConsumption'
-      };
-      return `
-        <div class="section-title">${this._t(labels[period] || 'overview')}</div>
-        <div class="chart-container">
-          ${this._chartJsReady ? `<canvas id="chart-${period}"></canvas>` : '<div class="chart-unavailable" role="status">Chart unavailable — numeric analysis remains available.</div>'}
-        </div>
-        <div class="chart-label">${_esc(this._data?.windows?.[period]?.start || '')} — ${_esc(this._data?.windows?.[period]?.end || '')} • ${_esc(this._data?.zone || '')}</div>
-        <div class="chart-label">kWh • ${_esc(this._getTariffLabel())}</div>
-      `;
-    }
+    _renderChartTab(period) { return this._renderInsightChartV3(period); }
 
     _renderTips() {
       const tips = [
@@ -4565,72 +4986,7 @@ this._installTariffConsumerV3();
       }
     }
 
-    _renderCharts() {
-      if (!HA_ENERGY_CHART || !this._data) return;
-
-      const chartDefs = {
-        daily:   { data: this._data.dailyData,   labels: this._buildHourLabels(24) },
-        weekly:  { data: this._data.weeklyData,   labels: this._data.weekLabels },
-        monthly: { data: this._data.monthlyData,  labels: this._data.monthLabels }
-      };
-
-      if (this._activeTab in chartDefs) {
-        const def = chartDefs[this._activeTab];
-        const canvasId = `chart-${this._activeTab}`;
-        const canvas = this.shadowRoot.getElementById(canvasId);
-        if (!canvas) return;
-
-        if (this._charts[this._activeTab]) {
-          try { this._charts[this._activeTab].destroy(); } catch(e) { console.debug('[ha-energy-insights] caught:', e); }
-        }
-
-        const primaryColor = getComputedStyle(this).getPropertyValue('--bento-primary').trim() || '#4A90D9';
-        const theme = this._chartThemeColors();
-
-        this._charts[this._activeTab] = new HA_ENERGY_CHART(canvas, {
-          type: 'bar',
-          data: {
-            labels: def.labels,
-            datasets: [{
-              label: 'kWh',
-              data: def.data,
-              backgroundColor: primaryColor + '80',
-              borderColor: primaryColor,
-              borderWidth: 1.5,
-              borderRadius: 4
-            }]
-          },
-          options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-              legend: { display: false },
-              tooltip: {
-                callbacks: {
-                  label: ctx => {
-                    const kwh = ctx.raw;
-                    if (typeof kwh !== 'number') return 'N/A';
-                    const cost = this._data[`${this._activeTab}Costs`]?.[ctx.dataIndex];
-                    return ` ${kwh.toFixed(2)} kWh (${typeof cost === 'number' ? cost.toFixed(2) : 'N/A'} ${this._tariffCurrency()})`;
-                  }
-                }
-              }
-            },
-            scales: {
-              x: {
-                ticks: { color: theme.text, font: { size: 11 }, maxRotation: 45 },
-                grid: { color: 'transparent' }
-              },
-              y: {
-                ticks: { color: theme.text, font: { size: 11 } },
-                grid: { color: theme.grid },
-                beginAtZero: true
-              }
-            }
-          }
-        });
-      }
-    }
+    _renderCharts() { this._bindInsightContentV3(); }
 
     _buildDayLabels(days) {
       const labels = [];
