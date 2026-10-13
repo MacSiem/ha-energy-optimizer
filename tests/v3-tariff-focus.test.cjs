@@ -39,3 +39,9 @@ test('finishing a Save does not steal focus from a newly chosen external control
  assert.equal(state.status,'success');assert.equal(dom.window.document.activeElement.id,'outside');
  }finally{dom.window.close();}
 });
+
+test('Insights locale refresh translates its tariff summary and retains the focused private draft without API',()=>{
+ const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});let card;try{
+ dom.window.eval(readFileSync(join(__dirname,'../ha-energy-optimizer.js'),'utf8'));card=dom.window.document.createElement('ha-energy-insights');card._schedule=()=>{};let calls=0;const hass={language:'en',locale:{language:'en'},user:{id:'fixture',is_admin:true},connection:{connected:true},config:{currency:'EUR',time_zone:'UTC'},states:{},callWS:()=>{calls++;throw Error('No API on locale refresh');}};card._hass=hass;card._config={...card._config,tariff_profile:profile,show_support:false};card._firstHassRender=true;card._lastDataFetch=dom.window.Date.now();card._tariffSettingsOpen=true;dom.window.document.body.append(card);card._render();const input=card.shadowRoot.querySelector('[data-path="name"]');input.value='Private draft';input.dispatchEvent(new dom.window.Event('input'));input.focus();input.setSelectionRange(3,5);card.hass={...hass,language:'pl',locale:{language:'pl'}};assert.equal(card.shadowRoot.querySelector('[data-tariff-details]>summary').textContent,'Ustawienia taryfy');assert.match(card.shadowRoot.querySelector('.ht-tariff-v3').textContent,/Nazwa taryfy/);const focused=card.shadowRoot.activeElement;assert.equal(focused.dataset.path,'name');assert.equal(focused.value,'Private draft');assert.equal(focused.selectionStart,3);assert.equal(focused.selectionEnd,5);assert.equal(calls,0);
+ }finally{card?._tariffConsumerUnsubscribeV3?.();card?._tariffHostController?.guard.dispose();dom.window.close();}
+});
