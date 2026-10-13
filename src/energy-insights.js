@@ -1130,6 +1130,8 @@ this._installTariffConsumerV3();
           this.shadowRoot.querySelectorAll('.tab-btn').forEach(btn => {
             btn.textContent = this._t(btn.dataset.tab);
           });
+          const tariffSummary = this.shadowRoot.querySelector('[data-tariff-details] > summary');
+          if (tariffSummary) tariffSummary.textContent = this._lang === 'pl' ? 'Ustawienia taryfy' : 'Tariff settings';
           this._updateContent();
           if (this._chartJsReady) this._renderCharts();
         }
