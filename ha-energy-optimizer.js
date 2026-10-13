@@ -201,7 +201,10 @@ class HaEnergyOptimizer extends HTMLElement {
     this._generateRecommendations();
     this._generateComparisonData();
   }
+  connectedCallback() { this._tariffHostController?.guard.resume(); }
+
   disconnectedCallback() {
+    this._tariffHostController?.guard.suspend();
     this._timers.forEach(timer => clearTimeout(timer));
     this._timers.clear();
     this._renderScheduled = false;
@@ -233,6 +236,7 @@ class HaEnergyOptimizer extends HTMLElement {
 
   setConfig(config) {
     this._config = config || { title: 'Energy Optimizer' };
+    this._observeTariffContextV3();
     this._generateRecommendations();
     this._generateComparisonData();
     if (this._hass) this._render();
@@ -321,15 +325,13 @@ class HaEnergyOptimizer extends HTMLElement {
     if (!this._hass || !this._hass.callWS) return;
     if (this._statsLoading) return;
     this._statsLoading = true;
-    const fetchHass = this._hass;
-    const fetchContext = [fetchHass.connection, fetchHass.user?.id, fetchHass.config?.time_zone];
-    const currentContext = () => this._hass != null && this._hass.connection === fetchContext[0] &&
-      this._hass.user?.id === fetchContext[1] && this._hass.config?.time_zone === fetchContext[2];
+    const read = this._createEnergyReadV3();
+    const currentContext = read.current;
     this._energyError = null;
     try {
-      await this._loadSharedTariffProfile();
+      const model = await readEnergyHours(read.hass, 24 * 31);
       if (!currentContext()) return;
-      const model = await readEnergyHours(fetchHass, 24 * 31);
+      await this._loadSharedTariffProfile();
       if (!currentContext()) return;
       if (model.noSensors || model.noSeries) throw new Error(model.noSeries ? 'Missing Energy Dashboard statistic series' : 'No Energy Dashboard grid import source');
       const today = model.summary(model.todayStart, model.end);
@@ -368,7 +370,6 @@ class HaEnergyOptimizer extends HTMLElement {
       console.warn('Energy Optimizer: Energy statistics unavailable');
     } finally {
       this._statsLoading = false;
-      if (!currentContext() && this._hass?.callWS) void this._fetchEnergyStats();
       if (this.isConnected) this._render();
     }
   }
@@ -394,7 +395,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=141fc72d139b0a2ca1ecff66721921191eac4aab128c952ef56fd1fa92e4b632
+    // HA_TARIFF_V3_START sha256=36ea0cc2c39a2f4be3b85bb3546156cf33d1a6805e19a2ca9659cb0aea81d6ac
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -700,9 +701,103 @@ function energyTariffProfileV3(config, haConfig, kind) {
   return profile;
 }
 
+// One wire fence for the card-owned host and settings editor. A public timeout
+// is uncertainty, never permission to dispatch another raw operation.
+function createTariffGuardV3({ getHass, getContext = () => null, browser = typeof window === 'object' ? window : null, timeoutMs = 15000 }) {
+  const canonical = value => JSON.stringify(value, (_, v) => v && typeof v === 'object' && !Array.isArray(v)
+    ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v);
+  let epoch = 0, association, connection, connectionOffline = false, browserOffline = browser?.navigator?.onLine === false;
+  let raw = null, suspended = false;
+  const listeners = new Set(), wireListeners = new Set();
+  const notify = () => { epoch++; for (const listener of [...listeners]) listener(); };
+  const connectionEvent = event => {
+    if (event.type === 'disconnected' || event.type === 'reconnect-error') connectionOffline = true;
+    else if (event.type === 'ready') connectionOffline = false;
+    notify();
+  };
+  const types = ['disconnected', 'ready', 'reconnect-error'];
+  const bind = next => {
+    if (connection === next) return;
+    for (const type of types) connection?.removeEventListener?.(type, connectionEvent);
+    connection = next; connectionOffline = next?.connected === false;
+    if (!suspended) for (const type of types) connection?.addEventListener?.(type, connectionEvent);
+  };
+  const browserEvent = event => { browserOffline = event.type === 'offline'; notify(); };
+  browser?.addEventListener?.('offline', browserEvent);
+  browser?.addEventListener?.('online', browserEvent);
+  const read = h => {
+    bind(h?.connection);
+    return { user: h?.user?.id, admin: h?.user?.is_admin === true, owner: h?.user?.is_owner === true,
+      active: h?.user?.is_active !== false, groups: canonical(h?.user?.groups || []), groupIds: canonical(h?.user?.group_ids || []),
+      connection: h?.connection, callWS: h?.callWS,
+      connected: h?.connection?.connected !== false && !connectionOffline,
+      online: !suspended && !browserOffline && browser?.navigator?.onLine !== false,
+      haConfig: canonical(h?.config || {}), context: canonical(getContext()) };
+  };
+  const equal = (a, b) => a && b && Object.keys(b).every(k => a[k] === b[k]);
+  const observe = (...prospectiveHass) => {
+    const now = read(prospectiveHass.length ? prospectiveHass[0] : getHass()), changed = association && !equal(association, now);
+    association = now;
+    if (changed) notify();
+    return { ...now, epoch };
+  };
+  const available = a => !!a?.user && a.active && !!a.connection && a.connected && a.online && typeof a.callWS === 'function';
+  const snapshot = () => observe();
+  const current = (token, admin = false) => {
+    const now = observe();
+    return token?.epoch === now.epoch && equal(token, Object.fromEntries(Object.entries(now).filter(([k]) => k !== 'epoch'))) && available(now) && (!admin || now.admin);
+  };
+  const call = (token, payload, admin = false) => {
+    if (!current(token, admin)) return Promise.reject({ code: 'authority_changed' });
+    if (raw) return Promise.reject({ code: 'wire_occupied' });
+    let resolvePublic, rejectPublic, finished = false;
+    const result = new Promise((resolve, reject) => { resolvePublic = resolve; rejectPublic = reject; });
+    const slot = {}; raw = slot;
+    const timer = setTimeout(() => { finished = true; rejectPublic({ code: 'timeout' }); }, timeoutMs);
+    let request;
+    try { request = Promise.resolve(token.callWS.call(getHass(), payload)); }
+    catch (error) { request = Promise.reject(error); }
+    // Both branches handle late settlement; no floating rejected finally promise.
+    const settled = () => {
+      clearTimeout(timer); if (raw === slot) raw = null;
+      for (const listener of [...wireListeners]) listener();
+    };
+    request.then(value => {
+      settled();
+      if (!finished) { finished = true; current(token, admin) ? resolvePublic(value) : rejectPublic({ code: 'authority_changed' }); }
+    }, error => { settled(); if (!finished) { finished = true; rejectPublic(error); } });
+    return result;
+  };
+  const suspend = () => {
+    if (suspended) return;
+    suspended = true;
+    for (const type of types) connection?.removeEventListener?.(type, connectionEvent);
+    browser?.removeEventListener?.('offline', browserEvent); browser?.removeEventListener?.('online', browserEvent);
+    notify();
+  };
+  const resume = () => {
+    if (!suspended) return;
+    suspended = false; browserOffline = browser?.navigator?.onLine === false;
+    for (const type of types) connection?.addEventListener?.(type, connectionEvent);
+    browser?.addEventListener?.('offline', browserEvent); browser?.addEventListener?.('online', browserEvent);
+    notify(); observe();
+  };
+  const dispose = () => {
+    for (const type of types) connection?.removeEventListener?.(type, connectionEvent);
+    browser?.removeEventListener?.('offline', browserEvent); browser?.removeEventListener?.('online', browserEvent);
+    notify(); listeners.clear(); wireListeners.clear(); // Raw occupancy intentionally survives disposal.
+  };
+  observe(); // Observe typed edges before the card/editor is ever mounted.
+  return { snapshot, observe, current, available, call, occupied: () => raw !== null,
+    subscribeWire: listener => { wireListeners.add(listener); return () => wireListeners.delete(listener); },
+    subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); }, invalidate: notify, suspend, resume, dispose };
+}
+// Node-only dependency; runtime consumers vendor the guard in their own closure.
+
+
 // Vendor inside each card's closure. The parent owns state and its mount; no
 // global registration, helper services, SMTP configuration or browser storage.
-function createTariffSettingsV3({ root, getHass, language = 'en', state, validate, onSaved, onLoaded, onCancel, ui }) {
+function createTariffSettingsV3({ root, getHass, language = 'en', state, validate, onSaved, onLoaded, onCancel, ui, guard }) {
   if (!root || !state || typeof getHass !== 'function' || typeof validate !== 'function') throw new TypeError('tariff_settings_adapter');
   const translations = new Map();
   const pl = () => String(typeof language === 'function' ? language() : language).startsWith('pl');
@@ -737,57 +832,44 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   if (!object(state.draft) || invalidMarker(state.draft)) state.draft = seed(state.profile);
   if (!statuses()[state.status]) state.status = 'not_checked';
   if (invalidMarker(state.profile) && state.status === 'not_checked') state.status = 'error';
-  let epoch = 0, operation = 0, association, resumeFocus = null;
-  const auth = () => {
-    const h = getHass();
-    return { user: h?.user?.id, admin: h?.user?.is_admin === true, connection: h?.connection,
-      connected: h?.connection?.connected !== false, ws: typeof h?.callWS === 'function' };
-  };
-  const observe = () => {
-    const now = auth();
-    if (association && (association.user !== now.user || association.admin !== now.admin ||
-      association.connection !== now.connection || association.connected !== now.connected || association.ws !== now.ws)) {
-      epoch++; resumeFocus = null;
-    }
-    association = now;
-    return now;
-  };
-  const available = a => !!a.user && !!a.connection && a.connected && a.ws;
-  const ticket = () => ({ ...observe(), epoch, operation: ++operation });
-  const current = (token, admin = false) => {
-    const a = observe();
-    return token.operation === operation && token.epoch === epoch && token.user === a.user &&
-      token.connection === a.connection && available(a) && (!admin || a.admin);
-  };
-  const call = (token, payload, admin = false) => {
-    if (!current(token, admin)) return Promise.reject({ code: 'authority_changed' });
-    // No retry: a timeout may still have committed on the server.
-    let timer;
-    let pending;
-    try { pending = Promise.resolve(getHass().callWS(payload)); }
-    catch (error) { return Promise.reject(error); }
-    return Promise.race([pending, new Promise((_, reject) => { timer = setTimeout(() => reject({ code: 'timeout' }), 15000); })])
-      .finally(() => clearTimeout(timer));
-  };
+  guard ||= createTariffGuardV3({ getHass });
+  let operation = 0, association, resumeFocus = null, disposed = false;
+  const observe = () => (association = guard.observe());
+  const available = a => guard.available(a);
+  const ticket = () => ({ ...observe(), operation: ++operation });
+  const current = (token, admin = false) => token.operation === operation && guard.current(token, admin);
+  const call = (token, payload, admin = false) => current(token, admin)
+    ? guard.call(token, payload, admin) : Promise.reject({ code: 'authority_changed' });
+  const unsubscribe = guard.subscribe(() => {
+    if (disposed) return;
+    operation++; resumeFocus = null;
+    state.profile = null; state.revision = null; state.updated_at = null;
+    state.draft = blank(); state._draftBaseline = clone(state.draft);
+    state.feedText = undefined; state.feedError = null; state.backendAvailable = false;
+    state.busy = false; state.status = 'unconfirmed'; state.message = '';
+    // This mount may already have been detached; erase it too, synchronously.
+    root.replaceChildren();
+  });
+  const unsubscribeWire = guard.subscribeWire(() => { if (!disposed && root.isConnected && available(guard.observe())) render(); });
   const envelope = value => object(value) && Object.hasOwn(value, 'profile') &&
     (value.profile === null || invalidMarker(value.profile) || (object(value.profile) && validProfile(value.profile))) && Number.isSafeInteger(value.revision) && value.revision >= 0 &&
     Object.hasOwn(value, 'updated_at') && (value.updated_at === null ||
       (typeof value.updated_at === 'string' && /T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value.updated_at) && Number.isFinite(Date.parse(value.updated_at))));
   const message = (status, text) => { state.status = status; state.message = text; };
-  const unknown = () => message('unconfirmed', t('Saving was not confirmed. Check the stored tariff before retrying. Your draft is preserved.',
-    'Nie potwierdzono zapisu. Sprawdź zapisaną taryfę przed ponowieniem. Szkic został zachowany.'));
+  const unknown = () => { state.writeUnconfirmed = true; message('unconfirmed', t('Saving was not confirmed. Check the stored tariff before retrying. Your draft is preserved.',
+    'Nie potwierdzono zapisu. Sprawdź zapisaną taryfę przed ponowieniem. Szkic został zachowany.')); };
   const load = async () => {
-    if (state.busy) return;
+    if (disposed || state.busy || guard.occupied()) return;
     const token = ticket();
     if (!available(token)) { message('error', t('Tariff backend unavailable.', 'Backend taryf jest niedostępny.')); render(); return; }
     const pristine = equal(state.draft, seed(state.profile)), draft = clone(state.draft);
     state.busy = true; state.message = t('Loading stored tariff…', 'Wczytywanie zapisanej taryfy…'); render();
     try {
       const result = await call(token, { type: 'ha_tools_email/get_tariff' });
-      if (!current(token)) { unknown(); return; }
+      if (!current(token)) return;
       if (!envelope(result)) throw { code: 'malformed' };
       state.profile = clone(result.profile); state.revision = result.revision; state.updated_at = result.updated_at;
-      state.backendAvailable = true;
+      state.backendAvailable = true; state.writeUnconfirmed = false;
       state.draft = pristine ? seed(result.profile) : draft;
       if (pristine) { state.feedText = undefined; state.feedError = null; }
       if (invalidMarker(result.profile)) message('error', t('The stored tariff is invalid. Review and save a replacement; costs stay unavailable until a valid profile is confirmed.',
@@ -796,13 +878,12 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
       if (current(token) && typeof onLoaded === 'function') onLoaded(clone(result));
     } catch (_) {
       if (current(token)) { state.backendAvailable = false; message('error', t('Tariff backend unavailable or response invalid. Draft preserved.', 'Backend taryf jest niedostępny lub odpowiedź jest błędna. Zachowano szkic.')); }
-      else unknown();
-    } finally { state.busy = false; render(); }
+    } finally { if (current(token)) { state.busy = false; render(); } }
   };
   const save = async () => {
-    if (state.busy) return;
+    if (disposed || state.busy || guard.occupied()) return;
     const token = ticket();
-    if (!available(token) || !token.admin || state.backendAvailable === false || !Number.isSafeInteger(state.revision)) {
+    if (!available(token) || !token.admin || state.writeUnconfirmed || state.backendAvailable === false || !Number.isSafeInteger(state.revision)) {
       message('error', t('Admin access and a loaded tariff backend are required.', 'Wymagane uprawnienia administratora i wczytany backend taryf.')); render(); return;
     }
     if (state.feedError) { message('error', state.feedError); render(); return; }
@@ -817,23 +898,25 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     state.busy = true; message('not_checked', t('Saving; waiting for stored readback…', 'Zapis; oczekiwanie na odczyt zapisanego profilu…')); render();
     try {
       const written = await call(token, { type: 'ha_tools_email/set_tariff', profile: proposed, expected_revision: previousRevision }, true);
-      if (!current(token, true)) { unknown(); return; }
+      if (!current(token, true)) return;
       if (!object(written) || !Number.isSafeInteger(written.revision) || written.revision !== previousRevision + 1) { unknown(); return; }
       const stored = await call(token, { type: 'ha_tools_email/get_tariff' }, true);
-      if (!current(token, true)) { unknown(); return; }
+      if (!current(token, true)) return;
       if (!envelope(stored) || stored.updated_at === null || stored.revision !== written.revision || !equal(stored.profile, proposed)) { unknown(); return; }
+      state.writeUnconfirmed = false;
       state.profile = clone(stored.profile); state.draft = clone(stored.profile); state.revision = stored.revision; state.updated_at = stored.updated_at;
       message('success', t('Tariff saved and confirmed by stored readback.', 'Taryfa zapisana i potwierdzona odczytem.'));
       if (current(token, true) && typeof onSaved === 'function') onSaved(clone(stored));
     } catch (error) {
-      if (current(token, true) && ['conflict', 'revision_conflict', 'tariff_revision_conflict'].includes(error?.code))
+      if (current(token, true) && ['conflict', 'revision_conflict', 'tariff_revision_conflict'].includes(error?.code)) {
+        state.writeUnconfirmed = true;
         message('error', t('Revision conflict. Load the stored tariff and reconcile your draft.', 'Konflikt wersji. Wczytaj zapisaną taryfę i porównaj ze szkicem.'));
-      else unknown();
-    } finally { state.busy = false; render(); }
+      } else if (current(token)) unknown();
+    } finally { if (current(token)) { state.busy = false; render(); } }
   };
   const cancel = () => {
     // A dispatched save cannot be undone safely. The button remains disabled.
-    if (state.busy) return;
+    if (disposed || state.busy || guard.occupied()) return;
     operation++; state.draft = seed(state.profile); state.feedError = null; state.feedText = undefined;
     message('not_checked', ''); render(); if (typeof onCancel === 'function') onCancel();
   };
@@ -843,7 +926,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     for (const key of keys.slice(0, -1)) { if (!object(at[key]) && !Array.isArray(at[key])) at[key] = {}; at = at[key]; }
     at[keys.at(-1)] = value;
   };
-  const mutable = () => observe().admin && !state.busy && available(association);
+  const mutable = () => observe().admin && !state.busy && !guard.occupied() && available(association);
   const field = (path, label, kind = 'text', choices) => {
     const value = read(path);
     const attrs = `data-path="${esc(path)}" aria-label="${esc(label)}"${mutable() ? '' : ' disabled'}`;
@@ -868,6 +951,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   const css = `.ht-tariff-v3{box-sizing:border-box;color:var(--primary-text-color,#172033);font:inherit;width:100%;min-width:0;max-width:100%;padding:12px;background:var(--ha-card-background,var(--card-background-color,#fff));border-radius:var(--bento-radius,20px)}
 .ht-tariff-v3 *{box-sizing:border-box;min-width:0}.ht-tariff-v3 h3,.ht-tariff-v3 p{overflow-wrap:anywhere}.ht-tariff-v3 fieldset{border:1px solid var(--divider-color,#d8dce5);border-radius:14px;margin:12px 0;padding:12px}.ht-tariff-v3 legend{max-width:100%;overflow-wrap:anywhere}.ht-tariff-v3 .ht-tariff-grid,.ht-tariff-v3 .ht-tariff-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:12px;margin:8px 0}.ht-tariff-v3 .ht-tariff-field{display:flex;flex-direction:column;gap:6px;overflow-wrap:anywhere}.ht-tariff-v3 input,.ht-tariff-v3 select,.ht-tariff-v3 textarea,.ht-tariff-v3 button{font:inherit;color:inherit;border:1px solid var(--divider-color,#c7cdd9);border-radius:10px;background:var(--secondary-background-color,#f7f8fa);min-height:44px;max-width:100%;width:100%;padding:10px}.ht-tariff-v3 textarea{resize:vertical;min-height:110px}.ht-tariff-v3 button{cursor:pointer;width:auto;white-space:normal;overflow-wrap:anywhere}.ht-tariff-v3 button:disabled{cursor:default;opacity:.6}.ht-tariff-v3 :is(input,select,textarea,button):focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}.ht-tariff-v3 .ht-tariff-days,.ht-tariff-v3 .ht-tariff-actions{display:flex;flex-wrap:wrap;gap:8px}.ht-tariff-v3 .ht-tariff-days label{display:flex;align-items:center;gap:8px;min-height:44px}.ht-tariff-v3 input[type=checkbox]{width:24px;min-height:24px;height:24px}.ht-tariff-v3 [role=status]{padding:12px;border-radius:12px;overflow-wrap:anywhere;background:var(--secondary-background-color,#f1f3f6);margin:12px 0}.ht-tariff-v3 [data-status=success]{color:var(--bento-success,#16804a);background:var(--bento-success-light,#e8f5ed)}.ht-tariff-v3 [data-status=error]{color:var(--error-color,#ba1a1a)}.ht-tariff-v3 [data-status=unconfirmed],.ht-tariff-v3 [data-status=partial]{color:var(--warning-color,#a15b00)}.ht-tariff-v3 details{margin:12px 0}.ht-tariff-v3 summary{min-height:44px;cursor:pointer}`;
   function render() {
+    if (disposed) return;
     const active = root.getRootNode().activeElement;
     const focused = active && root.contains(active) ? active : root.querySelector(':focus');
     const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed } : resumeFocus;
@@ -883,12 +967,12 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
       !available(a) || state.backendAvailable === false ? `<p>${esc(t('Tariff backend unavailable. No local fallback.', 'Backend taryf jest niedostępny. Brak lokalnego zapisu zastępczego.'))}</p>` :
         !Number.isSafeInteger(state.revision) ? `<p>${esc(t('Backend availability not checked. Load the tariff first.', 'Dostępność backendu nie została sprawdzona. Najpierw wczytaj taryfę.'))}</p>` : ''}
 ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is invalid. Create and save a valid replacement. No rates were guessed.', 'Zapisana taryfa jest niepoprawna. Utwórz i zapisz poprawny profil. Nie przyjęto domyślnych stawek.'))}</p>` : ''}
-<div class="ht-tariff-grid">${field('type', t('Tariff name type', 'Typ nazwy taryfy'), 'text', ['Custom', 'G11', 'G12', 'G12w', 'G12n'].map(v => [v, v]))}${field('name', t('Name (optional PGE label)', 'Nazwa (opcjonalnie nazwa PGE)'))}${field('currency', t('Currency ISO 4217', 'Waluta ISO 4217'))}${field('timezone', t('IANA timezone', 'Strefa czasowa IANA'))}${field('clock.mode', t('Tariff clock', 'Zegar taryfy'), 'text', [['civil', t('Civil time (DST)', 'Czas lokalny (zmiana czasu)')], ['fixed', t('Fixed UTC offset', 'Stałe przesunięcie UTC')]])}${field('clock.offsetMinutes', t('Fixed offset minutes', 'Stałe przesunięcie w minutach'), 'number')}${field('priceBasis', t('Price basis', 'Podstawa ceny'), 'text', [['gross', t('Gross', 'Brutto')], ['net', t('Net', 'Netto')]])}${field('validFrom', t('Valid from (optional)', 'Ważna od (opcjonalnie)'), 'date')}${field('validTo', t('Valid to (optional)', 'Ważna do (opcjonalnie)'), 'date')}${field('fixedMonthly', t('Fixed monthly fee (separate)', 'Opłata stała miesięczna (osobno)'), 'number')}</div>
+<div class="ht-tariff-grid">${field('type', t('Tariff name type', 'Typ nazwy taryfy'), 'text', ['Custom', 'G11', 'G12', 'G12w', 'G12n'].map(v => [v, v]))}${field('name', t('Tariff name (optional)', 'Nazwa taryfy (opcjonalna)'))}${field('currency', t('Currency ISO 4217', 'Waluta ISO 4217'))}${field('timezone', t('IANA timezone', 'Strefa czasowa IANA'))}${field('clock.mode', t('Tariff clock', 'Zegar taryfy'), 'text', [['civil', t('Civil time (DST)', 'Czas lokalny (zmiana czasu)')], ['fixed', t('Fixed UTC offset', 'Stałe przesunięcie UTC')]])}${field('clock.offsetMinutes', t('Fixed offset minutes', 'Stałe przesunięcie w minutach'), 'number')}${field('priceBasis', t('Price basis', 'Podstawa ceny'), 'text', [['gross', t('Gross', 'Brutto')], ['net', t('Net', 'Netto')]])}${field('validFrom', t('Valid from (optional)', 'Ważna od (opcjonalnie)'), 'date')}${field('validTo', t('Valid to (optional)', 'Ważna do (opcjonalnie)'), 'date')}${field('fixedMonthly', t('Fixed monthly fee (separate)', 'Opłata stała miesięczna (osobno)'), 'number')}</div>
 <h3>${esc(t('Energy and variable fees per kWh', 'Energia i opłaty zmienne za kWh'))}</h3><p>${esc(t('Empty = unknown; zero is a known zero. Fixed monthly fees are shown separately, never prorated.', 'Puste = nieznane; zero jest znaną wartością zero. Opłata stała jest osobna, bez proporcjonalnego naliczania.'))}</p>${
 (p.zones || []).map((_, i) => `<fieldset><legend>${esc(t('Zone', 'Strefa'))} ${i + 1}</legend><div class="ht-tariff-grid">${field(`zones.${i}.id`, t('Zone ID', 'ID strefy'))}${field(`zones.${i}.label`, t('Zone label', 'Etykieta strefy'))}${field(`zones.${i}.energyRate`, t('Energy / kWh', 'Energia / kWh'), 'number')}${field(`zones.${i}.variableRate`, t('Variable fees / kWh (optional)', 'Opłaty zmienne / kWh (opcjonalne)'), 'number')}</div>${mutable() ? button(`remove-zone:${i}`, t('Remove zone', 'Usuń strefę')) : ''}</fieldset>`).join('')}${mutable() ? button('add-zone', t('Add zone', 'Dodaj strefę')) : ''}${field('defaultZone', t('Default zone (optional)', 'Strefa domyślna (opcjonalna)'), 'text', zoneChoices())}
 <h3>${esc(t('Schedule rules', 'Reguły harmonogramu'))}</h3>${rows('rules')}${mutable() ? button('add-rule', t('Add rule', 'Dodaj regułę')) : ''}<h3>${esc(t('Date exceptions', 'Wyjątki dat'))}</h3>${rows('exceptions')}${mutable() ? button('add-exception', t('Add date exception', 'Dodaj wyjątek daty')) : ''}
 <details><summary>${esc(t('Advanced: absolute dynamic price feed', 'Zaawansowane: bezwzględne przedziały cen dynamicznych'))}</summary><p>${esc(t('Optional dynamic feed overrides schedule prices. Use explicit UTC/offset timestamps. Only this feed uses JSON.', 'Opcjonalny feed dynamiczny zastępuje ceny harmonogramu. Użyj znaczników UTC lub z przesunięciem. JSON służy wyłącznie temu feedowi.'))}</p><label class="ht-tariff-field"><span>${esc(t('Dynamic feed JSON (empty = off)', 'Feed dynamiczny JSON (pusty = wyłączony)'))}</span><textarea data-feed="true"${mutable() ? '' : ' disabled'}>${esc(state.feedText ?? (p.dynamic == null ? '' : JSON.stringify(p.dynamic, null, 2)))}</textarea></label>${field('allowNegativeEnergy', t('Negative energy prices', 'Ujemne ceny energii'), 'text', [['false', t('Disabled', 'Wyłączone')], ['true', t('Explicitly allowed', 'Jawnie dozwolone')]])}</details>
-<div role="status" aria-live="polite" data-status="${esc(state.status)}">${statusHtml()}${state.message ? ': ' + esc(localMessage()) : ''}</div><div class="ht-tariff-actions"><button type="button" data-action="load"${state.busy || !available(a) ? ' disabled' : ''}>${esc(t('Load stored tariff', 'Wczytaj zapisaną taryfę'))}</button>${a.admin ? `<button type="button" data-action="save"${state.busy || !available(a) || state.backendAvailable === false || !Number.isSafeInteger(state.revision) ? ' disabled' : ''}>${esc(t('Save tariff', 'Zapisz taryfę'))}</button><button type="button" data-action="cancel"${state.busy ? ' disabled' : ''}>${esc(t('Cancel', 'Anuluj'))}</button>` : ''}</div></section>`;
+<div role="status" aria-live="polite" data-status="${esc(state.status)}">${statusHtml()}${state.message ? ': ' + esc(localMessage()) : ''}</div><div class="ht-tariff-actions"><button type="button" data-action="load"${state.busy || guard.occupied() || !available(a) ? ' disabled' : ''}>${esc(t('Load stored tariff', 'Wczytaj zapisaną taryfę'))}</button>${a.admin ? `<button type="button" data-action="save"${state.busy || guard.occupied() || !available(a) || state.writeUnconfirmed || state.backendAvailable === false || !Number.isSafeInteger(state.revision) ? ' disabled' : ''}>${esc(t('Save tariff', 'Zapisz taryfę'))}</button><button type="button" data-action="cancel"${state.busy || guard.occupied() ? ' disabled' : ''}>${esc(t('Cancel', 'Anuluj'))}</button>` : ''}</div></section>`;
     root.querySelectorAll('[data-path]').forEach(el => el.addEventListener('input', () => {
       if (!mutable()) { render(); return; }
       const path = el.dataset.path;
@@ -954,17 +1038,20 @@ ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is 
     }
     if (!state.busy) resumeFocus = null;
   }
-  return { render, load, cancel };
+  return { render, load, cancel, dispose: () => { disposed = true; operation++; unsubscribe(); unsubscribeWire(); } };
 }
+// Node-only import; omitted in consumer closure.
+
 
 // Card-owned adapter: it never writes card YAML, helpers, schedules or SMTP.
-function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi, readTimeoutMs = 15000 }) {
+function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi, readTimeoutMs = 15000, guard, onRefresh }) {
   const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
   const language = () => card._hass?.locale?.language || card._hass?.language || card._lang || 'en';
   const text = (en, pl) => String(language()).startsWith('pl') ? pl : en;
-  const identity = hass => ({ user: hass?.user?.id, connection: hass?.connection });
-  const same = (a, b) => a?.user === b?.user && a?.connection === b?.connection;
-  let association = identity(card._hass), pending = null, cachedKey, cachedModel, editorRoot, editor, focusKey = null;
+  guard ||= createTariffGuardV3({ getHass: () => card._hass, getContext: () => card._config, timeoutMs: readTimeoutMs });
+  const identity = () => guard.snapshot();
+  const same = (a, b) => a?.epoch === b?.epoch && a?.user === b?.user && a?.connection === b?.connection;
+  let pending = null, attemptedEpoch = null, cachedKey, cachedModel, editorRoot, editor, focusKey = null;
   const state = () => (card._tariffEditorState ||= { profile: null, revision: null, status: 'not_checked', busy: false });
   const effectiveConfig = () => {
     const config = card._config || {};
@@ -983,54 +1070,56 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     const value = activeProfile()?.currency;
     return typeof value === 'string' && /^[A-Z]{3}$/.test(value) ? value : '';
   };
-  const reset = nextHass => {
-    const next = identity(nextHass);
-    if (!same(association, next)) {
-      card._sharedTariffProfile = null; card._sharedTariffAssociation = null;
-      card._sharedTariffLoadedAt = 0; card._tariffEditorState = null;
-      card._sharedTariffReadStatus = 'not_checked';
-      pending = null; cachedKey = undefined; cachedModel = undefined;
-      editorRoot = null; editor = null;
-      focusKey = null;
-    }
-    association = next;
+  const purge = () => {
+    card._sharedTariffProfile = null; card._sharedTariffAssociation = null;
+    card._sharedTariffLoadedAt = 0; card._tariffEditorState = null;
+    card._sharedTariffReadStatus = 'not_checked'; card._tariffSettingsOpen = false;
+    cachedKey = undefined; cachedModel = undefined; editorRoot?.replaceChildren(); editor?.dispose?.(); editorRoot = null; editor = null; focusKey = null;
+    for (const mount of card.shadowRoot?.querySelectorAll('[data-tariff-mount]') || []) mount.replaceChildren();
+    const details = card.shadowRoot?.querySelector('[data-tariff-details]'); if (details) details.open = false;
+    // Pending raw request remains owned by guard; a new epoch cannot free it.
   };
-  const load = async () => {
-    const hass = card._hass, token = identity(hass);
-    if (!token.user || !token.connection || token.connection.connected === false || typeof hass?.callWS !== 'function') return false;
-    if (card._sharedTariffLoadedAt && Date.now() - card._sharedTariffLoadedAt < 300000 && same(card._sharedTariffAssociation, token)) return true;
+  guard.subscribe(purge);
+  const reset = (...nextHass) => guard.observe(...nextHass);
+  const load = async (force = false) => {
+    const token = identity();
+    if (!guard.available(token)) return false;
+    if (card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, token)) return true;
     if (pending) return pending;
+    if (guard.occupied() || (!force && attemptedEpoch === token.epoch)) return false;
+    attemptedEpoch = token.epoch;
     const operation = (async () => {
-      let timer;
       try {
-        const read = hass.callWS({ type: 'ha_tools_email/get_tariff' });
-        const result = await Promise.race([read, new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('tariff_read_timeout')), readTimeoutMs);
-        })]);
-        if (!same(token, identity(card._hass))) return false;
-        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0)
+        const result = await guard.call(token, { type: 'ha_tools_email/get_tariff' });
+        if (!guard.current(token)) return false;
+        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0 ||
+          !Object.hasOwn(result, 'updated_at') || (result.updated_at !== null &&
+          (typeof result.updated_at !== 'string' || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(result.updated_at) || !Number.isFinite(Date.parse(result.updated_at)))))
           throw new Error('invalid_tariff_response');
-        const profile = result.profile === null ? null : createModel(result.profile).valid ? clone(result.profile) : { schema: 0 };
+        const valid = result.profile === null || createModel(result.profile).valid;
+        const profile = result.profile === null ? null : valid ? clone(result.profile) : { schema: 0 };
         card._sharedTariffProfile = profile; card._sharedTariffAssociation = token; card._sharedTariffLoadedAt = Date.now();
         card._sharedTariffReadStatus = 'success';
-        const saved = state();
-        // Refresh a form opened during this read only while its seed is intact.
-        const pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved.profile) || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline);
-        saved.profile = clone(profile); saved.revision = result.revision; saved.updated_at = result.updated_at ?? null;
+        const saved = state(), pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline) || JSON.stringify(saved.draft) === JSON.stringify(saved.profile);
+        saved.profile = clone(profile); saved.revision = result.revision; saved.updated_at = result.updated_at;
         saved.backendAvailable = true;
-        if (pristine) {
-          saved.draft = profile && createModel(profile).valid ? clone(profile) : undefined;
-          saved._draftBaseline = clone(saved.draft);
-        }
+        if (pristine) { saved.draft = valid ? clone(profile) : undefined; saved._draftBaseline = clone(saved.draft); }
         return true;
       } catch (_) {
-        if (same(token, identity(card._hass))) card._sharedTariffReadStatus = 'unconfirmed';
+        if (guard.current(token)) card._sharedTariffReadStatus = 'unconfirmed';
         return false;
-      } finally { clearTimeout(timer); }
+      }
     })();
     pending = operation;
-    operation.finally(() => { if (pending === operation) pending = null; });
+    operation.then(() => { if (pending === operation) pending = null; }, () => { if (pending === operation) pending = null; });
     return operation;
+  };
+  const snapshot = () => {
+    const token = identity(), own = Object.hasOwn(card._config || {}, 'tariff_profile');
+    if (!guard.available(token)) return { profile: null, reason: 'tariff_authority_unavailable' };
+    if (own) return { profile: clone(card._config.tariff_profile), revision: null, provenance: 'card_config' };
+    if (!same(card._sharedTariffAssociation, token) || card._sharedTariffReadStatus !== 'success') return { profile: null, reason: 'tariff_unconfirmed' };
+    return { profile: clone(card._sharedTariffProfile), revision: state().revision, provenance: 'shared_backend', updated_at: state().updated_at };
   };
   const markup = () => {
     const active = card.shadowRoot?.activeElement;
@@ -1050,32 +1139,37 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     [data-tariff-details]{margin:16px 0;min-width:0;max-width:100%}
     [data-tariff-details]>summary{min-height:44px;display:flex;align-items:center;padding:10px;border:1px solid var(--divider-color,#d8dce5);border-radius:10px;cursor:pointer;overflow-wrap:anywhere}
     [data-tariff-details]>summary:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
-    </style>${card._sharedTariffReadStatus === 'unconfirmed' ? `<p role="status">${text('Shared tariff could not be confirmed. Locally configured or last confirmed prices remain visible.', 'Nie udało się potwierdzić wspólnej taryfy. Widoczne są stawki skonfigurowane w karcie lub ostatnio potwierdzone.')}</p>` : ''}
+    </style>${card._sharedTariffReadStatus === 'unconfirmed' ? `<p role="status">${text('Shared tariff could not be confirmed. Reload explicitly to confirm prices. No tariff cost is guessed.', 'Nie udało się potwierdzić wspólnej taryfy. Wczytaj ponownie, aby potwierdzić ceny. Koszt taryfy nie jest zgadywany.')}</p>` : ''}
     <details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
     ${Object.hasOwn(card._config || {}, 'tariff_profile') ? `<p>${text('This card uses its own configured tariff. Shared settings apply to cards using the shared profile.', 'Ta karta używa własnej skonfigurowanej taryfy. Ustawienia współdzielone dotyczą kart korzystających ze wspólnego profilu.')}</p>` : ''}
     <div data-tariff-mount></div></details>`;
   };
   const mount = root => {
     if (editorRoot !== root || !editor) {
+      editor?.dispose?.();
       const saved = state();
       if (!saved.draft) {
         const profile = activeProfile();
         if (createModel(profile).valid) saved.draft = clone(profile);
       }
       editorRoot = root;
+      const mountToken = identity();
       const refreshed = envelope => {
+        if (!guard.current(mountToken)) return;
         card._sharedTariffProfile = clone(envelope.profile); card._sharedTariffAssociation = identity(card._hass);
         card._sharedTariffLoadedAt = Date.now();
         card._sharedTariffReadStatus = 'success';
         // The editor finishes its pending state before the parent replaces DOM.
         queueMicrotask(() => {
+          if (!guard.current(mountToken)) return;
+          if (onRefresh) { onRefresh(envelope); return; }
           if (kind === 'insights') void card._fetchData();
           if (kind === 'email') void card._fetchAllPeriodStats().then(() => card._render());
           card._render();
         });
       };
       editor = createSettings({ root, getHass: () => card._hass, language, state: saved, validate: createModel,
-        ui: () => createUi({ language: language() }),
+        guard, ui: () => createUi({ language: language() }),
         onSaved: refreshed, onLoaded: refreshed,
         onCancel: () => {
           card._tariffSettingsOpen = false;
@@ -1087,8 +1181,9 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     editor.render();
   };
   const bind = () => {
+    guard.observe();
     const tabs = card.shadowRoot.querySelector('.tabs');
-    if (tabs) {
+    if (tabs && kind !== 'smart') {
       tabs.parentElement.setAttribute('data-energy-container', '');
       const buttons = [...tabs.querySelectorAll('button')];
       tabs.setAttribute('role', 'tablist');
@@ -1118,7 +1213,8 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     }
     const details = card.shadowRoot.querySelector('[data-tariff-details]');
     if (!details) return;
-    const root = details.querySelector('[data-tariff-mount]');
+    let root = details.querySelector('[data-tariff-mount]');
+    if (editorRoot && editor && root !== editorRoot) { root.replaceWith(editorRoot); root = editorRoot; }
     if (!details.dataset.bound) {
       details.dataset.bound = 'true';
       details.addEventListener('toggle', () => {
@@ -1136,17 +1232,86 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       if (target && !target.disabled) target.focus({ preventScroll: true });
     }
   };
-  return { model, profile: activeProfile, currency, reset, load, markup, bind, ui: () => createUi({ language: language() }) };
+  return { model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, ui: () => createUi({ language: language() }) };
 }
-this._tariffHostController = createTariffHostV3({ card: this, kind: 'optimizer', createModel: createEnergyTariffV3, legacyProfile: energyTariffProfileV3, createSettings: createTariffSettingsV3, createUi: createUiV3 });
+this._tariffHostController = createTariffHostV3({ card: this, kind: 'optimizer', createModel: createEnergyTariffV3, legacyProfile: energyTariffProfileV3, createSettings: createTariffSettingsV3, createUi: createUiV3, ...this._createTariffConsumerV3(createTariffGuardV3) });
+this._installTariffConsumerV3();
 // HA_TARIFF_V3_END
     return this._tariffHostController;
   }
   _tariffCurrency() { return this._getTariffHostV3().currency(); }
   _loadSharedTariffProfile() { return this._getTariffHostV3().load(); }
   _tariffDetailsMarkup() { return this._getTariffHostV3().markup(); }
-  _bindTariffSettings() { this._getTariffHostV3().bind(); }
+  _bindTariffSettings() {
+      if (this._tariffWriteUnconfirmedV3) {
+        this._tariffEditorState ||= { profile: null, revision: null, status: 'not_checked', busy: false };
+        this._tariffEditorState.writeUnconfirmed = true;
+      }
+      this._getTariffHostV3().bind();
+    }
   _resetTariffContext(nextHass) { this._getTariffHostV3().reset(nextHass); }
+
+    // Owned by this card. No shared global state and no polling/retry path.
+    _createTariffConsumerV3(createGuard) {
+      const guard = createGuard({ getHass: () => this._hass, getContext: () => this._tariffContextV3() });
+      const call = guard.call;
+      guard.call = (token, request, admin = false) => {
+        const dispatched = request.type === 'ha_tools_email/set_tariff' && !guard.occupied() && guard.current(token, admin);
+        const result = call(token, request, admin);
+        if (dispatched && guard.occupied()) {
+          // Persists across mount/authority purges. An ACK cannot clear this fence.
+          this._tariffWriteUnconfirmedV3 = true;
+        }
+        return result;
+      };
+      return { guard, onRefresh: () => {
+        // Only explicit editor Load or independently confirmed Save reaches here.
+        this._tariffWriteUnconfirmedV3 = false;
+        this._repriceTariffV3();
+      } };
+
+    }
+    _installTariffConsumerV3() {
+      const guard = this._tariffHostController.guard;
+      let active = true;
+      const unsubscribe = guard.subscribe(() => queueMicrotask(() => {
+        // Setters assign the prospective hass before this pure render executes.
+        if (active) this._repriceTariffV3();
+      }));
+      this._tariffConsumerUnsubscribeV3 = () => { active = false; unsubscribe(); };
+    }
+    _tariffContextV3() {
+      return { config: this._config, tab: this._currentTab, range: this._patternsState?.period || 7,
+        sources: this._tariffSourceIds || [], windowEnd: this._tariffWindowEnd ?? null };
+    }
+    _observeTariffContextV3() { this._getTariffHostV3().guard.observe(); }
+    _createEnergyReadV3() {
+      const host = this._getTariffHostV3(), source = this._hass;
+      this._tariffWindowEnd = Math.floor(Date.now() / ENERGY_HOUR) * ENERGY_HOUR;
+      let token = host.guard.observe();
+      const current = () => host.guard.current(token);
+      const assertCurrent = () => { if (!current()) throw { code: 'energy_context_changed' }; };
+      // The facade preserves readEnergyHours' complete source/unit/window behavior.
+      const hass = { ...source, callWS: async request => {
+        assertCurrent();
+        const result = await source.callWS.call(source, request);
+        assertCurrent();
+        if (request.type === 'energy/get_prefs') {
+          this._tariffSourceIds = energyImportIds(result);
+          token = host.guard.observe();
+        }
+        return result;
+      } };
+      return { hass, current };
+    }
+
+    _repriceTariffV3() {
+      this._generateRecommendations();
+      this._generateComparisonData();
+      if (this._energyModel) this._preparePatterns();
+      this._render();
+    }
+
 
   _todayTariffCosts() {
     const model = this._energyModel;
@@ -1354,6 +1519,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'optimizer',
     panel.querySelectorAll('select[data-pattern-control]').forEach(el => el.addEventListener('change', () => {
       const field = el.dataset.patternControl;
       state[field === 'period' ? 'period' : field === 'point' ? 'selected' : field] = field === 'period' ? Number(el.value) : el.value;
+      if (field === 'period') this._observeTariffContextV3();
       redraw(field, field !== 'period');
     }));
     panel.querySelectorAll('button[data-pattern-control]').forEach(el => el.addEventListener('click', () => {
@@ -2144,6 +2310,7 @@ canvas {
         button.classList.add('active');
         button.setAttribute('aria-selected', 'true');
         this._currentTab = button.dataset.tab;
+        this._observeTariffContextV3();
         this._showTab(button.dataset.tab);
       });
     });
@@ -2877,6 +3044,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
     setConfig(config) {
       this._config = { ...this._config, ...(config || {}) };
+      this._observeTariffContextV3();
       this._syncSupport();
     }
     _getTariffV3(proposed) {
@@ -2885,7 +3053,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=141fc72d139b0a2ca1ecff66721921191eac4aab128c952ef56fd1fa92e4b632
+      // HA_TARIFF_V3_START sha256=36ea0cc2c39a2f4be3b85bb3546156cf33d1a6805e19a2ca9659cb0aea81d6ac
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -3191,9 +3359,103 @@ function energyTariffProfileV3(config, haConfig, kind) {
   return profile;
 }
 
+// One wire fence for the card-owned host and settings editor. A public timeout
+// is uncertainty, never permission to dispatch another raw operation.
+function createTariffGuardV3({ getHass, getContext = () => null, browser = typeof window === 'object' ? window : null, timeoutMs = 15000 }) {
+  const canonical = value => JSON.stringify(value, (_, v) => v && typeof v === 'object' && !Array.isArray(v)
+    ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v);
+  let epoch = 0, association, connection, connectionOffline = false, browserOffline = browser?.navigator?.onLine === false;
+  let raw = null, suspended = false;
+  const listeners = new Set(), wireListeners = new Set();
+  const notify = () => { epoch++; for (const listener of [...listeners]) listener(); };
+  const connectionEvent = event => {
+    if (event.type === 'disconnected' || event.type === 'reconnect-error') connectionOffline = true;
+    else if (event.type === 'ready') connectionOffline = false;
+    notify();
+  };
+  const types = ['disconnected', 'ready', 'reconnect-error'];
+  const bind = next => {
+    if (connection === next) return;
+    for (const type of types) connection?.removeEventListener?.(type, connectionEvent);
+    connection = next; connectionOffline = next?.connected === false;
+    if (!suspended) for (const type of types) connection?.addEventListener?.(type, connectionEvent);
+  };
+  const browserEvent = event => { browserOffline = event.type === 'offline'; notify(); };
+  browser?.addEventListener?.('offline', browserEvent);
+  browser?.addEventListener?.('online', browserEvent);
+  const read = h => {
+    bind(h?.connection);
+    return { user: h?.user?.id, admin: h?.user?.is_admin === true, owner: h?.user?.is_owner === true,
+      active: h?.user?.is_active !== false, groups: canonical(h?.user?.groups || []), groupIds: canonical(h?.user?.group_ids || []),
+      connection: h?.connection, callWS: h?.callWS,
+      connected: h?.connection?.connected !== false && !connectionOffline,
+      online: !suspended && !browserOffline && browser?.navigator?.onLine !== false,
+      haConfig: canonical(h?.config || {}), context: canonical(getContext()) };
+  };
+  const equal = (a, b) => a && b && Object.keys(b).every(k => a[k] === b[k]);
+  const observe = (...prospectiveHass) => {
+    const now = read(prospectiveHass.length ? prospectiveHass[0] : getHass()), changed = association && !equal(association, now);
+    association = now;
+    if (changed) notify();
+    return { ...now, epoch };
+  };
+  const available = a => !!a?.user && a.active && !!a.connection && a.connected && a.online && typeof a.callWS === 'function';
+  const snapshot = () => observe();
+  const current = (token, admin = false) => {
+    const now = observe();
+    return token?.epoch === now.epoch && equal(token, Object.fromEntries(Object.entries(now).filter(([k]) => k !== 'epoch'))) && available(now) && (!admin || now.admin);
+  };
+  const call = (token, payload, admin = false) => {
+    if (!current(token, admin)) return Promise.reject({ code: 'authority_changed' });
+    if (raw) return Promise.reject({ code: 'wire_occupied' });
+    let resolvePublic, rejectPublic, finished = false;
+    const result = new Promise((resolve, reject) => { resolvePublic = resolve; rejectPublic = reject; });
+    const slot = {}; raw = slot;
+    const timer = setTimeout(() => { finished = true; rejectPublic({ code: 'timeout' }); }, timeoutMs);
+    let request;
+    try { request = Promise.resolve(token.callWS.call(getHass(), payload)); }
+    catch (error) { request = Promise.reject(error); }
+    // Both branches handle late settlement; no floating rejected finally promise.
+    const settled = () => {
+      clearTimeout(timer); if (raw === slot) raw = null;
+      for (const listener of [...wireListeners]) listener();
+    };
+    request.then(value => {
+      settled();
+      if (!finished) { finished = true; current(token, admin) ? resolvePublic(value) : rejectPublic({ code: 'authority_changed' }); }
+    }, error => { settled(); if (!finished) { finished = true; rejectPublic(error); } });
+    return result;
+  };
+  const suspend = () => {
+    if (suspended) return;
+    suspended = true;
+    for (const type of types) connection?.removeEventListener?.(type, connectionEvent);
+    browser?.removeEventListener?.('offline', browserEvent); browser?.removeEventListener?.('online', browserEvent);
+    notify();
+  };
+  const resume = () => {
+    if (!suspended) return;
+    suspended = false; browserOffline = browser?.navigator?.onLine === false;
+    for (const type of types) connection?.addEventListener?.(type, connectionEvent);
+    browser?.addEventListener?.('offline', browserEvent); browser?.addEventListener?.('online', browserEvent);
+    notify(); observe();
+  };
+  const dispose = () => {
+    for (const type of types) connection?.removeEventListener?.(type, connectionEvent);
+    browser?.removeEventListener?.('offline', browserEvent); browser?.removeEventListener?.('online', browserEvent);
+    notify(); listeners.clear(); wireListeners.clear(); // Raw occupancy intentionally survives disposal.
+  };
+  observe(); // Observe typed edges before the card/editor is ever mounted.
+  return { snapshot, observe, current, available, call, occupied: () => raw !== null,
+    subscribeWire: listener => { wireListeners.add(listener); return () => wireListeners.delete(listener); },
+    subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); }, invalidate: notify, suspend, resume, dispose };
+}
+// Node-only dependency; runtime consumers vendor the guard in their own closure.
+
+
 // Vendor inside each card's closure. The parent owns state and its mount; no
 // global registration, helper services, SMTP configuration or browser storage.
-function createTariffSettingsV3({ root, getHass, language = 'en', state, validate, onSaved, onLoaded, onCancel, ui }) {
+function createTariffSettingsV3({ root, getHass, language = 'en', state, validate, onSaved, onLoaded, onCancel, ui, guard }) {
   if (!root || !state || typeof getHass !== 'function' || typeof validate !== 'function') throw new TypeError('tariff_settings_adapter');
   const translations = new Map();
   const pl = () => String(typeof language === 'function' ? language() : language).startsWith('pl');
@@ -3228,57 +3490,44 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   if (!object(state.draft) || invalidMarker(state.draft)) state.draft = seed(state.profile);
   if (!statuses()[state.status]) state.status = 'not_checked';
   if (invalidMarker(state.profile) && state.status === 'not_checked') state.status = 'error';
-  let epoch = 0, operation = 0, association, resumeFocus = null;
-  const auth = () => {
-    const h = getHass();
-    return { user: h?.user?.id, admin: h?.user?.is_admin === true, connection: h?.connection,
-      connected: h?.connection?.connected !== false, ws: typeof h?.callWS === 'function' };
-  };
-  const observe = () => {
-    const now = auth();
-    if (association && (association.user !== now.user || association.admin !== now.admin ||
-      association.connection !== now.connection || association.connected !== now.connected || association.ws !== now.ws)) {
-      epoch++; resumeFocus = null;
-    }
-    association = now;
-    return now;
-  };
-  const available = a => !!a.user && !!a.connection && a.connected && a.ws;
-  const ticket = () => ({ ...observe(), epoch, operation: ++operation });
-  const current = (token, admin = false) => {
-    const a = observe();
-    return token.operation === operation && token.epoch === epoch && token.user === a.user &&
-      token.connection === a.connection && available(a) && (!admin || a.admin);
-  };
-  const call = (token, payload, admin = false) => {
-    if (!current(token, admin)) return Promise.reject({ code: 'authority_changed' });
-    // No retry: a timeout may still have committed on the server.
-    let timer;
-    let pending;
-    try { pending = Promise.resolve(getHass().callWS(payload)); }
-    catch (error) { return Promise.reject(error); }
-    return Promise.race([pending, new Promise((_, reject) => { timer = setTimeout(() => reject({ code: 'timeout' }), 15000); })])
-      .finally(() => clearTimeout(timer));
-  };
+  guard ||= createTariffGuardV3({ getHass });
+  let operation = 0, association, resumeFocus = null, disposed = false;
+  const observe = () => (association = guard.observe());
+  const available = a => guard.available(a);
+  const ticket = () => ({ ...observe(), operation: ++operation });
+  const current = (token, admin = false) => token.operation === operation && guard.current(token, admin);
+  const call = (token, payload, admin = false) => current(token, admin)
+    ? guard.call(token, payload, admin) : Promise.reject({ code: 'authority_changed' });
+  const unsubscribe = guard.subscribe(() => {
+    if (disposed) return;
+    operation++; resumeFocus = null;
+    state.profile = null; state.revision = null; state.updated_at = null;
+    state.draft = blank(); state._draftBaseline = clone(state.draft);
+    state.feedText = undefined; state.feedError = null; state.backendAvailable = false;
+    state.busy = false; state.status = 'unconfirmed'; state.message = '';
+    // This mount may already have been detached; erase it too, synchronously.
+    root.replaceChildren();
+  });
+  const unsubscribeWire = guard.subscribeWire(() => { if (!disposed && root.isConnected && available(guard.observe())) render(); });
   const envelope = value => object(value) && Object.hasOwn(value, 'profile') &&
     (value.profile === null || invalidMarker(value.profile) || (object(value.profile) && validProfile(value.profile))) && Number.isSafeInteger(value.revision) && value.revision >= 0 &&
     Object.hasOwn(value, 'updated_at') && (value.updated_at === null ||
       (typeof value.updated_at === 'string' && /T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value.updated_at) && Number.isFinite(Date.parse(value.updated_at))));
   const message = (status, text) => { state.status = status; state.message = text; };
-  const unknown = () => message('unconfirmed', t('Saving was not confirmed. Check the stored tariff before retrying. Your draft is preserved.',
-    'Nie potwierdzono zapisu. Sprawdź zapisaną taryfę przed ponowieniem. Szkic został zachowany.'));
+  const unknown = () => { state.writeUnconfirmed = true; message('unconfirmed', t('Saving was not confirmed. Check the stored tariff before retrying. Your draft is preserved.',
+    'Nie potwierdzono zapisu. Sprawdź zapisaną taryfę przed ponowieniem. Szkic został zachowany.')); };
   const load = async () => {
-    if (state.busy) return;
+    if (disposed || state.busy || guard.occupied()) return;
     const token = ticket();
     if (!available(token)) { message('error', t('Tariff backend unavailable.', 'Backend taryf jest niedostępny.')); render(); return; }
     const pristine = equal(state.draft, seed(state.profile)), draft = clone(state.draft);
     state.busy = true; state.message = t('Loading stored tariff…', 'Wczytywanie zapisanej taryfy…'); render();
     try {
       const result = await call(token, { type: 'ha_tools_email/get_tariff' });
-      if (!current(token)) { unknown(); return; }
+      if (!current(token)) return;
       if (!envelope(result)) throw { code: 'malformed' };
       state.profile = clone(result.profile); state.revision = result.revision; state.updated_at = result.updated_at;
-      state.backendAvailable = true;
+      state.backendAvailable = true; state.writeUnconfirmed = false;
       state.draft = pristine ? seed(result.profile) : draft;
       if (pristine) { state.feedText = undefined; state.feedError = null; }
       if (invalidMarker(result.profile)) message('error', t('The stored tariff is invalid. Review and save a replacement; costs stay unavailable until a valid profile is confirmed.',
@@ -3287,13 +3536,12 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
       if (current(token) && typeof onLoaded === 'function') onLoaded(clone(result));
     } catch (_) {
       if (current(token)) { state.backendAvailable = false; message('error', t('Tariff backend unavailable or response invalid. Draft preserved.', 'Backend taryf jest niedostępny lub odpowiedź jest błędna. Zachowano szkic.')); }
-      else unknown();
-    } finally { state.busy = false; render(); }
+    } finally { if (current(token)) { state.busy = false; render(); } }
   };
   const save = async () => {
-    if (state.busy) return;
+    if (disposed || state.busy || guard.occupied()) return;
     const token = ticket();
-    if (!available(token) || !token.admin || state.backendAvailable === false || !Number.isSafeInteger(state.revision)) {
+    if (!available(token) || !token.admin || state.writeUnconfirmed || state.backendAvailable === false || !Number.isSafeInteger(state.revision)) {
       message('error', t('Admin access and a loaded tariff backend are required.', 'Wymagane uprawnienia administratora i wczytany backend taryf.')); render(); return;
     }
     if (state.feedError) { message('error', state.feedError); render(); return; }
@@ -3308,23 +3556,25 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     state.busy = true; message('not_checked', t('Saving; waiting for stored readback…', 'Zapis; oczekiwanie na odczyt zapisanego profilu…')); render();
     try {
       const written = await call(token, { type: 'ha_tools_email/set_tariff', profile: proposed, expected_revision: previousRevision }, true);
-      if (!current(token, true)) { unknown(); return; }
+      if (!current(token, true)) return;
       if (!object(written) || !Number.isSafeInteger(written.revision) || written.revision !== previousRevision + 1) { unknown(); return; }
       const stored = await call(token, { type: 'ha_tools_email/get_tariff' }, true);
-      if (!current(token, true)) { unknown(); return; }
+      if (!current(token, true)) return;
       if (!envelope(stored) || stored.updated_at === null || stored.revision !== written.revision || !equal(stored.profile, proposed)) { unknown(); return; }
+      state.writeUnconfirmed = false;
       state.profile = clone(stored.profile); state.draft = clone(stored.profile); state.revision = stored.revision; state.updated_at = stored.updated_at;
       message('success', t('Tariff saved and confirmed by stored readback.', 'Taryfa zapisana i potwierdzona odczytem.'));
       if (current(token, true) && typeof onSaved === 'function') onSaved(clone(stored));
     } catch (error) {
-      if (current(token, true) && ['conflict', 'revision_conflict', 'tariff_revision_conflict'].includes(error?.code))
+      if (current(token, true) && ['conflict', 'revision_conflict', 'tariff_revision_conflict'].includes(error?.code)) {
+        state.writeUnconfirmed = true;
         message('error', t('Revision conflict. Load the stored tariff and reconcile your draft.', 'Konflikt wersji. Wczytaj zapisaną taryfę i porównaj ze szkicem.'));
-      else unknown();
-    } finally { state.busy = false; render(); }
+      } else if (current(token)) unknown();
+    } finally { if (current(token)) { state.busy = false; render(); } }
   };
   const cancel = () => {
     // A dispatched save cannot be undone safely. The button remains disabled.
-    if (state.busy) return;
+    if (disposed || state.busy || guard.occupied()) return;
     operation++; state.draft = seed(state.profile); state.feedError = null; state.feedText = undefined;
     message('not_checked', ''); render(); if (typeof onCancel === 'function') onCancel();
   };
@@ -3334,7 +3584,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     for (const key of keys.slice(0, -1)) { if (!object(at[key]) && !Array.isArray(at[key])) at[key] = {}; at = at[key]; }
     at[keys.at(-1)] = value;
   };
-  const mutable = () => observe().admin && !state.busy && available(association);
+  const mutable = () => observe().admin && !state.busy && !guard.occupied() && available(association);
   const field = (path, label, kind = 'text', choices) => {
     const value = read(path);
     const attrs = `data-path="${esc(path)}" aria-label="${esc(label)}"${mutable() ? '' : ' disabled'}`;
@@ -3359,6 +3609,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   const css = `.ht-tariff-v3{box-sizing:border-box;color:var(--primary-text-color,#172033);font:inherit;width:100%;min-width:0;max-width:100%;padding:12px;background:var(--ha-card-background,var(--card-background-color,#fff));border-radius:var(--bento-radius,20px)}
 .ht-tariff-v3 *{box-sizing:border-box;min-width:0}.ht-tariff-v3 h3,.ht-tariff-v3 p{overflow-wrap:anywhere}.ht-tariff-v3 fieldset{border:1px solid var(--divider-color,#d8dce5);border-radius:14px;margin:12px 0;padding:12px}.ht-tariff-v3 legend{max-width:100%;overflow-wrap:anywhere}.ht-tariff-v3 .ht-tariff-grid,.ht-tariff-v3 .ht-tariff-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:12px;margin:8px 0}.ht-tariff-v3 .ht-tariff-field{display:flex;flex-direction:column;gap:6px;overflow-wrap:anywhere}.ht-tariff-v3 input,.ht-tariff-v3 select,.ht-tariff-v3 textarea,.ht-tariff-v3 button{font:inherit;color:inherit;border:1px solid var(--divider-color,#c7cdd9);border-radius:10px;background:var(--secondary-background-color,#f7f8fa);min-height:44px;max-width:100%;width:100%;padding:10px}.ht-tariff-v3 textarea{resize:vertical;min-height:110px}.ht-tariff-v3 button{cursor:pointer;width:auto;white-space:normal;overflow-wrap:anywhere}.ht-tariff-v3 button:disabled{cursor:default;opacity:.6}.ht-tariff-v3 :is(input,select,textarea,button):focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}.ht-tariff-v3 .ht-tariff-days,.ht-tariff-v3 .ht-tariff-actions{display:flex;flex-wrap:wrap;gap:8px}.ht-tariff-v3 .ht-tariff-days label{display:flex;align-items:center;gap:8px;min-height:44px}.ht-tariff-v3 input[type=checkbox]{width:24px;min-height:24px;height:24px}.ht-tariff-v3 [role=status]{padding:12px;border-radius:12px;overflow-wrap:anywhere;background:var(--secondary-background-color,#f1f3f6);margin:12px 0}.ht-tariff-v3 [data-status=success]{color:var(--bento-success,#16804a);background:var(--bento-success-light,#e8f5ed)}.ht-tariff-v3 [data-status=error]{color:var(--error-color,#ba1a1a)}.ht-tariff-v3 [data-status=unconfirmed],.ht-tariff-v3 [data-status=partial]{color:var(--warning-color,#a15b00)}.ht-tariff-v3 details{margin:12px 0}.ht-tariff-v3 summary{min-height:44px;cursor:pointer}`;
   function render() {
+    if (disposed) return;
     const active = root.getRootNode().activeElement;
     const focused = active && root.contains(active) ? active : root.querySelector(':focus');
     const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed } : resumeFocus;
@@ -3374,12 +3625,12 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
       !available(a) || state.backendAvailable === false ? `<p>${esc(t('Tariff backend unavailable. No local fallback.', 'Backend taryf jest niedostępny. Brak lokalnego zapisu zastępczego.'))}</p>` :
         !Number.isSafeInteger(state.revision) ? `<p>${esc(t('Backend availability not checked. Load the tariff first.', 'Dostępność backendu nie została sprawdzona. Najpierw wczytaj taryfę.'))}</p>` : ''}
 ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is invalid. Create and save a valid replacement. No rates were guessed.', 'Zapisana taryfa jest niepoprawna. Utwórz i zapisz poprawny profil. Nie przyjęto domyślnych stawek.'))}</p>` : ''}
-<div class="ht-tariff-grid">${field('type', t('Tariff name type', 'Typ nazwy taryfy'), 'text', ['Custom', 'G11', 'G12', 'G12w', 'G12n'].map(v => [v, v]))}${field('name', t('Name (optional PGE label)', 'Nazwa (opcjonalnie nazwa PGE)'))}${field('currency', t('Currency ISO 4217', 'Waluta ISO 4217'))}${field('timezone', t('IANA timezone', 'Strefa czasowa IANA'))}${field('clock.mode', t('Tariff clock', 'Zegar taryfy'), 'text', [['civil', t('Civil time (DST)', 'Czas lokalny (zmiana czasu)')], ['fixed', t('Fixed UTC offset', 'Stałe przesunięcie UTC')]])}${field('clock.offsetMinutes', t('Fixed offset minutes', 'Stałe przesunięcie w minutach'), 'number')}${field('priceBasis', t('Price basis', 'Podstawa ceny'), 'text', [['gross', t('Gross', 'Brutto')], ['net', t('Net', 'Netto')]])}${field('validFrom', t('Valid from (optional)', 'Ważna od (opcjonalnie)'), 'date')}${field('validTo', t('Valid to (optional)', 'Ważna do (opcjonalnie)'), 'date')}${field('fixedMonthly', t('Fixed monthly fee (separate)', 'Opłata stała miesięczna (osobno)'), 'number')}</div>
+<div class="ht-tariff-grid">${field('type', t('Tariff name type', 'Typ nazwy taryfy'), 'text', ['Custom', 'G11', 'G12', 'G12w', 'G12n'].map(v => [v, v]))}${field('name', t('Tariff name (optional)', 'Nazwa taryfy (opcjonalna)'))}${field('currency', t('Currency ISO 4217', 'Waluta ISO 4217'))}${field('timezone', t('IANA timezone', 'Strefa czasowa IANA'))}${field('clock.mode', t('Tariff clock', 'Zegar taryfy'), 'text', [['civil', t('Civil time (DST)', 'Czas lokalny (zmiana czasu)')], ['fixed', t('Fixed UTC offset', 'Stałe przesunięcie UTC')]])}${field('clock.offsetMinutes', t('Fixed offset minutes', 'Stałe przesunięcie w minutach'), 'number')}${field('priceBasis', t('Price basis', 'Podstawa ceny'), 'text', [['gross', t('Gross', 'Brutto')], ['net', t('Net', 'Netto')]])}${field('validFrom', t('Valid from (optional)', 'Ważna od (opcjonalnie)'), 'date')}${field('validTo', t('Valid to (optional)', 'Ważna do (opcjonalnie)'), 'date')}${field('fixedMonthly', t('Fixed monthly fee (separate)', 'Opłata stała miesięczna (osobno)'), 'number')}</div>
 <h3>${esc(t('Energy and variable fees per kWh', 'Energia i opłaty zmienne za kWh'))}</h3><p>${esc(t('Empty = unknown; zero is a known zero. Fixed monthly fees are shown separately, never prorated.', 'Puste = nieznane; zero jest znaną wartością zero. Opłata stała jest osobna, bez proporcjonalnego naliczania.'))}</p>${
 (p.zones || []).map((_, i) => `<fieldset><legend>${esc(t('Zone', 'Strefa'))} ${i + 1}</legend><div class="ht-tariff-grid">${field(`zones.${i}.id`, t('Zone ID', 'ID strefy'))}${field(`zones.${i}.label`, t('Zone label', 'Etykieta strefy'))}${field(`zones.${i}.energyRate`, t('Energy / kWh', 'Energia / kWh'), 'number')}${field(`zones.${i}.variableRate`, t('Variable fees / kWh (optional)', 'Opłaty zmienne / kWh (opcjonalne)'), 'number')}</div>${mutable() ? button(`remove-zone:${i}`, t('Remove zone', 'Usuń strefę')) : ''}</fieldset>`).join('')}${mutable() ? button('add-zone', t('Add zone', 'Dodaj strefę')) : ''}${field('defaultZone', t('Default zone (optional)', 'Strefa domyślna (opcjonalna)'), 'text', zoneChoices())}
 <h3>${esc(t('Schedule rules', 'Reguły harmonogramu'))}</h3>${rows('rules')}${mutable() ? button('add-rule', t('Add rule', 'Dodaj regułę')) : ''}<h3>${esc(t('Date exceptions', 'Wyjątki dat'))}</h3>${rows('exceptions')}${mutable() ? button('add-exception', t('Add date exception', 'Dodaj wyjątek daty')) : ''}
 <details><summary>${esc(t('Advanced: absolute dynamic price feed', 'Zaawansowane: bezwzględne przedziały cen dynamicznych'))}</summary><p>${esc(t('Optional dynamic feed overrides schedule prices. Use explicit UTC/offset timestamps. Only this feed uses JSON.', 'Opcjonalny feed dynamiczny zastępuje ceny harmonogramu. Użyj znaczników UTC lub z przesunięciem. JSON służy wyłącznie temu feedowi.'))}</p><label class="ht-tariff-field"><span>${esc(t('Dynamic feed JSON (empty = off)', 'Feed dynamiczny JSON (pusty = wyłączony)'))}</span><textarea data-feed="true"${mutable() ? '' : ' disabled'}>${esc(state.feedText ?? (p.dynamic == null ? '' : JSON.stringify(p.dynamic, null, 2)))}</textarea></label>${field('allowNegativeEnergy', t('Negative energy prices', 'Ujemne ceny energii'), 'text', [['false', t('Disabled', 'Wyłączone')], ['true', t('Explicitly allowed', 'Jawnie dozwolone')]])}</details>
-<div role="status" aria-live="polite" data-status="${esc(state.status)}">${statusHtml()}${state.message ? ': ' + esc(localMessage()) : ''}</div><div class="ht-tariff-actions"><button type="button" data-action="load"${state.busy || !available(a) ? ' disabled' : ''}>${esc(t('Load stored tariff', 'Wczytaj zapisaną taryfę'))}</button>${a.admin ? `<button type="button" data-action="save"${state.busy || !available(a) || state.backendAvailable === false || !Number.isSafeInteger(state.revision) ? ' disabled' : ''}>${esc(t('Save tariff', 'Zapisz taryfę'))}</button><button type="button" data-action="cancel"${state.busy ? ' disabled' : ''}>${esc(t('Cancel', 'Anuluj'))}</button>` : ''}</div></section>`;
+<div role="status" aria-live="polite" data-status="${esc(state.status)}">${statusHtml()}${state.message ? ': ' + esc(localMessage()) : ''}</div><div class="ht-tariff-actions"><button type="button" data-action="load"${state.busy || guard.occupied() || !available(a) ? ' disabled' : ''}>${esc(t('Load stored tariff', 'Wczytaj zapisaną taryfę'))}</button>${a.admin ? `<button type="button" data-action="save"${state.busy || guard.occupied() || !available(a) || state.writeUnconfirmed || state.backendAvailable === false || !Number.isSafeInteger(state.revision) ? ' disabled' : ''}>${esc(t('Save tariff', 'Zapisz taryfę'))}</button><button type="button" data-action="cancel"${state.busy || guard.occupied() ? ' disabled' : ''}>${esc(t('Cancel', 'Anuluj'))}</button>` : ''}</div></section>`;
     root.querySelectorAll('[data-path]').forEach(el => el.addEventListener('input', () => {
       if (!mutable()) { render(); return; }
       const path = el.dataset.path;
@@ -3445,17 +3696,20 @@ ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is 
     }
     if (!state.busy) resumeFocus = null;
   }
-  return { render, load, cancel };
+  return { render, load, cancel, dispose: () => { disposed = true; operation++; unsubscribe(); unsubscribeWire(); } };
 }
+// Node-only import; omitted in consumer closure.
+
 
 // Card-owned adapter: it never writes card YAML, helpers, schedules or SMTP.
-function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi, readTimeoutMs = 15000 }) {
+function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi, readTimeoutMs = 15000, guard, onRefresh }) {
   const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
   const language = () => card._hass?.locale?.language || card._hass?.language || card._lang || 'en';
   const text = (en, pl) => String(language()).startsWith('pl') ? pl : en;
-  const identity = hass => ({ user: hass?.user?.id, connection: hass?.connection });
-  const same = (a, b) => a?.user === b?.user && a?.connection === b?.connection;
-  let association = identity(card._hass), pending = null, cachedKey, cachedModel, editorRoot, editor, focusKey = null;
+  guard ||= createTariffGuardV3({ getHass: () => card._hass, getContext: () => card._config, timeoutMs: readTimeoutMs });
+  const identity = () => guard.snapshot();
+  const same = (a, b) => a?.epoch === b?.epoch && a?.user === b?.user && a?.connection === b?.connection;
+  let pending = null, attemptedEpoch = null, cachedKey, cachedModel, editorRoot, editor, focusKey = null;
   const state = () => (card._tariffEditorState ||= { profile: null, revision: null, status: 'not_checked', busy: false });
   const effectiveConfig = () => {
     const config = card._config || {};
@@ -3474,54 +3728,56 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     const value = activeProfile()?.currency;
     return typeof value === 'string' && /^[A-Z]{3}$/.test(value) ? value : '';
   };
-  const reset = nextHass => {
-    const next = identity(nextHass);
-    if (!same(association, next)) {
-      card._sharedTariffProfile = null; card._sharedTariffAssociation = null;
-      card._sharedTariffLoadedAt = 0; card._tariffEditorState = null;
-      card._sharedTariffReadStatus = 'not_checked';
-      pending = null; cachedKey = undefined; cachedModel = undefined;
-      editorRoot = null; editor = null;
-      focusKey = null;
-    }
-    association = next;
+  const purge = () => {
+    card._sharedTariffProfile = null; card._sharedTariffAssociation = null;
+    card._sharedTariffLoadedAt = 0; card._tariffEditorState = null;
+    card._sharedTariffReadStatus = 'not_checked'; card._tariffSettingsOpen = false;
+    cachedKey = undefined; cachedModel = undefined; editorRoot?.replaceChildren(); editor?.dispose?.(); editorRoot = null; editor = null; focusKey = null;
+    for (const mount of card.shadowRoot?.querySelectorAll('[data-tariff-mount]') || []) mount.replaceChildren();
+    const details = card.shadowRoot?.querySelector('[data-tariff-details]'); if (details) details.open = false;
+    // Pending raw request remains owned by guard; a new epoch cannot free it.
   };
-  const load = async () => {
-    const hass = card._hass, token = identity(hass);
-    if (!token.user || !token.connection || token.connection.connected === false || typeof hass?.callWS !== 'function') return false;
-    if (card._sharedTariffLoadedAt && Date.now() - card._sharedTariffLoadedAt < 300000 && same(card._sharedTariffAssociation, token)) return true;
+  guard.subscribe(purge);
+  const reset = (...nextHass) => guard.observe(...nextHass);
+  const load = async (force = false) => {
+    const token = identity();
+    if (!guard.available(token)) return false;
+    if (card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, token)) return true;
     if (pending) return pending;
+    if (guard.occupied() || (!force && attemptedEpoch === token.epoch)) return false;
+    attemptedEpoch = token.epoch;
     const operation = (async () => {
-      let timer;
       try {
-        const read = hass.callWS({ type: 'ha_tools_email/get_tariff' });
-        const result = await Promise.race([read, new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('tariff_read_timeout')), readTimeoutMs);
-        })]);
-        if (!same(token, identity(card._hass))) return false;
-        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0)
+        const result = await guard.call(token, { type: 'ha_tools_email/get_tariff' });
+        if (!guard.current(token)) return false;
+        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0 ||
+          !Object.hasOwn(result, 'updated_at') || (result.updated_at !== null &&
+          (typeof result.updated_at !== 'string' || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(result.updated_at) || !Number.isFinite(Date.parse(result.updated_at)))))
           throw new Error('invalid_tariff_response');
-        const profile = result.profile === null ? null : createModel(result.profile).valid ? clone(result.profile) : { schema: 0 };
+        const valid = result.profile === null || createModel(result.profile).valid;
+        const profile = result.profile === null ? null : valid ? clone(result.profile) : { schema: 0 };
         card._sharedTariffProfile = profile; card._sharedTariffAssociation = token; card._sharedTariffLoadedAt = Date.now();
         card._sharedTariffReadStatus = 'success';
-        const saved = state();
-        // Refresh a form opened during this read only while its seed is intact.
-        const pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved.profile) || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline);
-        saved.profile = clone(profile); saved.revision = result.revision; saved.updated_at = result.updated_at ?? null;
+        const saved = state(), pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline) || JSON.stringify(saved.draft) === JSON.stringify(saved.profile);
+        saved.profile = clone(profile); saved.revision = result.revision; saved.updated_at = result.updated_at;
         saved.backendAvailable = true;
-        if (pristine) {
-          saved.draft = profile && createModel(profile).valid ? clone(profile) : undefined;
-          saved._draftBaseline = clone(saved.draft);
-        }
+        if (pristine) { saved.draft = valid ? clone(profile) : undefined; saved._draftBaseline = clone(saved.draft); }
         return true;
       } catch (_) {
-        if (same(token, identity(card._hass))) card._sharedTariffReadStatus = 'unconfirmed';
+        if (guard.current(token)) card._sharedTariffReadStatus = 'unconfirmed';
         return false;
-      } finally { clearTimeout(timer); }
+      }
     })();
     pending = operation;
-    operation.finally(() => { if (pending === operation) pending = null; });
+    operation.then(() => { if (pending === operation) pending = null; }, () => { if (pending === operation) pending = null; });
     return operation;
+  };
+  const snapshot = () => {
+    const token = identity(), own = Object.hasOwn(card._config || {}, 'tariff_profile');
+    if (!guard.available(token)) return { profile: null, reason: 'tariff_authority_unavailable' };
+    if (own) return { profile: clone(card._config.tariff_profile), revision: null, provenance: 'card_config' };
+    if (!same(card._sharedTariffAssociation, token) || card._sharedTariffReadStatus !== 'success') return { profile: null, reason: 'tariff_unconfirmed' };
+    return { profile: clone(card._sharedTariffProfile), revision: state().revision, provenance: 'shared_backend', updated_at: state().updated_at };
   };
   const markup = () => {
     const active = card.shadowRoot?.activeElement;
@@ -3541,32 +3797,37 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     [data-tariff-details]{margin:16px 0;min-width:0;max-width:100%}
     [data-tariff-details]>summary{min-height:44px;display:flex;align-items:center;padding:10px;border:1px solid var(--divider-color,#d8dce5);border-radius:10px;cursor:pointer;overflow-wrap:anywhere}
     [data-tariff-details]>summary:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
-    </style>${card._sharedTariffReadStatus === 'unconfirmed' ? `<p role="status">${text('Shared tariff could not be confirmed. Locally configured or last confirmed prices remain visible.', 'Nie udało się potwierdzić wspólnej taryfy. Widoczne są stawki skonfigurowane w karcie lub ostatnio potwierdzone.')}</p>` : ''}
+    </style>${card._sharedTariffReadStatus === 'unconfirmed' ? `<p role="status">${text('Shared tariff could not be confirmed. Reload explicitly to confirm prices. No tariff cost is guessed.', 'Nie udało się potwierdzić wspólnej taryfy. Wczytaj ponownie, aby potwierdzić ceny. Koszt taryfy nie jest zgadywany.')}</p>` : ''}
     <details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
     ${Object.hasOwn(card._config || {}, 'tariff_profile') ? `<p>${text('This card uses its own configured tariff. Shared settings apply to cards using the shared profile.', 'Ta karta używa własnej skonfigurowanej taryfy. Ustawienia współdzielone dotyczą kart korzystających ze wspólnego profilu.')}</p>` : ''}
     <div data-tariff-mount></div></details>`;
   };
   const mount = root => {
     if (editorRoot !== root || !editor) {
+      editor?.dispose?.();
       const saved = state();
       if (!saved.draft) {
         const profile = activeProfile();
         if (createModel(profile).valid) saved.draft = clone(profile);
       }
       editorRoot = root;
+      const mountToken = identity();
       const refreshed = envelope => {
+        if (!guard.current(mountToken)) return;
         card._sharedTariffProfile = clone(envelope.profile); card._sharedTariffAssociation = identity(card._hass);
         card._sharedTariffLoadedAt = Date.now();
         card._sharedTariffReadStatus = 'success';
         // The editor finishes its pending state before the parent replaces DOM.
         queueMicrotask(() => {
+          if (!guard.current(mountToken)) return;
+          if (onRefresh) { onRefresh(envelope); return; }
           if (kind === 'insights') void card._fetchData();
           if (kind === 'email') void card._fetchAllPeriodStats().then(() => card._render());
           card._render();
         });
       };
       editor = createSettings({ root, getHass: () => card._hass, language, state: saved, validate: createModel,
-        ui: () => createUi({ language: language() }),
+        guard, ui: () => createUi({ language: language() }),
         onSaved: refreshed, onLoaded: refreshed,
         onCancel: () => {
           card._tariffSettingsOpen = false;
@@ -3578,8 +3839,9 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     editor.render();
   };
   const bind = () => {
+    guard.observe();
     const tabs = card.shadowRoot.querySelector('.tabs');
-    if (tabs) {
+    if (tabs && kind !== 'smart') {
       tabs.parentElement.setAttribute('data-energy-container', '');
       const buttons = [...tabs.querySelectorAll('button')];
       tabs.setAttribute('role', 'tablist');
@@ -3609,7 +3871,8 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     }
     const details = card.shadowRoot.querySelector('[data-tariff-details]');
     if (!details) return;
-    const root = details.querySelector('[data-tariff-mount]');
+    let root = details.querySelector('[data-tariff-mount]');
+    if (editorRoot && editor && root !== editorRoot) { root.replaceWith(editorRoot); root = editorRoot; }
     if (!details.dataset.bound) {
       details.dataset.bound = 'true';
       details.addEventListener('toggle', () => {
@@ -3627,17 +3890,88 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       if (target && !target.disabled) target.focus({ preventScroll: true });
     }
   };
-  return { model, profile: activeProfile, currency, reset, load, markup, bind, ui: () => createUi({ language: language() }) };
+  return { model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, ui: () => createUi({ language: language() }) };
 }
-this._tariffHostController = createTariffHostV3({ card: this, kind: 'insights', createModel: createEnergyTariffV3, legacyProfile: energyTariffProfileV3, createSettings: createTariffSettingsV3, createUi: createUiV3 });
+this._tariffHostController = createTariffHostV3({ card: this, kind: 'insights', createModel: createEnergyTariffV3, legacyProfile: energyTariffProfileV3, createSettings: createTariffSettingsV3, createUi: createUiV3, ...this._createTariffConsumerV3(createTariffGuardV3) });
+this._installTariffConsumerV3();
 // HA_TARIFF_V3_END
       return this._tariffHostController;
     }
     _tariffCurrency() { return this._getTariffHostV3().currency(); }
     _loadSharedTariffProfile() { return this._getTariffHostV3().load(); }
     _tariffDetailsMarkup() { return this._getTariffHostV3().markup(); }
-    _bindTariffSettings() { this._getTariffHostV3().bind(); }
+    _bindTariffSettings() {
+      if (this._tariffWriteUnconfirmedV3) {
+        this._tariffEditorState ||= { profile: null, revision: null, status: 'not_checked', busy: false };
+        this._tariffEditorState.writeUnconfirmed = true;
+      }
+      this._getTariffHostV3().bind();
+    }
     _resetTariffContext(nextHass) { this._getTariffHostV3().reset(nextHass); }
+
+    // Owned by this card. No shared global state and no polling/retry path.
+    _createTariffConsumerV3(createGuard) {
+      const guard = createGuard({ getHass: () => this._hass, getContext: () => this._tariffContextV3() });
+      const call = guard.call;
+      guard.call = (token, request, admin = false) => {
+        const dispatched = request.type === 'ha_tools_email/set_tariff' && !guard.occupied() && guard.current(token, admin);
+        const result = call(token, request, admin);
+        if (dispatched && guard.occupied()) {
+          // Persists across mount/authority purges. An ACK cannot clear this fence.
+          this._tariffWriteUnconfirmedV3 = true;
+        }
+        return result;
+      };
+      return { guard, onRefresh: () => {
+        // Only explicit editor Load or independently confirmed Save reaches here.
+        this._tariffWriteUnconfirmedV3 = false;
+        this._repriceTariffV3();
+      } };
+
+    }
+    _installTariffConsumerV3() {
+      const guard = this._tariffHostController.guard;
+      let active = true;
+      const unsubscribe = guard.subscribe(() => queueMicrotask(() => {
+        // Setters assign the prospective hass before this pure render executes.
+        if (active) this._repriceTariffV3();
+      }));
+      this._tariffConsumerUnsubscribeV3 = () => { active = false; unsubscribe(); };
+    }
+    _tariffContextV3() {
+      return { config: this._config, tab: this._activeTab, range: this._activeTab || 'overview',
+        sources: this._tariffSourceIds || [], windowEnd: this._tariffWindowEnd ?? null };
+    }
+    _observeTariffContextV3() { this._getTariffHostV3().guard.observe(); }
+    _createEnergyReadV3() {
+      const host = this._getTariffHostV3(), source = this._hass;
+      this._tariffWindowEnd = Math.floor(Date.now() / ENERGY_HOUR) * ENERGY_HOUR;
+      let token = host.guard.observe();
+      const current = () => host.guard.current(token);
+      const assertCurrent = () => { if (!current()) throw { code: 'energy_context_changed' }; };
+      // The facade preserves readEnergyHours' complete source/unit/window behavior.
+      const hass = { ...source, callWS: async request => {
+        assertCurrent();
+        const result = await source.callWS.call(source, request);
+        assertCurrent();
+        if (request.type === 'energy/get_prefs') {
+          this._tariffSourceIds = energyImportIds(result);
+          token = host.guard.observe();
+        }
+        return result;
+      } };
+      return { hass, current };
+    }
+
+    _repriceTariffV3() {
+      if (this._insightsEnergyModel) {
+        try { this._projectInsightsV3(this._insightsEnergyModel); this._error = null; }
+        catch (error) { this._error = error.message || this._t('error'); }
+      }
+      this._updateContent();
+      if (this._chartJsReady) this._renderCharts();
+    }
+
 
     _tariffRateForHour(stamp) {
       return this._getTariffV3().priceBuckets([{ from: stamp, to: stamp + ENERGY_HOUR, kwh: 1 }]).energyCost;
@@ -3714,10 +4048,11 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'insights', 
     }
 
     connectedCallback() {
-      // Cleanup on disconnect
+      this._tariffHostController?.guard.resume();
     }
 
     disconnectedCallback() {
+      this._tariffHostController?.guard.suspend();
       this._timers.forEach(timer => clearTimeout(timer));
       this._timers.clear();
       Object.values(this._charts).forEach(c => {
@@ -3748,15 +4083,32 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'insights', 
     }
 
     async _fetchData() {
-      if (!this._hass || !this._hass.callWS) return;
-      this._loading = true;
-      this._error = null;
-      this._data = null;
+      if (!this._hass?.callWS || this._insightsReadPending) return;
+      const read = this._createEnergyReadV3();
+      this._insightsReadPending = true;
+      this._loading = true; this._error = null;
       if (this._domBuilt) this._updateLoadingState();
-
       try {
+        const model = await readEnergyHours(read.hass, 720);
+        if (!read.current()) return;
         await this._loadSharedTariffProfile();
-        const model = await readEnergyHours(this._hass, 720);
+        if (!read.current()) return;
+        this._insightsEnergyModel = model;
+        this._projectInsightsV3(model);
+      } catch (err) {
+        if (!read.current()) return;
+        this._error = err.message || this._t('error');
+      } finally {
+        this._insightsReadPending = false;
+        this._loading = false;
+        if (read.current()) {
+          this._updateContent();
+          if (this._chartJsReady) this._renderCharts();
+        }
+      }
+    }
+
+    _projectInsightsV3(model) {
         if (model.noSensors || model.noSeries) {
           this._data = { sensors: model.ids, noSensors: model.noSensors, noSeries: model.noSeries };
         } else {
@@ -3782,16 +4134,6 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'insights', 
             weeklyCosts: weekDays.map(day => day.cost), monthlyCosts: monthDays.map(day => day.cost),
             windows: { daily: today, weekly: week, monthly: month }, zone: model.zone };
         }
-
-        this._loading = false;
-        this._updateContent();
-        if (this._chartJsReady) this._renderCharts();
-      } catch (err) {
-        console.error('[ha-energy-insights]', err);
-        this._error = err.message || this._t('error');
-        this._loading = false;
-        this._updateContent();
-      }
     }
 
     _getRecommendation(trendDiff, todayKwh) {
@@ -4290,6 +4632,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'insights', 
       shadow.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           this._activeTab = btn.dataset.tab;
+          this._observeTariffContextV3();
           localStorage.setItem('ha-tools-energy-insights-active-tab', this._activeTab);
           history.replaceState(null, '', location.pathname + '#' + this._toolId + '/' + this._activeTab);
           // Update tab content only (no full DOM rebuild)
@@ -4303,6 +4646,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'insights', 
 
     setActiveTab(tabId) {
       this._activeTab = tabId;
+      this._observeTariffContextV3();
       this._render();
     }
 
@@ -5037,6 +5381,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
         energy_night_hour_start: Number.isInteger(Number(cfg.energy_night_hour_start)) ? Number(cfg.energy_night_hour_start) : this._config.energy_night_hour_start,
         notify_service: cfg.notify_service || this._config.notify_service || '',
       };
+      this._observeTariffContextV3();
       if (this._hass?.states) this._render();
     }
 
@@ -5051,7 +5396,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=141fc72d139b0a2ca1ecff66721921191eac4aab128c952ef56fd1fa92e4b632
+      // HA_TARIFF_V3_START sha256=36ea0cc2c39a2f4be3b85bb3546156cf33d1a6805e19a2ca9659cb0aea81d6ac
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -5357,9 +5702,103 @@ function energyTariffProfileV3(config, haConfig, kind) {
   return profile;
 }
 
+// One wire fence for the card-owned host and settings editor. A public timeout
+// is uncertainty, never permission to dispatch another raw operation.
+function createTariffGuardV3({ getHass, getContext = () => null, browser = typeof window === 'object' ? window : null, timeoutMs = 15000 }) {
+  const canonical = value => JSON.stringify(value, (_, v) => v && typeof v === 'object' && !Array.isArray(v)
+    ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v);
+  let epoch = 0, association, connection, connectionOffline = false, browserOffline = browser?.navigator?.onLine === false;
+  let raw = null, suspended = false;
+  const listeners = new Set(), wireListeners = new Set();
+  const notify = () => { epoch++; for (const listener of [...listeners]) listener(); };
+  const connectionEvent = event => {
+    if (event.type === 'disconnected' || event.type === 'reconnect-error') connectionOffline = true;
+    else if (event.type === 'ready') connectionOffline = false;
+    notify();
+  };
+  const types = ['disconnected', 'ready', 'reconnect-error'];
+  const bind = next => {
+    if (connection === next) return;
+    for (const type of types) connection?.removeEventListener?.(type, connectionEvent);
+    connection = next; connectionOffline = next?.connected === false;
+    if (!suspended) for (const type of types) connection?.addEventListener?.(type, connectionEvent);
+  };
+  const browserEvent = event => { browserOffline = event.type === 'offline'; notify(); };
+  browser?.addEventListener?.('offline', browserEvent);
+  browser?.addEventListener?.('online', browserEvent);
+  const read = h => {
+    bind(h?.connection);
+    return { user: h?.user?.id, admin: h?.user?.is_admin === true, owner: h?.user?.is_owner === true,
+      active: h?.user?.is_active !== false, groups: canonical(h?.user?.groups || []), groupIds: canonical(h?.user?.group_ids || []),
+      connection: h?.connection, callWS: h?.callWS,
+      connected: h?.connection?.connected !== false && !connectionOffline,
+      online: !suspended && !browserOffline && browser?.navigator?.onLine !== false,
+      haConfig: canonical(h?.config || {}), context: canonical(getContext()) };
+  };
+  const equal = (a, b) => a && b && Object.keys(b).every(k => a[k] === b[k]);
+  const observe = (...prospectiveHass) => {
+    const now = read(prospectiveHass.length ? prospectiveHass[0] : getHass()), changed = association && !equal(association, now);
+    association = now;
+    if (changed) notify();
+    return { ...now, epoch };
+  };
+  const available = a => !!a?.user && a.active && !!a.connection && a.connected && a.online && typeof a.callWS === 'function';
+  const snapshot = () => observe();
+  const current = (token, admin = false) => {
+    const now = observe();
+    return token?.epoch === now.epoch && equal(token, Object.fromEntries(Object.entries(now).filter(([k]) => k !== 'epoch'))) && available(now) && (!admin || now.admin);
+  };
+  const call = (token, payload, admin = false) => {
+    if (!current(token, admin)) return Promise.reject({ code: 'authority_changed' });
+    if (raw) return Promise.reject({ code: 'wire_occupied' });
+    let resolvePublic, rejectPublic, finished = false;
+    const result = new Promise((resolve, reject) => { resolvePublic = resolve; rejectPublic = reject; });
+    const slot = {}; raw = slot;
+    const timer = setTimeout(() => { finished = true; rejectPublic({ code: 'timeout' }); }, timeoutMs);
+    let request;
+    try { request = Promise.resolve(token.callWS.call(getHass(), payload)); }
+    catch (error) { request = Promise.reject(error); }
+    // Both branches handle late settlement; no floating rejected finally promise.
+    const settled = () => {
+      clearTimeout(timer); if (raw === slot) raw = null;
+      for (const listener of [...wireListeners]) listener();
+    };
+    request.then(value => {
+      settled();
+      if (!finished) { finished = true; current(token, admin) ? resolvePublic(value) : rejectPublic({ code: 'authority_changed' }); }
+    }, error => { settled(); if (!finished) { finished = true; rejectPublic(error); } });
+    return result;
+  };
+  const suspend = () => {
+    if (suspended) return;
+    suspended = true;
+    for (const type of types) connection?.removeEventListener?.(type, connectionEvent);
+    browser?.removeEventListener?.('offline', browserEvent); browser?.removeEventListener?.('online', browserEvent);
+    notify();
+  };
+  const resume = () => {
+    if (!suspended) return;
+    suspended = false; browserOffline = browser?.navigator?.onLine === false;
+    for (const type of types) connection?.addEventListener?.(type, connectionEvent);
+    browser?.addEventListener?.('offline', browserEvent); browser?.addEventListener?.('online', browserEvent);
+    notify(); observe();
+  };
+  const dispose = () => {
+    for (const type of types) connection?.removeEventListener?.(type, connectionEvent);
+    browser?.removeEventListener?.('offline', browserEvent); browser?.removeEventListener?.('online', browserEvent);
+    notify(); listeners.clear(); wireListeners.clear(); // Raw occupancy intentionally survives disposal.
+  };
+  observe(); // Observe typed edges before the card/editor is ever mounted.
+  return { snapshot, observe, current, available, call, occupied: () => raw !== null,
+    subscribeWire: listener => { wireListeners.add(listener); return () => wireListeners.delete(listener); },
+    subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); }, invalidate: notify, suspend, resume, dispose };
+}
+// Node-only dependency; runtime consumers vendor the guard in their own closure.
+
+
 // Vendor inside each card's closure. The parent owns state and its mount; no
 // global registration, helper services, SMTP configuration or browser storage.
-function createTariffSettingsV3({ root, getHass, language = 'en', state, validate, onSaved, onLoaded, onCancel, ui }) {
+function createTariffSettingsV3({ root, getHass, language = 'en', state, validate, onSaved, onLoaded, onCancel, ui, guard }) {
   if (!root || !state || typeof getHass !== 'function' || typeof validate !== 'function') throw new TypeError('tariff_settings_adapter');
   const translations = new Map();
   const pl = () => String(typeof language === 'function' ? language() : language).startsWith('pl');
@@ -5394,57 +5833,44 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   if (!object(state.draft) || invalidMarker(state.draft)) state.draft = seed(state.profile);
   if (!statuses()[state.status]) state.status = 'not_checked';
   if (invalidMarker(state.profile) && state.status === 'not_checked') state.status = 'error';
-  let epoch = 0, operation = 0, association, resumeFocus = null;
-  const auth = () => {
-    const h = getHass();
-    return { user: h?.user?.id, admin: h?.user?.is_admin === true, connection: h?.connection,
-      connected: h?.connection?.connected !== false, ws: typeof h?.callWS === 'function' };
-  };
-  const observe = () => {
-    const now = auth();
-    if (association && (association.user !== now.user || association.admin !== now.admin ||
-      association.connection !== now.connection || association.connected !== now.connected || association.ws !== now.ws)) {
-      epoch++; resumeFocus = null;
-    }
-    association = now;
-    return now;
-  };
-  const available = a => !!a.user && !!a.connection && a.connected && a.ws;
-  const ticket = () => ({ ...observe(), epoch, operation: ++operation });
-  const current = (token, admin = false) => {
-    const a = observe();
-    return token.operation === operation && token.epoch === epoch && token.user === a.user &&
-      token.connection === a.connection && available(a) && (!admin || a.admin);
-  };
-  const call = (token, payload, admin = false) => {
-    if (!current(token, admin)) return Promise.reject({ code: 'authority_changed' });
-    // No retry: a timeout may still have committed on the server.
-    let timer;
-    let pending;
-    try { pending = Promise.resolve(getHass().callWS(payload)); }
-    catch (error) { return Promise.reject(error); }
-    return Promise.race([pending, new Promise((_, reject) => { timer = setTimeout(() => reject({ code: 'timeout' }), 15000); })])
-      .finally(() => clearTimeout(timer));
-  };
+  guard ||= createTariffGuardV3({ getHass });
+  let operation = 0, association, resumeFocus = null, disposed = false;
+  const observe = () => (association = guard.observe());
+  const available = a => guard.available(a);
+  const ticket = () => ({ ...observe(), operation: ++operation });
+  const current = (token, admin = false) => token.operation === operation && guard.current(token, admin);
+  const call = (token, payload, admin = false) => current(token, admin)
+    ? guard.call(token, payload, admin) : Promise.reject({ code: 'authority_changed' });
+  const unsubscribe = guard.subscribe(() => {
+    if (disposed) return;
+    operation++; resumeFocus = null;
+    state.profile = null; state.revision = null; state.updated_at = null;
+    state.draft = blank(); state._draftBaseline = clone(state.draft);
+    state.feedText = undefined; state.feedError = null; state.backendAvailable = false;
+    state.busy = false; state.status = 'unconfirmed'; state.message = '';
+    // This mount may already have been detached; erase it too, synchronously.
+    root.replaceChildren();
+  });
+  const unsubscribeWire = guard.subscribeWire(() => { if (!disposed && root.isConnected && available(guard.observe())) render(); });
   const envelope = value => object(value) && Object.hasOwn(value, 'profile') &&
     (value.profile === null || invalidMarker(value.profile) || (object(value.profile) && validProfile(value.profile))) && Number.isSafeInteger(value.revision) && value.revision >= 0 &&
     Object.hasOwn(value, 'updated_at') && (value.updated_at === null ||
       (typeof value.updated_at === 'string' && /T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value.updated_at) && Number.isFinite(Date.parse(value.updated_at))));
   const message = (status, text) => { state.status = status; state.message = text; };
-  const unknown = () => message('unconfirmed', t('Saving was not confirmed. Check the stored tariff before retrying. Your draft is preserved.',
-    'Nie potwierdzono zapisu. Sprawdź zapisaną taryfę przed ponowieniem. Szkic został zachowany.'));
+  const unknown = () => { state.writeUnconfirmed = true; message('unconfirmed', t('Saving was not confirmed. Check the stored tariff before retrying. Your draft is preserved.',
+    'Nie potwierdzono zapisu. Sprawdź zapisaną taryfę przed ponowieniem. Szkic został zachowany.')); };
   const load = async () => {
-    if (state.busy) return;
+    if (disposed || state.busy || guard.occupied()) return;
     const token = ticket();
     if (!available(token)) { message('error', t('Tariff backend unavailable.', 'Backend taryf jest niedostępny.')); render(); return; }
     const pristine = equal(state.draft, seed(state.profile)), draft = clone(state.draft);
     state.busy = true; state.message = t('Loading stored tariff…', 'Wczytywanie zapisanej taryfy…'); render();
     try {
       const result = await call(token, { type: 'ha_tools_email/get_tariff' });
-      if (!current(token)) { unknown(); return; }
+      if (!current(token)) return;
       if (!envelope(result)) throw { code: 'malformed' };
       state.profile = clone(result.profile); state.revision = result.revision; state.updated_at = result.updated_at;
-      state.backendAvailable = true;
+      state.backendAvailable = true; state.writeUnconfirmed = false;
       state.draft = pristine ? seed(result.profile) : draft;
       if (pristine) { state.feedText = undefined; state.feedError = null; }
       if (invalidMarker(result.profile)) message('error', t('The stored tariff is invalid. Review and save a replacement; costs stay unavailable until a valid profile is confirmed.',
@@ -5453,13 +5879,12 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
       if (current(token) && typeof onLoaded === 'function') onLoaded(clone(result));
     } catch (_) {
       if (current(token)) { state.backendAvailable = false; message('error', t('Tariff backend unavailable or response invalid. Draft preserved.', 'Backend taryf jest niedostępny lub odpowiedź jest błędna. Zachowano szkic.')); }
-      else unknown();
-    } finally { state.busy = false; render(); }
+    } finally { if (current(token)) { state.busy = false; render(); } }
   };
   const save = async () => {
-    if (state.busy) return;
+    if (disposed || state.busy || guard.occupied()) return;
     const token = ticket();
-    if (!available(token) || !token.admin || state.backendAvailable === false || !Number.isSafeInteger(state.revision)) {
+    if (!available(token) || !token.admin || state.writeUnconfirmed || state.backendAvailable === false || !Number.isSafeInteger(state.revision)) {
       message('error', t('Admin access and a loaded tariff backend are required.', 'Wymagane uprawnienia administratora i wczytany backend taryf.')); render(); return;
     }
     if (state.feedError) { message('error', state.feedError); render(); return; }
@@ -5474,23 +5899,25 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     state.busy = true; message('not_checked', t('Saving; waiting for stored readback…', 'Zapis; oczekiwanie na odczyt zapisanego profilu…')); render();
     try {
       const written = await call(token, { type: 'ha_tools_email/set_tariff', profile: proposed, expected_revision: previousRevision }, true);
-      if (!current(token, true)) { unknown(); return; }
+      if (!current(token, true)) return;
       if (!object(written) || !Number.isSafeInteger(written.revision) || written.revision !== previousRevision + 1) { unknown(); return; }
       const stored = await call(token, { type: 'ha_tools_email/get_tariff' }, true);
-      if (!current(token, true)) { unknown(); return; }
+      if (!current(token, true)) return;
       if (!envelope(stored) || stored.updated_at === null || stored.revision !== written.revision || !equal(stored.profile, proposed)) { unknown(); return; }
+      state.writeUnconfirmed = false;
       state.profile = clone(stored.profile); state.draft = clone(stored.profile); state.revision = stored.revision; state.updated_at = stored.updated_at;
       message('success', t('Tariff saved and confirmed by stored readback.', 'Taryfa zapisana i potwierdzona odczytem.'));
       if (current(token, true) && typeof onSaved === 'function') onSaved(clone(stored));
     } catch (error) {
-      if (current(token, true) && ['conflict', 'revision_conflict', 'tariff_revision_conflict'].includes(error?.code))
+      if (current(token, true) && ['conflict', 'revision_conflict', 'tariff_revision_conflict'].includes(error?.code)) {
+        state.writeUnconfirmed = true;
         message('error', t('Revision conflict. Load the stored tariff and reconcile your draft.', 'Konflikt wersji. Wczytaj zapisaną taryfę i porównaj ze szkicem.'));
-      else unknown();
-    } finally { state.busy = false; render(); }
+      } else if (current(token)) unknown();
+    } finally { if (current(token)) { state.busy = false; render(); } }
   };
   const cancel = () => {
     // A dispatched save cannot be undone safely. The button remains disabled.
-    if (state.busy) return;
+    if (disposed || state.busy || guard.occupied()) return;
     operation++; state.draft = seed(state.profile); state.feedError = null; state.feedText = undefined;
     message('not_checked', ''); render(); if (typeof onCancel === 'function') onCancel();
   };
@@ -5500,7 +5927,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     for (const key of keys.slice(0, -1)) { if (!object(at[key]) && !Array.isArray(at[key])) at[key] = {}; at = at[key]; }
     at[keys.at(-1)] = value;
   };
-  const mutable = () => observe().admin && !state.busy && available(association);
+  const mutable = () => observe().admin && !state.busy && !guard.occupied() && available(association);
   const field = (path, label, kind = 'text', choices) => {
     const value = read(path);
     const attrs = `data-path="${esc(path)}" aria-label="${esc(label)}"${mutable() ? '' : ' disabled'}`;
@@ -5525,6 +5952,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   const css = `.ht-tariff-v3{box-sizing:border-box;color:var(--primary-text-color,#172033);font:inherit;width:100%;min-width:0;max-width:100%;padding:12px;background:var(--ha-card-background,var(--card-background-color,#fff));border-radius:var(--bento-radius,20px)}
 .ht-tariff-v3 *{box-sizing:border-box;min-width:0}.ht-tariff-v3 h3,.ht-tariff-v3 p{overflow-wrap:anywhere}.ht-tariff-v3 fieldset{border:1px solid var(--divider-color,#d8dce5);border-radius:14px;margin:12px 0;padding:12px}.ht-tariff-v3 legend{max-width:100%;overflow-wrap:anywhere}.ht-tariff-v3 .ht-tariff-grid,.ht-tariff-v3 .ht-tariff-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:12px;margin:8px 0}.ht-tariff-v3 .ht-tariff-field{display:flex;flex-direction:column;gap:6px;overflow-wrap:anywhere}.ht-tariff-v3 input,.ht-tariff-v3 select,.ht-tariff-v3 textarea,.ht-tariff-v3 button{font:inherit;color:inherit;border:1px solid var(--divider-color,#c7cdd9);border-radius:10px;background:var(--secondary-background-color,#f7f8fa);min-height:44px;max-width:100%;width:100%;padding:10px}.ht-tariff-v3 textarea{resize:vertical;min-height:110px}.ht-tariff-v3 button{cursor:pointer;width:auto;white-space:normal;overflow-wrap:anywhere}.ht-tariff-v3 button:disabled{cursor:default;opacity:.6}.ht-tariff-v3 :is(input,select,textarea,button):focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}.ht-tariff-v3 .ht-tariff-days,.ht-tariff-v3 .ht-tariff-actions{display:flex;flex-wrap:wrap;gap:8px}.ht-tariff-v3 .ht-tariff-days label{display:flex;align-items:center;gap:8px;min-height:44px}.ht-tariff-v3 input[type=checkbox]{width:24px;min-height:24px;height:24px}.ht-tariff-v3 [role=status]{padding:12px;border-radius:12px;overflow-wrap:anywhere;background:var(--secondary-background-color,#f1f3f6);margin:12px 0}.ht-tariff-v3 [data-status=success]{color:var(--bento-success,#16804a);background:var(--bento-success-light,#e8f5ed)}.ht-tariff-v3 [data-status=error]{color:var(--error-color,#ba1a1a)}.ht-tariff-v3 [data-status=unconfirmed],.ht-tariff-v3 [data-status=partial]{color:var(--warning-color,#a15b00)}.ht-tariff-v3 details{margin:12px 0}.ht-tariff-v3 summary{min-height:44px;cursor:pointer}`;
   function render() {
+    if (disposed) return;
     const active = root.getRootNode().activeElement;
     const focused = active && root.contains(active) ? active : root.querySelector(':focus');
     const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed } : resumeFocus;
@@ -5540,12 +5968,12 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
       !available(a) || state.backendAvailable === false ? `<p>${esc(t('Tariff backend unavailable. No local fallback.', 'Backend taryf jest niedostępny. Brak lokalnego zapisu zastępczego.'))}</p>` :
         !Number.isSafeInteger(state.revision) ? `<p>${esc(t('Backend availability not checked. Load the tariff first.', 'Dostępność backendu nie została sprawdzona. Najpierw wczytaj taryfę.'))}</p>` : ''}
 ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is invalid. Create and save a valid replacement. No rates were guessed.', 'Zapisana taryfa jest niepoprawna. Utwórz i zapisz poprawny profil. Nie przyjęto domyślnych stawek.'))}</p>` : ''}
-<div class="ht-tariff-grid">${field('type', t('Tariff name type', 'Typ nazwy taryfy'), 'text', ['Custom', 'G11', 'G12', 'G12w', 'G12n'].map(v => [v, v]))}${field('name', t('Name (optional PGE label)', 'Nazwa (opcjonalnie nazwa PGE)'))}${field('currency', t('Currency ISO 4217', 'Waluta ISO 4217'))}${field('timezone', t('IANA timezone', 'Strefa czasowa IANA'))}${field('clock.mode', t('Tariff clock', 'Zegar taryfy'), 'text', [['civil', t('Civil time (DST)', 'Czas lokalny (zmiana czasu)')], ['fixed', t('Fixed UTC offset', 'Stałe przesunięcie UTC')]])}${field('clock.offsetMinutes', t('Fixed offset minutes', 'Stałe przesunięcie w minutach'), 'number')}${field('priceBasis', t('Price basis', 'Podstawa ceny'), 'text', [['gross', t('Gross', 'Brutto')], ['net', t('Net', 'Netto')]])}${field('validFrom', t('Valid from (optional)', 'Ważna od (opcjonalnie)'), 'date')}${field('validTo', t('Valid to (optional)', 'Ważna do (opcjonalnie)'), 'date')}${field('fixedMonthly', t('Fixed monthly fee (separate)', 'Opłata stała miesięczna (osobno)'), 'number')}</div>
+<div class="ht-tariff-grid">${field('type', t('Tariff name type', 'Typ nazwy taryfy'), 'text', ['Custom', 'G11', 'G12', 'G12w', 'G12n'].map(v => [v, v]))}${field('name', t('Tariff name (optional)', 'Nazwa taryfy (opcjonalna)'))}${field('currency', t('Currency ISO 4217', 'Waluta ISO 4217'))}${field('timezone', t('IANA timezone', 'Strefa czasowa IANA'))}${field('clock.mode', t('Tariff clock', 'Zegar taryfy'), 'text', [['civil', t('Civil time (DST)', 'Czas lokalny (zmiana czasu)')], ['fixed', t('Fixed UTC offset', 'Stałe przesunięcie UTC')]])}${field('clock.offsetMinutes', t('Fixed offset minutes', 'Stałe przesunięcie w minutach'), 'number')}${field('priceBasis', t('Price basis', 'Podstawa ceny'), 'text', [['gross', t('Gross', 'Brutto')], ['net', t('Net', 'Netto')]])}${field('validFrom', t('Valid from (optional)', 'Ważna od (opcjonalnie)'), 'date')}${field('validTo', t('Valid to (optional)', 'Ważna do (opcjonalnie)'), 'date')}${field('fixedMonthly', t('Fixed monthly fee (separate)', 'Opłata stała miesięczna (osobno)'), 'number')}</div>
 <h3>${esc(t('Energy and variable fees per kWh', 'Energia i opłaty zmienne za kWh'))}</h3><p>${esc(t('Empty = unknown; zero is a known zero. Fixed monthly fees are shown separately, never prorated.', 'Puste = nieznane; zero jest znaną wartością zero. Opłata stała jest osobna, bez proporcjonalnego naliczania.'))}</p>${
 (p.zones || []).map((_, i) => `<fieldset><legend>${esc(t('Zone', 'Strefa'))} ${i + 1}</legend><div class="ht-tariff-grid">${field(`zones.${i}.id`, t('Zone ID', 'ID strefy'))}${field(`zones.${i}.label`, t('Zone label', 'Etykieta strefy'))}${field(`zones.${i}.energyRate`, t('Energy / kWh', 'Energia / kWh'), 'number')}${field(`zones.${i}.variableRate`, t('Variable fees / kWh (optional)', 'Opłaty zmienne / kWh (opcjonalne)'), 'number')}</div>${mutable() ? button(`remove-zone:${i}`, t('Remove zone', 'Usuń strefę')) : ''}</fieldset>`).join('')}${mutable() ? button('add-zone', t('Add zone', 'Dodaj strefę')) : ''}${field('defaultZone', t('Default zone (optional)', 'Strefa domyślna (opcjonalna)'), 'text', zoneChoices())}
 <h3>${esc(t('Schedule rules', 'Reguły harmonogramu'))}</h3>${rows('rules')}${mutable() ? button('add-rule', t('Add rule', 'Dodaj regułę')) : ''}<h3>${esc(t('Date exceptions', 'Wyjątki dat'))}</h3>${rows('exceptions')}${mutable() ? button('add-exception', t('Add date exception', 'Dodaj wyjątek daty')) : ''}
 <details><summary>${esc(t('Advanced: absolute dynamic price feed', 'Zaawansowane: bezwzględne przedziały cen dynamicznych'))}</summary><p>${esc(t('Optional dynamic feed overrides schedule prices. Use explicit UTC/offset timestamps. Only this feed uses JSON.', 'Opcjonalny feed dynamiczny zastępuje ceny harmonogramu. Użyj znaczników UTC lub z przesunięciem. JSON służy wyłącznie temu feedowi.'))}</p><label class="ht-tariff-field"><span>${esc(t('Dynamic feed JSON (empty = off)', 'Feed dynamiczny JSON (pusty = wyłączony)'))}</span><textarea data-feed="true"${mutable() ? '' : ' disabled'}>${esc(state.feedText ?? (p.dynamic == null ? '' : JSON.stringify(p.dynamic, null, 2)))}</textarea></label>${field('allowNegativeEnergy', t('Negative energy prices', 'Ujemne ceny energii'), 'text', [['false', t('Disabled', 'Wyłączone')], ['true', t('Explicitly allowed', 'Jawnie dozwolone')]])}</details>
-<div role="status" aria-live="polite" data-status="${esc(state.status)}">${statusHtml()}${state.message ? ': ' + esc(localMessage()) : ''}</div><div class="ht-tariff-actions"><button type="button" data-action="load"${state.busy || !available(a) ? ' disabled' : ''}>${esc(t('Load stored tariff', 'Wczytaj zapisaną taryfę'))}</button>${a.admin ? `<button type="button" data-action="save"${state.busy || !available(a) || state.backendAvailable === false || !Number.isSafeInteger(state.revision) ? ' disabled' : ''}>${esc(t('Save tariff', 'Zapisz taryfę'))}</button><button type="button" data-action="cancel"${state.busy ? ' disabled' : ''}>${esc(t('Cancel', 'Anuluj'))}</button>` : ''}</div></section>`;
+<div role="status" aria-live="polite" data-status="${esc(state.status)}">${statusHtml()}${state.message ? ': ' + esc(localMessage()) : ''}</div><div class="ht-tariff-actions"><button type="button" data-action="load"${state.busy || guard.occupied() || !available(a) ? ' disabled' : ''}>${esc(t('Load stored tariff', 'Wczytaj zapisaną taryfę'))}</button>${a.admin ? `<button type="button" data-action="save"${state.busy || guard.occupied() || !available(a) || state.writeUnconfirmed || state.backendAvailable === false || !Number.isSafeInteger(state.revision) ? ' disabled' : ''}>${esc(t('Save tariff', 'Zapisz taryfę'))}</button><button type="button" data-action="cancel"${state.busy || guard.occupied() ? ' disabled' : ''}>${esc(t('Cancel', 'Anuluj'))}</button>` : ''}</div></section>`;
     root.querySelectorAll('[data-path]').forEach(el => el.addEventListener('input', () => {
       if (!mutable()) { render(); return; }
       const path = el.dataset.path;
@@ -5611,17 +6039,20 @@ ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is 
     }
     if (!state.busy) resumeFocus = null;
   }
-  return { render, load, cancel };
+  return { render, load, cancel, dispose: () => { disposed = true; operation++; unsubscribe(); unsubscribeWire(); } };
 }
+// Node-only import; omitted in consumer closure.
+
 
 // Card-owned adapter: it never writes card YAML, helpers, schedules or SMTP.
-function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi, readTimeoutMs = 15000 }) {
+function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi, readTimeoutMs = 15000, guard, onRefresh }) {
   const clone = value => value == null ? value : JSON.parse(JSON.stringify(value));
   const language = () => card._hass?.locale?.language || card._hass?.language || card._lang || 'en';
   const text = (en, pl) => String(language()).startsWith('pl') ? pl : en;
-  const identity = hass => ({ user: hass?.user?.id, connection: hass?.connection });
-  const same = (a, b) => a?.user === b?.user && a?.connection === b?.connection;
-  let association = identity(card._hass), pending = null, cachedKey, cachedModel, editorRoot, editor, focusKey = null;
+  guard ||= createTariffGuardV3({ getHass: () => card._hass, getContext: () => card._config, timeoutMs: readTimeoutMs });
+  const identity = () => guard.snapshot();
+  const same = (a, b) => a?.epoch === b?.epoch && a?.user === b?.user && a?.connection === b?.connection;
+  let pending = null, attemptedEpoch = null, cachedKey, cachedModel, editorRoot, editor, focusKey = null;
   const state = () => (card._tariffEditorState ||= { profile: null, revision: null, status: 'not_checked', busy: false });
   const effectiveConfig = () => {
     const config = card._config || {};
@@ -5640,54 +6071,56 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     const value = activeProfile()?.currency;
     return typeof value === 'string' && /^[A-Z]{3}$/.test(value) ? value : '';
   };
-  const reset = nextHass => {
-    const next = identity(nextHass);
-    if (!same(association, next)) {
-      card._sharedTariffProfile = null; card._sharedTariffAssociation = null;
-      card._sharedTariffLoadedAt = 0; card._tariffEditorState = null;
-      card._sharedTariffReadStatus = 'not_checked';
-      pending = null; cachedKey = undefined; cachedModel = undefined;
-      editorRoot = null; editor = null;
-      focusKey = null;
-    }
-    association = next;
+  const purge = () => {
+    card._sharedTariffProfile = null; card._sharedTariffAssociation = null;
+    card._sharedTariffLoadedAt = 0; card._tariffEditorState = null;
+    card._sharedTariffReadStatus = 'not_checked'; card._tariffSettingsOpen = false;
+    cachedKey = undefined; cachedModel = undefined; editorRoot?.replaceChildren(); editor?.dispose?.(); editorRoot = null; editor = null; focusKey = null;
+    for (const mount of card.shadowRoot?.querySelectorAll('[data-tariff-mount]') || []) mount.replaceChildren();
+    const details = card.shadowRoot?.querySelector('[data-tariff-details]'); if (details) details.open = false;
+    // Pending raw request remains owned by guard; a new epoch cannot free it.
   };
-  const load = async () => {
-    const hass = card._hass, token = identity(hass);
-    if (!token.user || !token.connection || token.connection.connected === false || typeof hass?.callWS !== 'function') return false;
-    if (card._sharedTariffLoadedAt && Date.now() - card._sharedTariffLoadedAt < 300000 && same(card._sharedTariffAssociation, token)) return true;
+  guard.subscribe(purge);
+  const reset = (...nextHass) => guard.observe(...nextHass);
+  const load = async (force = false) => {
+    const token = identity();
+    if (!guard.available(token)) return false;
+    if (card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, token)) return true;
     if (pending) return pending;
+    if (guard.occupied() || (!force && attemptedEpoch === token.epoch)) return false;
+    attemptedEpoch = token.epoch;
     const operation = (async () => {
-      let timer;
       try {
-        const read = hass.callWS({ type: 'ha_tools_email/get_tariff' });
-        const result = await Promise.race([read, new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error('tariff_read_timeout')), readTimeoutMs);
-        })]);
-        if (!same(token, identity(card._hass))) return false;
-        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0)
+        const result = await guard.call(token, { type: 'ha_tools_email/get_tariff' });
+        if (!guard.current(token)) return false;
+        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0 ||
+          !Object.hasOwn(result, 'updated_at') || (result.updated_at !== null &&
+          (typeof result.updated_at !== 'string' || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(result.updated_at) || !Number.isFinite(Date.parse(result.updated_at)))))
           throw new Error('invalid_tariff_response');
-        const profile = result.profile === null ? null : createModel(result.profile).valid ? clone(result.profile) : { schema: 0 };
+        const valid = result.profile === null || createModel(result.profile).valid;
+        const profile = result.profile === null ? null : valid ? clone(result.profile) : { schema: 0 };
         card._sharedTariffProfile = profile; card._sharedTariffAssociation = token; card._sharedTariffLoadedAt = Date.now();
         card._sharedTariffReadStatus = 'success';
-        const saved = state();
-        // Refresh a form opened during this read only while its seed is intact.
-        const pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved.profile) || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline);
-        saved.profile = clone(profile); saved.revision = result.revision; saved.updated_at = result.updated_at ?? null;
+        const saved = state(), pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline) || JSON.stringify(saved.draft) === JSON.stringify(saved.profile);
+        saved.profile = clone(profile); saved.revision = result.revision; saved.updated_at = result.updated_at;
         saved.backendAvailable = true;
-        if (pristine) {
-          saved.draft = profile && createModel(profile).valid ? clone(profile) : undefined;
-          saved._draftBaseline = clone(saved.draft);
-        }
+        if (pristine) { saved.draft = valid ? clone(profile) : undefined; saved._draftBaseline = clone(saved.draft); }
         return true;
       } catch (_) {
-        if (same(token, identity(card._hass))) card._sharedTariffReadStatus = 'unconfirmed';
+        if (guard.current(token)) card._sharedTariffReadStatus = 'unconfirmed';
         return false;
-      } finally { clearTimeout(timer); }
+      }
     })();
     pending = operation;
-    operation.finally(() => { if (pending === operation) pending = null; });
+    operation.then(() => { if (pending === operation) pending = null; }, () => { if (pending === operation) pending = null; });
     return operation;
+  };
+  const snapshot = () => {
+    const token = identity(), own = Object.hasOwn(card._config || {}, 'tariff_profile');
+    if (!guard.available(token)) return { profile: null, reason: 'tariff_authority_unavailable' };
+    if (own) return { profile: clone(card._config.tariff_profile), revision: null, provenance: 'card_config' };
+    if (!same(card._sharedTariffAssociation, token) || card._sharedTariffReadStatus !== 'success') return { profile: null, reason: 'tariff_unconfirmed' };
+    return { profile: clone(card._sharedTariffProfile), revision: state().revision, provenance: 'shared_backend', updated_at: state().updated_at };
   };
   const markup = () => {
     const active = card.shadowRoot?.activeElement;
@@ -5707,32 +6140,37 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     [data-tariff-details]{margin:16px 0;min-width:0;max-width:100%}
     [data-tariff-details]>summary{min-height:44px;display:flex;align-items:center;padding:10px;border:1px solid var(--divider-color,#d8dce5);border-radius:10px;cursor:pointer;overflow-wrap:anywhere}
     [data-tariff-details]>summary:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
-    </style>${card._sharedTariffReadStatus === 'unconfirmed' ? `<p role="status">${text('Shared tariff could not be confirmed. Locally configured or last confirmed prices remain visible.', 'Nie udało się potwierdzić wspólnej taryfy. Widoczne są stawki skonfigurowane w karcie lub ostatnio potwierdzone.')}</p>` : ''}
+    </style>${card._sharedTariffReadStatus === 'unconfirmed' ? `<p role="status">${text('Shared tariff could not be confirmed. Reload explicitly to confirm prices. No tariff cost is guessed.', 'Nie udało się potwierdzić wspólnej taryfy. Wczytaj ponownie, aby potwierdzić ceny. Koszt taryfy nie jest zgadywany.')}</p>` : ''}
     <details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
     ${Object.hasOwn(card._config || {}, 'tariff_profile') ? `<p>${text('This card uses its own configured tariff. Shared settings apply to cards using the shared profile.', 'Ta karta używa własnej skonfigurowanej taryfy. Ustawienia współdzielone dotyczą kart korzystających ze wspólnego profilu.')}</p>` : ''}
     <div data-tariff-mount></div></details>`;
   };
   const mount = root => {
     if (editorRoot !== root || !editor) {
+      editor?.dispose?.();
       const saved = state();
       if (!saved.draft) {
         const profile = activeProfile();
         if (createModel(profile).valid) saved.draft = clone(profile);
       }
       editorRoot = root;
+      const mountToken = identity();
       const refreshed = envelope => {
+        if (!guard.current(mountToken)) return;
         card._sharedTariffProfile = clone(envelope.profile); card._sharedTariffAssociation = identity(card._hass);
         card._sharedTariffLoadedAt = Date.now();
         card._sharedTariffReadStatus = 'success';
         // The editor finishes its pending state before the parent replaces DOM.
         queueMicrotask(() => {
+          if (!guard.current(mountToken)) return;
+          if (onRefresh) { onRefresh(envelope); return; }
           if (kind === 'insights') void card._fetchData();
           if (kind === 'email') void card._fetchAllPeriodStats().then(() => card._render());
           card._render();
         });
       };
       editor = createSettings({ root, getHass: () => card._hass, language, state: saved, validate: createModel,
-        ui: () => createUi({ language: language() }),
+        guard, ui: () => createUi({ language: language() }),
         onSaved: refreshed, onLoaded: refreshed,
         onCancel: () => {
           card._tariffSettingsOpen = false;
@@ -5744,8 +6182,9 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     editor.render();
   };
   const bind = () => {
+    guard.observe();
     const tabs = card.shadowRoot.querySelector('.tabs');
-    if (tabs) {
+    if (tabs && kind !== 'smart') {
       tabs.parentElement.setAttribute('data-energy-container', '');
       const buttons = [...tabs.querySelectorAll('button')];
       tabs.setAttribute('role', 'tablist');
@@ -5775,7 +6214,8 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     }
     const details = card.shadowRoot.querySelector('[data-tariff-details]');
     if (!details) return;
-    const root = details.querySelector('[data-tariff-mount]');
+    let root = details.querySelector('[data-tariff-mount]');
+    if (editorRoot && editor && root !== editorRoot) { root.replaceWith(editorRoot); root = editorRoot; }
     if (!details.dataset.bound) {
       details.dataset.bound = 'true';
       details.addEventListener('toggle', () => {
@@ -5793,17 +6233,93 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       if (target && !target.disabled) target.focus({ preventScroll: true });
     }
   };
-  return { model, profile: activeProfile, currency, reset, load, markup, bind, ui: () => createUi({ language: language() }) };
+  return { model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, ui: () => createUi({ language: language() }) };
 }
-this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', createModel: createEnergyTariffV3, legacyProfile: energyTariffProfileV3, createSettings: createTariffSettingsV3, createUi: createUiV3 });
+this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', createModel: createEnergyTariffV3, legacyProfile: energyTariffProfileV3, createSettings: createTariffSettingsV3, createUi: createUiV3, ...this._createTariffConsumerV3(createTariffGuardV3) });
+this._installTariffConsumerV3();
 // HA_TARIFF_V3_END
       return this._tariffHostController;
     }
     _tariffCurrency() { return this._getTariffHostV3().currency(); }
     _loadSharedTariffProfile() { return this._getTariffHostV3().load(); }
     _tariffDetailsMarkup() { return this._getTariffHostV3().markup(); }
-    _bindTariffSettings() { this._getTariffHostV3().bind(); }
+    _bindTariffSettings() {
+      if (this._tariffWriteUnconfirmedV3) {
+        this._tariffEditorState ||= { profile: null, revision: null, status: 'not_checked', busy: false };
+        this._tariffEditorState.writeUnconfirmed = true;
+      }
+      this._getTariffHostV3().bind();
+    }
     _resetTariffContext(nextHass) { this._getTariffHostV3().reset(nextHass); }
+
+    // Owned by this card. No shared global state and no polling/retry path.
+    _createTariffConsumerV3(createGuard) {
+      const guard = createGuard({ getHass: () => this._hass, getContext: () => this._tariffContextV3() });
+      const call = guard.call;
+      guard.call = (token, request, admin = false) => {
+        const dispatched = request.type === 'ha_tools_email/set_tariff' && !guard.occupied() && guard.current(token, admin);
+        const result = call(token, request, admin);
+        if (dispatched && guard.occupied()) {
+          // Persists across mount/authority purges. An ACK cannot clear this fence.
+          this._tariffWriteUnconfirmedV3 = true;
+        }
+        return result;
+      };
+      return { guard, onRefresh: () => {
+        // Only explicit editor Load or independently confirmed Save reaches here.
+        this._tariffWriteUnconfirmedV3 = false;
+        this._repriceTariffV3();
+      } };
+
+    }
+    _installTariffConsumerV3() {
+      const guard = this._tariffHostController.guard;
+      let active = true;
+      const unsubscribe = guard.subscribe(() => queueMicrotask(() => {
+        // Setters assign the prospective hass before this pure render executes.
+        if (active) this._repriceTariffV3();
+      }));
+      this._tariffConsumerUnsubscribeV3 = () => { active = false; unsubscribe(); };
+    }
+    _tariffContextV3() {
+      return { config: this._config, tab: this._activeTab, range: [this._overviewPeriod, this._reportPeriod],
+        sources: this._tariffSourceIds || [], windowEnd: this._tariffWindowEnd ?? null };
+    }
+    _observeTariffContextV3() { this._getTariffHostV3().guard.observe(); }
+    _createEnergyReadV3() {
+      const host = this._getTariffHostV3(), source = this._hass;
+      this._tariffWindowEnd = Math.floor(Date.now() / ENERGY_HOUR) * ENERGY_HOUR;
+      let token = host.guard.observe();
+      const current = () => host.guard.current(token);
+      const assertCurrent = () => { if (!current()) throw { code: 'energy_context_changed' }; };
+      // The facade preserves readEnergyHours' complete source/unit/window behavior.
+      const hass = { ...source, callWS: async request => {
+        assertCurrent();
+        const result = await source.callWS.call(source, request);
+        assertCurrent();
+        if (request.type === 'energy/get_prefs') {
+          this._tariffSourceIds = energyImportIds(result);
+          token = host.guard.observe();
+        }
+        return result;
+      } };
+      return { hass, current };
+    }
+
+    _repriceTariffV3() {
+      for (const period of ['day', 'week', 'month']) {
+        if (this[`_periodStatus_${period}`] !== 'ready') continue;
+        const measured = this[`_periodRaw_${period}`];
+        if (!measured) continue;
+        const rows = new Map(measured.map(row => [row.id, row]));
+        this[`_periodCache_${period}`] = this[`_periodCache_${period}`].map(row => {
+          const source = rows.get(row.entity_id);
+          return source ? { ...row, cost: this._bucketCost(source.buckets, source.unit) } : row;
+        });
+      }
+      this._render();
+    }
+
 
     _tariffRateForHour(stamp) {
       return this._getTariffV3().priceBuckets([{ from: stamp, to: stamp + ENERGY_HOUR, kwh: 1 }]).energyCost;
@@ -6271,22 +6787,23 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       if (!hours || !this._hass?.callWS) return;
       const cacheKey = `_periodCache_${period}`;
       const statusKey = `_periodStatus_${period}`;
-      this[cacheKey] = [];
+      const read = this._createEnergyReadV3();
       this[statusKey] = 'no_data';
       const end = new Date(Math.floor(Date.now() / 3600000) * 3600000);
       const start = new Date(end.getTime() - hours * 3600000);
       this[`_periodWindow_${period}`] = { start: start.toISOString(), end: end.toISOString() };
       try {
-        await this._loadSharedTariffProfile();
-        const prefs = await this._hass.callWS({ type: 'energy/get_prefs' });
+        const prefs = await read.hass.callWS({ type: 'energy/get_prefs' });
         const ids = energyImportIds(prefs);
         if (!ids.length) { this[statusKey] = 'no_sources'; return; }
-        const rawMetadata = await this._hass.callWS({ type: 'recorder/get_statistics_metadata', statistic_ids: ids });
+        const rawMetadata = await read.hass.callWS({ type: 'recorder/get_statistics_metadata', statistic_ids: ids });
         const metadata = Array.isArray(rawMetadata) ? Object.fromEntries(rawMetadata.map(row => [row.statistic_id, row])) : (rawMetadata || {});
-        const stats = await this._hass.callWS({ type: 'recorder/statistics_during_period',
+        const stats = await read.hass.callWS({ type: 'recorder/statistics_during_period',
           start_time: start.toISOString(), end_time: end.toISOString(), statistic_ids: ids,
           period: 'hour', types: ['change'] });
-        const result = [];
+        await this._loadSharedTariffProfile();
+        if (!read.current()) return false;
+        const result = [], measured = [];
         const hasSamples = ids.some(id => stats?.[id]?.length);
         for (const id of ids) {
           const meta = metadata[id];
@@ -6306,13 +6823,17 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
           }
           if (buckets.size !== hours) { this[statusKey] = hasSamples ? 'partial' : 'no_data'; return; }
           const kwh = [...buckets.values()].reduce((sum, value) => sum + value * energyFactor(unit), 0);
-          result.push({ name: this._hass.states?.[id]?.attributes?.friendly_name || id,
+          measured.push({ id, unit, buckets });
+          result.push({ name: read.hass.states?.[id]?.attributes?.friendly_name || id,
             key: id, entity_id: id, month: kwh, lastMonth: null, cost: this._bucketCost(buckets, unit), source: 'recorder' });
         }
+        if (!read.current()) return false;
+        this[`_periodRaw_${period}`] = measured;
         this[cacheKey] = result;
         this[statusKey] = 'ready';
         this[`_periodCacheTime_${period}`] = Date.now();
       } catch (e) {
+        if (!read.current()) return false;
         this[statusKey] = 'error';
         console.warn('Energy Email: complete Recorder period data unavailable');
       }
@@ -6322,9 +6843,12 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
     async _fetchAllPeriodStats() {
       if (this._periodRefreshPromise) return this._periodRefreshPromise;
       this._lastPeriodRefresh = Date.now();
-      this._periodRefreshPromise = Promise.all([
-        this._fetchRecorderStats('day'), this._fetchRecorderStats('week'), this._fetchRecorderStats('month')
-      ]);
+      // One accepted source/window epoch for each complete period; no cross-period race.
+      this._periodRefreshPromise = (async () => {
+        for (const period of ['day', 'week', 'month']) {
+          if (await this._fetchRecorderStats(period) === false) break;
+        }
+      })();
       try { await this._periodRefreshPromise; }
       finally { this._periodRefreshPromise = null; }
     }
@@ -6628,6 +7152,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       this.shadowRoot.querySelectorAll('.tab-btn').forEach(t => {
         t.addEventListener('click', () => {
           this._activeTab = t.dataset.tab;
+          this._observeTariffContextV3();
           if (this._activeTab === 'schedule') { this._serverSchedules.setContext(this._hass); this._serverSchedules.ensureRead(); }
           if (this._activeTab === 'history') this._attemptHistory.setContext(this._hass);
           const picker = this.shadowRoot.getElementById('email-tab-select'); if (picker) picker.value = this._activeTab;
@@ -6724,7 +7249,8 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
           if (Number.isFinite(val) && val >= 0) {
             if (!await this._saveToHelper('price', String(val))) return;
             this._config.energy_price = val;
-            this._fetchAllPeriodStats().then(() => this._render());
+            this._observeTariffContextV3();
+            this._repriceTariffV3();
             this._render();
           }
         };
@@ -6793,6 +7319,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
         btn.addEventListener('click', () => {
           const p = btn.dataset.period;
           this._overviewPeriod = p;
+          this._observeTariffContextV3();
           this._devicePage = 0;
           // Refresh recorder stats if cache is older than 60s
           const cacheTime = this[`_periodCacheTime_${p}`] || 0;
@@ -6810,7 +7337,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
 
     _attachPeriodEvents() {
       this.shadowRoot.querySelectorAll('.period-btn').forEach(btn => {
-        btn.addEventListener('click', () => { this._reportPeriod = btn.dataset.period; this._renderTab(); });
+        btn.addEventListener('click', () => { this._reportPeriod = btn.dataset.period; this._observeTariffContextV3(); this._renderTab(); });
       });
     }
 
@@ -7340,7 +7867,8 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
         if (Number.isFinite(val) && val >= 0) {
           if (!await this._saveToHelper('price', String(val))) return;
           this._config.energy_price = val;
-          this._fetchAllPeriodStats().then(() => this._render());
+          this._observeTariffContextV3();
+          this._repriceTariffV3();
           this._showToast('\u2705 ' + (this._lang === 'pl' ? 'Stawka zapisana' : 'Price saved'));
           this._render();
         }
@@ -7750,7 +8278,10 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
       this._schedule(() => toast.classList.remove('show'), 3500);
     }
 
+    connectedCallback() { this._tariffHostController?.guard.resume(); }
+
     disconnectedCallback() {
+      this._tariffHostController?.guard.suspend();
       this._clearEmailContext();
       this._serverSchedules.discard();
       this.shadowRoot.getElementById('tab-content')?.replaceChildren();
@@ -7774,6 +8305,7 @@ this._tariffHostController = createTariffHostV3({ card: this, kind: 'email', cre
 
     setActiveTab(tabId) {
       this._activeTab = tabId;
+      this._observeTariffContextV3();
       if (tabId === 'schedule') { this._serverSchedules.setContext(this._hass); this._serverSchedules.ensureRead(); }
       if (tabId === 'history') this._attemptHistory.setContext(this._hass);
       this._render();
