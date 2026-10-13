@@ -258,3 +258,14 @@ test('primary device consumption is readable while details retain the exact meas
     assert.equal(full.textContent, String(row.kwh) + ' kWh');
   } finally { f.close(); }
 });
+
+test('actual dark theme activates existing card tokens without additional source reads', async () => {
+  const f = await fixture(); try {
+    const count = f.calls.length;
+    f.card.hass = { ...f.hass, themes: { darkMode: true } };
+    assert.equal(f.card.classList.contains('bento-dark'), true);
+    f.card.hass = { ...f.hass, themes: { darkMode: false } };
+    assert.equal(f.card.classList.contains('bento-dark'), false);
+    assert.equal(f.calls.length, count);
+  } finally { f.close(); }
+});
