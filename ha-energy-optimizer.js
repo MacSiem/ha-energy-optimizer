@@ -4176,7 +4176,7 @@ this._installTariffConsumerV3();
           const month = model.summary(model.start, model.end, rate);
           const weekDays = model.daily(model.end - 168 * ENERGY_HOUR, model.end, rate);
           const monthDays = model.daily(model.start, model.end, rate);
-          this._data = { sensors: model.ids, noSensors: false,
+          this._data = { sensors: model.ids, noSensors: false, topDevices: [],
             todayKwh: today.total, todayCost: today.cost, thisWeekKwh: week.total, prevWeekKwh: previous.total,
             monthKwh: month.total, weekCost: week.cost, monthCost: month.cost,
             dailyCosts: model.hourlyToday.map((kwh, hour) => {
@@ -4198,6 +4198,10 @@ this._installTariffConsumerV3();
       if (typeof value !== 'number' || !Number.isFinite(value)) return this._insightTextV3('Unavailable', 'Niedostępne');
       const decimal = new Intl.NumberFormat(this._lang).formatToParts(1.1).find(p => p.type === 'decimal')?.value || '.';
       return String(value === 0 ? 0 : value).replace('.', decimal);
+    }
+    _insightDisplayNumberV3(value) {
+      return typeof value === 'number' && Number.isFinite(value)
+        ? new Intl.NumberFormat(this._lang, { maximumFractionDigits: 3 }).format(value) : this._insightNumberV3(value);
     }
     _insightLocalV3(stamp, zone) {
       const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit',
@@ -4388,10 +4392,12 @@ this._installTariffConsumerV3();
         ${rows.length ? `<label class="insights-search">${t('Find a device or source', 'Znajdź urządzenie lub źródło')}<input type="search" data-insights-control="device-search" value="${_esc(this._insightDeviceFilter || '')}"></label>
           <p>${selected.length}/${rows.length} ${t('configured sources', 'skonfigurowanych źródeł')}</p>
           ${selected.slice(this._insightDevicePage * 10, this._insightDevicePage * 10 + 10).map(row => `<article class="insights-device" data-insights-device="${_esc(row.id)}">
-            <div class="insights-device-heading"><strong>${_esc(row.name)}</strong><span>${n(row.kwh)} kWh</span></div>
+            <div class="insights-device-heading"><strong>${_esc(row.name)}</strong><span>${_esc(this._insightDisplayNumberV3(row.kwh))} kWh</span></div>
             <p>${this._insightStatusV3(row.status)}${row.status === 'partial' ? ` · ${t('Measured subset', 'Zmierzona część')}: ${n(row.recordedKwh)} kWh` : ''}</p>
             <details data-insights-device-details="${_esc(row.key)}" ${this._insightDeviceDetails.has(row.key) ? 'open' : ''}><summary>${t('Source and measurement details', 'Źródło i szczegóły pomiaru')}</summary><dl>
               <dt>${t('Source', 'Źródło')}</dt><dd>${_esc(row.id || t('Unavailable', 'Niedostępne'))}</dd>
+              <dt>${t('Consumption', 'Zużycie')}</dt><dd>${n(row.kwh)} kWh</dd>
+              ${row.status === 'partial' ? `<dt>${t('Measured subset', 'Zmierzona część')}</dt><dd>${n(row.recordedKwh)} kWh</dd>` : ''}
               <dt>${t('Original unit', 'Jednostka źródłowa')}</dt><dd>${_esc(row.sourceUnit || t('Unavailable', 'Niedostępne'))}</dd>
               <dt>${t('Interval (UTC)', 'Przedział (UTC)')}</dt><dd>${_esc(new Date(row.from).toISOString())} — ${_esc(new Date(row.to).toISOString())}</dd>
               <dt>${t('Timezone', 'Strefa czasu')}</dt><dd>${_esc(row.timezone)}</dd>
@@ -4475,6 +4481,7 @@ this._installTariffConsumerV3();
     _insightSvgV3(width = 600) {
       const rows = this._insightChartRowsV3(), state = this._insightChartState;
       const unit = state.metric === 'kwh' ? 'kWh' : this._insightChartDataset.currency || this._insightTextV3('Currency unavailable', 'Brak waluty');
+      const metricLabel = state.metric === 'energyCost' ? this._insightTextV3('Energy cost', 'Koszt energii') : state.metric === 'variableCost' ? this._insightTextV3('Variable fees', 'Opłaty zmienne') : this._insightTextV3('Recorded consumption', 'Zarejestrowane zużycie');
       const values = rows.map(row => typeof row[state.metric] === 'number' && Number.isFinite(row[state.metric]) ? row[state.metric] : null), known = values.filter(v => typeof v === 'number' && Number.isFinite(v));
       const low = Math.min(0, ...known), high = Math.max(0, ...known), upper = high === low ? low + 1 : high;
       const w = Math.max(180, width), left = Math.min(68, w * 0.24), right = w - 12, top = 28, bottom = 218;
@@ -4497,7 +4504,7 @@ this._installTariffConsumerV3();
       flush();
       const grid = [low, (low + upper) / 2, upper].map(value => `<line x1="${left}" x2="${right}" y1="${y(value)}" y2="${y(value)}" stroke="var(--bento-border)"/><text x="${left-6}" y="${y(value)+4}" text-anchor="end">${_esc(new Intl.NumberFormat(this._lang, { maximumSignificantDigits: 3 }).format(value))}</text>`).join('');
       const axes = [0, Math.floor((rows.length-1)/2), rows.length-1].filter((i, index, all) => i >= 0 && all.indexOf(i) === index).map(i => `<text x="${x(i)}" y="242" text-anchor="middle">${_esc(state.resolution === 'hour' ? `${rows[i].hour}:${String(rows[i].minute).padStart(2, '0')}` : rows[i].key.slice(5))}</text>`).join('');
-      return `<svg data-insights-chart data-unit="${_esc(unit)}" viewBox="0 0 ${w} 262" width="100%" height="262" role="img" aria-label="${this._insightTextV3('Measured consumption; use point controls below for exact values', 'Zmierzone zużycie; dokładne wartości w wyborze punktu poniżej')}"><text x="${left}" y="18">${_esc(unit)}</text>${grid}${marks}${axes}</svg>`;
+      return `<svg data-insights-chart data-unit="${_esc(unit)}" viewBox="0 0 ${w} 262" width="100%" height="262" role="img" aria-label="${_esc(metricLabel)} · ${_esc(unit)}; ${this._insightTextV3('use point controls below for exact values', 'dokładne wartości w wyborze punktu poniżej')}"><text x="${left}" y="18">${_esc(unit)}</text>${grid}${marks}${axes}</svg>`;
     }
     _renderInsightChartV3(period) {
       this._prepareInsightChartV3(period);
@@ -4523,11 +4530,18 @@ this._installTariffConsumerV3();
     }
     _captureInsightFocusV3() {
       const active = this.shadowRoot.activeElement;
+      if (active?.tagName === 'SUMMARY' && active.parentElement?.hasAttribute('data-insights-device-details'))
+        return { detailKey: active.parentElement.dataset.insightsDeviceDetails };
       if (!active?.dataset.insightsControl) return null;
       return { key: active.dataset.insightsControl, start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection };
     }
     _restoreInsightFocusV3(focus) {
       if (!focus) return;
+      if (focus.detailKey != null) {
+        const details = [...this.shadowRoot.querySelectorAll('[data-insights-device-details]')].find(el => el.dataset.insightsDeviceDetails === focus.detailKey);
+        details?.querySelector('summary')?.focus({ preventScroll: true });
+        return;
+      }
       const controls = [...this.shadowRoot.querySelectorAll('[data-insights-control]')];
       let target = controls.find(el => el.dataset.insightsControl === focus.key);
       if (target?.disabled && ['previous-page', 'next-page', 'device-previous', 'device-next'].includes(focus.key)) {
@@ -4598,7 +4612,7 @@ this._installTariffConsumerV3();
     }
 
     _getRecommendation(trendDiff, todayKwh) {
-      return this._lang === 'pl' ? 'Pokazano wyłącznie zarejestrowany import z sieci; bez pomiaru urządzeń nie można przypisać zużycia konkretnym odbiornikom.' : 'Only recorded grid import is shown; without device measurements, usage cannot be attributed to appliances.';
+      return this._insightTextV3('Grid import comes from the configured Energy Dashboard sources. Read configured devices below to inspect their separate measurements.', 'Import z sieci pochodzi ze skonfigurowanych źródeł panelu Energia. Odczytaj urządzenia poniżej, aby obejrzeć ich osobne pomiary.');
     }
 
     // ===== RENDERING =====
