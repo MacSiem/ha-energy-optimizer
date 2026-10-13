@@ -53,7 +53,8 @@ for (const language of ['en', 'pl']) {
           assert.equal(section.querySelector('a')?.getAttribute('href'), '/config/integrations/integration/ha_tools_email');
           assert.doesNotMatch(text, /HACS/);
         } else if (state === 'configured' || state === 'legacy') {
-          assert.match(text, language === 'pl' ? /SMTP skonfigurowany/ : /SMTP Configured/);
+          assert.match(text, state === 'legacy' ? (language === 'pl' ? /Usługi HA Tools Email dostępne/ : /HA Tools Email services available/) : (language === 'pl' ? /SMTP skonfigurowany/ : /SMTP Configured/));
+          if (state === 'legacy') assert.doesNotMatch(text, /SMTP Configured|SMTP skonfigurowany/);
           assert.doesNotMatch(text, /HACS/);
           if (state === 'legacy') assert.match(text, /legacy/);
         } else {
