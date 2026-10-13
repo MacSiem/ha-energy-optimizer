@@ -2468,7 +2468,7 @@ this._installTariffConsumerV3();
           ${this._getTariffHostV3().ui().css}
           .email-action-result{padding:12px;border:1px solid var(--bento-border);border-radius:10px;margin:12px 0;overflow-wrap:anywhere}
           .email-action-result p{margin:8px 0 0;line-height:1.5}
-          .card a{color:var(--bento-primary);text-underline-offset:2px}
+          .card a{color:#2563eb;text-underline-offset:2px}
           :host(.bento-dark) .card a{color:#93c5fd}
           :host .ht-result-state--not_checked,:host .ht-result-state--no_data{color:var(--bento-text-secondary,#64748b)}
           .card button,.card select{min-height:44px;min-width:44px;box-sizing:border-box}
