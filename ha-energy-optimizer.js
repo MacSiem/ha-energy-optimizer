@@ -7621,7 +7621,7 @@ this._installTariffConsumerV3();
           .email-action-result p{margin:8px 0 0;line-height:1.5}
           .card a{color:var(--bento-primary);text-underline-offset:2px}
           :host(.bento-dark) .card a{color:#93c5fd}
-          .ht-result-state--not_checked,.ht-result-state--no_data{color:var(--bento-text-secondary,#64748b)}
+          :host .ht-result-state--not_checked,:host .ht-result-state--no_data{color:var(--bento-text-secondary,#64748b)}
           .card button,.card select{min-height:44px;min-width:44px;box-sizing:border-box}
           .card :is(button,input,select,[tabindex]):focus-visible{outline:3px solid var(--bento-primary);outline-offset:2px}
           .header>div:last-child{min-width:0}.header-sub{overflow-wrap:anywhere}
