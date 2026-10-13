@@ -4632,6 +4632,11 @@ this._installTariffConsumerV3();
         this._render();
         return;
       }
+      // A native details toggle is queued: retain the current DOM state before repaint.
+      // Only a current source may contribute disclosure state after authority changes.
+      if (this._insightDeviceState?.raw && this._insightDeviceState.current?.())
+        this.shadowRoot.querySelectorAll('[data-insights-device-details]').forEach(el =>
+          el.open ? this._insightDeviceDetails.add(el.dataset.insightsDeviceDetails) : this._insightDeviceDetails.delete(el.dataset.insightsDeviceDetails));
       const focus = this._captureInsightFocusV3();
       this._insightResize?.disconnect();
       this._insightRenderEpoch++;
