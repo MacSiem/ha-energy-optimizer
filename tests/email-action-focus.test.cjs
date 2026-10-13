@@ -49,7 +49,9 @@ for (const move of ['outside','another control','another tab','new user']) test(
 });
 for (const outcome of ['success','failure']) test(`SMTP test restores focus after ${outcome}`, async () => {
   const f=fixture(); try {
-    f.root.getElementById('btn-smtp-test').focus(); const work=f.card._testSmtp();
+    const actual=f.card._testSmtp.bind(f.card);let work;f.card._testSmtp=()=>work=actual();
+    f.root.getElementById('btn-smtp-test').focus(); f.root.activeElement.click();
+    assert.ok(work, 'visible SMTP button invokes its handler');
     assert.ok(f.root.activeElement && !f.root.activeElement.disabled);
     outcome==='success' ? f.resolve({}) : f.reject(new Error('synthetic failure')); await work;
     assert.equal(f.root.activeElement?.id,'btn-smtp-test');assert.equal(f.writes.length,1);

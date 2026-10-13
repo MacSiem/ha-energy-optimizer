@@ -2650,6 +2650,7 @@ this._installTariffConsumerV3();
           break;
         }
       }
+      this.shadowRoot.getElementById('btn-smtp-test')?.addEventListener('click', () => this._testSmtp());
       for (const saved of legacyFields) { const field = this.shadowRoot.getElementById(saved.id); if (!field) continue;
         field.value = saved.value; if (typeof saved.checked === 'boolean') field.checked = saved.checked; }
       if (focusId && !this._actionFocus) {
@@ -3243,8 +3244,6 @@ this._installTariffConsumerV3();
       if (this._hass?.user?.is_admin !== true) return;
       const root = this.shadowRoot;
       root.getElementById('email-config-refresh')?.addEventListener('click', () => this._loadEmailBackendConfig({ showErrors: true }));
-      const btnSmtpTest = root.getElementById('btn-smtp-test');
-      if (btnSmtpTest) { btnSmtpTest.addEventListener('click', () => this._testSmtp()); }
       this._bindEnergyCalendar();
       root.querySelectorAll('.schedule-save').forEach(btn => btn.addEventListener('click', () => this._saveLegacySchedule(btn.dataset.cadence)));
       root.querySelectorAll('.schedule-delete').forEach(btn => btn.addEventListener('click', () => this._deleteLegacySchedule(btn.dataset.cadence)));
@@ -3597,7 +3596,7 @@ this._installTariffConsumerV3();
     async _testSmtp() {
       const token = this._emailContextToken();
       if (!this._requireAdmin()) return;
-      if (!this._hass) return;
+      if (!this._hass || this._smtpTesting) return;
       if (this._emailBackendReportsUnsupported && !this._hasLegacyHaToolsEmail()) {
         this._smtpStatus = { ok: false, error: (this._lang === 'pl' ? 'Zaktualizuj HA Tools Email do 2.1.2+' : 'Update HA Tools Email to 2.1.2+') };
         this._showToast('⚠️ ' + this._smtpStatus.error);
