@@ -1857,6 +1857,7 @@ this._installTariffConsumerV3();
     }
 
     _clearEmailContext() {
+      this._clearActionFocus();
       this._emailContextVersion++;
       this.shadowRoot?.replaceChildren();
       this._backendConfigRead = null;
@@ -2199,8 +2200,54 @@ this._installTariffConsumerV3();
       if (tabs) tabs.scrollLeft = tabsScroll;
     }
 
+    _clearActionFocus() {
+      const pending = this._actionFocus;
+      if (!pending) return;
+      this.ownerDocument.removeEventListener('focusin', pending.onFocus, true);
+      this.ownerDocument.defaultView.removeEventListener('blur', pending.onBlur);
+      this.ownerDocument.defaultView.removeEventListener('offline', pending.onBlur);
+      pending.context.connection?.removeEventListener?.('disconnected', pending.onBlur);
+      pending.context.connection?.removeEventListener?.('ready', pending.onBlur);
+      this._actionFocus = null;
+    }
+
+    _rememberActionFocus(id) {
+      const origin = this.shadowRoot.activeElement;
+      if (!this.isConnected || origin?.id !== id) return;
+      this._clearActionFocus();
+      const pending = { id, anchor: origin, tab: this._activeTab, context: this._emailContextToken() };
+      // A late response must not undo the user's move away, even a brief one.
+      pending.onFocus = event => { if (!event.composedPath().includes(pending.anchor)) this._clearActionFocus(); };
+      pending.onBlur = () => this._clearActionFocus();
+      this._actionFocus = pending;
+      this.ownerDocument.addEventListener('focusin', pending.onFocus, true);
+      this.ownerDocument.defaultView.addEventListener('blur', pending.onBlur);
+      this.ownerDocument.defaultView.addEventListener('offline', pending.onBlur);
+      pending.context.connection?.addEventListener?.('disconnected', pending.onBlur);
+      pending.context.connection?.addEventListener?.('ready', pending.onBlur);
+    }
+
+    _checkActionFocus() {
+      const pending = this._actionFocus;
+      if (pending && (!this.isConnected || pending.tab !== this._activeTab ||
+          !this._emailContextCurrent(pending.context) || this.shadowRoot.activeElement !== pending.anchor)) this._clearActionFocus();
+    }
+
+    _restoreActionFocus() {
+      const pending = this._actionFocus;
+      if (!pending) return;
+      const root = this.shadowRoot;
+      const visible = el => el && !el.disabled && el.getClientRects().length > 0 && getComputedStyle(el).visibility !== 'hidden';
+      const busy = pending.id === 'btn-smtp-test' ? this._smtpTesting : this._sending;
+      const anchor = root.getElementById('tab-content');
+      const target = busy ? anchor : [root.getElementById(pending.id), root.getElementById('email-tab-' + pending.tab), root.getElementById('email-tab-select'), anchor].find(visible);
+      if (visible(target)) { pending.anchor = target; target.focus({ preventScroll: true }); }
+      if (!busy || root.activeElement !== pending.anchor) this._clearActionFocus();
+    }
+
     _render() {
       if (!this._hass) return;
+      this._checkActionFocus();
       const renderToken = this._emailContextVersion;
       const focus = this.shadowRoot.activeElement;
       const focusId = focus?.id;
@@ -2401,7 +2448,12 @@ this._installTariffConsumerV3();
 
 
 
-          .card button,.card select{min-height:44px;box-sizing:border-box}
+          .card button,.card select{min-height:44px;min-width:44px;box-sizing:border-box}
+          .card :is(button,input,select,[tabindex]):focus-visible{outline:3px solid var(--bento-primary);outline-offset:2px}
+          .header>div:last-child{min-width:0}.header-sub{overflow-wrap:anywhere}
+          #price-display:is(button){font:inherit;white-space:normal;overflow-wrap:anywhere;max-width:100%;padding:8px;border:1px dashed var(--bento-primary);border-radius:8px;background:var(--bento-card);color:var(--bento-primary);cursor:pointer}
+          .price-inline{display:inline-flex;align-items:center;flex-wrap:wrap;gap:4px;max-width:100%}
+          .price-inline input{min-height:44px;box-sizing:border-box}
           .card .tabs{flex-wrap:wrap;overflow:visible}
           .card .tab-btn{white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
           .email-tab-picker{display:none}
@@ -2428,19 +2480,19 @@ this._installTariffConsumerV3();
             <div class="header-icon">\u{1F4E7}</div>
             <div>
               <div class="header-title">${_esc(this._config.title)}</div>
-              <div class="header-sub">${recipientDisplay} \u00A0\u2022\u00A0 <span id="price-display" style="cursor:pointer;color:var(--bento-primary);border-bottom:1px dashed var(--bento-primary)" title="${L ? 'Kliknij aby zmieni\u0107' : 'Click to change'}">${_esc(this._tariffCurrency())} ${_esc(this._getTariffLabel())} \u270E</span></div>
+              <div class="header-sub">${recipientDisplay} \u00A0\u2022\u00A0 ${this._hass?.user?.is_admin === true ? `<button type="button" id="price-display" aria-label="${L ? 'Edytuj taryfę energii' : 'Edit energy tariff'}">${_esc(this._tariffCurrency())} ${_esc(this._getTariffLabel())} \u270E</button>` : `<span id="price-display">${_esc(this._tariffCurrency())} ${_esc(this._getTariffLabel())}</span>`}</div>
             </div>
           </div>
           <label class="email-tab-picker">${L ? 'Widok' : 'View'}<select id="email-tab-select" aria-label="${L ? 'Widok' : 'View'}">${['overview','schedule','preview','send','config','history'].map((tab,i)=>`<option value="${tab}" ${this._activeTab===tab?'selected':''}>${(L?['Przegląd','Harmonogram','Podgląd','Wyślij teraz','Ustawienia','Historia']:['Overview','Schedule','Preview','Send Now','Config','History'])[i]}</option>`).join('')}</select></label>
           <div class="tabs" role="tablist" aria-label="${L ? 'Widoki Energy Email' : 'Energy Email views'}">
-            <button class="tab-btn ${this._activeTab === 'overview' ? 'active' : ''}" data-tab="overview">\u{1F4CA} ${L ? "Przegląd" : "Overview"}</button>
-            <button class="tab-btn ${this._activeTab === 'schedule' ? 'active' : ''}" data-tab="schedule">\u{1F4C5} ${L ? "Harmonogram" : "Schedule"}</button>
-            <button class="tab-btn ${this._activeTab === 'preview' ? 'active' : ''}" data-tab="preview">\u{1F4CB} ${L ? "Podgląd" : "Preview"}</button>
-            <button class="tab-btn ${this._activeTab === 'send' ? 'active' : ''}" data-tab="send">\u{1F4E4} ${L ? "Wyślij teraz" : "Send Now"}</button>
-            <button class="tab-btn ${this._activeTab === 'config' ? 'active' : ''}" data-tab="config">\u2699\uFE0F ${L ? "Ustawienia" : "Config"}</button>
-            <button class="tab-btn ${this._activeTab === 'history' ? 'active' : ''}" data-tab="history">${L ? 'Historia' : 'History'}</button>
+            <button class="tab-btn ${this._activeTab === 'overview' ? 'active' : ''}" id="email-tab-overview" data-tab="overview">\u{1F4CA} ${L ? "Przegląd" : "Overview"}</button>
+            <button class="tab-btn ${this._activeTab === 'schedule' ? 'active' : ''}" id="email-tab-schedule" data-tab="schedule">\u{1F4C5} ${L ? "Harmonogram" : "Schedule"}</button>
+            <button class="tab-btn ${this._activeTab === 'preview' ? 'active' : ''}" id="email-tab-preview" data-tab="preview">\u{1F4CB} ${L ? "Podgląd" : "Preview"}</button>
+            <button class="tab-btn ${this._activeTab === 'send' ? 'active' : ''}" id="email-tab-send" data-tab="send">\u{1F4E4} ${L ? "Wyślij teraz" : "Send Now"}</button>
+            <button class="tab-btn ${this._activeTab === 'config' ? 'active' : ''}" id="email-tab-config" data-tab="config">\u2699\uFE0F ${L ? "Ustawienia" : "Config"}</button>
+            <button class="tab-btn ${this._activeTab === 'history' ? 'active' : ''}" id="email-tab-history" data-tab="history">${L ? 'Historia' : 'History'}</button>
           </div>
-          <div id="tab-content"></div>
+          <div id="tab-content" tabindex="-1" role="region" aria-label="${(L ? {overview:'Przegląd',schedule:'Harmonogram',preview:'Podgląd',send:'Wyślij teraz',config:'Ustawienia',history:'Historia'} : {overview:'Overview',schedule:'Schedule',preview:'Preview',send:'Send Now',config:'Config',history:'History'})[this._activeTab] || 'Energy Email'}"></div>
           ${this._tariffDetailsMarkup()}
           ${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-email') ? OWN_SUPPORT_FOOTER : ''}
         </div>
@@ -2461,7 +2513,7 @@ this._installTariffConsumerV3();
         });
       });
       this.shadowRoot.getElementById('email-tab-select')?.addEventListener('change', event => this.setActiveTab(event.target.value));
-      this._renderTab();
+      this._renderTab(true);
       this._bindTariffSettings();
       this._bindEmailEvents();
       this._bindPriceEdit();
@@ -2469,8 +2521,9 @@ this._installTariffConsumerV3();
         for (const saved of formFields) { const field = this.shadowRoot.getElementById(saved.id); if (!field) continue;
           field.value = saved.value; if (typeof saved.checked === 'boolean') field.checked = saved.checked; }
         const target = focusId && this.shadowRoot.getElementById(focusId);
-        if (target && !target.disabled) { target.focus({ preventScroll: true }); if (selection && target.setSelectionRange) try { target.setSelectionRange(...selection); } catch (_) {} }
+        if (!this._actionFocus && target && !target.disabled) { target.focus({ preventScroll: true }); if (selection && target.setSelectionRange) try { target.setSelectionRange(...selection); } catch (_) {} }
       }
+      this._restoreActionFocus();
       if (this._hass?.user?.is_admin !== true) {
         const price = this.shadowRoot.getElementById('price-display');
         if (price) { price.style.cursor = 'default'; price.style.borderBottom = 'none'; price.removeAttribute('title'); }
@@ -2517,7 +2570,7 @@ this._installTariffConsumerV3();
       if (Object.hasOwn(this._config, 'tariff_profile') || this._sharedTariffProfile != null) {
         priceEl.addEventListener('click', () => {
           const details = root.querySelector('[data-tariff-details]');
-          if (details) { details.open = true; this._bindTariffSettings(); }
+          if (details) { details.open = true; this._bindTariffSettings(); (details.querySelector('input:not(:disabled),select:not(:disabled)') || details.querySelector('summary'))?.focus({ preventScroll: true }); }
         });
         return;
       }
@@ -2526,11 +2579,10 @@ this._installTariffConsumerV3();
         const L = this._lang === 'pl';
         const cur = this._getAvgRate();
         // Replace the price display with an inline input
-        const container = priceEl.parentElement;
-        const origHtml = container.innerHTML;
-        const inputHtml = `<span style="display:inline-flex;align-items:center;gap:4px">
+        const token = this._emailContextToken(), tab = this._activeTab;
+        const inputHtml = `<span class="price-inline">
           <span>${_esc(this._tariffCurrency())}</span>
-          <input type="number" id="price-input" value="${cur ?? ''}" step="0.01" min="0" style="width:70px;padding:3px 6px;border:1.5px solid var(--bento-primary);border-radius:4px;font-size:12px;background:var(--bento-card);color:var(--bento-text);font-family:'Inter',sans-serif;text-align:center">
+          <input type="number" id="price-input" aria-label="${L ? 'Cena energii za kWh' : 'Energy price per kWh'}" value="${cur ?? ''}" step="0.01" min="0" style="width:70px;padding:3px 6px;border:1.5px solid var(--bento-primary);border-radius:4px;font-size:12px;background:var(--bento-card);color:var(--bento-text);font-family:'Inter',sans-serif;text-align:center">
           <span>/kWh</span>
           <button id="price-save" class="btn btn-primary" style="padding:3px 10px;font-size:11px;margin:0" aria-label="${L ? 'Zapisz' : 'Save'}">\u2714</button>
           <button id="price-cancel" class="btn" style="padding:3px 8px;font-size:11px;margin:0" aria-label="${L ? 'Anuluj' : 'Cancel'}">\u2716</button>
@@ -2542,6 +2594,12 @@ this._installTariffConsumerV3();
         const saveBtn = root.getElementById('price-save');
         const cancelBtn = root.getElementById('price-cancel');
         if (input) input.focus();
+        const close = () => {
+          if (!this._emailContextCurrent(token)) return;
+          const returnFocus = tab === this._activeTab && /^price-(input|save|cancel)$/.test(root.activeElement?.id || '');
+          this._render();
+          if (returnFocus) root.getElementById('price-display')?.focus({ preventScroll: true });
+        };
         const save = async () => {
           const val = parseFloat(input.value);
           if (Number.isFinite(val) && val >= 0) {
@@ -2549,19 +2607,20 @@ this._installTariffConsumerV3();
             this._config.energy_price = val;
             this._observeTariffContextV3();
             this._repriceTariffV3();
-            this._render();
+            close();
           }
         };
         if (saveBtn) saveBtn.addEventListener('click', save);
-        if (cancelBtn) cancelBtn.addEventListener('click', () => this._render());
+        if (cancelBtn) cancelBtn.addEventListener('click', close);
         if (input) input.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') save();
-          if (e.key === 'Escape') this._render();
+          if (e.key === 'Escape') { e.preventDefault(); close(); }
         });
       });
     }
 
-    _renderTab() {
+    _renderTab(fullRender = false) {
+      if (!fullRender) this._checkActionFocus();
       const el = this.shadowRoot.getElementById('tab-content');
       if (!el) return;
       const focused = this.shadowRoot.activeElement, focusId = focused?.id;
@@ -2590,8 +2649,12 @@ this._installTariffConsumerV3();
       }
       for (const saved of legacyFields) { const field = this.shadowRoot.getElementById(saved.id); if (!field) continue;
         field.value = saved.value; if (typeof saved.checked === 'boolean') field.checked = saved.checked; }
-      if (focusId) { const target = this.shadowRoot.getElementById(focusId); if (target && !target.disabled) {
-        target.focus({ preventScroll: true }); if (selection && target.setSelectionRange) try { target.setSelectionRange(...selection); } catch (_) {} } }
+      if (focusId && !this._actionFocus) {
+        let target = this.shadowRoot.getElementById(focusId);
+        if ((!target || target.disabled) && focusId.startsWith('overview-page-')) target = this.shadowRoot.getElementById('overview-period-' + this._overviewPeriod);
+        if (target && !target.disabled) { target.focus({ preventScroll: true }); if (selection && target.setSelectionRange) try { target.setSelectionRange(...selection); } catch (_) {} }
+      }
+      if (!fullRender) this._restoreActionFocus();
       const m = this._serverSchedules.model();
       if (this._scheduleSaveFocus && !m.writing && !m.reading) {
         const index = m.rows.filter(row => row.kind === 'energy_report').findIndex(row => row.id === this._scheduleSaveFocus);
@@ -2661,7 +2724,7 @@ this._installTariffConsumerV3();
       const maxVal = Math.max(...displayData.map(x => x.month)) || 1;
       const periodBtns = ['day', 'week', 'month'].map(p => {
         const lb = p === 'total' ? (L ? 'Wszystko' : 'All') : p === 'day' ? '24h' : p === 'week' ? '7d' : '30d';
-        return `<button class="overview-period-btn" data-period="${p}" style="padding:5px 12px;font-size:11px;border-radius:6px;cursor:pointer;border:1px solid var(--bento-border);background:${period === p ? 'var(--bento-primary)' : 'var(--bento-bg)'};color:${period === p ? '#fff' : 'var(--bento-text)'};font-weight:${period === p ? '600' : '400'};">${lb}</button>`;
+        return `<button class="overview-period-btn" id="overview-period-${p}" data-period="${p}" style="padding:5px 12px;font-size:11px;border-radius:6px;cursor:pointer;border:1px solid var(--bento-border);background:${period === p ? 'var(--bento-primary)' : 'var(--bento-bg)'};color:${period === p ? '#fff' : 'var(--bento-text)'};font-weight:${period === p ? '600' : '400'};">${lb}</button>`;
       }).join('');
       if (!displayData.length) {
         const status = this[`_periodStatus_${period}`] || 'no_data';
@@ -2708,9 +2771,9 @@ this._installTariffConsumerV3();
         </div>
         <div class="section-title">\u26A1 ${L ? 'Import według źródła' : 'Import by Source'}</div>
         ${(() => {
-          const page = this._devicePage || 0;
           const perPage = this._devicesPerPage || 20;
           const totalPages = Math.ceil(displayData.length / perPage);
+          const page = this._devicePage = Math.max(0, Math.min(this._devicePage || 0, totalPages - 1));
           const pageData = displayData.slice(page * perPage, (page + 1) * perPage);
           const rows = pageData.map(d => {
             const pct = maxVal > 0 ? (d.month / maxVal * 100) : 0;
@@ -2726,9 +2789,9 @@ this._installTariffConsumerV3();
           }).join('');
           const pagination = totalPages > 1 ? `
             <div class="pagination-row">
-              <button class="pagination-btn" data-page-prev ${page === 0 ? 'disabled' : ''}>\u2190 ${L ? 'Poprzednia' : 'Prev'}</button>
+              <button class="pagination-btn" id="overview-page-prev" data-page-prev ${page === 0 ? 'disabled' : ''}>\u2190 ${L ? 'Poprzednia' : 'Prev'}</button>
               <span class="pagination-info">${L ? 'Strona' : 'Page'} ${page + 1} / ${totalPages}</span>
-              <button class="pagination-btn" data-page-next ${page >= totalPages - 1 ? 'disabled' : ''}>${L ? 'Nast\u0119pna' : 'Next'} \u2192</button>
+              <button class="pagination-btn" id="overview-page-next" data-page-next ${page >= totalPages - 1 ? 'disabled' : ''}>${L ? 'Nast\u0119pna' : 'Next'} \u2192</button>
             </div>` : '';
           return rows + pagination;
         })()}`;
@@ -3316,6 +3379,7 @@ this._installTariffConsumerV3();
       }
       const recipients = options.recipients ?? this._scheduleRecipients(cadence);
       const token = this._emailContextToken(), source = this._hass;
+      this._rememberActionFocus('send-' + cadence);
       this._sending = true;
       this._scheduleBusy[cadence] = true;
       this._renderTab(); this._attachSendEvents();
@@ -3349,6 +3413,7 @@ this._installTariffConsumerV3();
         await this._sendReportViaBackend(type);
         return;
       }
+      this._rememberActionFocus('send-' + type);
       this._sending = true;
       this._renderTab(); this._attachSendEvents();
       const L = this._lang === 'pl';
@@ -3549,6 +3614,7 @@ this._installTariffConsumerV3();
         return;
       }
       if (!this._hasLegacyHaToolsEmail()) { this._showToast('\u274C ' + (this._lang === 'pl' ? 'ha_tools_email nie zainstalowany' : 'ha_tools_email not installed')); return; }
+      this._rememberActionFocus('btn-smtp-test');
       this._smtpTesting = true;
       this._render();
       try {

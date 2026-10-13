@@ -7,6 +7,8 @@ const { JSDOM } = require('jsdom');
 const code = (process.env.EMAIL_SOURCE_PATH ? [process.env.EMAIL_SOURCE_PATH] : ['src/optimizer.js','src/energy-insights.js','src/energy-email.js','src/chart-vendor.js']).map(p => readFileSync(join(__dirname,'..',p),'utf8')).join('');
 function fixture() {
   const dom = new JSDOM('<input id="outside">', {runScripts:'dangerously',url:'http://localhost/'});
+  // JSDOM has no layout; native visibility and dimensions are checked separately in Chrome.
+  dom.window.HTMLElement.prototype.getClientRects = function () { return this.isConnected ? [{width:200,height:44}] : []; };
   dom.window.eval(code);
   const card = dom.window.document.createElement('ha-energy-email');
   card._firstRender = true; card._discoveryDone = true; card._schedule = () => {};
