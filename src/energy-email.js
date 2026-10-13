@@ -2594,24 +2594,25 @@ this._installTariffConsumerV3();
         const saveBtn = root.getElementById('price-save');
         const cancelBtn = root.getElementById('price-cancel');
         if (input) input.focus();
-        const close = () => {
+        const ownsPriceFocus = () => tab === this._activeTab && /^price-(input|save|cancel)$/.test(root.activeElement?.id || '');
+        const close = (returnFocus = ownsPriceFocus()) => {
           if (!this._emailContextCurrent(token)) return;
-          const returnFocus = tab === this._activeTab && /^price-(input|save|cancel)$/.test(root.activeElement?.id || '');
           this._render();
           if (returnFocus) root.getElementById('price-display')?.focus({ preventScroll: true });
         };
         const save = async () => {
           const val = parseFloat(input.value);
           if (Number.isFinite(val) && val >= 0) {
-            if (!await this._saveToHelper('price', String(val))) return;
+            if (!await this._saveToHelper('price', String(val)) || !this._emailContextCurrent(token)) return;
+            const returnFocus = ownsPriceFocus();
             this._config.energy_price = val;
             this._observeTariffContextV3();
             this._repriceTariffV3();
-            close();
+            close(returnFocus);
           }
         };
         if (saveBtn) saveBtn.addEventListener('click', save);
-        if (cancelBtn) cancelBtn.addEventListener('click', close);
+        if (cancelBtn) cancelBtn.addEventListener('click', () => close());
         if (input) input.addEventListener('keydown', (e) => {
           if (e.key === 'Enter') save();
           if (e.key === 'Escape') { e.preventDefault(); close(); }

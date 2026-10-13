@@ -87,3 +87,20 @@ test('price save does not steal outside focus; household price stays readable',a
     f.card._hass={...f.card._hass,user:{id:'household',is_admin:false}};f.card._render();assert.equal(f.root.getElementById('price-display').tagName,'SPAN');
   }finally{f.dom.window.close();}
 });
+for (const move of ['outside-and-back','window blur','tab-and-back','disconnect']) test(`action ownership stays cancelled after ${move}`,async()=>{
+  const f=fixture();try {
+    f.root.getElementById('send-daily').focus();const work=f.card._sendReport('daily');const anchor=f.root.activeElement;
+    if(move==='outside-and-back'){f.dom.window.document.getElementById('outside').focus();anchor.focus();}
+    if(move==='window blur')f.dom.window.dispatchEvent(new f.dom.window.Event('blur'));
+    if(move==='tab-and-back'){f.card.setActiveTab('overview');f.card.setActiveTab('send');}
+    if(move==='disconnect'){f.card.remove();f.dom.window.document.body.append(f.card);f.card._render();}
+    f.resolve({status:'accepted_by_smtp'});await work;assert.notEqual(f.root.activeElement?.id,'send-daily');
+  }finally{f.dom.window.close();}
+});
+test('shared tariff action opens and focuses its editable settings without a write',()=>{
+  const f=fixture();try {
+    f.card._config.tariff_profile={schema:1,type:'flat',currency:'EUR',timezone:'UTC',rate:0.5};f.card._render();
+    f.root.getElementById('price-display').focus();f.root.activeElement.click();
+    const details=f.root.querySelector('[data-tariff-details]');assert.ok(details.open);assert.ok(details.contains(f.root.activeElement));assert.equal(f.writes.length,0);
+  }finally{f.dom.window.close();}
+});
