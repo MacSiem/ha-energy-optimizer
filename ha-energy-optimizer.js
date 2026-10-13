@@ -395,7 +395,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=36ea0cc2c39a2f4be3b85bb3546156cf33d1a6805e19a2ca9659cb0aea81d6ac
+    // HA_TARIFF_V3_START sha256=209867d9fb5a66fdfd93cdda5d6968f5382f181d40b499aa49a3a3da5d3cb01d
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -954,7 +954,8 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     if (disposed) return;
     const active = root.getRootNode().activeElement;
     const focused = active && root.contains(active) ? active : root.querySelector(':focus');
-    const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed } : resumeFocus;
+    const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed,
+      selection: typeof focused.selectionStart === 'number' ? { start: focused.selectionStart, end: focused.selectionEnd, direction: focused.selectionDirection } : null } : resumeFocus;
     const documentFocus = root.ownerDocument.activeElement, ownerRoot = root.getRootNode();
     const externalFocus = documentFocus && documentFocus !== root.ownerDocument.body &&
       documentFocus !== ownerRoot.host && !root.contains(documentFocus);
@@ -1034,7 +1035,13 @@ ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is 
       const target = [...root.querySelectorAll('input,select,textarea,button')].find(el =>
         (focusKey.path && el.dataset.path === focusKey.path) || (focusKey.action && el.dataset.action === focusKey.action) ||
         (focusKey.weekday && el.dataset.weekday === focusKey.weekday) || (focusKey.feed && el.dataset.feed === focusKey.feed));
-      if (target && !target.disabled && !externalFocus) target.focus();
+      if (target && !target.disabled && !externalFocus) {
+        target.focus();
+        if (focusKey.selection && typeof target.selectionStart === 'number') {
+          const length = target.value.length;
+          target.setSelectionRange(Math.min(focusKey.selection.start, length), Math.min(focusKey.selection.end, length), focusKey.selection.direction || 'none');
+        }
+      }
     }
     if (!state.busy) resumeFocus = null;
   }
@@ -3053,7 +3060,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=36ea0cc2c39a2f4be3b85bb3546156cf33d1a6805e19a2ca9659cb0aea81d6ac
+      // HA_TARIFF_V3_START sha256=209867d9fb5a66fdfd93cdda5d6968f5382f181d40b499aa49a3a3da5d3cb01d
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -3612,7 +3619,8 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     if (disposed) return;
     const active = root.getRootNode().activeElement;
     const focused = active && root.contains(active) ? active : root.querySelector(':focus');
-    const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed } : resumeFocus;
+    const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed,
+      selection: typeof focused.selectionStart === 'number' ? { start: focused.selectionStart, end: focused.selectionEnd, direction: focused.selectionDirection } : null } : resumeFocus;
     const documentFocus = root.ownerDocument.activeElement, ownerRoot = root.getRootNode();
     const externalFocus = documentFocus && documentFocus !== root.ownerDocument.body &&
       documentFocus !== ownerRoot.host && !root.contains(documentFocus);
@@ -3692,7 +3700,13 @@ ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is 
       const target = [...root.querySelectorAll('input,select,textarea,button')].find(el =>
         (focusKey.path && el.dataset.path === focusKey.path) || (focusKey.action && el.dataset.action === focusKey.action) ||
         (focusKey.weekday && el.dataset.weekday === focusKey.weekday) || (focusKey.feed && el.dataset.feed === focusKey.feed));
-      if (target && !target.disabled && !externalFocus) target.focus();
+      if (target && !target.disabled && !externalFocus) {
+        target.focus();
+        if (focusKey.selection && typeof target.selectionStart === 'number') {
+          const length = target.value.length;
+          target.setSelectionRange(Math.min(focusKey.selection.start, length), Math.min(focusKey.selection.end, length), focusKey.selection.direction || 'none');
+        }
+      }
     }
     if (!state.busy) resumeFocus = null;
   }
@@ -5398,7 +5412,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=36ea0cc2c39a2f4be3b85bb3546156cf33d1a6805e19a2ca9659cb0aea81d6ac
+      // HA_TARIFF_V3_START sha256=209867d9fb5a66fdfd93cdda5d6968f5382f181d40b499aa49a3a3da5d3cb01d
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -5957,7 +5971,8 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     if (disposed) return;
     const active = root.getRootNode().activeElement;
     const focused = active && root.contains(active) ? active : root.querySelector(':focus');
-    const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed } : resumeFocus;
+    const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed,
+      selection: typeof focused.selectionStart === 'number' ? { start: focused.selectionStart, end: focused.selectionEnd, direction: focused.selectionDirection } : null } : resumeFocus;
     const documentFocus = root.ownerDocument.activeElement, ownerRoot = root.getRootNode();
     const externalFocus = documentFocus && documentFocus !== root.ownerDocument.body &&
       documentFocus !== ownerRoot.host && !root.contains(documentFocus);
@@ -6037,7 +6052,13 @@ ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is 
       const target = [...root.querySelectorAll('input,select,textarea,button')].find(el =>
         (focusKey.path && el.dataset.path === focusKey.path) || (focusKey.action && el.dataset.action === focusKey.action) ||
         (focusKey.weekday && el.dataset.weekday === focusKey.weekday) || (focusKey.feed && el.dataset.feed === focusKey.feed));
-      if (target && !target.disabled && !externalFocus) target.focus();
+      if (target && !target.disabled && !externalFocus) {
+        target.focus();
+        if (focusKey.selection && typeof target.selectionStart === 'number') {
+          const length = target.value.length;
+          target.setSelectionRange(Math.min(focusKey.selection.start, length), Math.min(focusKey.selection.end, length), focusKey.selection.direction || 'none');
+        }
+      }
     }
     if (!state.busy) resumeFocus = null;
   }
