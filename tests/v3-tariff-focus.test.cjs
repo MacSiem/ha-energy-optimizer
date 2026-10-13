@@ -10,8 +10,8 @@ for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email']
  const card=dom.window.document.createElement(type);card._schedule=()=>{};
  let reads=0;card._hass={config:{currency:'EUR',time_zone:'UTC'},user:{id:'fixture',is_admin:true},connection:{connected:true},states:{},callWS:()=>{reads++;throw Error('No reads expected');}};
  card._config={...card._config,tariff_profile:profile,show_support:false};card._tariffSettingsOpen=true;dom.window.document.body.append(card);card._render();
- const input=card.shadowRoot.querySelector('[data-path="currency"]');assert.ok(input);input.focus();assert.equal(card.shadowRoot.activeElement,input);
- card._render();assert.equal(card.shadowRoot.activeElement?.dataset.path,'currency');assert.equal(reads,0);
+ const input=card.shadowRoot.querySelector('[data-path="currency"]');assert.ok(input);input.focus();input.setSelectionRange(1,2);assert.equal(card.shadowRoot.activeElement,input);
+ card._render();assert.equal(card.shadowRoot.activeElement?.dataset.path,'currency');assert.equal(card.shadowRoot.activeElement.selectionStart,1);assert.equal(card.shadowRoot.activeElement.selectionEnd,2);assert.equal(reads,0);
  }finally{dom.window.close();}
 });
 test('successful confirmed Save returns focus to the same action after its busy phase',async()=>{
