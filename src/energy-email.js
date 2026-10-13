@@ -2876,7 +2876,7 @@ this._installTariffConsumerV3();
       <p>${tr('Kolejny termin','Next fire')}: ${_esc(row.next_fire ?? tr('Brak terminu','No scheduled fire'))}</p>
       ${row.cadence === 'weekly' ? `<p>${_esc(days[row.weekday] ?? tr('Nieznany dzień','Unknown weekday'))}</p>` : row.cadence === 'monthly' ? `<p>${tr('Dzień miesiąca','Day of month')}: ${_esc(row.month_day ?? '—')}</p>` : ''}
       <div class="server-schedule-actions"><button id="schedule-edit-${i}" type="button" data-calendar-edit="${_esc(row.id)}" ${editable ? '' : 'disabled'}>${tr('Edytuj','Edit')}</button>
-      <button id="schedule-send-${i}" type="button" data-calendar-send="${_esc(row.id)}" ${busy || !this._serverSchedules.online() || this._sending ? 'disabled' : ''}>${tr('Wyślij teraz','Send now')}</button>
+      <button id="schedule-send-${i}" type="button" data-calendar-send="${_esc(row.id)}" ${busy || !this._serverSchedules.online() || this._sending || this._smtpRequest ? 'disabled' : ''}>${tr('Wyślij teraz','Send now')}</button>
       <button id="schedule-delete-${i}" type="button" data-calendar-delete="${_esc(row.id)}" ${editable ? '' : 'disabled'}>${tr('Usuń','Delete')}</button></div></article>`).join('')}</div>${editor}${preview}</section>`;
     }
 
@@ -3131,7 +3131,7 @@ this._installTariffConsumerV3();
       const sendingLabel = L ? 'Wysyłam...' : 'Sending...';
       const lastSentLabel = cadence => this._lastSentOutcome[cadence] === 'accepted_by_smtp' ? (L ? 'Ostatnio przyjęto przez SMTP: ' : 'Last accepted by SMTP: ') : (L ? 'Ostatnie żądanie wysyłki: ' : 'Last send request: ');
       const smtpConfig = this._renderSmtpSection();
-      const canSend = this._hasHaToolsEmail();
+      const canSend = this._hasHaToolsEmail() && !this._smtpRequest;
       const backendReports = this._emailBackendAvailable && !this._emailBackendReportsUnsupported;
       const quickDisabled = this._sending || (backendReports ? true : !canSend);
       const modeText = backendReports
@@ -3377,6 +3377,7 @@ this._installTariffConsumerV3();
     _emailResultText(result) {
       const pl = this._lang === 'pl';
       const texts = {
+        sending: ['Send request in progress; delivery unconfirmed.', 'Żądanie wysyłki trwa; doręczenie niepotwierdzone.'],
         accepted_by_smtp: ['Accepted by SMTP; delivery unconfirmed.', 'Przyjęte przez SMTP; doręczenie niepotwierdzone.'],
         request_completed: ['Request completed; SMTP acceptance and delivery unconfirmed. Inspect History before retrying.', 'Żądanie zakończone; przyjęcie przez SMTP i doręczenie niepotwierdzone. Przed ponowieniem sprawdź Historię.'],
         transport_unknown: ['Send outcome unconfirmed. Inspect History; no automatic retry.', 'Wynik wysyłki niepotwierdzony. Sprawdź Historię; nie ponawiamy automatycznie.'],
@@ -3406,7 +3407,7 @@ this._installTariffConsumerV3();
     async _sendReportViaBackend(cadence, options = {}) {
       if (!this._requireAdmin()) return;
       if (this._emailBackendReportsUnsupported) return this._sendReport(cadence);
-      if (!this._hass || this._sending || this._emailSendRequest) return;
+      if (!this._hass || this._sending || this._emailSendRequest || this._smtpRequest) return;
       if (!['daily', 'weekly', 'monthly'].includes(cadence)) return;
       if (!this._emailBackendConfig?.smtp_configured) {
         this._setEmailActionResult('send', 'error', 'smtp_unconfigured'); this._renderTab(); return;
@@ -3414,7 +3415,7 @@ this._installTariffConsumerV3();
       const recipients = options.recipients ?? this._scheduleRecipients(cadence);
       const token = this._emailContextToken(), source = this._hass;
       const request = this._emailSendRequest = {};
-      this._sendResult = null;
+      this._sendResult = { state: 'not_checked', reason: 'sending' };
       this._rememberActionFocus('send-' + cadence);
       this._sending = true;
       this._scheduleBusy[cadence] = true;
@@ -3438,14 +3439,14 @@ this._installTariffConsumerV3();
 
     async _sendReport(type) {
       if (!this._requireAdmin()) return;
-      if (!this._hass || this._sending || this._emailSendRequest) return;
+      if (!this._hass || this._sending || this._emailSendRequest || this._smtpRequest) return;
       if (this._emailBackendAvailable && !this._emailBackendReportsUnsupported && ['daily', 'weekly', 'monthly'].includes(type)) {
         await this._sendReportViaBackend(type);
         return;
       }
       const token = this._emailContextToken(), request = this._emailSendRequest = {};
       let dispatched = false;
-      this._sendResult = null;
+      this._sendResult = { state: 'not_checked', reason: 'sending' };
       this._rememberActionFocus('send-' + type);
       this._sending = true;
       this._renderTab(); this._attachSendEvents();
@@ -3592,7 +3593,7 @@ this._installTariffConsumerV3();
               <div class="smtp-detail">${L ? 'Zmie\u0144 w' : 'Change in'} <b>${L ? '<a href="/config/integrations/integration/ha_tools_email">Ustawienia \u2192 Urz\u0105dzenia i us\u0142ugi \u2192 HA Tools Email \u2192 Konfiguruj</a>' : '<a href="/config/integrations/integration/ha_tools_email">Settings \u2192 Devices &amp; services \u2192 HA Tools Email \u2192 Configure</a>'}</b></div>
             </div></div>
             <div class="smtp-actions" style="margin-top:12px">
-              <button class="btn btn-primary" id="btn-smtp-test" ${this._smtpTesting ? 'disabled' : ''}>${this._smtpTesting ? (L ? 'Wysy\u0142am...' : 'Sending...') : (L ? 'Test SMTP' : 'Test SMTP')}</button>
+              <button class="btn btn-primary" id="btn-smtp-test" ${this._smtpTesting || this._emailSendRequest ? 'disabled' : ''}>${this._smtpTesting ? (L ? 'Wysy\u0142am...' : 'Sending...') : (L ? 'Test SMTP' : 'Test SMTP')}</button>
               ${statusBadge}
             </div>
           </div>`;
@@ -3612,7 +3613,7 @@ this._installTariffConsumerV3();
             <div class="smtp-detail">${L ? 'U\u017Cywam us\u0142ug Home Assistant ha_tools_email.send/test.' : 'Using Home Assistant ha_tools_email.send/test services.'}</div>
           </div></div>
           <div class="smtp-actions" style="margin-top:12px">
-            <button class="btn btn-primary" id="btn-smtp-test" ${this._smtpTesting ? 'disabled' : ''}>${this._smtpTesting ? (L ? 'Wysy\u0142am...' : 'Sending...') : (L ? 'Wy\u015Blij testowy email' : 'Send Test Email')}</button>
+            <button class="btn btn-primary" id="btn-smtp-test" ${this._smtpTesting || this._emailSendRequest ? 'disabled' : ''}>${this._smtpTesting ? (L ? 'Wysy\u0142am...' : 'Sending...') : (L ? 'Wy\u015Blij testowy email' : 'Send Test Email')}</button>
             ${statusBadge}
           </div>
         </div>`;
@@ -3632,7 +3633,7 @@ this._installTariffConsumerV3();
 
     async _testSmtp() {
       const token = this._emailContextToken();
-      if (!this._requireAdmin() || !this._hass || this._smtpTesting || this._smtpRequest) return;
+      if (!this._requireAdmin() || !this._hass || this._smtpTesting || this._smtpRequest || this._emailSendRequest) return;
       if (this._emailBackendReportsUnsupported && !this._hasLegacyHaToolsEmail()) {
         this._setEmailActionResult('smtp', 'error', 'upgrade_required'); this._render(); return;
       }
@@ -3644,7 +3645,7 @@ this._installTariffConsumerV3();
         this._render(); return;
       }
       const source = this._hass, request = this._smtpRequest = {};
-      this._smtpStatus = null;
+      this._smtpStatus = { state: 'not_checked', reason: 'sending' };
       this._rememberActionFocus('btn-smtp-test');
       this._smtpTesting = true;
       this._render();
