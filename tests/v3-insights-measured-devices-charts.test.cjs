@@ -224,3 +224,36 @@ test('device search preserves caret and exposes every configured source through 
     assert.equal(f.card.shadowRoot.activeElement.value, 'Device 2'); assert.equal(f.calls.length, count);
   } finally { f.close(); }
 });
+
+// Owner review regressions: actual native summary focus loss and wrong metric name.
+test('device disclosure retains keyboard focus/open state across locale without new reads', async () => {
+  const f = await fixture(); try {
+    await f.card._readInsightDevicesV3(); const count = f.calls.length;
+    const disclosure = f.card.shadowRoot.querySelectorAll('[data-insights-device-details]')[1];
+    disclosure.open = true; disclosure.dispatchEvent(new f.dom.window.Event('toggle'));
+    disclosure.querySelector('summary').focus();
+    f.card.hass = { ...f.hass, language: 'pl', locale: { language: 'pl' } }; await flush();
+    const focused = f.card.shadowRoot.activeElement;
+    assert.equal(focused?.tagName, 'SUMMARY');
+    assert.equal(focused.parentElement.dataset.insightsDeviceDetails, disclosure.dataset.insightsDeviceDetails);
+    assert.equal(focused.parentElement.open, true); assert.equal(f.calls.length, count);
+  } finally { f.close(); }
+});
+test('chart accessible name describes the selected measure and its unit', async () => {
+  const f = await fixture(); try {
+    f.card.setActiveTab('weekly'); change(f, 'metric', 'energyCost');
+    const svg = f.card.shadowRoot.querySelector('[data-insights-chart]');
+    assert.match(svg.getAttribute('aria-label'), /Energy cost.*EUR/);
+    change(f, 'metric', 'variableCost');
+    assert.match(f.card.shadowRoot.querySelector('[data-insights-chart]').getAttribute('aria-label'), /Variable fees.*EUR/);
+  } finally { f.close(); }
+});
+test('primary device consumption is readable while details retain the exact measured value', async () => {
+  const f = await fixture({ transform: (rows, id) => id === 'sensor.hvac_child' ? rows.map(r => ({ ...r, change: 0.15 })) : rows }); try {
+    await f.card._readInsightDevicesV3(); const row = f.card._insightDeviceRowsV3()[1];
+    const article = f.card.shadowRoot.querySelectorAll('[data-insights-device]')[1];
+    assert.equal(article.querySelector('.insights-device-heading span').textContent, '25.2 kWh');
+    const full = [...article.querySelectorAll('dt')].find(el => el.textContent === 'Consumption').nextElementSibling;
+    assert.equal(full.textContent, String(row.kwh) + ' kWh');
+  } finally { f.close(); }
+});
