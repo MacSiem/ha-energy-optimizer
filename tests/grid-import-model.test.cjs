@@ -147,7 +147,7 @@ test('interior missing Recorder hour cannot produce a complete daily model', asy
   } finally { dom.window.close(); }
 });
 
-test('Insights rejects an interior missing hour instead of presenting daily totals and peak hours', async () => {
+test('Insights retains inspectable partial hours without inventing complete daily totals or peak hours', async () => {
   const { dom } = cardWith({}, { now: '2026-09-30T12:30:00Z', timeZone: 'UTC' });
   try {
     const insights = dom.window.document.createElement('ha-energy-insights');
@@ -161,8 +161,12 @@ test('Insights rejects an interior missing hour instead of presenting daily tota
       ] },
     })[msg.type] };
     await insights._fetchData();
-    assert.match(insights._error || '', /Incomplete.*hour/i);
-    assert.equal(insights._data, null);
+    assert.equal(insights._error, null);
+    assert.equal(insights._data.todayKwh, null);
+    insights._prepareInsightChartV3('daily');
+    const rows = insights._insightChartRowsV3();
+    assert.equal(rows.find(row => row.from === Date.parse('2026-09-30T10:00Z')).kwh, null);
+    assert.equal(rows.find(row => row.from === Date.parse('2026-09-30T11:00Z')).kwh, 2);
   } finally { dom.window.close(); }
 });
 

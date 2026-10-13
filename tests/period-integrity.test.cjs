@@ -109,7 +109,13 @@ for (const [date, zone, expectedHours] of [['2026-10-25T23:30Z', 'Europe/Warsaw'
       card._config.energy_price = 2;
       await card._fetchData();
       // At local midnight there are no completed hours today yet.
-      if (expectedHours === 0) assert.equal(card._data, null);
+      if (expectedHours === 0) {
+        assert.equal(card._data.todayKwh, null);
+        assert.equal(card._data.thisWeekKwh, 168);
+        assert.equal(card._data.monthKwh, 720);
+        card._prepareInsightChartV3('daily');
+        assert.equal(card._insightChartRowsV3().length, 0);
+      }
       else {
         assert.equal(card._data.todayKwh, expectedHours);
         assert.equal(card._data.thisWeekKwh, 168);
