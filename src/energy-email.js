@@ -2616,7 +2616,7 @@ this._installTariffConsumerV3();
         if (saveBtn) saveBtn.addEventListener('click', save);
         if (cancelBtn) cancelBtn.addEventListener('click', () => close());
         if (input) input.addEventListener('keydown', (e) => {
-          if (e.key === 'Enter') save();
+          if (e.key === 'Enter') { e.preventDefault(); save(); }
           if (e.key === 'Escape') { e.preventDefault(); close(); }
         });
       });

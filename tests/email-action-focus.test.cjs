@@ -115,3 +115,10 @@ test('compact navigation has one picker and stays synchronized after changing vi
     f.card.setActiveTab('send');assert.equal(f.root.getElementById('email-tab-select').value,'send');
   }finally{f.dom.window.close();}
 });
+test('Enter in the inline price input consumes the key before returning to its button',async()=>{
+  const f=fixture();try {
+    f.root.getElementById('price-display').click();const input=f.root.getElementById('price-input');input.value='0.65';
+    const event=new f.dom.window.KeyboardEvent('keydown',{key:'Enter',cancelable:true});input.dispatchEvent(event);
+    assert.equal(event.defaultPrevented,true);await new Promise(r=>setImmediate(r));assert.equal(f.root.activeElement?.id,'price-display');assert.equal(f.card._config.energy_price,0.65);
+  }finally{f.dom.window.close();}
+});
