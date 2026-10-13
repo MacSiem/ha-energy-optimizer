@@ -84,7 +84,8 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     const active = card.shadowRoot?.activeElement;
     focusKey = active?.closest('[data-tariff-details]') ? {
       summary: active.tagName === 'SUMMARY', path: active.dataset.path,
-      action: active.dataset.action, weekday: active.dataset.weekday, feed: active.dataset.feed
+      action: active.dataset.action, weekday: active.dataset.weekday, feed: active.dataset.feed,
+      selection: typeof active.selectionStart === 'number' ? { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection } : null
     } : null;
     return `<style>
     [data-energy-container]{container-type:inline-size;container-name:energy-card}
@@ -188,7 +189,13 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
         [...root.querySelectorAll('input,select,textarea,button')].find(el =>
           (key.path && el.dataset.path === key.path) || (key.action && el.dataset.action === key.action) ||
           (key.weekday && el.dataset.weekday === key.weekday) || (key.feed && el.dataset.feed === key.feed));
-      if (target && !target.disabled) target.focus({ preventScroll: true });
+      if (target && !target.disabled) {
+        target.focus({ preventScroll: true });
+        if (key.selection && typeof target.selectionStart === 'number') {
+          const length = target.value.length;
+          target.setSelectionRange(Math.min(key.selection.start, length), Math.min(key.selection.end, length), key.selection.direction || 'none');
+        }
+      }
     }
   };
   return { model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, ui: () => createUi({ language: language() }) };
