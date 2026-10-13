@@ -161,7 +161,8 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     if (disposed) return;
     const active = root.getRootNode().activeElement;
     const focused = active && root.contains(active) ? active : root.querySelector(':focus');
-    const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed } : resumeFocus;
+    const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed,
+      selection: typeof focused.selectionStart === 'number' ? { start: focused.selectionStart, end: focused.selectionEnd, direction: focused.selectionDirection } : null } : resumeFocus;
     const documentFocus = root.ownerDocument.activeElement, ownerRoot = root.getRootNode();
     const externalFocus = documentFocus && documentFocus !== root.ownerDocument.body &&
       documentFocus !== ownerRoot.host && !root.contains(documentFocus);
@@ -241,7 +242,13 @@ ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is 
       const target = [...root.querySelectorAll('input,select,textarea,button')].find(el =>
         (focusKey.path && el.dataset.path === focusKey.path) || (focusKey.action && el.dataset.action === focusKey.action) ||
         (focusKey.weekday && el.dataset.weekday === focusKey.weekday) || (focusKey.feed && el.dataset.feed === focusKey.feed));
-      if (target && !target.disabled && !externalFocus) target.focus();
+      if (target && !target.disabled && !externalFocus) {
+        target.focus();
+        if (focusKey.selection && typeof target.selectionStart === 'number') {
+          const length = target.value.length;
+          target.setSelectionRange(Math.min(focusKey.selection.start, length), Math.min(focusKey.selection.end, length), focusKey.selection.direction || 'none');
+        }
+      }
     }
     if (!state.busy) resumeFocus = null;
   }
