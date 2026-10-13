@@ -17,7 +17,7 @@ function setup(type, series, options = {}) {
   card._updateContent = () => {};
   const ids = Object.keys(series);
   const calls = [];
-  card._hass = { config: { time_zone: options.zone || 'UTC', currency: 'EUR' }, states: {}, callWS: async msg => {
+  card._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { time_zone: options.zone || 'UTC', currency: 'EUR' }, states: {}, callWS: async msg => {
     calls.push(msg);
     if (msg.type === 'energy/get_prefs') return options.prefs || { energy_sources: ids.map(id => ({ type: 'grid', stat_energy_from: id })) };
     if (msg.type === 'recorder/get_statistics_metadata') return Object.fromEntries(ids.map(id => [id, { has_sum: true, statistics_unit_of_measurement: options.unit || 'kWh', unit_class: 'energy' }]));

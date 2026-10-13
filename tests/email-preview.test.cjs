@@ -16,7 +16,7 @@ function preview(options = {}) {
   }
   dom.window.eval(readFileSync(join(__dirname, '..', 'ha-energy-optimizer.js'), 'utf8'));
   const card = dom.window.document.createElement('ha-energy-email');
-  card._hass = { user: { is_admin: true }, config: { currency: 'EUR' }, states: {} };
+  card._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { currency: 'EUR' }, states: {} };
   card._discoveryDone = true;
   card._lang = 'en';
   card._discoveredDevices = options.devices || [];

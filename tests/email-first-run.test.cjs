@@ -8,7 +8,7 @@ function card() {
   const dom = new JSDOM('', { runScripts: 'dangerously', url: 'http://localhost/' });
   dom.window.eval(readFileSync(root + '/ha-energy-optimizer.js', 'utf8'));
   const card = dom.window.document.createElement('ha-energy-email');
-  card._hass = { user: { is_admin: true }, states: {}, config: { currency: 'EUR' } };
+  card._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, states: {}, config: { currency: 'EUR' } };
   card._discoveryDone = true;
   return { dom, card };
 }

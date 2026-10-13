@@ -11,7 +11,7 @@ function setup() {
   const card = dom.window.document.createElement('ha-energy-optimizer');
   dom.window.document.body.append(card);
   let calls = 0;
-  card._hass = { language: 'en', locale: { language: 'en' }, config: { time_zone: 'Europe/Warsaw' }, states: {}, callWS: () => { calls++; throw Error('Unexpected WS'); } };
+  card._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, language: 'en', locale: { language: 'en' }, config: { time_zone: 'Europe/Warsaw' }, states: {}, callWS: () => { calls++; throw Error('Unexpected WS'); } };
   card._schedule = () => {};
   card._bindTariffSettings = () => {};
   card._resetTariffContext = () => {};

@@ -17,7 +17,7 @@ function cardWith(responses, options = {}) {
   dom.window.eval(readFileSync(join(__dirname, '..', 'ha-energy-optimizer.js'), 'utf8'));
   const card = dom.window.document.createElement('ha-energy-optimizer');
   const calls = [];
-  card._hass = { config: { currency: 'EUR', time_zone: options.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone }, states: {}, callWS: async message => {
+  card._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { currency: 'EUR', time_zone: options.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone }, states: {}, callWS: async message => {
     calls.push(message);
     const response = responses[message.type];
     return typeof response === 'function' ? response(message) : response;
@@ -152,7 +152,7 @@ test('Insights rejects an interior missing hour instead of presenting daily tota
   try {
     const insights = dom.window.document.createElement('ha-energy-insights');
     insights._updateContent = () => {};
-    insights._hass = { config: { currency: 'EUR', time_zone: 'UTC' }, states: {}, callWS: async msg => ({
+    insights._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { currency: 'EUR', time_zone: 'UTC' }, states: {}, callWS: async msg => ({
       'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
       'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh' } },
       'recorder/statistics_during_period': { 'sensor.grid': [
@@ -214,7 +214,7 @@ test('Insights ignores unconfigured power sensors and omits cost without a tarif
   try {
     const insights = dom.window.document.createElement('ha-energy-insights');
     insights._updateContent = () => {};
-    insights._hass = { config: { currency: 'EUR', time_zone: 'UTC' }, states: {
+    insights._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { currency: 'EUR', time_zone: 'UTC' }, states: {
       'sensor.power': { state: '1500', attributes: { unit_of_measurement: 'W' } },
     }, callWS: async msg => ({
       'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
@@ -235,7 +235,7 @@ test('Insights shows an honest empty state when one configured grid source has n
   try {
     const insights = dom.window.document.createElement('ha-energy-insights');
     insights._updateContent = () => {};
-    insights._hass = { config: { currency: 'EUR' }, states: {}, callWS: async msg => ({
+    insights._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { currency: 'EUR' }, states: {}, callWS: async msg => ({
       'energy/get_prefs': { energy_sources: [
         { type: 'grid', stat_energy_from: 'sensor.grid_a' },
         { type: 'grid', stat_energy_from: 'sensor.grid_b' },
@@ -260,7 +260,7 @@ test('Energy Email has no assumed price or currency and preserves an explicit ze
   const { dom } = cardWith({});
   try {
     const email = dom.window.document.createElement('ha-energy-email');
-    email._hass = { config: { currency: 'EUR' } };
+    email._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { currency: 'EUR' } };
     assert.equal(email._getAvgRate(), null);
     assert.equal(email._cost(5), null);
     assert.equal(email._formatCost(email._cost(5)), 'N/A');

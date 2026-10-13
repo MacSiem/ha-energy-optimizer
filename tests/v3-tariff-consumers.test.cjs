@@ -11,7 +11,7 @@ function setup(type) {
   const dom = new JSDOM('', { runScripts: 'dangerously', url: 'http://localhost/' });
   dom.window.eval(readFileSync(join(__dirname, '..', 'ha-energy-optimizer.js'), 'utf8'));
   const card = dom.window.document.createElement(type);
-  card._hass = { config: { time_zone: 'UTC', currency: 'EUR' }, states: {}, user: { is_admin: false } };
+  card._hass = { config: { time_zone: 'UTC', currency: 'EUR' }, states: {}, user: { id: 'measurement-fixture', is_admin: false }, connection: { connected: true } };
   card._config = { ...card._config, tariff_profile: profile() };
   return { dom, card };
 }
