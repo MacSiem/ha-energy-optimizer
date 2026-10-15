@@ -26,6 +26,16 @@ const energyImportIds = prefs => [...new Set((prefs?.energy_sources || [])
   .flatMap(source => source.stat_energy_from ? [source.stat_energy_from] : (source.flow_from || []).map(flow => flow?.stat_energy_from).filter(Boolean)))];
 const ENERGY_HOUR = 3600000;
 
+// Snapshot scalar identity: HA can mutate the same hass/config/user object.
+// Presentation changes do not invalidate already accepted Recorder measurements.
+const energyMeasurementContextChangedV3 = (card, hass) => {
+  const next = { present: !!hass, connection: hass?.connection ?? null,
+    user: hass?.user?.id ?? null, zone: hass?.config?.time_zone ?? null };
+  const prior = card._measurementBindingV3;
+  card._measurementBindingV3 = next;
+  return !!prior && Object.keys(next).some(key => prior[key] !== next[key]);
+};
+
 async function readEnergyHours(hass, hours) {
   const ids = energyImportIds(await hass.callWS({ type: 'energy/get_prefs' }));
   if (!ids.length) return { ids, noSensors: true };
@@ -272,13 +282,17 @@ class HaEnergyOptimizer extends HTMLElement {
       this.classList.toggle('bento-dark', _d);
     } catch (e) {}
     const previousHass = this._hass;
-    if (previousHass && (previousHass.connection !== hass?.connection || previousHass.user?.id !== hass?.user?.id ||
-        previousHass.config?.time_zone !== hass?.config?.time_zone)) {
+    if (energyMeasurementContextChangedV3(this, hass)) {
       this._energyModel = null;
       this._patternsDataset = null;
       this._patternsState = null;
       this._dashboardStateV3 = null;
       this._hasRealData = false;
+      this._todayWindow = null;
+      this._energyData = [];
+      this._weeklyData = [];
+      this._recommendations = [];
+      this._comparisonData = null;
       this._lastStatsFetch = 0;
       // A new session must not keep old measured rows visible during throttling.
       this._lastRenderTime = 0;

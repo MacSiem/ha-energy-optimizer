@@ -1117,6 +1117,7 @@ this._installTariffConsumerV3();
     }
 
     _repriceTariffV3() {
+      if (!this._hass) return;
       if (this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
       if (this._insightsEnergyModel) {
         try { this._projectInsightsV3(this._insightsEnergyModel); this._error = null; }
@@ -1165,10 +1166,29 @@ this._installTariffConsumerV3();
         const previousLanguage = this._lang;
         const language = hass?.locale?.language || hass?.language;
         if (language) this._lang = language.startsWith('pl') ? 'pl' : 'en';
+        const measurementsChanged = energyMeasurementContextChangedV3(this, hass);
+        if (measurementsChanged) {
+          this._insightsEnergyModel = null;
+          this._data = null;
+          this._insightProjectionCacheV3 = null;
+          this._insightChartDataset = null;
+          this._insightChartStates = {};
+          this._insightChartState = null;
+          this._insightRenderEpoch++;
+          this._clearInsightDevicesV3();
+          this._lastDataFetch = 0;
+          this._error = null;
+        }
         this._resetTariffContext(hass);
         this._hass = hass;
-        if (!hass) return;
+        if (!hass) {
+          this._insightResize?.disconnect();
+          this.shadowRoot.replaceChildren();
+          this._domBuilt = false;
+          return;
+        }
         this.classList.toggle('bento-dark', hass.themes?.darkMode === true);
+        if (measurementsChanged && this._firstHassRender) this._render();
 
         const now = Date.now();
         if (!this._firstHassRender) {
@@ -1196,7 +1216,7 @@ this._installTariffConsumerV3();
         this._syncChartTheme();
         this._syncSupport();
 
-        if (previousLanguage !== this._lang) return; // A locale gesture only reprojects cached measurements.
+        if (previousLanguage !== this._lang && !measurementsChanged) return; // A locale gesture only reprojects cached measurements.
 
         // Fetch new data every 5 minutes (recorder stats don't change often)
         if (!this._lastDataFetch || (now - this._lastDataFetch) > 300000) {

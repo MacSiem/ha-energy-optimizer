@@ -583,14 +583,27 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
         const previousLanguage = this._lang;
         const language = hass?.locale?.language || hass?.language;
         if (language) this._lang = language.startsWith('pl') ? 'pl' : 'en';
+        const measurementsChanged = energyMeasurementContextChangedV3(this, hass);
+        if (measurementsChanged) {
+          for (const period of ['day', 'week', 'month']) {
+            this[`_periodCache_${period}`] = null;
+            this[`_periodRaw_${period}`] = null;
+            this[`_periodWindow_${period}`] = null;
+            this[`_periodStatus_${period}`] = 'no_data';
+            this[`_periodCacheTime_${period}`] = 0;
+          }
+          // Keep an occupied refresh promise until its old wire really settles.
+          this._lastPeriodRefresh = 0;
+          this._lastRenderTime = 0;
+        }
         const emailContextChanged = this._resetEmailContext(hass);
         this._resetTariffContext(hass);
         this._hass = hass;
         this._serverSchedules.setContext(hass);
         this._attemptHistory.setContext(hass);
         if (this._activeTab === 'history') this._render();
-        if (!hass) return;
-        if (emailContextChanged && this._firstRender) { this._render(); return; }
+        if (!hass) { this.shadowRoot.replaceChildren(); return; }
+        if ((emailContextChanged || measurementsChanged) && this._firstRender) { this._render(); return; }
         const now = Date.now();
         if (!this._firstRender) {
           this._firstRender = true;
@@ -1644,6 +1657,7 @@ this._installTariffConsumerV3();
     }
 
     _repriceTariffV3() {
+      if (!this._hass) return;
       if (this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
       for (const period of ['day', 'week', 'month']) {
         if (this[`_periodStatus_${period}`] !== 'ready') continue;
