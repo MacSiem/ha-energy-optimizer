@@ -2,6 +2,8 @@
 
 ## 3.6.0 (2026-10-15)
 
+- Give legacy local and backend schedule enabled labels a 44px touch target while preserving their native checkbox, keyboard behavior and explicit-save semantics.
+
 - Keep active units and cost subtitles readable in light and dark themes in Insights and Energy Email. Format partial device summaries for readability while retaining every recorded digit in expanded measurement details.
 - Keep the Optimizer source, measurement window and timezone readable in both themes.
 

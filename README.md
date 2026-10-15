@@ -119,7 +119,7 @@ shows the previous completed calendar day. Energy charges, variable fees and
 fixed monthly fees remain separate. Actual HTML previews require HA Tools Email
 Integration 2.3.0 or newer; the report continues below the visible preview area.
 [Capture provenance](docs/screenshots/provenance.json) records the source versions
-and unchanged modules used by these images.
+and the view scope used by these images.
 
 ## Installation
 

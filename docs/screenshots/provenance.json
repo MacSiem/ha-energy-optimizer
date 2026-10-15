@@ -88,12 +88,13 @@
       "qualification": "Unedited Browser SDK capture of native Chrome, personally inspected; synthetic Recorder QA only."
     }
   ],
-  "unchanged_modules_for_earlier_captures": {
-    "src/energy-insights.js": "6e2085a9cbec19fbab32e2e5c6c93c3e469197e91521cac086396010465c5d67",
-    "src/energy-email.js": "612ac28ef1a95dab979b4a657368e108de1a3a0aa70a10e3459170a1dd7d5af5"
-  },
   "data": "Controlled synthetic Recorder series; qa_energy338 source, fixture@example.invalid recipient, sample CHF tariff. No home data or real recipients.",
   "windows": "Optimizer: current local day, 23 completed hours / 46 kWh. Earlier Insights: current day, 22 hours / 44 kWh. Email overview: rolling 24 hours / 48 kWh. Calendar preview: previous completed day, 24 hours / 48 kWh. Different windows are intentional.",
   "email_preview": "Actual backend 2.3.0 HTML, no message sent. Screenshot shows controls and upper report; full chart/table content is scrollable.",
-  "capture_limit": "Rejected SDK images with missing text are excluded. Native screen comparison showed correct values. Original empty-state PNGs remain historical empty-state examples only. Raw SDK bytes were JPEG despite local diagnostic .png suffix; public .jpg files preserve original bytes."
+  "capture_limit": "Rejected SDK images with missing text are excluded. Native screen comparison showed correct values. Original empty-state PNGs remain historical empty-state examples only. Raw SDK bytes were JPEG despite local diagnostic .png suffix; public .jpg files preserve original bytes.",
+  "captured_modules": {
+    "src/energy-insights.js": "6e2085a9cbec19fbab32e2e5c6c93c3e469197e91521cac086396010465c5d67",
+    "src/energy-email.js": "612ac28ef1a95dab979b4a657368e108de1a3a0aa70a10e3459170a1dd7d5af5"
+  },
+  "reuse_after_capture": "The later change only adds schedule-toggle class and scoped CSS to legacy enabled-checkbox labels. Captured Overview/Preview/Daily/Patterns views do not contain that class; their markup/styles remain unchanged. Current native legacy toggle targets are separately verified after the fix. Captured_modules record capture-time hashes, not a claim that all final modules remain byte-identical."
 }
