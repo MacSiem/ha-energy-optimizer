@@ -2266,9 +2266,11 @@ canvas {
 }
 /* Keep all measured Data columns visible, including fees and coverage on narrow cards. */
 .patterns-table th,.patterns-table td { display:table-cell; font-size:14px; }
-.patterns-table table { min-width:640px; }
+.patterns-table table { min-width:0; }
+.patterns-table[data-pattern-control="table"] table { min-width:640px; }
 .patterns-table th:first-child { min-width:140px; }
-.patterns-table td,.patterns-table th { overflow-wrap:normal; word-break:normal; }
+.patterns-table td,.patterns-table th { overflow-wrap:anywhere; }
+.patterns-table[data-pattern-control="table"] td,.patterns-table[data-pattern-control="table"] th { overflow-wrap:normal; word-break:normal; }
 </style>
     `;
   }
