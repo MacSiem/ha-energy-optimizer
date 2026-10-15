@@ -1562,7 +1562,11 @@ this._installTariffConsumerV3();
       return this._tariffHostController;
     }
     _tariffCurrency() { return this._getTariffHostV3().currency(); }
-    _loadSharedTariffProfile() { return this._getTariffHostV3().load(); }
+    async _loadSharedTariffProfile() {
+      const confirmed = await this._getTariffHostV3().load();
+      if (confirmed && this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
+      return confirmed;
+    }
     _tariffDetailsMarkup() { return this._getTariffHostV3().markup(); }
     _bindTariffSettings() {
       if (this._tariffWriteUnconfirmedV3) {
@@ -1630,6 +1634,7 @@ this._installTariffConsumerV3();
     }
 
     _repriceTariffV3() {
+      if (this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
       for (const period of ['day', 'week', 'month']) {
         if (this[`_periodStatus_${period}`] !== 'ready') continue;
         const measured = this[`_periodRaw_${period}`];
