@@ -7769,6 +7769,7 @@ this._installTariffConsumerV3();
           .device-bar { height: 100%; background: var(--bento-primary); border-radius: 4px; transition: width .4s; }
           .schedule-card { border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 14px; margin-bottom: 10px; box-sizing: border-box; max-width: 100%; overflow: hidden; }
           .schedule-card .config-input { box-sizing: border-box; min-width: 0; max-width: 100%; }
+          .schedule-card input:not([type="checkbox"]), .schedule-card select { min-height: 44px; min-width: 44px; box-sizing: border-box; }
           .schedule-toggle { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; gap: 8px; cursor: pointer; }
           .schedule-toggle input[type="checkbox"] { width: 24px; height: 24px; flex: 0 0 24px; margin: 0; }
           .schedule-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; overflow: hidden; }
