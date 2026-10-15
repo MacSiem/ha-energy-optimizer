@@ -1,0 +1,56 @@
+'use strict';
+const {test}=require('node:test');const assert=require('node:assert/strict');const {readFileSync}=require('node:fs');const {JSDOM}=require('jsdom');
+const code=['src/optimizer.js','src/energy-insights.js','src/energy-email.js','src/chart-vendor.js'].map(p=>readFileSync(p,'utf8')).join('');
+async function fixture(type){
+ const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});dom.window.eval(code);
+ const card=dom.window.document.createElement(type),calls=[];let release;
+ card._schedule=()=>{};card._loadChartJs=()=>{};card._discoverAll=async()=>{};card._loadSharedTariffProfile=async()=>{};
+ const hass={user:{id:'A',is_admin:true},connection:{connected:true},language:'en',locale:{language:'en'},config:{time_zone:'UTC',currency:'EUR'},states:{},callWS:async req=>{
+  calls.push(req);if(release)await release.promise;
+  if(req.type==='energy/get_prefs')return {energy_sources:[{type:'grid',stat_energy_from:'sensor.previous_session'}]};
+  if(req.type==='recorder/get_statistics_metadata')return {'sensor.previous_session':{has_sum:true,unit_class:'energy',statistics_unit_of_measurement:'kWh'}};
+  if(req.type==='recorder/statistics_during_period'){const start=Date.parse(req.start_time),end=Date.parse(req.end_time);return {'sensor.previous_session':Array.from({length:(end-start)/3600000},(_,i)=>({start:start+i*3600000,change:1}))};}
+  throw Error(req.type);
+ }};
+ card.setConfig({show_support:false,energy_price:2});card._firstHassRender=true;card._firstRender=true;card._discoveryDone=true;card._emailBackendChecked=true;
+ card._lastDataFetch=Date.now();card._lastRenderTime=Date.now();card._lastStatsFetch=Date.now();
+ dom.window.document.body.append(card);card.hass=hass;
+ const fetch=()=>type==='ha-energy-insights'?card._fetchData():type==='ha-energy-email'?card._fetchRecorderStats('day'):card._fetchEnergyStats();
+ await fetch();
+ const value=()=>type==='ha-energy-insights'?card._data?.monthKwh:type==='ha-energy-email'?card._getAutoDataForPeriod('day')[0]?.month:card._hasRealData?card._energyModel?.summary(card._energyModel.start,card._energyModel.end).total:null;
+ assert.ok(value()>0,'fixture must first accept real Recorder measurements');
+ return {card,dom,hass,calls,fetch,value,hold(){let resolve;const promise=new Promise(r=>resolve=r);release={promise,resolve};return ()=>{release=null;resolve();};},close(){card._getTariffHostV3().guard.dispose();dom.window.close();}};
+}
+for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email'])for(const change of ['connection','user','timezone','null'])test(`${type} removes settled measurements on ${change}, including an in-place hass mutation`,async()=>{
+ const f=await fixture(type);try{
+  // Hold any normal next-session read: old rows must disappear synchronously.
+  const resume=f.hold();const before=f.calls.length;
+  if(change==='connection')f.hass.connection={connected:true};
+  if(change==='user')f.hass.user.id='B';
+  if(change==='timezone')f.hass.config.time_zone='Asia/Kathmandu';
+  f.card.hass=change==='null'?null:f.hass;
+  assert.ok(!f.value(),'previous accepted values cannot remain visible while the next read is pending');
+  if(type==='ha-energy-insights'){
+   assert.equal(f.card._insightsEnergyModel,null);assert.equal(f.card._insightChartDataset,null);
+   assert.ok(!f.card.shadowRoot.textContent.includes('sensor.previous_session'));
+  }
+  if(type==='ha-energy-email')for(const period of ['day','week','month']){
+   assert.equal(f.card._getAutoDataForPeriod(period).length,0);assert.ok(!f.card[`_periodRaw_${period}`]);assert.ok(!f.card[`_periodWindow_${period}`]);
+  }
+  const after=f.calls.length;await Promise.resolve();await Promise.resolve();assert.equal(f.calls.length,after,'repricing microtasks cannot dispatch another fetch');
+  assert.ok(after-before<=1,'a context transition cannot burst parallel reads');resume();
+ }finally{f.close();}
+});
+for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email'])test(`${type} locale/theme update retains settled measurements without Recorder reads`,async()=>{
+ const f=await fixture(type);try{const before=f.value(),calls=f.calls.length;
+  f.card.hass={...f.hass,language:'pl',locale:{language:'pl'},themes:{darkMode:true}};
+  assert.equal(f.value(),before);assert.equal(f.calls.length,calls);
+ }finally{f.close();}
+});
+for(const type of ['ha-energy-insights','ha-energy-email'])test(`${type} null then a new session cannot revive an old pending payload`,async()=>{
+ const f=await fixture(type);try{
+  const resume=f.hold(),pending=f.fetch();await Promise.resolve();f.card.hass=null;
+  f.card.hass={...f.hass,user:{id:'B',is_admin:true},connection:{connected:true}};
+  resume();await pending;assert.ok(!f.value());
+ }finally{f.close();}
+});
