@@ -78,6 +78,10 @@ test('Email discovery completion cannot redraw the replacement household session
     card._firstRender = true;
     card._activeTab = 'config';
     card.hass = { ...card._hass, user: { id: 'replacement-household', is_admin: false } };
+    // The new session's tariff guard legitimately queues its own repaint.
+    // Settle that update while the old raw request is still held, then check
+    // only the old discovery completion for an unauthorized extra redraw.
+    await new Promise(resolve => setImmediate(resolve));
     const current = card.shadowRoot.getElementById('tab-content');
     assert.match(current.textContent, /Only administrators/);
     resume({ energy_sources: [] });

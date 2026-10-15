@@ -1,4 +1,4 @@
-// HA Energy Optimizer Bundle v3.6.0
+// HA Energy Optimizer Bundle v3.6.1
 // HTML escape helper — wrap any user-derived string before interpolation into innerHTML.
 const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -7174,7 +7174,9 @@ this._installTariffConsumerV3();
       this._render();
       // Fetch recorder stats in background (for period views)
       this._fetchAllPeriodStats().then(() => {
-        if (this._emailContextMatches(token) && (this._periodCache_day || this._periodCache_week || this._periodCache_month)) this._render();
+        // Incomplete, absent and failed reads have no totals cache, but their
+        // settled status must still replace the initial empty state on quiet HA.
+        if (this._emailContextMatches(token)) this._render();
       }).catch(() => {});
     }
 
