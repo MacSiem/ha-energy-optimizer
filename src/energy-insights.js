@@ -1232,7 +1232,11 @@ this._installTariffConsumerV3();
     }
 
     connectedCallback() {
-      this._tariffHostController?.guard.resume();
+      if (this._tariffHostController) {
+        this._tariffHostController.guard.resume();
+        // Reconfirm shared prices for this mount; reuse settled measurements.
+        this._observeTariffNavigationV3();
+      }
     }
 
     disconnectedCallback() {

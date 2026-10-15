@@ -218,7 +218,13 @@ class HaEnergyOptimizer extends HTMLElement {
     this._generateRecommendations();
     this._generateComparisonData();
   }
-  connectedCallback() { this._tariffHostController?.guard.resume(); }
+  connectedCallback() {
+    if (this._tariffHostController) {
+      this._tariffHostController.guard.resume();
+      // Reconfirm shared prices for this mount; reuse settled measurements.
+      this._observeTariffNavigationV3();
+    }
+  }
 
   disconnectedCallback() {
     this._tariffHostController?.guard.suspend();

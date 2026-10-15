@@ -3767,7 +3767,13 @@ this._installTariffConsumerV3();
       this._schedule(() => toast.classList.remove('show'), 3500);
     }
 
-    connectedCallback() { this._tariffHostController?.guard.resume(); }
+    connectedCallback() {
+      if (this._tariffHostController) {
+        this._tariffHostController.guard.resume();
+        // Reconfirm shared prices for this mount; reuse settled measurements.
+        this._observeTariffNavigationV3();
+      }
+    }
 
     disconnectedCallback() {
       this._tariffHostController?.guard.suspend();
