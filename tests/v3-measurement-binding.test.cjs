@@ -65,3 +65,41 @@ test('Insights does not spend the new session refresh deadline while the old wir
   assert.equal(f.card._insightsReadPending,false);assert.equal(f.card._loading,false);
  }finally{f.close();}
 });
+
+// A discarded read must not spend the replacement context's five-minute window.
+// Reintroducing the pre-dispatch timestamp, or omitting stale-deadline release,
+// prevents the normal next hass update from accepting any new measurements.
+for(const type of ['ha-energy-optimizer','ha-energy-email'])for(const boundary of ['connection','user','timezone','null','tab','remount'])test(`${type} recovers on an ordinary hass update after an occupied ${boundary} read`,async()=>{
+ const f=await fixture(type);try{
+  const resume=f.hold();
+  const pending=type==='ha-energy-email'?f.card._fetchAllPeriodStats():f.fetch();
+  await Promise.resolve();
+  const occupiedCalls=f.calls.length;
+  if(boundary==='connection')f.hass.connection={connected:true};
+  if(boundary==='user')f.hass.user.id='B';
+  if(boundary==='timezone')f.hass.config.time_zone='Europe/Warsaw';
+  if(boundary==='null')f.card.hass=null;
+  if(boundary==='tab'){
+   if(type==='ha-energy-optimizer')f.card.shadowRoot.querySelector('[data-tab="patterns"]').click();
+   else { f.card.shadowRoot.querySelector('[data-tab="preview"]').click();f.card.shadowRoot.querySelector('[data-tab="overview"]').click(); }
+  }
+  if(boundary==='remount'){f.card.remove();f.dom.window.document.body.append(f.card);}
+  f.card.hass=f.hass;
+  assert.equal(f.calls.length,occupiedCalls,'context updates cannot dispatch a parallel raw read');
+  const oldModel=f.card._energyModel,oldDay=f.card._periodCache_day;
+  resume();await pending;await new Promise(resolve=>setImmediate(resolve));
+  assert.equal(f.calls.length,occupiedCalls,'stale completion cannot retry automatically or request stale metadata');
+  if(type==='ha-energy-optimizer'){
+   assert.equal(f.card._statsLoading,false);
+   assert.equal(f.card._energyModel,oldModel,'discarded payload cannot replace the current model');
+  }else assert.equal(f.card._periodCache_day,oldDay,'discarded payload cannot replace current period data');
+  // Advance past the existing ten-second UI throttle, far below five minutes.
+  const tick=Date.now();f.dom.window.Date.now=()=>tick+11000;
+  f.card.hass=f.hass;await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(f.calls.length>occupiedCalls,'next normal hass update must dispatch the current read before five minutes');
+  assert.ok(f.value()>0,'normal update accepts current measurements');
+  if(type==='ha-energy-optimizer'){
+   assert.equal(f.card._energyModel.zone,f.hass.config.time_zone);assert.equal(f.card._statsLoading,false);
+  }else assert.equal(f.card._periodRefreshPromise,null);
+ }finally{f.close();}
+});
