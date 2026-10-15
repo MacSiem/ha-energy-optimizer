@@ -2290,7 +2290,7 @@ canvas {
             </div>
             <div class="summary-card warn">
               <span class="summary-label">${this._text("Peak Hour", "Godzina szczytu")}</span>
-              <div class="summary-value">${this._getPeakHour() === null ? 'N/A' : this._getPeakHour() + ':00'}</div>
+              ${this._peakHourMarkupV3()}
               <span class="summary-label">${this._text("Highest consumption", "Największe zużycie")}</span>
             </div>
             <div class="summary-card">
@@ -2881,9 +2881,17 @@ async _drawComparisonChart() {
     return this._todayTariffCosts().energyCost;
   }
 
-  _getPeakHour() {
-    const maximum = Math.max(0, ...this._energyData.map(value => value ?? 0));
-    return maximum > 0 ? this._energyData.indexOf(maximum) : null;
+  _getPeakRowV3() {
+    const rows = this._dashboardRowsV3();
+    const maximum = Math.max(0, ...rows.map(row => row.kwh ?? 0));
+    return maximum > 0 ? rows.find(row => row.kwh === maximum) : null;
+  }
+
+  _getPeakHour() { return this._getPeakRowV3()?.hour ?? null; }
+
+  _peakHourMarkupV3() {
+    const row = this._getPeakRowV3();
+    return row ? `<div data-dashboard-peak="${_esc(row.id)}" data-kwh="${row.kwh}"><div class="summary-value">${String(row.hour).padStart(2, '0')}:${String(row.minute).padStart(2, '0')}</div><span class="summary-label">${_esc(row.offset)}</span></div>` : '<div class="summary-value">N/A</div>';
   }
 
   _calculateEfficiencyScore() {
