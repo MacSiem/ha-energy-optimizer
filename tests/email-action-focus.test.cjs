@@ -15,7 +15,7 @@ function fixture() {
   card._config.show_support = false; card._config.energy_price = 0.5;
   const writes = []; let resolve, reject;
   const pending = new Promise((yes,no) => { resolve=yes; reject=no; });
-  card._hass = {user:{id:'admin',is_admin:true}, connection:{connected:true}, states:{}, config:{currency:'EUR',time_zone:'UTC'}, language:'en',locale:{language:'en'}, services:{ha_tools_email:{send:{},test:{}}}, callWS: request => {writes.push(request); return pending;},callService: (...args) => {writes.push(args); return pending;}};
+  card._hass = {user:{id:'admin',is_admin:true}, connection:{connected:true}, states:{}, config:{currency:'EUR',time_zone:'UTC'}, language:'en',locale:{language:'en'}, services:{ha_tools_email:{send:{},test:{}}}, callWS: request => {if (request.type === 'manifest/get') return Promise.resolve({domain:'ha_tools_email',version:'2.2.0'}); writes.push(request); return pending;},callService: (...args) => {writes.push(args); return pending;}};
   card._emailBackendAvailable = true; card._emailBackendConfig = {smtp_configured:true};
   for (const p of ['day','week','month']) {
     card[`_periodCache_${p}`] = Array.from({length:41},(_,i)=>({name:`Source ${i+1}`,entity_id:`sensor.import_${i+1}`,month:42-i,lastMonth:0,cost:(42-i)*0.5}));

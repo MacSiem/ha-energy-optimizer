@@ -15,7 +15,7 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
   };
   const editable = ['id', 'kind', 'cadence', 'time', 'enabled', 'timezone', 'weekday', 'month_day'];
   let hass = null, context = null, epoch = 0, checked = false, rows = [], draft = null;
-  let calendarCompatible = false;
+  let calendarCompatible = false, mailCompatible = false;
   let reading = null, writing = false, previewing = null, pendingExpected = null, preview = null;
   let status = { state: 'not_checked', reason: 'initial' }, previewStatus = { state: 'not_checked', reason: 'initial' };
   const cancellations = new Set();
@@ -25,7 +25,7 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
   const notify = () => changed();
   const reset = () => {
     epoch++; for (const cancel of [...cancellations]) cancel(); cancellations.clear();
-    calendarCompatible = false; checked = false; rows = []; draft = null; privateRows = new Map(); privateDraft = null; pendingRecipients = null; reading = null; writing = false; previewing = null;
+    calendarCompatible = false; mailCompatible = false; checked = false; rows = []; draft = null; privateRows = new Map(); privateDraft = null; pendingRecipients = null; reading = null; writing = false; previewing = null;
     pendingExpected = null; preview = null; status = { state: 'not_checked', reason: 'initial' };
     previewStatus = { state: 'not_checked', reason: 'initial' };
   };
@@ -70,11 +70,11 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
   };
   // list_schedules also exists in 2.1.2, which silently drops calendar fields.
   // Confirm the loaded integration through HA's manifest API before any mutation.
-  const supportsCalendar = manifest => {
+  const supportsCalendar = (manifest, minimumMinor = 2) => {
     if (manifest?.domain !== 'ha_tools_email' || typeof manifest.version !== 'string' ||
       !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(manifest.version)) return false;
     const version = manifest.version.split('.').map(Number);
-    return version.every(Number.isSafeInteger) && (version[0] > 2 || version[0] === 2 && version[1] >= 2);
+    return version.every(Number.isSafeInteger) && version.join('.') === manifest.version && (version[0] > 2 || version[0] === 2 && version[1] >= minimumMinor);
   };
   const unavailable = error => ['unknown_command', 'not_found'].includes(error?.code);
   const read = () => {
@@ -82,11 +82,12 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
     if (typeof hass.callWS !== 'function') { checked = true; status = { state: 'not_checked', reason: 'unavailable' }; notify(); return Promise.resolve(); }
     if (reading) return reading.promise;
     const token = { epoch, promise: null }, source = hass;
-    reading = token; calendarCompatible = false; checked = true; status = { state: pendingExpected ? 'unconfirmed' : 'not_checked', reason: 'loading' };
+    reading = token; calendarCompatible = false; mailCompatible = false; checked = true; status = { state: pendingExpected ? 'unconfirmed' : 'not_checked', reason: 'loading' };
     token.promise = (async () => {
       try {
         const manifest = await request(source, { type: 'manifest/get', integration: 'ha_tools_email' }, token);
         if (epoch !== token.epoch || reading !== token || !allowed()) return;
+        mailCompatible = supportsCalendar(manifest, 3);
         if (!supportsCalendar(manifest)) throw { code: 'not_found' };
         const response = await request(source, { type: 'ha_tools_email/list_schedules' }, token);
         if (epoch !== token.epoch || reading !== token || !allowed()) return;
@@ -142,11 +143,13 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
       status = { state: rejected ? 'error' : 'unconfirmed', reason: rejected ? 'save_rejected' : 'write_unknown' };
     } finally { if (requestEpoch === epoch) { writing = false; notify(); } }
   };
-  const previewRead = () => {
-    if (!allowed() || !calendarCompatible || reading || previewing || writing) return previewing?.promise || Promise.resolve();
-    const selection = draft || rows.find(row => row.kind === kind);
+  const previewRead = (manual = null) => {
+    if (!allowed() || (!manual && !calendarCompatible) || reading || previewing || writing || pendingExpected) return previewing?.promise || Promise.resolve();
+    const selection = manual || draft || rows.find(row => row.kind === kind);
     if (!selection) return Promise.resolve();
-    try { validate(selection); } catch (error) { previewStatus = { state: 'error', reason: error.code }; notify(); return Promise.resolve(); }
+    try { if (manual) {
+      if (!['daily', 'weekly', 'monthly'].includes(selection.cadence) || !['rolling', 'calendar'].includes(selection.period_mode)) throw { code: 'invalid_fields' };
+    } else validate(selection); } catch (error) { previewStatus = { state: 'error', reason: error.code }; notify(); return Promise.resolve(); }
     const token = { epoch, promise: null }, source = hass;
     const message = { type: 'ha_tools_email/' + (kind === 'energy_report' ? 'preview_energy_report' : 'preview_log_digest'), cadence: selection.cadence };
     if (kind === 'energy_report') message.calendar_period = true;
@@ -154,8 +157,35 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
     previewing = token; preview = null; previewStatus = { state: 'not_checked', reason: 'loading' };
     token.promise = (async () => {
       try {
+        if (manual) {
+          const manifest = await request(source, { type: 'manifest/get', integration: 'ha_tools_email' }, token);
+          if (epoch !== token.epoch || previewing !== token || !allowed()) return;
+          if (!supportsCalendar(manifest, 3)) throw { code: 'mail_upgrade_required' };
+        }
+        if (manual || mailCompatible) {
+          delete message.calendar_period;
+          message.format = 'mail'; message.period_mode = manual?.period_mode || 'calendar';
+          if (kind === 'log_digest' && manual?.max_entries !== undefined) message.max_entries = manual.max_entries;
+        }
         const response = await request(source, message, token);
         if (epoch !== token.epoch || previewing !== token || !allowed()) return;
+        if (message.format === 'mail') {
+          if (!response || response.cadence !== message.cadence || typeof response.subject !== 'string' ||
+            typeof response.body !== 'string' || typeof response.html !== 'string' || response.html.length > 2000000 ||
+            typeof response.period?.from !== 'string' || typeof response.period?.to !== 'string' ||
+            !Number.isFinite(Date.parse(response.period.from)) || !Number.isFinite(Date.parse(response.period.to)) ||
+            Date.parse(response.period.from) >= Date.parse(response.period.to) ||
+            response.period.semantics !== (message.period_mode === 'calendar' ? 'previous_completed_calendar_period' :
+              kind === 'log_digest' ? 'rolling_retained_last_observed' : 'rolling_completed_hours') ||
+            typeof response.source !== 'object' || response.source === null ||
+            response.source.name !== (kind === 'log_digest' ? 'system_log' : 'recorder') ||
+            typeof response.source.complete !== 'boolean' ||
+            typeof response.generated_at !== 'string' || !Number.isFinite(Date.parse(response.generated_at))) throw { code: 'invalid_response' };
+          preview = { cadence: response.cadence, subject: response.subject, body: response.body, html: response.html,
+            period: { ...response.period }, source: { ...response.source }, generated_at: response.generated_at,
+            effective_timezone: response.effective_timezone };
+          previewStatus = { state: response.source.status === 'no_data' ? 'no_data' : response.source.complete === false ? 'partial' : 'success', reason: 'loaded' }; return;
+        }
         if (kind === 'energy_report') {
           if (typeof projectPreview !== 'function') throw { code: 'invalid_response' };
           const projected = projectPreview(response, message);
@@ -178,7 +208,7 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
         previewStatus = { state: response.source.complete ? (response.source.retained_entries ? 'success' : 'no_data') : 'partial', reason: 'loaded' };
       } catch (error) {
         if (epoch !== token.epoch || previewing !== token || !allowed()) return;
-        preview = null; previewStatus = { state: 'not_checked', reason: unavailable(error) ? 'unavailable' : 'read_failed' };
+        preview = null; previewStatus = { state: 'not_checked', reason: error?.code === 'mail_upgrade_required' ? 'mail_upgrade_required' : unavailable(error) ? 'unavailable' : error?.code === 'request_timeout' ? 'read_timeout' : 'read_failed' };
       } finally { if (epoch === token.epoch && previewing === token) { previewing = null; notify(); } }
     })();
     notify(); return token.promise;
@@ -247,7 +277,8 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
       preview = null; previewStatus = { state: 'not_checked', reason: 'initial' };
     },
     cancel() { draft = null; privateDraft = null; preview = null; previewing?.cancel?.(); previewing = null; previewStatus = { state: 'not_checked', reason: 'initial' }; notify(); },
-    save, preview: previewRead,
+    save, preview: () => previewRead(), previewMail: selection => previewRead({ ...selection }),
+    clearPreview() { previewing?.cancel?.(); previewing = null; preview = null; previewStatus = { state: 'not_checked', reason: 'initial' }; },
     async remove(id) {
       if (!allowed() || !calendarCompatible || reading || writing || pendingExpected || !rows.some(row => row.id === id && row.kind === kind) || !['success', 'no_data', 'error'].includes(status.state)) return;
       const requestEpoch = epoch, source = hass;

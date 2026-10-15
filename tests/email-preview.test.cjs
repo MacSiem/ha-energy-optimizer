@@ -22,7 +22,7 @@ function preview(options = {}) {
   card._discoveredDevices = options.devices || [];
   if (options.zero) card._periodCache_day = [{ name: 'Measured zero source', month: 0, cost: null }];
   const output = dom.window.document.createElement('div');
-  output.innerHTML = card._tabPreview();
+  output.innerHTML = card._tabLegacyPreview();
   return { dom, card, output };
 }
 
@@ -53,7 +53,7 @@ for (const [scenario, expected] of [['complete', 24], ['zero', 0], ['gap', null]
     })[msg.type];
     try {
       await card._fetchRecorderStats('day');
-      output.innerHTML = card._tabPreview();
+      output.innerHTML = card._tabLegacyPreview();
       assert.doesNotMatch(output.textContent, /9876|2400\.0|Unrelated lifetime/);
       if (expected === null) assert.doesNotMatch(output.querySelector('.preview-box').textContent, /23\.0\s+kWh/);
       else {
@@ -103,7 +103,7 @@ test('a zero Recorder period remains measured zero without falling back to lifet
   } finally { dom.window.close(); }
 });
 
-test('backend preview uses the same sources and window as the server report rather than card totals', async () => {
+test('compatibility backend summary uses server sources/window rather than card totals', async () => {
   const { dom, card, output } = preview({ devices: [{ name: 'Lifetime meter', value_kwh: 9876 }] });
   card._hass.callWS = async msg => {
     if (msg.type === 'ha_tools_email/get_config') return { schedules: [] };
@@ -117,7 +117,7 @@ test('backend preview uses the same sources and window as the server report rath
   };
   try {
     await card._loadEmailBackendConfig();
-    output.innerHTML = card._tabPreview();
+    output.innerHTML = card._tabLegacyPreview();
     assert.match(output.textContent, /23\.0\s+kWh/);
     assert.match(output.textContent, /2026-09-29T10:00:00/);
     assert.match(output.textContent, /<Grid source>/);
