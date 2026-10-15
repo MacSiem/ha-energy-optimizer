@@ -41,7 +41,7 @@ for (const outcome of ['partial', 'no_sources', 'error']) test(`Email first read
     assert.match(status, {
       partial: /Period statistics are incomplete or invalid/,
       no_sources: /Configure a grid-import source/,
-      error: /Could not read Recorder statistics/,
+      error: /Energy statistics could not be loaded/,
     }[outcome]);
     assert.equal(card._getAutoDataForPeriod('day').length, 0, 'missing totals stay unavailable');
     assert.equal(calls.length, outcome === 'partial' ? 9 : 3, 'completion does not add polling or retries');
