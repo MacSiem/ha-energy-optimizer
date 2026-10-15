@@ -26,6 +26,16 @@ const energyImportIds = prefs => [...new Set((prefs?.energy_sources || [])
   .flatMap(source => source.stat_energy_from ? [source.stat_energy_from] : (source.flow_from || []).map(flow => flow?.stat_energy_from).filter(Boolean)))];
 const ENERGY_HOUR = 3600000;
 
+// Snapshot scalar identity: HA can mutate the same hass/config/user object.
+// Presentation changes do not invalidate already accepted Recorder measurements.
+const energyMeasurementContextChangedV3 = (card, hass) => {
+  const next = { present: !!hass, connection: hass?.connection ?? null,
+    user: hass?.user?.id ?? null, zone: hass?.config?.time_zone ?? null };
+  const prior = card._measurementBindingV3;
+  card._measurementBindingV3 = next;
+  return !!prior && Object.keys(next).some(key => prior[key] !== next[key]);
+};
+
 async function readEnergyHours(hass, hours) {
   const ids = energyImportIds(await hass.callWS({ type: 'energy/get_prefs' }));
   if (!ids.length) return { ids, noSensors: true };
@@ -272,13 +282,17 @@ class HaEnergyOptimizer extends HTMLElement {
       this.classList.toggle('bento-dark', _d);
     } catch (e) {}
     const previousHass = this._hass;
-    if (previousHass && (previousHass.connection !== hass?.connection || previousHass.user?.id !== hass?.user?.id ||
-        previousHass.config?.time_zone !== hass?.config?.time_zone)) {
+    if (energyMeasurementContextChangedV3(this, hass)) {
       this._energyModel = null;
       this._patternsDataset = null;
       this._patternsState = null;
       this._dashboardStateV3 = null;
       this._hasRealData = false;
+      this._todayWindow = null;
+      this._energyData = [];
+      this._weeklyData = [];
+      this._recommendations = [];
+      this._comparisonData = null;
       this._lastStatsFetch = 0;
       // A new session must not keep old measured rows visible during throttling.
       this._lastRenderTime = 0;
@@ -4139,6 +4153,7 @@ this._installTariffConsumerV3();
     }
 
     _repriceTariffV3() {
+      if (!this._hass) return;
       if (this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
       if (this._insightsEnergyModel) {
         try { this._projectInsightsV3(this._insightsEnergyModel); this._error = null; }
@@ -4187,10 +4202,29 @@ this._installTariffConsumerV3();
         const previousLanguage = this._lang;
         const language = hass?.locale?.language || hass?.language;
         if (language) this._lang = language.startsWith('pl') ? 'pl' : 'en';
+        const measurementsChanged = energyMeasurementContextChangedV3(this, hass);
+        if (measurementsChanged) {
+          this._insightsEnergyModel = null;
+          this._data = null;
+          this._insightProjectionCacheV3 = null;
+          this._insightChartDataset = null;
+          this._insightChartStates = {};
+          this._insightChartState = null;
+          this._insightRenderEpoch++;
+          this._clearInsightDevicesV3();
+          this._lastDataFetch = 0;
+          this._error = null;
+        }
         this._resetTariffContext(hass);
         this._hass = hass;
-        if (!hass) return;
+        if (!hass) {
+          this._insightResize?.disconnect();
+          this.shadowRoot.replaceChildren();
+          this._domBuilt = false;
+          return;
+        }
         this.classList.toggle('bento-dark', hass.themes?.darkMode === true);
+        if (measurementsChanged && this._firstHassRender) this._render();
 
         const now = Date.now();
         if (!this._firstHassRender) {
@@ -4218,7 +4252,7 @@ this._installTariffConsumerV3();
         this._syncChartTheme();
         this._syncSupport();
 
-        if (previousLanguage !== this._lang) return; // A locale gesture only reprojects cached measurements.
+        if (previousLanguage !== this._lang && !measurementsChanged) return; // A locale gesture only reprojects cached measurements.
 
         // Fetch new data every 5 minutes (recorder stats don't change often)
         if (!this._lastDataFetch || (now - this._lastDataFetch) > 300000) {
@@ -5859,14 +5893,27 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
         const previousLanguage = this._lang;
         const language = hass?.locale?.language || hass?.language;
         if (language) this._lang = language.startsWith('pl') ? 'pl' : 'en';
+        const measurementsChanged = energyMeasurementContextChangedV3(this, hass);
+        if (measurementsChanged) {
+          for (const period of ['day', 'week', 'month']) {
+            this[`_periodCache_${period}`] = null;
+            this[`_periodRaw_${period}`] = null;
+            this[`_periodWindow_${period}`] = null;
+            this[`_periodStatus_${period}`] = 'no_data';
+            this[`_periodCacheTime_${period}`] = 0;
+          }
+          // Keep an occupied refresh promise until its old wire really settles.
+          this._lastPeriodRefresh = 0;
+          this._lastRenderTime = 0;
+        }
         const emailContextChanged = this._resetEmailContext(hass);
         this._resetTariffContext(hass);
         this._hass = hass;
         this._serverSchedules.setContext(hass);
         this._attemptHistory.setContext(hass);
         if (this._activeTab === 'history') this._render();
-        if (!hass) return;
-        if (emailContextChanged && this._firstRender) { this._render(); return; }
+        if (!hass) { this.shadowRoot.replaceChildren(); return; }
+        if ((emailContextChanged || measurementsChanged) && this._firstRender) { this._render(); return; }
         const now = Date.now();
         if (!this._firstRender) {
           this._firstRender = true;
@@ -6920,6 +6967,7 @@ this._installTariffConsumerV3();
     }
 
     _repriceTariffV3() {
+      if (!this._hass) return;
       if (this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
       for (const period of ['day', 'week', 'month']) {
         if (this[`_periodStatus_${period}`] !== 'ready') continue;
