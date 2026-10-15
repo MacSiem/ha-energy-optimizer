@@ -2,6 +2,8 @@
 
 ## 3.6.0 (2026-10-15)
 
+- Keep active units and cost subtitles readable in light and dark themes in Insights and Energy Email. Format partial device summaries for readability while retaining every recorded digit in expanded measurement details.
+
 - Clear a settled first-read spinner after tab, mount or connection-context changes and let the next HA update read the current context without waiting five minutes. Discard stale responses and preserve the existing raw-read fence.
 
 - Preview the actual server-composed Energy email for daily, weekly and monthly reports, with rolling or previous completed calendar periods. Requires stable HA Tools Email 2.3+ for actual HTML and explicit calendar sending.
