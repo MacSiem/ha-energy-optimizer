@@ -4569,7 +4569,7 @@ this._installTariffConsumerV3();
           <p>${selected.length}/${rows.length} ${t('configured sources', 'skonfigurowanych źródeł')}</p>
           ${selected.slice(this._insightDevicePage * 10, this._insightDevicePage * 10 + 10).map(row => `<article class="insights-device" data-insights-device="${_esc(row.id)}">
             <div class="insights-device-heading"><strong>${_esc(row.name)}</strong><span>${_esc(this._insightDisplayNumberV3(row.kwh))} kWh</span></div>
-            <p>${this._insightStatusV3(row.status)}${row.status === 'partial' ? ` · ${t('Measured subset', 'Zmierzona część')}: ${n(row.recordedKwh)} kWh` : ''}</p>
+            <p>${this._insightStatusV3(row.status)}${row.status === 'partial' ? ` · ${t('Measured subset', 'Zmierzona część')}: ${_esc(this._insightDisplayNumberV3(row.recordedKwh))} kWh` : ''}</p>
             <details data-insights-device-details="${_esc(row.key)}" ${this._insightDeviceDetails.has(row.key) ? 'open' : ''}><summary>${t('Source and measurement details', 'Źródło i szczegóły pomiaru')}</summary><dl>
               <dt>${t('Source', 'Źródło')}</dt><dd>${_esc(row.id || t('Unavailable', 'Niedostępne'))}</dd>
               <dt>${t('Consumption', 'Zużycie')}</dt><dd>${n(row.kwh)} kWh</dd>
@@ -4955,7 +4955,7 @@ this._installTariffConsumerV3();
           .stat-label { font-size: 11px; font-weight: 500; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .4px; margin-top: 2px; }
           .stat-value { font-size: 24px; font-weight: 700; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.2; }
           .stat-value.highlight { color: var(--bento-primary); }
-          .stat-sub { font-size: 11px; color: var(--bento-text-muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          .stat-sub { font-size: 11px; color: var(--bento-text-secondary); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
           .recommendation { background: var(--bento-primary-light); border: 1px solid rgba(59,130,246,.2); border-radius: var(--bento-radius-sm); padding: 14px 16px; font-size: 13px; color: var(--bento-text); margin-bottom: 16px; display: flex; align-items: flex-start; gap: 10px; }
           .recommendation-icon { font-size: 18px; flex-shrink: 0; }
           .trend-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
@@ -7759,7 +7759,7 @@ this._installTariffConsumerV3();
           .stat { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 14px; text-align: center; min-width: 0; overflow: hidden; box-sizing: border-box; }
           .stat-value { font-size: 24px; font-weight: 700; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
           .stat-label { font-size: 11px; font-weight: 500; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .4px; margin-top: 2px; }
-          .stat-sub { font-size: 11px; color: var(--bento-text-muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          .stat-sub { font-size: 11px; color: var(--bento-text-secondary); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
           .section-title { font-size: 13px; font-weight: 600; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .5px; margin: 16px 0 8px; }
           .device-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--bento-radius-xs); transition: background .15s; box-sizing: border-box; max-width: 100%; overflow: hidden; }
           .device-row:hover { background: var(--bento-primary-light); }
