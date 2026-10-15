@@ -3,6 +3,7 @@
 ## 3.6.0 (2026-10-15)
 
 - Keep active units and cost subtitles readable in light and dark themes in Insights and Energy Email. Format partial device summaries for readability while retaining every recorded digit in expanded measurement details.
+- Keep the Optimizer source, measurement window and timezone readable in both themes.
 
 - Clear a settled first-read spinner after tab, mount or connection-context changes and let the next HA update read the current context without waiting five minutes. Discard stale responses and preserve the existing raw-read fence.
 
