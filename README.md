@@ -1,6 +1,6 @@
 # ⚡ Energy Optimizer
 
-![Preview](banner.png)
+![Energy Optimizer — measured energy and tariff costs](banner-v3.6.png)
 
 Energy usage analysis for Home Assistant based on grid import configured in the Energy Dashboard. The cards display measured usage, interactive charts with matching data views, and costs calculated from your configured tariff. It needs Energy Dashboard grid import statistics to show numbers.
 
@@ -139,7 +139,7 @@ The **2024.1.0** minimum applies to the three frontend cards. Their required Hom
 
 This minimum is based on the Core API contract; the release's live installation and UI checks were performed on the current Home Assistant staging version, rather than on a separate 2024.1.0 instance. Use a browser supported by your Home Assistant frontend. Chart.js **4.5.1** is bundled locally with its MIT license notice.
 
-Email delivery additionally requires an administrator and the optional HA Tools Email integration with configured SMTP. Server report previews and schedules require **HA Tools Email 2.1.2+** and its `get_config`, `preview_energy_report`, `list_schedules`, `set_schedule` and `send_now` commands. These are integration APIs, not part of the Home Assistant Core minimum. Without them, the cards still provide the local energy overview; legacy direct sending uses the integration's `send` service and validates hourly coverage. Settings can use existing `input_text` helpers (`input_text.set_value`) or browser storage. Recipient discovery is best effort; set `recipient` explicitly if automatic discovery is unavailable.
+Email delivery requires an administrator and the optional HA Tools Email integration with configured SMTP. Recorder summary previews and supported rolling sends use **2.1.2+**. Server calendar schedules and the shared tariff need **2.2.0+**; actual HTML previews and explicit manual calendar sends need stable **2.3.0+**. These integration APIs are separate from the Home Assistant Core minimum. Without compatible APIs, the local energy overview remains available; existing direct sending uses the integration's `send` service and validates hourly coverage. Settings can use existing `input_text` helpers or browser storage. Recipient discovery is best effort; set `recipient` explicitly if automatic discovery is unavailable.
 
 ### Manual / custom repository
 
