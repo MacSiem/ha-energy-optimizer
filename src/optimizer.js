@@ -260,6 +260,7 @@ class HaEnergyOptimizer extends HTMLElement {
       this._energyModel = null;
       this._patternsDataset = null;
       this._patternsState = null;
+      this._dashboardStateV3 = null;
       this._hasRealData = false;
       this._lastStatsFetch = 0;
       // A new session must not keep old measured rows visible during throttling.
@@ -1377,6 +1378,7 @@ this._installTariffConsumerV3();
   _render() {
     const active = this.shadowRoot.activeElement;
     const focusControl = active?.dataset?.patternControl;
+    const focusDashboard = active?.dataset?.dashboardControl;
     const focusTab = active?.dataset?.tab;
     const focusPicker = active?.matches('.energy-tab-picker select');
     this._patternsResize?.disconnect();
@@ -1387,7 +1389,9 @@ this._installTariffConsumerV3();
     this._bindTariffSettings();
     this._renderCurrentTab();
     this._bindPatterns();
-    if (focusControl) this.shadowRoot.querySelector(`[data-pattern-control="${focusControl}"]`)?.focus();
+    this._bindDashboardChartV3();
+    if (focusDashboard) this.shadowRoot.querySelector(`[data-dashboard-control="${focusDashboard}"]`)?.focus();
+    else if (focusControl) this.shadowRoot.querySelector(`[data-pattern-control="${focusControl}"]`)?.focus();
     else if (focusTab) this.shadowRoot.querySelector(`[data-tab="${focusTab}"]`)?.focus();
     else if (focusPicker) this.shadowRoot.querySelector('.energy-tab-picker select')?.focus();
   }
@@ -2302,13 +2306,7 @@ canvas {
             <div class="power-draw-unit">kW</div>
           </div>
 
-          <div class="chart-container">
-            <div class="chart-title">
-              <span>${this._text("24-Hour Usage", "Zużycie godzinowe dzisiaj")}</span>
-              <span style="font-size: 12px; color: var(--secondary-text); font-weight: 400;">${this._text("kWh by hour", "kWh według godzin")}</span>
-            </div>
-            <div class="chart-plot"><canvas id="dashboard-chart"></canvas></div>
-          </div>
+          ${this._dashboardChartMarkupV3()}
         </div>
 
         <div id="patterns" class="tab-content">${this._patternsMarkup()}</div>
@@ -2405,6 +2403,67 @@ canvas {
     this._showTab(this._currentTab || 'dashboard');
   }
 
+  _dashboardRowsV3() {
+    const model = this._energyModel;
+    return model?.points ? createEnergyPatternsV3({ ...model, start: model.todayStart }, this._getTariffV3()).hours : [];
+  }
+
+  _dashboardLabelV3(row) {
+    return `${row.key} ${String(row.hour).padStart(2, '0')}:${String(row.minute).padStart(2, '0')} ${row.offset}`;
+  }
+
+  _dashboardChartMarkupV3() {
+    const rows = this._dashboardRowsV3(), t = (en, pl) => this._text(en, pl);
+    const identity = JSON.stringify([this._energyModel?.ids, this._energyModel?.zone, this._energyModel?.todayStart]);
+    if (this._dashboardStateV3?.identity !== identity) this._dashboardStateV3 = { identity, view: 'chart', selected: null };
+    const state = this._dashboardStateV3;
+    if (!rows.some(row => row.id === state.selected)) state.selected = rows.at(-1)?.id ?? null;
+    const selected = rows.find(row => row.id === state.selected);
+    const number = row => row.kwh === null ? t('No measurement', 'Brak pomiaru') : `${this._patternsNumber(row.kwh)} kWh`;
+    return `<section class="chart-container patterns-measured" data-dashboard-chart-section>
+      <h3>${t('Hourly consumption · today', 'Zużycie godzinowe · dzisiaj')}</h3>
+      <p>${_esc(this._energyModel?.zone || '')} · ${_esc((this._energyModel?.ids || []).join(', '))}</p>
+      <div class="patterns-switch" role="group" aria-label="${t('Presentation', 'Prezentacja')}">
+        <button type="button" data-dashboard-control="chart" aria-pressed="${state.view === 'chart'}">${t('Chart', 'Wykres')}</button>
+        <button type="button" data-dashboard-control="data" aria-pressed="${state.view === 'data'}">${t('Data', 'Dane')}</button>
+      </div>
+      ${state.view === 'chart' ? `<div class="chart-plot"><canvas id="dashboard-chart" role="img" aria-label="${t('Recorded consumption in kWh; exact values in Data and point details below', 'Zarejestrowane zużycie w kWh; dokładne wartości w Danych i szczegółach punktu poniżej')}"></canvas></div>` : `<div class="patterns-table" tabindex="0" role="region" aria-label="${t('Measured data table', 'Tabela zmierzonych danych')}"><table>
+        <caption>${t('Same completed intervals as the chart', 'Te same zakończone przedziały co na wykresie')} · kWh</caption>
+        <thead><tr><th scope="col">${t('Local hour and UTC interval', 'Godzina lokalna i przedział UTC')}</th><th scope="col">kWh</th></tr></thead>
+        <tbody>${rows.map(row => `<tr data-dashboard-row="${_esc(row.id)}" data-kwh="${row.kwh === null ? 'null' : row.kwh}"><th scope="row">${_esc(this._dashboardLabelV3(row))}<br><small>${_esc(new Date(row.from).toISOString())} — ${_esc(new Date(row.to).toISOString())}</small></th><td>${_esc(number(row))}</td></tr>`).join('')}</tbody>
+      </table></div>`}
+      <div class="patterns-controls"><label>${t('Point details (arrows, Home / End)', 'Szczegóły punktu (strzałki, Home / End)')}<select data-dashboard-control="point" ${rows.length ? '' : 'disabled'}>${rows.map(row => `<option value="${_esc(row.id)}" ${row.id === state.selected ? 'selected' : ''}>${_esc(this._dashboardLabelV3(row))}</option>`).join('')}</select></label></div>
+      <p data-dashboard-detail role="status" aria-live="polite">${selected ? `${_esc(this._dashboardLabelV3(selected))}<br>${_esc(new Date(selected.from).toISOString())} — ${_esc(new Date(selected.to).toISOString())}<br>${_esc(number(selected))}` : t('No completed intervals.', 'Brak zakończonych przedziałów.')}</p>
+      <p>${t('Only completed Recorder intervals are shown. Repeated local hours keep distinct UTC offsets; future or skipped hours are not measured zero.', 'Pokazano tylko zakończone przedziały Recorder. Powtórzone godziny zachowują odrębne przesunięcia UTC; przyszła lub pominięta godzina nie oznacza zmierzonego zera.')}</p>
+    </section>`;
+  }
+
+  _bindDashboardChartV3() {
+    const section = this.shadowRoot.querySelector('[data-dashboard-chart-section]');
+    if (!section) return;
+    const redraw = key => {
+      this._destroyChart('dashboard');
+      section.outerHTML = this._dashboardChartMarkupV3();
+      this._bindDashboardChartV3();
+      this.shadowRoot.querySelector(`[data-dashboard-control="${key}"]`)?.focus({ preventScroll: true });
+      if (this._dashboardStateV3.view === 'chart') this._drawDashboardChart();
+    };
+    section.querySelectorAll('button[data-dashboard-control]').forEach(button => button.addEventListener('click', () => {
+      this._dashboardStateV3.view = button.dataset.dashboardControl;
+      redraw(button.dataset.dashboardControl);
+    }));
+    const point = section.querySelector('[data-dashboard-control="point"]');
+    point?.addEventListener('change', () => { this._dashboardStateV3.selected = point.value; redraw('point'); });
+    point?.addEventListener('keydown', event => {
+      const rows = this._dashboardRowsV3(), index = rows.findIndex(row => row.id === this._dashboardStateV3.selected);
+      const move = { ArrowLeft: index - 1, ArrowUp: index - 1, ArrowRight: index + 1, ArrowDown: index + 1, Home: 0, End: rows.length - 1 };
+      if (!Object.hasOwn(move, event.key)) return;
+      event.preventDefault();
+      this._dashboardStateV3.selected = rows[Math.max(0, Math.min(rows.length - 1, move[event.key]))]?.id ?? null;
+      redraw('point');
+    });
+  }
+
   async _drawDashboardChart() {
     try {
       await this._loadChartJS();
@@ -2414,8 +2473,9 @@ canvas {
       this._destroyChart('dashboard');
 
       const ctx = canvas.getContext('2d');
-      const labels = Array.from({ length: 24 }, (_, i) => `${i}:00`);
-      const data = this._energyData || Array(24).fill(0);
+      const rows = this._dashboardRowsV3();
+      const labels = rows.map(row => this._dashboardLabelV3(row));
+      const data = rows.map(row => row.kwh);
 
       const chartConfig = {
         type: 'bar',
@@ -2424,11 +2484,13 @@ canvas {
           datasets: [{
             label: this._text("Energy Usage (kWh)", "Zużycie energii (kWh)"),
             data: data,
-            backgroundColor: data.map((val, hour) => {
+            backgroundColor: data.map((val, index) => {
+              const hour = rows[index].hour;
               const isPeak = hour >= (this._config?.peak_hours?.start || 6) && hour < (this._config?.peak_hours?.end || 22);
               return isPeak ? 'rgba(59, 130, 246, 0.7)' : 'rgba(100, 200, 100, 0.7)';
             }),
-            borderColor: data.map((val, hour) => {
+            borderColor: data.map((val, index) => {
+              const hour = rows[index].hour;
               const isPeak = hour >= (this._config?.peak_hours?.start || 6) && hour < (this._config?.peak_hours?.end || 22);
               return isPeak ? 'rgb(59, 130, 246)' : 'rgb(100, 200, 100)';
             }),
