@@ -97,9 +97,12 @@ for(const type of ['ha-energy-optimizer','ha-energy-email'])for(const boundary o
   const tick=Date.now();f.dom.window.Date.now=()=>tick+11000;
   f.card.hass=f.hass;await new Promise(resolve=>setImmediate(resolve));
   assert.ok(f.calls.length>occupiedCalls,'next normal hass update must dispatch the current read before five minutes');
-  assert.ok(f.value()>0,'normal update accepts current measurements');
   if(type==='ha-energy-optimizer'){
-   assert.equal(f.card._energyModel.zone,f.hass.config.time_zone);assert.equal(f.card._statsLoading,false);
-  }else assert.equal(f.card._periodRefreshPromise,null);
+   // At local midnight Today can honestly have no completed hours; the full
+   // Recorder fixture still contains 31 days of one-kWh measurements.
+   const model=f.card._energyModel;assert.ok(model,'normal update accepts the current Recorder model');
+   assert.equal(model.summary(model.start,model.end).total,744);
+   assert.equal(model.zone,f.hass.config.time_zone);assert.equal(f.card._statsLoading,false);
+  }else {assert.equal(f.value(),24);assert.equal(f.card._periodRefreshPromise,null);}
  }finally{f.close();}
 });
