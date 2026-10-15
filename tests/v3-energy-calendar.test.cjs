@@ -151,3 +151,49 @@ for(const backendVersion of ['2.1.2','2.1.99','2.2.0b1']) test('actual Energy so
  assert.equal(f.calls.some(c=>/set_schedule/.test(c.type)),false);assert.equal(f.services.length,0);
  assert.equal(f.card._serverSchedules.model().status.reason,'unavailable');assert.match(f.root.textContent,/2\.2\.0/);
 });
+
+
+const tariffFixtureProfile = {schema:1,name:'Fixture',currency:'CHF',timezone:'UTC',
+ clock:{mode:'civil'},priceBasis:'gross',defaultZone:'a',zones:[{id:'a',energyRate:2,variableRate:0}]};
+async function confirmedTariffFixture(t, nextRead) {
+ const f=fixture(t);const original=f.hass.callWS;let reads=0;
+ f.hass.config.currency='PLN';
+ f.hass.callWS=async msg=>{
+  if(msg.type!=='ha_tools_email/get_tariff')return original(msg);
+  f.calls.push(msg);reads++;
+  return reads===1?{profile:tariffFixtureProfile,revision:4,updated_at:null}:nextRead();
+ };
+ await f.card._loadSharedTariffProfile();f.card._render();
+ assert.match(f.root.getElementById('price-display').textContent,/CHF Fixture/);
+ return f;
+}
+for(const navigation of ['button','picker'])test('confirmed shared tariff is read again after '+navigation+' tab change without HA currency fallback',async t=>{
+ const pending=deferred();const f=await confirmedTariffFixture(t,()=>pending.promise);
+ if(navigation==='button')f.click('email-tab-schedule');
+ else {const picker=f.root.getElementById('email-tab-select');picker.value='schedule';picker.dispatchEvent(new f.w.Event('change',{bubbles:true}));}
+ await settle();
+ const header=()=>f.root.getElementById('price-display').textContent;
+ assert.doesNotMatch(header(),/PLN|not configured/);assert.match(header(),/not confirmed|Checking/i);
+ assert.equal(f.card._sharedTariffProfile,null); // Context still purges the old authority.
+ assert.equal(f.calls.filter(c=>c.type.endsWith('/get_tariff')).length,2);
+ pending.resolve({profile:tariffFixtureProfile,revision:4,updated_at:null});await settle();
+ assert.match(header(),/CHF Fixture/);assert.equal(f.card._activeTab,'schedule');
+ assert.equal(f.calls.some(c=>/set_tariff|set_schedule|send_now/.test(c.type)),false);assert.equal(f.services.length,0);
+});
+test('failed shared tariff confirmation stays unavailable and never opens the legacy price writer',async t=>{
+ const f=await confirmedTariffFixture(t,()=>{throw new Error('PRIVATE_TRANSPORT');});await f.open();
+ const header=f.root.getElementById('price-display').textContent;
+ assert.doesNotMatch(header,/PLN|not configured|PRIVATE_TRANSPORT/);assert.match(header,/not confirmed/i);
+ f.click('price-display');assert.equal(f.root.getElementById('price-input'),null);
+ assert.ok(f.root.querySelector('[data-tariff-details]').open);
+ assert.equal(f.calls.filter(c=>c.type.endsWith('/get_tariff')).length,2);
+ assert.equal(f.calls.some(c=>/set_tariff|set_schedule|send_now/.test(c.type)),false);assert.equal(f.services.length,0);
+});
+test('late tab tariff response cannot repopulate a different user or trigger a background retry',async t=>{
+ const pending=deferred();const f=await confirmedTariffFixture(t,()=>pending.promise);await f.open();
+ f.card.hass={...f.hass,user:{id:'b',is_admin:false}};
+ pending.resolve({profile:{...tariffFixtureProfile,name:'OLD_USER_PRIVATE'},revision:4,updated_at:null});await settle();
+ assert.equal(f.card._sharedTariffProfile,null);assert.doesNotMatch(f.root.textContent,/OLD_USER_PRIVATE|CHF Fixture/);
+ assert.equal(f.calls.filter(c=>c.type.endsWith('/get_tariff')).length,2);
+ assert.equal(f.calls.some(c=>/set_tariff|set_schedule|send_now/.test(c.type)),false);assert.equal(f.services.length,0);
+});
