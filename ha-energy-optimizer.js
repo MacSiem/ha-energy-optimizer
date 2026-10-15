@@ -8093,8 +8093,14 @@ this._installTariffConsumerV3();
         .server-schedules{container-type:inline-size;container-name:energy-schedules;min-width:0;max-width:100%;overflow-wrap:anywhere}
         .server-schedule-list,.server-schedule-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
         .server-schedules article,.server-schedules fieldset{min-width:0;margin:12px 0;padding:12px;border:1px solid var(--bento-border);border-radius:10px}
-        .server-schedules input:not([type=checkbox]),.server-schedules select{display:block;box-sizing:border-box;width:100%;min-height:44px;font:inherit}
-        .server-schedules button{min-height:44px;min-width:44px;font:inherit;white-space:normal}
+        .server-schedules h3,.server-schedules h4{margin:12px 0 8px}
+        .server-schedules button,.server-schedules input:not([type=checkbox]),.server-schedules select{min-height:44px;min-width:44px;box-sizing:border-box;font:inherit;border:1px solid var(--bento-border);border-radius:8px;color:var(--bento-text);background:var(--bento-bg)}
+        .server-schedules input:not([type=checkbox]),.server-schedules select{display:block;width:100%;padding:8px}
+        .server-schedules button{padding:8px 12px;cursor:pointer;white-space:normal;overflow-wrap:anywhere}
+        .server-schedules button:disabled{cursor:default;color:var(--bento-text-secondary)}
+        .server-schedules button:focus-visible,.server-schedules input:focus-visible,.server-schedules select:focus-visible{outline:3px solid var(--bento-primary);outline-offset:2px}
+        .server-schedule-fields label{display:flex;flex-direction:column;gap:6px;min-width:0}
+        .server-schedule-fields .schedule-checkbox{flex-direction:row;align-items:center;cursor:pointer}
         .server-schedule-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.server-schedules input[type=checkbox]{width:24px;height:24px}.server-schedules label{min-height:44px}
         .server-schedules dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:8px}.server-schedules dd{margin:0}
         @container energy-schedules (max-width:499.99px){.server-schedule-list,.server-schedule-fields,.server-schedules dl{grid-template-columns:minmax(0,1fr)}.server-schedule-actions button{flex:1 1 150px}}
