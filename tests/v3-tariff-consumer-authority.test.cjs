@@ -20,3 +20,42 @@ for(const type of types)test(`${type} unknown mutation survives detach/context r
 for(const type of types)test(`${type} source/window context mutation fences the next Recorder dispatch`,async()=>{const f=setup(type);try{let resolve;const calls=[];f.card._hass.callWS=req=>{calls.push(req.type);return new Promise(r=>resolve=r);};const read=f.card._createEnergyReadV3();const pending=read.hass.callWS({type:'energy/get_prefs'});f.card.setConfig({...f.card._config,power_entity:'sensor.other'});resolve({energy_sources:[{type:'grid',stat_energy_from:'sensor.stale'}]});await assert.rejects(pending,e=>e.code==='energy_context_changed');await assert.rejects(read.hass.callWS({type:'recorder/get_statistics_metadata',statistic_ids:['sensor.stale']}),e=>e.code==='energy_context_changed');assert.deepEqual(calls,['energy/get_prefs']);assert.notDeepEqual(f.card._tariffSourceIds,['sensor.stale']);}finally{f.close();}});
 
 for(const type of types)test(`${type} queued repricing never renders after its document closes`,async()=>{const f=setup(type);let renders=0;try{f.card._repriceTariffV3=()=>{renders++;};f.host.guard.invalidate();f.dom.window.close();await flush();assert.equal(renders,0);}finally{f.card._tariffConsumerUnsubscribeV3?.();f.host.guard.dispose();}});
+
+
+for (const type of types) test(`${type} same-instance reattach reconfirms a shared tariff without refetching Recorder`, async () => {
+  const f = setup(type);
+  try {
+    const NativeDate = f.dom.window.Date, end = Date.parse('2026-10-12T12:00:00Z');
+    f.dom.window.Date = class extends NativeDate { constructor(...args) { super(...(args.length ? args : [end])); } static now() { return end; } };
+    const calls = [];
+    f.card._hass.callWS = async req => {
+      calls.push(req.type);
+      if (req.type === 'ha_tools_email/get_tariff') return { profile, revision: 4, updated_at: null };
+      if (req.type === 'energy/get_prefs') return { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] };
+      if (req.type === 'recorder/get_statistics_metadata') return { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: 'kWh', unit_class: 'energy' } };
+      if (req.type === 'recorder/statistics_during_period') {
+        const start = Date.parse(req.start_time), finish = Date.parse(req.end_time);
+        return { 'sensor.grid': Array.from({ length: (finish-start)/3600000 }, (_, i) => ({ start: start+i*3600000, change: 1 })) };
+      }
+      throw Error('Unexpected operation: ' + req.type);
+    };
+    delete f.card._config.tariff_profile; f.host.reset();
+    f.dom.window.document.body.append(f.card);
+    if (type === 'ha-energy-optimizer') await f.card._fetchEnergyStats();
+    else if (type === 'ha-energy-insights') await f.card._fetchData();
+    else await f.card._fetchAllPeriodStats();
+    f.card._lastStatsFetch = f.card._lastDataFetch = end;
+    const measured = calls.filter(x => x.startsWith('recorder/')).length;
+    const before = calls.filter(x => x === 'ha_tools_email/get_tariff').length;
+    assert.equal(f.card._tariffCurrency(), 'EUR');
+    f.card.remove();
+    assert.equal(f.host.snapshot().reason, 'tariff_authority_unavailable');
+    f.dom.window.document.body.append(f.card);
+    await flush(); await flush();
+    assert.equal(calls.filter(x => x === 'ha_tools_email/get_tariff').length, before + 1, 'one bounded read reconfirms the tariff on the remount gesture');
+    assert.equal(f.card._tariffCurrency(), 'EUR');
+    assert.equal(f.host.snapshot().provenance, 'shared_backend');
+    assert.equal(calls.filter(x => x.startsWith('recorder/')).length, measured, 'accepted measured data are reused');
+    assert.ok(calls.every(x => !/set_tariff|send|save|import/.test(x)));
+  } finally { f.close(); }
+});
