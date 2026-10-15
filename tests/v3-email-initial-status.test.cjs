@@ -50,3 +50,44 @@ for (const outcome of ['partial', 'no_sources', 'error']) test(`Email first read
     dom.window.close();
   }
 });
+
+test('Email discovery completion cannot redraw the replacement household session', async () => {
+  const dom = new JSDOM('', { runScripts: 'dangerously', url: 'http://localhost/' });
+  dom.window.eval(code);
+  const card = dom.window.document.createElement('ha-energy-email');
+  let resume;
+  const pending = new Promise(resolve => { resume = resolve; });
+  const calls = [];
+  card._schedule = () => {};
+  card._loadEmailBackendConfig = async () => {};
+  card._ensureHelpers = async () => {};
+  card._discoverRecipient = () => {};
+  card._loadSharedTariffProfile = async () => {};
+  card._hass = { user: { id: 'first-admin', is_admin: true }, connection: { connected: true },
+    config: { time_zone: 'UTC' }, states: {}, callWS: async request => {
+      calls.push(request.type);
+      assert.equal(request.type, 'energy/get_prefs');
+      return pending;
+    } };
+  try {
+    card.setConfig({ show_support: false });
+    dom.window.document.body.append(card);
+    card._resetEmailContext(card._hass);
+    await card._discoverAll();
+    const refresh = card._periodRefreshPromise;
+    card._firstRender = true;
+    card._activeTab = 'config';
+    card.hass = { ...card._hass, user: { id: 'replacement-household', is_admin: false } };
+    const current = card.shadowRoot.getElementById('tab-content');
+    assert.match(current.textContent, /Only administrators/);
+    resume({ energy_sources: [] });
+    await refresh;
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(card.shadowRoot.getElementById('tab-content'), current, 'old discovery cannot replace the current DOM');
+    assert.deepEqual(calls, ['energy/get_prefs'], 'old completion cannot dispatch more reads');
+    assert.equal(card._periodRefreshPromise, null, 'raw occupancy releases only after settlement');
+  } finally {
+    card._getTariffHostV3().guard.dispose();
+    dom.window.close();
+  }
+});
