@@ -96,5 +96,5 @@
     "src/energy-insights.js": "6e2085a9cbec19fbab32e2e5c6c93c3e469197e91521cac086396010465c5d67",
     "src/energy-email.js": "612ac28ef1a95dab979b4a657368e108de1a3a0aa70a10e3459170a1dd7d5af5"
   },
-  "reuse_after_capture": "The later change only adds schedule-toggle class and scoped CSS to legacy enabled-checkbox labels. Captured Overview/Preview/Daily/Patterns views do not contain that class; their markup/styles remain unchanged. Current native legacy toggle targets are separately verified after the fix. Captured_modules record capture-time hashes, not a claim that all final modules remain byte-identical."
+  "reuse_after_capture": "Later changes only add schedule-toggle classes and scoped CSS to legacy schedule labels, time/recipient inputs and selects. Captured Overview/Preview/Daily/Patterns views contain none of these schedule controls; their markup/styles remain unchanged. Affected native schedule targets are qualified separately. Captured_modules record capture-time hashes, not a claim that all final modules remain byte-identical."
 }
