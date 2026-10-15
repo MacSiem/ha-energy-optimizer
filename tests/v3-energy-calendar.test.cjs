@@ -157,7 +157,7 @@ const tariffFixtureProfile = {schema:1,name:'Fixture',currency:'CHF',timezone:'U
  clock:{mode:'civil'},priceBasis:'gross',defaultZone:'a',zones:[{id:'a',energyRate:2,variableRate:0}]};
 async function confirmedTariffFixture(t, nextRead) {
  const f=fixture(t);const original=f.hass.callWS;let reads=0;
- f.hass.config.currency='PLN';
+ f.hass.config.currency='PLN';f.card._config.energy_price=0.7;
  f.hass.callWS=async msg=>{
   if(msg.type!=='ha_tools_email/get_tariff')return original(msg);
   f.calls.push(msg);reads++;
@@ -175,6 +175,7 @@ for(const navigation of ['button','picker'])test('confirmed shared tariff is rea
  const header=()=>f.root.getElementById('price-display').textContent;
  assert.doesNotMatch(header(),/PLN|not configured/);assert.match(header(),/not confirmed|Checking/i);
  assert.equal(f.card._sharedTariffProfile,null); // Context still purges the old authority.
+ assert.equal(f.card._getTariffV3().valid,false,'unconfirmed shared profile must not price via stale legacy rate');
  assert.equal(f.calls.filter(c=>c.type.endsWith('/get_tariff')).length,2);
  pending.resolve({profile:tariffFixtureProfile,revision:4,updated_at:null});await settle();
  assert.match(header(),/CHF Fixture/);assert.equal(f.card._activeTab,'schedule');
