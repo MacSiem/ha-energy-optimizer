@@ -391,7 +391,7 @@ class HaEnergyOptimizer extends HTMLElement {
 
   _getTariffV3(proposed) {
     const host = this._getTariffHostV3();
-    return arguments.length ? host.model(proposed) : host.model();
+    return arguments.length ? host.model(proposed) : this._sharedTariffNeedsConfirmationV3() ? host.model({ schema: 0 }) : host.model();
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
@@ -1253,8 +1253,23 @@ this._installTariffConsumerV3();
 // HA_TARIFF_V3_END
     return this._tariffHostController;
   }
-  _tariffCurrency() { return this._getTariffHostV3().currency(); }
-  _loadSharedTariffProfile() { return this._getTariffHostV3().load(); }
+  _tariffCurrency() { return this._sharedTariffNeedsConfirmationV3() ? '' : this._getTariffHostV3().currency(); }
+  async _loadSharedTariffProfile() {
+      const confirmed = await this._getTariffHostV3().load();
+      if (confirmed && this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
+      return confirmed;
+    }
+    _sharedTariffNeedsConfirmationV3() {
+      return this._sharedTariffExpectedV3 && !Object.hasOwn(this._config, 'tariff_profile') && this._sharedTariffReadStatus !== 'success';
+    }
+    _observeTariffNavigationV3() {
+      this._observeTariffContextV3();
+      if (!this._sharedTariffExpectedV3 || Object.hasOwn(this._config, 'tariff_profile')) return;
+      const guard = this._getTariffHostV3().guard, token = guard.snapshot();
+      void this._loadSharedTariffProfile().then(confirmed => {
+        if (confirmed && guard.current(token) && this.isConnected) this._repriceTariffV3();
+      });
+    }
   _tariffDetailsMarkup() { return this._getTariffHostV3().markup(); }
   _bindTariffSettings() {
       if (this._tariffWriteUnconfirmedV3) {
@@ -1320,6 +1335,7 @@ this._installTariffConsumerV3();
     }
 
     _repriceTariffV3() {
+      if (this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
       this._generateRecommendations();
       this._generateComparisonData();
       if (this._energyModel) this._preparePatterns();
@@ -1533,7 +1549,7 @@ this._installTariffConsumerV3();
     panel.querySelectorAll('select[data-pattern-control]').forEach(el => el.addEventListener('change', () => {
       const field = el.dataset.patternControl;
       state[field === 'period' ? 'period' : field === 'point' ? 'selected' : field] = field === 'period' ? Number(el.value) : el.value;
-      if (field === 'period') this._observeTariffContextV3();
+      if (field === 'period') this._observeTariffNavigationV3();
       redraw(field, field !== 'period');
     }));
     panel.querySelectorAll('button[data-pattern-control]').forEach(el => el.addEventListener('click', () => {
@@ -2324,7 +2340,7 @@ canvas {
         button.classList.add('active');
         button.setAttribute('aria-selected', 'true');
         this._currentTab = button.dataset.tab;
-        this._observeTariffContextV3();
+        this._observeTariffNavigationV3();
         this._showTab(button.dataset.tab);
       });
     });
@@ -3074,7 +3090,7 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
     }
     _getTariffV3(proposed) {
       const host = this._getTariffHostV3();
-      return arguments.length ? host.model(proposed) : host.model();
+      return arguments.length ? host.model(proposed) : this._sharedTariffNeedsConfirmationV3() ? host.model({ schema: 0 }) : host.model();
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
@@ -3936,8 +3952,23 @@ this._installTariffConsumerV3();
 // HA_TARIFF_V3_END
       return this._tariffHostController;
     }
-    _tariffCurrency() { return this._getTariffHostV3().currency(); }
-    _loadSharedTariffProfile() { return this._getTariffHostV3().load(); }
+    _tariffCurrency() { return this._sharedTariffNeedsConfirmationV3() ? '' : this._getTariffHostV3().currency(); }
+    async _loadSharedTariffProfile() {
+      const confirmed = await this._getTariffHostV3().load();
+      if (confirmed && this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
+      return confirmed;
+    }
+    _sharedTariffNeedsConfirmationV3() {
+      return this._sharedTariffExpectedV3 && !Object.hasOwn(this._config, 'tariff_profile') && this._sharedTariffReadStatus !== 'success';
+    }
+    _observeTariffNavigationV3() {
+      this._observeTariffContextV3();
+      if (!this._sharedTariffExpectedV3 || Object.hasOwn(this._config, 'tariff_profile')) return;
+      const guard = this._getTariffHostV3().guard, token = guard.snapshot();
+      void this._loadSharedTariffProfile().then(confirmed => {
+        if (confirmed && guard.current(token) && this.isConnected) this._repriceTariffV3();
+      });
+    }
     _tariffDetailsMarkup() { return this._getTariffHostV3().markup(); }
     _bindTariffSettings() {
       if (this._tariffWriteUnconfirmedV3) {
@@ -4017,6 +4048,7 @@ this._installTariffConsumerV3();
     }
 
     _repriceTariffV3() {
+      if (this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
       if (this._insightsEnergyModel) {
         try { this._projectInsightsV3(this._insightsEnergyModel); this._error = null; }
         catch (error) { this._error = error.message || this._t('error'); }
@@ -4046,6 +4078,7 @@ this._installTariffConsumerV3();
     }
 
     _getTariffLabel() {
+      if (this._sharedTariffNeedsConfirmationV3()) return this._lang === 'pl' ? 'Wspólna taryfa niepotwierdzona' : 'Shared tariff not confirmed';
       const custom = Object.hasOwn(this._config, 'tariff_profile') ? this._config.tariff_profile : this._sharedTariffProfile;
       if (Object.hasOwn(this._config, 'tariff_profile') || custom != null) return this._getTariffV3().valid
         ? `${custom.name || custom.type || 'Custom'} · ${custom.priceBasis === 'net' ? (this._lang === 'pl' ? 'netto' : 'net') : (this._lang === 'pl' ? 'brutto' : 'gross')} · ${custom.timezone}`
@@ -5039,7 +5072,7 @@ this._installTariffConsumerV3();
       shadow.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
           this._activeTab = btn.dataset.tab;
-          this._observeTariffContextV3();
+          this._observeTariffNavigationV3();
           localStorage.setItem('ha-tools-energy-insights-active-tab', this._activeTab);
           history.replaceState(null, '', location.pathname + '#' + this._toolId + '/' + this._activeTab);
           // Update tab content only (no full DOM rebuild)
@@ -5053,7 +5086,7 @@ this._installTariffConsumerV3();
 
     setActiveTab(tabId) {
       this._activeTab = tabId;
-      this._observeTariffContextV3();
+      this._observeTariffNavigationV3();
       this._render();
     }
 
@@ -5850,7 +5883,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
 
     _getTariffV3(proposed) {
       const host = this._getTariffHostV3();
-      return arguments.length ? host.model(proposed) : host.model();
+      return arguments.length ? host.model(proposed) : this._sharedTariffNeedsConfirmationV3() ? host.model({ schema: 0 }) : host.model();
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
@@ -6712,8 +6745,12 @@ this._installTariffConsumerV3();
 // HA_TARIFF_V3_END
       return this._tariffHostController;
     }
-    _tariffCurrency() { return this._getTariffHostV3().currency(); }
-    _loadSharedTariffProfile() { return this._getTariffHostV3().load(); }
+    _tariffCurrency() { return this._sharedTariffNeedsConfirmationV3() ? '' : this._getTariffHostV3().currency(); }
+    async _loadSharedTariffProfile() {
+      const confirmed = await this._getTariffHostV3().load();
+      if (confirmed && this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
+      return confirmed;
+    }
     _tariffDetailsMarkup() { return this._getTariffHostV3().markup(); }
     _bindTariffSettings() {
       if (this._tariffWriteUnconfirmedV3) {
@@ -6781,6 +6818,7 @@ this._installTariffConsumerV3();
     }
 
     _repriceTariffV3() {
+      if (this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
       for (const period of ['day', 'week', 'month']) {
         if (this[`_periodStatus_${period}`] !== 'ready') continue;
         const measured = this[`_periodRaw_${period}`];
@@ -6853,7 +6891,16 @@ this._installTariffConsumerV3();
       return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : 'N/A';
     }
 
+    _sharedTariffNeedsConfirmationV3() {
+      return this._sharedTariffExpectedV3 && !Object.hasOwn(this._config, 'tariff_profile') && this._sharedTariffReadStatus !== 'success';
+    }
+
+    _tariffHeaderCurrencyV3() {
+      return this._sharedTariffNeedsConfirmationV3() ? '' : this._tariffCurrency();
+    }
+
     _getTariffLabel() {
+      if (this._sharedTariffNeedsConfirmationV3()) return this._lang === 'pl' ? 'Wspólna taryfa niepotwierdzona' : 'Shared tariff not confirmed';
       const custom = Object.hasOwn(this._config, 'tariff_profile') ? this._config.tariff_profile : this._sharedTariffProfile;
       if (Object.hasOwn(this._config, 'tariff_profile') || custom != null) return this._getTariffV3().valid
         ? `${custom.name || custom.type || 'Custom'} · ${custom.priceBasis === 'net' ? (this._lang === 'pl' ? 'netto' : 'net') : (this._lang === 'pl' ? 'brutto' : 'gross')} · ${custom.timezone}`
@@ -7666,7 +7713,7 @@ this._installTariffConsumerV3();
             <div class="header-icon">\u{1F4E7}</div>
             <div>
               <div class="header-title">${_esc(this._config.title)}</div>
-              <div class="header-sub">${recipientDisplay} \u00A0\u2022\u00A0 ${this._hass?.user?.is_admin === true ? `<button type="button" id="price-display" aria-label="${L ? 'Edytuj taryfę energii' : 'Edit energy tariff'}">${_esc(this._tariffCurrency())} ${_esc(this._getTariffLabel())} \u270E</button>` : `<span id="price-display">${_esc(this._tariffCurrency())} ${_esc(this._getTariffLabel())}</span>`}</div>
+              <div class="header-sub">${recipientDisplay} \u00A0\u2022\u00A0 ${this._hass?.user?.is_admin === true ? `<button type="button" id="price-display" aria-label="${L ? 'Edytuj taryfę energii' : 'Edit energy tariff'}">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())} \u270E</button>` : `<span id="price-display">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())}</span>`}</div>
             </div>
           </div>
           <label class="email-tab-picker">${L ? 'Widok' : 'View'}<select id="email-tab-select" aria-label="${L ? 'Widok' : 'View'}">${['overview','schedule','preview','send','config','history'].map((tab,i)=>`<option value="${tab}" ${this._activeTab===tab?'selected':''}>${(L?['Przegląd','Harmonogram','Podgląd','Wyślij teraz','Ustawienia','Historia']:['Overview','Schedule','Preview','Send Now','Config','History'])[i]}</option>`).join('')}</select></label>
@@ -7687,15 +7734,8 @@ this._installTariffConsumerV3();
       bindEnergySupport(this.shadowRoot, 'ha-energy-email', this._hass?.locale?.language || this._hass?.language);
       this.shadowRoot.querySelectorAll('.tab-btn').forEach(t => {
         t.addEventListener('click', () => {
-          this._activeTab = t.dataset.tab;
-          this._observeTariffContextV3();
-          if (this._activeTab === 'schedule') { this._serverSchedules.setContext(this._hass); this._serverSchedules.ensureRead(); }
-          if (this._activeTab === 'history') this._attemptHistory.setContext(this._hass);
-          const picker = this.shadowRoot.getElementById('email-tab-select'); if (picker) picker.value = this._activeTab;
+          this.setActiveTab(t.dataset.tab);
           history.replaceState(null, '', location.pathname + '#' + this._toolId + '/' + this._activeTab);
-          this.shadowRoot.querySelectorAll('.tab-btn').forEach(x => x.classList.remove('active'));
-          t.classList.add('active');
-          this._renderTab();
         });
       });
       this.shadowRoot.getElementById('email-tab-select')?.addEventListener('change', event => this.setActiveTab(event.target.value));
@@ -7753,7 +7793,7 @@ this._installTariffConsumerV3();
       const root = this.shadowRoot;
       const priceEl = root.getElementById('price-display');
       if (!priceEl) return;
-      if (Object.hasOwn(this._config, 'tariff_profile') || this._sharedTariffProfile != null) {
+      if (Object.hasOwn(this._config, 'tariff_profile') || this._sharedTariffProfile != null || this._sharedTariffNeedsConfirmationV3()) {
         priceEl.addEventListener('click', () => {
           const details = root.querySelector('[data-tariff-details]');
           if (details) { details.open = true; this._bindTariffSettings(); (details.querySelector('input:not(:disabled),select:not(:disabled)') || details.querySelector('summary'))?.focus({ preventScroll: true }); }
@@ -8219,8 +8259,8 @@ this._installTariffConsumerV3();
         <div style="margin-top:12px;padding:12px 16px;background:rgba(59,130,246,0.08);border-left:3px solid var(--bento-primary,#3B82F6);border-radius:6px;font-size:13px;color:var(--bento-text);">
           <strong>\u2139\uFE0F Info:</strong> ${this._helpersReady
             ? (L
-              ? 'Ustawienia (email, serwis, godziny) są zapisywane w Home Assistant i działają na każdym urządzeniu.'
-              : 'Settings (email, service, times) are stored in Home Assistant and work across all your devices.')
+              ? 'Poniższe pola starszych automatyzacji HA (email, serwis, godziny) są zapisywane w Home Assistant. Harmonogramy lokalne pozostają tylko w tej przeglądarce.'
+              : 'The legacy HA automation fields below (email, service, times) are stored in Home Assistant. Local schedules remain only in this browser.')
             : (L
               ? 'Helpery HA niedostępne. Ustawienia (email, serwis, godziny) są zapisywane tylko w tej przeglądarce.'
               : 'HA helpers unavailable. Settings (email, service, times) are saved only in this browser.')}
@@ -8901,8 +8941,17 @@ this._installTariffConsumerV3();
     _discardAttemptHistory() { this._attemptHistory.discard(); }
 
     setActiveTab(tabId) {
+      // Keep the context purge and editor/write fences. Reconfirm a shared
+      // profile for the new tab instead of displaying a fabricated HA fallback.
+      this._sharedTariffExpectedV3 ||= this._sharedTariffProfile != null;
       this._activeTab = tabId;
       this._observeTariffContextV3();
+      if (this._sharedTariffExpectedV3 && !Object.hasOwn(this._config, 'tariff_profile')) {
+        const guard = this._getTariffHostV3().guard, token = guard.snapshot();
+        void this._loadSharedTariffProfile().then(confirmed => {
+          if (confirmed && guard.current(token) && this.isConnected) this._repriceTariffV3();
+        });
+      }
       if (tabId === 'schedule') { this._serverSchedules.setContext(this._hass); this._serverSchedules.ensureRead(); }
       if (tabId === 'history') this._attemptHistory.setContext(this._hass);
       this._render();
