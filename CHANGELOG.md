@@ -2,6 +2,8 @@
 
 ## 3.6.0 (2026-10-15)
 
+- Reconfirm the shared tariff when an existing card is reattached, without refetching settled Recorder measurements or clearing an unknown tariff write.
+
 - Clear accepted measurements across all three cards when the HA connection, user, timezone or context changes, including in-place HA updates; retain measurements for language and theme changes and reject late old-session reads.
 
 - Replace hypothetical load-shifting savings with measured import × configured tariff. Show energy, variable charges and fixed monthly fees separately, with explicit missing coverage and valid zero prices.
