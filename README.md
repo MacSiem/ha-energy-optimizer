@@ -25,7 +25,7 @@ once, use any of them:
 |---|---|
 | `custom:ha-energy-optimizer` | Dashboard with hourly Chart/Data, measured Patterns by day/hour, tariff-zone costs and consecutive-week totals. |
 | `custom:ha-energy-insights` | Overview, Daily / Weekly / Monthly Chart/Data and Tips. Device measurements configured in Energy Dashboard are read only on request; parent/submeter relationships and partial coverage stay visible, and device rows are never added to the grid-import total. |
-| `custom:ha-energy-email` | Recorder-backed 24h / 7d / 30d overview and report preview. Sending requires an administrator, complete data, and configured SMTP in HA Tools Email. Actual HTML mail previews and explicit manual calendar sends require **HA Tools Email2.3.0+**; summary/rolling compatibility supports **2.1.2+**, and calendar schedules and shared tariffs require **2.2.0+**. Legacy direct sending also validates hourly coverage. Local schedule settings are retained but do not run a server schedule. HA Tools Email & Reports 4.5.0+ forwards to this maintained card. |
+| `custom:ha-energy-email` | Recorder-backed 24h / 7d / 30d overview and report preview. Sending requires an administrator, complete data, and configured SMTP in HA Tools Email. Actual HTML mail previews and explicit manual calendar sends require **HA Tools Email 2.3.0+**; summary/rolling compatibility supports **2.1.2+**, and calendar schedules and shared tariffs require **2.2.0+**. Legacy direct sending also validates hourly coverage. Local schedule settings are retained but do not run a server schedule. HA Tools Email & Reports 4.5.0+ forwards to this maintained card. |
 
 ### What is automatic vs. manual
 
@@ -62,9 +62,9 @@ Existing automations are shown separately with warnings to avoid running both a 
 
 ### Actual Energy mail preview and explicit manual periods
 
-With stable **HA Tools Email2.3.0+**, Preview reads the actual server-composed
+With stable **HA Tools Email 2.3.0+**, Preview reads the actual server-composed
 subject and HTML without requiring SMTP setup or device discovery. Choose daily,
-weekly or monthly, then select the last24/168/720 completed Recorder hours or
+weekly or monthly, then select the last 24/168/720 completed Recorder hours or
 the previous completed local day, ISO week or calendar month. The card displays
 actual inclusive start, exclusive end, timezone, source and data limitations.
 Calendar periods follow Home Assistant's timezone for manual selection.
