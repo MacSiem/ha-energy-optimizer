@@ -1,5 +1,16 @@
 # Changelog — Energy Optimizer
 
+## 3.6.0 (2026-10-15)
+
+- Replace hypothetical load-shifting savings with measured import × configured tariff. Show energy, variable charges and fixed monthly fees separately, with explicit missing coverage and valid zero prices.
+- Share an optional server-backed Custom tariff across Optimizer, Insights and Energy Email. Preserve currency, timezone or meter clock, zones, minute/overnight rules, weekdays, seasons and dated exceptions; require administrator saves and matching readback.
+- Add matching Chart/Data views and keyboard point selection to Optimizer Dashboard/Patterns and Insights Daily/Weekly/Monthly. Keep repeated DST hours distinct, retain missing measurements, and show sources, units, timezones and coverage.
+- Read configured device statistics in Insights only on request; preserve parent/submeter relationships, search, pagination, zero and partial states without adding device usage to the grid total.
+- Use the existing HA Tools Email 2.2+ server scheduler for daily/weekly/monthly calendars and timezone-aware previews. Keep legacy automation warnings and distinguish confirmed, failed and unknown results.
+- Display the server's durable send-attempt history separately from local state; SMTP acceptance is not delivery confirmation.
+- Keep tariff confirmation across navigation through bounded reads, preserve drafts and focus, and invalidate stale data on role, source, connection or offline changes.
+- Apply touch-size controls, responsive tabs, narrow records, theme/localization and calendar-editor styles across the three cards.
+
 ## 3.5.4 (2026-10-08)
 
 - Correct the release date for the published 3.5.3 entry and document the Home Assistant API compatibility boundary and optional email backend requirements.
