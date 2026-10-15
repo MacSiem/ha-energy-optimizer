@@ -2,6 +2,12 @@
 
 ## 3.6.0 (2026-10-15)
 
+- Preview the actual server-composed Energy email for daily, weekly and monthly reports, with rolling or previous completed calendar periods. Requires stable HA Tools Email2.3+ for actual HTML and explicit calendar sending.
+- Share manual period selection between Preview and Send; show actual bounds with timezone and preserve missing measurements. Keep the legacy overview and supported older rolling send paths.
+- Label the existing schedule-row manual send as rolling; provide a separate explicit previous-calendar-period send using that schedule's recipients and timezone. Neither action edits the saved schedule.
+- Isolate email HTML in a sandbox with scripts, external resources and form actions blocked. Preserve pending raw-send locks across context changes and require an exact modern SMTP acceptance acknowledgement without claiming inbox delivery.
+
+
 - Reconfirm the shared tariff when an existing card is reattached, without refetching settled Recorder measurements or clearing an unknown tariff write.
 
 - Clear accepted measurements across all three cards when the HA connection, user, timezone or context changes, including in-place HA updates; retain measurements for language and theme changes and reject late old-session reads.

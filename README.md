@@ -25,7 +25,7 @@ once, use any of them:
 |---|---|
 | `custom:ha-energy-optimizer` | Dashboard with hourly Chart/Data, measured Patterns by day/hour, tariff-zone costs and consecutive-week totals. |
 | `custom:ha-energy-insights` | Overview, Daily / Weekly / Monthly Chart/Data and Tips. Device measurements configured in Energy Dashboard are read only on request; parent/submeter relationships and partial coverage stay visible, and device rows are never added to the grid-import total. |
-| `custom:ha-energy-email` | Recorder-backed 24h / 7d / 30d overview and report preview. Sending requires an administrator, complete data, and configured SMTP in HA Tools Email. Server report previews use **HA Tools Email 2.1.2+**; calendar schedules and shared tariffs require **2.2.0+**. Legacy direct sending also validates hourly coverage. Local schedule settings are retained but do not run a server schedule. HA Tools Email & Reports 4.5.0+ forwards to this maintained card. |
+| `custom:ha-energy-email` | Recorder-backed 24h / 7d / 30d overview and report preview. Sending requires an administrator, complete data, and configured SMTP in HA Tools Email. Actual HTML mail previews and explicit manual calendar sends require **HA Tools Email2.3.0+**; summary/rolling compatibility supports **2.1.2+**, and calendar schedules and shared tariffs require **2.2.0+**. Legacy direct sending also validates hourly coverage. Local schedule settings are retained but do not run a server schedule. HA Tools Email & Reports 4.5.0+ forwards to this maintained card. |
 
 ### What is automatic vs. manual
 
@@ -59,6 +59,36 @@ The Custom tariff supports a currency, IANA timezone or an explicitly configured
 With HA Tools Email **2.2.0+**, Energy Email can manage multiple daily, weekly or monthly calendar schedules, local sending time, weekday/month day and IANA timezone (or follow Home Assistant). The server supplies the next firing time and the previous completed calendar period. The rolling 24h / 7d / 30d overview can therefore differ from a calendar preview. Opening the editor or Preview does not send mail or create a schedule; save/delete require an administrator and confirmed readback.
 
 Existing automations are shown separately with warnings to avoid running both a legacy automation and a server schedule for the same report. Browser-only legacy settings do not run a schedule. History reads the server's bounded attempt log; **accepted by SMTP is not proof of delivery**. An unknown result is not automatically retried. SMTP credentials remain in the backend integration.
+
+### Actual Energy mail preview and explicit manual periods
+
+With stable **HA Tools Email2.3.0+**, Preview reads the actual server-composed
+subject and HTML without requiring SMTP setup or device discovery. Choose daily,
+weekly or monthly, then select the last24/168/720 completed Recorder hours or
+the previous completed local day, ISO week or calendar month. The card displays
+actual inclusive start, exclusive end, timezone, source and data limitations.
+Calendar periods follow Home Assistant's timezone for manual selection.
+
+The Send tab shares the chosen period mode and offers a button for each cadence.
+The backend composes again at send time, so new data can change the report.
+Schedules keep their own recipients and timezone. Their existing rolling Send
+now button is explicitly labelled; a separate previous-calendar-period button
+sends that schedule's last completed calendar period. Neither action saves or
+changes the schedule. New calendar sends never silently fall back to rolling
+when the backend is older or unavailable.
+
+Completed calendar reports compare with the adjacent previous calendar period
+when both have complete supported measurements. Actual durations remain
+visible across DST and unequal months; totals are not normalized. A zero
+baseline has no percentage change. Rolling reports do not claim this calendar
+comparison. Measured grid import does not establish an appliance-flow diagram.
+
+The HTML appears in an isolated sandbox with scripts, external resources and
+form actions blocked. Only administrators can read mail previews or send;
+Overview remains available to household users. The compatibility energy summary
+is retained separately. Legacy rolling and Quick Summary behavior remains
+available in its supported older integration path. Server acceptance does not
+confirm inbox delivery; an occupied send is never automatically retried.
 
 ## Screenshots
 
