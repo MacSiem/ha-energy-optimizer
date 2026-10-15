@@ -101,8 +101,9 @@ for(const type of ['ha-energy-optimizer','ha-energy-email'])for(const boundary o
    // At local midnight Today can honestly have no completed hours; the full
    // Recorder fixture still contains 31 days of one-kWh measurements.
    const model=f.card._energyModel;assert.ok(model,'normal update accepts the current Recorder model');
+   assert.notEqual(model,oldModel,'a new accepted model replaces the retained or cleared model');
    assert.equal(model.summary(model.start,model.end).total,744);
    assert.equal(model.zone,f.hass.config.time_zone);assert.equal(f.card._statsLoading,false);
-  }else {assert.equal(f.value(),24);assert.equal(f.card._periodRefreshPromise,null);}
+  }else {assert.equal(f.value(),24);assert.notEqual(f.card._periodCache_day,oldDay);assert.equal(f.card._periodRefreshPromise,null);}
  }finally{f.close();}
 });
