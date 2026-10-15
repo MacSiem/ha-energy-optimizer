@@ -4,15 +4,15 @@
   "sources": [
     {
       "path": "src/optimizer.js",
-      "sha256": "a53b2638d5c13f5a75d9ade03b5f9e40cb4b0fab38bbdc1b4258010db1f02393"
+      "sha256": "0226303cf3aaf88aeeb7629bfc2ce57ab83928ae11955fb4f357ea9e8e58c492"
     },
     {
       "path": "src/energy-insights.js",
-      "sha256": "a8eb5cb98c88fc8688e29073c3cedabe74002aea4849ad94c9fadd9d3c465430"
+      "sha256": "c33a052ccb8497e2b60c59b6e10e0d48221678bb25d22b9a7884eae40271e3eb"
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "f8208418017fb94e5ab7a33adfa5b6edb29c06dcaa001b757bd36bb4002c036f"
+      "sha256": "bea91b721737b977aaa7adc2b2c92754257b47c42d5c5b6c6583a81b749964f1"
     },
     {
       "path": "src/chart-vendor.js",

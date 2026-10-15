@@ -40,6 +40,8 @@ once, use any of them:
 
 Optimizer and Insights “Today” cover completed hourly buckets since local midnight in the Home Assistant timezone. Repeated DST hours keep separate absolute identities and UTC offsets; a skipped or future hour is not a measured zero. Completed days may have 23 or 25 hours. Weekly comparisons use consecutive 168-hour windows; monthly and email views use the last 720 hours. Email daily reports use the last 24 completed hours. The displayed start/end timestamps identify the window, so Today and a daily email can legitimately differ.
 
+Accepted measurements are cleared when the HA connection, user or measurement timezone changes, and when the card loses its HA context. A new context cannot display the preceding session’s cached grid or email totals while its own measurements are pending. Language and theme changes retain the current measurements.
+
 If local midnight falls inside an hourly Recorder aggregate (for example in a half-hour or quarter-hour timezone), the complete Today total and cost stay unavailable. The measured subset, timezone and exact interval remain visible; original hourly measurements are retained in Chart/Data without dividing a bucket. Rolling 24h / 168h / 720h reports keep their exact completed-hour windows.
 
 Wh, kWh and MWh are normalized to kWh. Missing sources, hours, duplicate timestamps, negative changes and unsupported metadata cannot produce a complete total. Future hours remain blank. Cost requires a configured tariff; there is no assumed electricity price.

@@ -2,6 +2,8 @@
 
 ## 3.6.0 (2026-10-15)
 
+- Clear accepted measurements across all three cards when the HA connection, user, timezone or context changes, including in-place HA updates; retain measurements for language and theme changes and reject late old-session reads.
+
 - Replace hypothetical load-shifting savings with measured import × configured tariff. Show energy, variable charges and fixed monthly fees separately, with explicit missing coverage and valid zero prices.
 - Share an optional server-backed Custom tariff across Optimizer, Insights and Energy Email. Preserve currency, timezone or meter clock, zones, minute/overnight rules, weekdays, seasons and dated exceptions; require administrator saves and matching readback.
 - Add matching Chart/Data views and keyboard point selection to Optimizer Dashboard/Patterns and Insights Daily/Weekly/Monthly. Keep repeated DST hours distinct, retain missing measurements, and show sources, units, timezones and coverage.
