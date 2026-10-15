@@ -358,6 +358,8 @@ class HaEnergyOptimizer extends HTMLElement {
     if (!this._hass || !this._hass.callWS) return;
     if (this._statsLoading) return;
     this._statsLoading = true;
+    // Only a dispatched read may spend this context's refresh window.
+    this._lastStatsFetch = Date.now();
     const read = this._createEnergyReadV3();
     const currentContext = read.current;
     this._energyError = null;
@@ -403,6 +405,9 @@ class HaEnergyOptimizer extends HTMLElement {
       console.warn('Energy Optimizer: Energy statistics unavailable');
     } finally {
       this._statsLoading = false;
+      // Discarded data leaves the next normal hass update eligible to read;
+      // stale completion itself never retries or releases the raw wire early.
+      if (!currentContext()) this._lastStatsFetch = 0;
       if (this.isConnected) this._render();
     }
   }
@@ -417,7 +422,6 @@ class HaEnergyOptimizer extends HTMLElement {
     // Fetch stats every 5 minutes (not on every hass update)
     const now = Date.now();
     if (!this._lastStatsFetch || (now - this._lastStatsFetch) > 300000) {
-      this._lastStatsFetch = now;
       this._fetchEnergyStats();
     }
   }
@@ -7579,7 +7583,12 @@ this._installTariffConsumerV3();
       // One accepted source/window epoch for each complete period; no cross-period race.
       this._periodRefreshPromise = (async () => {
         for (const period of ['day', 'week', 'month']) {
-          if (await this._fetchRecorderStats(period) === false) break;
+          if (await this._fetchRecorderStats(period) === false) {
+            // A stale tab/mount read supplied no current data. Keep the next
+            // normal hass update eligible without retrying in this callback.
+            this._lastPeriodRefresh = 0;
+            break;
+          }
         }
       })();
       try { await this._periodRefreshPromise; }
