@@ -54,3 +54,14 @@ for(const type of ['ha-energy-insights','ha-energy-email'])test(`${type} null th
   resume();await pending;assert.ok(!f.value());
  }finally{f.close();}
 });
+test('Insights does not spend the new session refresh deadline while the old wire is occupied',async()=>{
+ const f=await fixture('ha-energy-insights');try{
+  const resume=f.hold(),pending=f.fetch();await Promise.resolve();f.card.hass=null;
+  const next={...f.hass,user:{id:'B',is_admin:true},connection:{connected:true},config:{...f.hass.config,time_zone:'Europe/Warsaw'}};
+  f.card.hass=next;resume();await pending;
+  assert.equal(f.card._lastDataFetch,0,'a rejected dispatch cannot consume the 5 minute refresh window');
+  f.card.hass=next;await new Promise(resolve=>setImmediate(resolve));
+  assert.ok(f.value()>0);assert.equal(f.card._insightsEnergyModel.zone,'Europe/Warsaw');
+  assert.equal(f.card._insightsReadPending,false);assert.equal(f.card._loading,false);
+ }finally{f.close();}
+});
