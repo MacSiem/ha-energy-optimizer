@@ -1288,7 +1288,12 @@ this._installTariffConsumerV3();
       } finally {
         this._insightsReadPending = false;
         this._loading = false;
-        if (read.current()) {
+        // A stale first read supplies no measurements and must not consume the
+        // five-minute refresh window. The next hass update can read its context.
+        if (!read.current()) this._lastDataFetch = 0;
+        // Repaint current state even when the completed response was discarded;
+        // otherwise the old spinner can survive after the read has settled.
+        if (this.isConnected && this.ownerDocument?.defaultView?.document) {
           this._updateContent();
           if (this._chartJsReady) this._renderCharts();
         }
