@@ -67,3 +67,13 @@ test('failed source reads remove Dashboard rows rather than retaining a prior da
     assert.equal(f.card.shadowRoot.querySelector('[data-dashboard-chart-section]'),null);
   }finally{f.close();}
 });
+test('peak hour uses one absolute bucket rather than the sum of repeated local hours',async()=>{
+  const f=await fixture();try{
+    // This fixture has separate 02:00 buckets of 1 kWh each and other 1 kWh hours.
+    // The legacy wall-clock aggregate falsely makes 02:00 the sole maximum (2 kWh).
+    assert.equal(f.card._getPeakHour(),0,'first maximum actual interval is local midnight');
+    const peak=f.card.shadowRoot.querySelector('[data-dashboard-peak]');assert.ok(peak);
+    assert.match(peak.textContent,/00:00/);assert.match(peak.textContent,/GMT\+02:00/);
+    assert.equal(peak.dataset.kwh,'1');
+  }finally{f.close();}
+});
