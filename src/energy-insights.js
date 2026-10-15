@@ -1272,7 +1272,7 @@ this._installTariffConsumerV3();
         } else {
           const rate = (_hour, _weekday, stamp) => this._tariffRateForHour(stamp);
           rate.currency = this._tariffCurrency();
-          const today = model.summary(model.todayStart, model.end, rate);
+          const today = model.today(rate);
           // Keep partial measured intervals inspectable; summary() already preserves null totals.
           const week = model.summary(model.end - 168 * ENERGY_HOUR, model.end, rate);
           const previous = model.summary(model.end - 336 * ENERGY_HOUR, model.end - 168 * ENERGY_HOUR, rate);
@@ -2025,6 +2025,7 @@ this._installTariffConsumerV3();
       const rec = this._getRecommendation(trendDiff, d.todayKwh);
 
       let html = `
+        ${d.windows?.daily ? `<p data-today-range>${_esc(d.zone || '')} · ${_esc(d.windows.daily.start)} — ${_esc(d.windows.daily.end)}</p>${energyTodayBoundaryMarkup(d.windows.daily, d.zone || '', this._lang)}` : ''}
         <div class="stats-grid">
           <div class="stat-card">
             <div class="stat-label">${this._t('today')}</div>

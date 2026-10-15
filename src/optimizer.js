@@ -90,14 +90,31 @@ async function readEnergyHours(hass, hours) {
     }
     return [...groups].map(([key, stamps]) => ({ key, ...summary(stamps[0], stamps.at(-1) + ENERGY_HOUR, rate) }));
   };
+  // A local midnight can fall inside an absolute UTC-hour aggregate. Do not
+  // apportion that bucket or call the measurable remainder a complete civil day.
+  const todaySummary = rate => {
+    const measured = summary(todayStart, end, rate);
+    const boundaryComplete = local(todayStart).key === today && local(todayStart - 1).key !== today;
+    return { ...measured, intervalsComplete: measured.complete, boundaryComplete,
+      complete: measured.complete && boundaryComplete, recordedKwh: measured.total,
+      total: boundaryComplete ? measured.total : null, cost: boundaryComplete ? measured.cost : null };
+  };
   const hourlyToday = new Array(24).fill(null);
   const counts = new Array(24).fill(0);
   for (let hour = 0; hour < 24; hour++) {
     const rows = todayStamps.map(stamp => points.get(stamp)).filter(point => point.hour === hour);
     if (rows.length && rows.every(point => point.kwh !== null)) { hourlyToday[hour] = rows.reduce((sum, point) => sum + point.kwh, 0); counts[hour] = rows.length; }
   }
-  return { ids, zone, start, end, todayStart, points, summary, daily, hourlyToday, counts };
+  return { ids, zone, start, end, todayStart, points, summary, today: todaySummary, daily, hourlyToday, counts };
 }
+
+const energyTodayBoundaryMarkup = (today, zone, language = 'en') => {
+  if (today?.boundaryComplete !== false) return '';
+  const pl = language.split('-')[0] === 'pl';
+  const subset = typeof today.recordedKwh === 'number' && Number.isFinite(today.recordedKwh) ? String(today.recordedKwh) + ' kWh' : (pl ? 'niedostępna' : 'unavailable');
+  return `<p data-today-boundary role="status">${pl ? 'Niepełne pokrycie od lokalnej północy: granica dnia przecina godzinowy przedział Recorder. Suma dnia i koszt są niedostępne; nie dzielimy pomiaru.' : 'Incomplete coverage from local midnight: the day boundary crosses an hourly Recorder interval. The day total and cost are unavailable; the measurement is not divided.'}<br>
+    ${_esc(zone)} · ${_esc(today.start)} — ${_esc(today.end)}<br>${pl ? 'Zmierzona część' : 'Measured subset'}: ${_esc(subset)}</p>`;
+};
 
 // Pure measured Patterns projection. No globals, WS calls or synthetic flows.
 // Each hour is keyed by its absolute Recorder start, including repeated DST hours.
@@ -335,9 +352,9 @@ class HaEnergyOptimizer extends HTMLElement {
       await this._loadSharedTariffProfile();
       if (!currentContext()) return;
       if (model.noSensors || model.noSeries) throw new Error(model.noSeries ? 'Missing Energy Dashboard statistic series' : 'No Energy Dashboard grid import source');
-      const today = model.summary(model.todayStart, model.end);
+      const today = model.today();
       this._energyModel = model; // Patterns can expose measured rows without claiming a complete daily total.
-      if (!today.complete) throw new Error('Incomplete Energy Dashboard hourly coverage');
+      if (!today.intervalsComplete) throw new Error('Incomplete Energy Dashboard hourly coverage');
       this._energyModel = model;
       this._todayWindow = today;
       this._energySensorIds = model.ids;
@@ -1349,7 +1366,10 @@ this._installTariffConsumerV3();
     if (!model?.points) return this._getTariffV3().priceBuckets([]);
     const rows = [...model.points].filter(([stamp]) => stamp >= model.todayStart && stamp < model.end)
       .map(([stamp, point]) => ({ from: stamp, to: stamp + ENERGY_HOUR, kwh: point.kwh }));
-    return this._getTariffV3().priceBuckets(rows, { from: model.todayStart, to: model.end });
+    const priced = this._getTariffV3().priceBuckets(rows, { from: model.todayStart, to: model.end });
+    return this._todayWindow?.boundaryComplete === false
+      ? { ...priced, complete: false, kwh: null, energyCost: null, variableCost: null, usageCost: null }
+      : priced;
   }
 
   _generateRecommendations() {
@@ -2269,6 +2289,7 @@ canvas {
           ${_esc(this._todayWindow?.start || '')} — ${_esc(this._todayWindow?.end || '')} • ${_esc(this._energyModel?.zone || '')}
         </div>
 
+        ${energyTodayBoundaryMarkup(this._todayWindow, this._energyModel?.zone || '', this._hass?.locale?.language || this._hass?.language || 'en')}
         <div class="tabs" role="tablist">
           <button class="tab-button active" data-tab="dashboard" role="tab" aria-selected="${this._currentTab === 'dashboard'}">${this._text("Dashboard", "Przegląd")}</button>
           <button class="tab-button" data-tab="patterns" role="tab" aria-selected="${this._currentTab === 'patterns'}">${this._text("Patterns", "Wzorce")}</button>
@@ -2280,7 +2301,7 @@ canvas {
           <div class="grid">
             <div class="summary-card">
               <span class="summary-label">${this._text("Today's Usage", "Zużycie dzisiaj")}</span>
-              <div class="summary-value">${this._calculateTodayUsage().toFixed(2)}</div>
+              <div class="summary-value">${this._calculateTodayUsage() === null ? 'N/A' : this._calculateTodayUsage().toFixed(2)}</div>
               <span class="summary-label">kWh</span>
             </div>
             <div class="summary-card alt">
@@ -2874,7 +2895,7 @@ async _drawComparisonChart() {
   }
 
   _calculateTodayUsage() {
-    return this._energyData.reduce((a, b) => a + (b ?? 0), 0);
+    return this._todayWindow?.total ?? null;
   }
 
   _calculateTodayCost() {
