@@ -15,6 +15,7 @@ function fixture(t, options={}) {
   let rows=options.rows||[row()]; const calls=[]; const services=[]; const connection=new w.EventTarget(); connection.connected=true;
   const hass={user:{id:'a',is_admin:true},connection,config:{currency:'EUR',time_zone:'Europe/Warsaw'},states:options.states||{},language:options.lang||'en',
     callService:async (...args)=>services.push(args), callWS:async msg=>{ calls.push(msg);
+      if(msg.type==='manifest/get')return {domain:'ha_tools_email',version:options.backendVersion||'2.2.0'};
       if(msg.type.endsWith('/list_schedules'))return options.list?options.list(calls.filter(c=>c.type.endsWith('/list_schedules')).length):{schedules:rows};
       if(msg.type.endsWith('/set_schedule')) {if(options.save)return options.save(msg); if(msg.action==='delete') rows=rows.filter(r=>r.id!==msg.schedule_id);
         else{const next={...(rows.find(r=>r.id===msg.schedule.id)||{}),...msg.schedule};if(next.use_ha_timezone)delete next.timezone;delete next.use_ha_timezone;rows=rows.filter(r=>r.id!==next.id).concat(next);}return {schedules:rows};}
@@ -31,9 +32,9 @@ const calendar=cadence=>({cadence,effective_timezone:'Europe/Warsaw',status:'rea
   period:{start:'2026-10-05T00:00:00+02:00',end:'2026-10-12T00:00:00+02:00',cadence,semantics:'previous_completed_calendar_period'},
   devices:[{entity_id:'sensor.grid',name:'Grid',kwh:0,cost:0}]});
 test('Schedule open uses readonly shared list only; explicit New is disabled and Cancel never writes',async t=>{
-  const f=fixture(t,{rows:[]});await f.open();assert.deepEqual(f.calls.map(c=>c.type),['ha_tools_email/list_schedules']);assert.equal(f.services.length,0);
+  const f=fixture(t,{rows:[]});await f.open();assert.deepEqual(f.calls.map(c=>c.type),['manifest/get','ha_tools_email/list_schedules']);assert.equal(f.services.length,0);
   f.click('schedule-new');assert.match(f.card._serverSchedules.model().draft.id,/^[0-9a-f-]{36}$/i);assert.equal(f.root.getElementById('schedule-enabled').checked,false);
-  f.click('schedule-cancel');assert.equal(f.calls.length,1);assert.equal(f.root.getElementById('schedule-save'),null);
+  f.click('schedule-cancel');assert.equal(f.calls.length,2);assert.equal(f.root.getElementById('schedule-save'),null);
 });
 test('actual DOM edits monthly day/IANA/recipient; Save confirms only exact independent readback',async t=>{
   const f=fixture(t);await f.open();f.click('schedule-edit-0');f.input('schedule-cadence','monthly');f.input('schedule-month-day','31');f.input('schedule-timezone','America/New_York');
@@ -142,4 +143,11 @@ test('last SMTP acceptance follows its acknowledgement when backend availability
  const f=fixture(t,{sendAck:{status:'accepted_by_smtp'}});await f.open();f.click('schedule-send-0');await settle();
  f.card._emailBackendAvailable=false;f.card._lastSent.quick='12:00';f.card.setActiveTab('send');
  assert.match(f.root.getElementById('last-weekly').textContent,/Last accepted by SMTP/);assert.match(f.root.getElementById('last-quick').textContent,/Last send request/);
+});
+
+for(const backendVersion of ['2.1.2','2.1.99','2.2.0b1']) test('actual Energy source blocks unsupported calendar '+backendVersion+' before mutation',async t=>{
+ const f=fixture(t,{backendVersion});await f.open();assert.ok(f.root.getElementById('schedule-new').disabled);
+ f.card._serverSchedules.create();await f.card._serverSchedules.save();await f.card._serverSchedules.remove('energy-existing');
+ assert.equal(f.calls.some(c=>/set_schedule/.test(c.type)),false);assert.equal(f.services.length,0);
+ assert.equal(f.card._serverSchedules.model().status.reason,'unavailable');assert.match(f.root.textContent,/2\.2\.0/);
 });

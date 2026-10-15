@@ -25,7 +25,7 @@ for (const language of ['en', 'pl']) {
     const { dom, card, hass } = setup('ha-energy-email');const writes=[];let rows=[];
     const settle=async()=>{for(let i=0;i<30;i++)await Promise.resolve();};
     const connection=new dom.window.EventTarget();connection.connected=true;
-    const callWS=async msg=>{if(msg.type.endsWith('/list_schedules'))return {schedules:rows};if(msg.type.endsWith('/set_schedule')){writes.push(msg);const row={...msg.schedule,effective_timezone:msg.schedule.timezone||'UTC',next_fire:null};rows=rows.filter(r=>r.id!==row.id).concat(row);return {schedules:rows};}throw Error('Unexpected fixture read');};
+    const callWS=async msg=>{if(msg.type==='manifest/get')return {domain:'ha_tools_email',version:'2.2.0'};if(msg.type.endsWith('/list_schedules'))return {schedules:rows};if(msg.type.endsWith('/set_schedule')){writes.push(msg);const row={...msg.schedule,effective_timezone:msg.schedule.timezone||'UTC',next_fire:null};rows=rows.filter(r=>r.id!==row.id).concat(row);return {schedules:rows};}throw Error('Unexpected fixture read');};
     try {
       card.hass={...hass,language,locale:{language},user:{id:'qa',is_admin:true},connection,config:{time_zone:'UTC'},callWS};
       card._emailBackendAvailable=true;card._emailBackendConfig={smtp_configured:true};card.setActiveTab('schedule');await settle();
@@ -360,4 +360,14 @@ test('Email locale changes keep an inline tariff draft open without applying its
     assert.equal(card._config.energy_price, null);
     assert.equal(dom.window.localStorage.length, 0);
   } finally { dom.window.close(); }
+});
+
+test('shipping Optimizer bundle rejects old calendar API before enabling or deleting schedules',async()=>{
+ const {dom,card,hass}=setup('ha-energy-email');const calls=[];
+ try {
+  card.hass={...hass,user:{id:'admin',is_admin:true},connection:{connected:true},callWS:async msg=>{calls.push(msg);if(msg.type==='manifest/get')return {domain:'ha_tools_email',version:'2.1.2'};if(msg.type.endsWith('/list_schedules'))return {schedules:[]};throw Error('Unexpected mutation');}};
+  card._emailBackendAvailable=true;card._emailBackendConfig={smtp_configured:true};card.setActiveTab('schedule');for(let n=0;n<40;n++)await Promise.resolve();
+  assert.ok(card.shadowRoot.getElementById('schedule-new').disabled);card._serverSchedules.create();await card._serverSchedules.save();await card._serverSchedules.remove('old');
+  assert.deepEqual(calls.map(c=>c.type),['manifest/get']);assert.match(card.shadowRoot.textContent,/2\.2\.0/);
+ }finally{dom.window.close();}
 });
