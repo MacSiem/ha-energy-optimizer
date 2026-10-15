@@ -2848,7 +2848,7 @@ this._installTariffConsumerV3();
         deleted: tr('Usunięcie potwierdzone niezależnym odczytem.', 'Deletion confirmed by independent readback.'),
         readback_mismatch: tr('Nie potwierdzono zapisu. Nie zapisuj ponownie; odśwież odczyt.', 'Save not confirmed. Do not repeat the write; refresh the read.'),
         write_unknown: tr('Wynik zapisu nieznany. Odśwież odczyt; ponowny zapis jest zablokowany.', 'Save outcome unknown. Refresh the read; another write is locked.'),
-        unavailable: tr('Kalendarz niedostępny. Zaktualizuj HA Tools Email i odśwież świadomie.', 'Calendar unavailable. Update HA Tools Email and refresh explicitly.'),
+        unavailable: tr('Kalendarz niedostępny. Wymagana integracja HA Tools Email 2.2.0+. Zaktualizuj ją i odśwież świadomie.', 'Calendar unavailable. HA Tools Email 2.2.0+ is required. Update it and refresh explicitly.'),
         read_timeout: tr('Odczyt przekroczył limit czasu. Odśwież świadomie.', 'Read timed out. Refresh explicitly.'),
         read_failed: tr('Odczyt niepotwierdzony. Odśwież świadomie.', 'Read not confirmed. Refresh explicitly.'),
         save_rejected: tr('Serwer odrzucił zapis.', 'Server rejected the save.'), invalid_fields: tr('Sprawdź godzinę i dzień.', 'Check time and day.'),
