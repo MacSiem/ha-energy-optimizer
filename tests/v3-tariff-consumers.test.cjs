@@ -152,3 +152,24 @@ for (const admin of [true, false]) test(`an unedited editor opened before the sh
     assert.equal(card.shadowRoot.querySelector('[data-action="save"]') === null, !admin);
   } finally { dom.window.close(); }
 });
+
+
+for (const [type, tab] of [['ha-energy-optimizer','patterns'],['ha-energy-insights','daily']]) {
+ for (const offline of [false,true]) test(`${type} reconfirms shared tariff on real tab navigation after offline=${offline}`, async t => {
+  const dom = new JSDOM('', {runScripts:'outside-only',url:'http://localhost/'});t.after(()=>dom.window.close());
+  dom.window.eval(['src/optimizer.js','src/energy-insights.js','src/energy-email.js'].map(p=>readFileSync(join(__dirname,'..',p),'utf8')).join(''));
+  const card=dom.window.document.createElement(type),calls=[];card._schedule=()=>{};card._config.show_support=false;
+  card._hasRealData=true;const connection=new dom.window.EventTarget();connection.connected=true;
+  card._hass={user:{id:'navigation-user',is_admin:true},connection,states:{},language:'en',config:{currency:'PLN',time_zone:'UTC'},
+   callWS:async msg=>{calls.push(msg);if(msg.type==='ha_tools_email/get_tariff')return {profile:profile(),revision:4,updated_at:null};throw Error('Unexpected '+msg.type);}};
+  dom.window.document.body.append(card);await card._loadSharedTariffProfile();card._render();
+  assert.equal(card._sharedTariffProfile.currency,'CHF');
+  if(offline){dom.window.dispatchEvent(new dom.window.Event('offline'));dom.window.dispatchEvent(new dom.window.Event('online'));}
+  const button=card.shadowRoot.querySelector(`[data-tab="${tab}"]`);assert.ok(button);button.click();
+  for(let i=0;i<50;i++)await Promise.resolve();
+  assert.equal(card._sharedTariffProfile?.currency,'CHF');
+  assert.equal(card._getTariffHostV3().snapshot().provenance,'shared_backend');
+  assert.equal(calls.filter(c=>c.type==='ha_tools_email/get_tariff').length,2);
+  assert.equal(calls.some(c=>/set_tariff|set_schedule|send_now/.test(c.type)),false);
+ });
+}
