@@ -5503,7 +5503,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
   };
   const editable = ['id', 'kind', 'cadence', 'time', 'enabled', 'timezone', 'weekday', 'month_day'];
   let hass = null, context = null, epoch = 0, checked = false, rows = [], draft = null;
-  let calendarCompatible = false;
+  let calendarCompatible = false, mailCompatible = false;
   let reading = null, writing = false, previewing = null, pendingExpected = null, preview = null;
   let status = { state: 'not_checked', reason: 'initial' }, previewStatus = { state: 'not_checked', reason: 'initial' };
   const cancellations = new Set();
@@ -5513,7 +5513,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
   const notify = () => changed();
   const reset = () => {
     epoch++; for (const cancel of [...cancellations]) cancel(); cancellations.clear();
-    calendarCompatible = false; checked = false; rows = []; draft = null; privateRows = new Map(); privateDraft = null; pendingRecipients = null; reading = null; writing = false; previewing = null;
+    calendarCompatible = false; mailCompatible = false; checked = false; rows = []; draft = null; privateRows = new Map(); privateDraft = null; pendingRecipients = null; reading = null; writing = false; previewing = null;
     pendingExpected = null; preview = null; status = { state: 'not_checked', reason: 'initial' };
     previewStatus = { state: 'not_checked', reason: 'initial' };
   };
@@ -5558,11 +5558,11 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
   };
   // list_schedules also exists in 2.1.2, which silently drops calendar fields.
   // Confirm the loaded integration through HA's manifest API before any mutation.
-  const supportsCalendar = manifest => {
+  const supportsCalendar = (manifest, minimumMinor = 2) => {
     if (manifest?.domain !== 'ha_tools_email' || typeof manifest.version !== 'string' ||
       !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(manifest.version)) return false;
     const version = manifest.version.split('.').map(Number);
-    return version.every(Number.isSafeInteger) && (version[0] > 2 || version[0] === 2 && version[1] >= 2);
+    return version.every(Number.isSafeInteger) && version.join('.') === manifest.version && (version[0] > 2 || version[0] === 2 && version[1] >= minimumMinor);
   };
   const unavailable = error => ['unknown_command', 'not_found'].includes(error?.code);
   const read = () => {
@@ -5570,11 +5570,12 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     if (typeof hass.callWS !== 'function') { checked = true; status = { state: 'not_checked', reason: 'unavailable' }; notify(); return Promise.resolve(); }
     if (reading) return reading.promise;
     const token = { epoch, promise: null }, source = hass;
-    reading = token; calendarCompatible = false; checked = true; status = { state: pendingExpected ? 'unconfirmed' : 'not_checked', reason: 'loading' };
+    reading = token; calendarCompatible = false; mailCompatible = false; checked = true; status = { state: pendingExpected ? 'unconfirmed' : 'not_checked', reason: 'loading' };
     token.promise = (async () => {
       try {
         const manifest = await request(source, { type: 'manifest/get', integration: 'ha_tools_email' }, token);
         if (epoch !== token.epoch || reading !== token || !allowed()) return;
+        mailCompatible = supportsCalendar(manifest, 3);
         if (!supportsCalendar(manifest)) throw { code: 'not_found' };
         const response = await request(source, { type: 'ha_tools_email/list_schedules' }, token);
         if (epoch !== token.epoch || reading !== token || !allowed()) return;
@@ -5630,11 +5631,13 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
       status = { state: rejected ? 'error' : 'unconfirmed', reason: rejected ? 'save_rejected' : 'write_unknown' };
     } finally { if (requestEpoch === epoch) { writing = false; notify(); } }
   };
-  const previewRead = () => {
-    if (!allowed() || !calendarCompatible || reading || previewing || writing) return previewing?.promise || Promise.resolve();
-    const selection = draft || rows.find(row => row.kind === kind);
+  const previewRead = (manual = null) => {
+    if (!allowed() || (!manual && !calendarCompatible) || reading || previewing || writing || pendingExpected) return previewing?.promise || Promise.resolve();
+    const selection = manual || draft || rows.find(row => row.kind === kind);
     if (!selection) return Promise.resolve();
-    try { validate(selection); } catch (error) { previewStatus = { state: 'error', reason: error.code }; notify(); return Promise.resolve(); }
+    try { if (manual) {
+      if (!['daily', 'weekly', 'monthly'].includes(selection.cadence) || !['rolling', 'calendar'].includes(selection.period_mode)) throw { code: 'invalid_fields' };
+    } else validate(selection); } catch (error) { previewStatus = { state: 'error', reason: error.code }; notify(); return Promise.resolve(); }
     const token = { epoch, promise: null }, source = hass;
     const message = { type: 'ha_tools_email/' + (kind === 'energy_report' ? 'preview_energy_report' : 'preview_log_digest'), cadence: selection.cadence };
     if (kind === 'energy_report') message.calendar_period = true;
@@ -5642,8 +5645,35 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     previewing = token; preview = null; previewStatus = { state: 'not_checked', reason: 'loading' };
     token.promise = (async () => {
       try {
+        if (manual) {
+          const manifest = await request(source, { type: 'manifest/get', integration: 'ha_tools_email' }, token);
+          if (epoch !== token.epoch || previewing !== token || !allowed()) return;
+          if (!supportsCalendar(manifest, 3)) throw { code: 'mail_upgrade_required' };
+        }
+        if (manual || mailCompatible) {
+          delete message.calendar_period;
+          message.format = 'mail'; message.period_mode = manual?.period_mode || 'calendar';
+          if (kind === 'log_digest' && manual?.max_entries !== undefined) message.max_entries = manual.max_entries;
+        }
         const response = await request(source, message, token);
         if (epoch !== token.epoch || previewing !== token || !allowed()) return;
+        if (message.format === 'mail') {
+          if (!response || response.cadence !== message.cadence || typeof response.subject !== 'string' ||
+            typeof response.body !== 'string' || typeof response.html !== 'string' || response.html.length > 2000000 ||
+            typeof response.period?.from !== 'string' || typeof response.period?.to !== 'string' ||
+            !Number.isFinite(Date.parse(response.period.from)) || !Number.isFinite(Date.parse(response.period.to)) ||
+            Date.parse(response.period.from) >= Date.parse(response.period.to) ||
+            response.period.semantics !== (message.period_mode === 'calendar' ? 'previous_completed_calendar_period' :
+              kind === 'log_digest' ? 'rolling_retained_last_observed' : 'rolling_completed_hours') ||
+            typeof response.source !== 'object' || response.source === null ||
+            response.source.name !== (kind === 'log_digest' ? 'system_log' : 'recorder') ||
+            typeof response.source.complete !== 'boolean' ||
+            typeof response.generated_at !== 'string' || !Number.isFinite(Date.parse(response.generated_at))) throw { code: 'invalid_response' };
+          preview = { cadence: response.cadence, subject: response.subject, body: response.body, html: response.html,
+            period: { ...response.period }, source: { ...response.source }, generated_at: response.generated_at,
+            effective_timezone: response.effective_timezone };
+          previewStatus = { state: response.source.status === 'no_data' ? 'no_data' : response.source.complete === false ? 'partial' : 'success', reason: 'loaded' }; return;
+        }
         if (kind === 'energy_report') {
           if (typeof projectPreview !== 'function') throw { code: 'invalid_response' };
           const projected = projectPreview(response, message);
@@ -5666,7 +5696,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
         previewStatus = { state: response.source.complete ? (response.source.retained_entries ? 'success' : 'no_data') : 'partial', reason: 'loaded' };
       } catch (error) {
         if (epoch !== token.epoch || previewing !== token || !allowed()) return;
-        preview = null; previewStatus = { state: 'not_checked', reason: unavailable(error) ? 'unavailable' : 'read_failed' };
+        preview = null; previewStatus = { state: 'not_checked', reason: error?.code === 'mail_upgrade_required' ? 'mail_upgrade_required' : unavailable(error) ? 'unavailable' : error?.code === 'request_timeout' ? 'read_timeout' : 'read_failed' };
       } finally { if (epoch === token.epoch && previewing === token) { previewing = null; notify(); } }
     })();
     notify(); return token.promise;
@@ -5735,7 +5765,8 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
       preview = null; previewStatus = { state: 'not_checked', reason: 'initial' };
     },
     cancel() { draft = null; privateDraft = null; preview = null; previewing?.cancel?.(); previewing = null; previewStatus = { state: 'not_checked', reason: 'initial' }; notify(); },
-    save, preview: previewRead,
+    save, preview: () => previewRead(), previewMail: selection => previewRead({ ...selection }),
+    clearPreview() { previewing?.cancel?.(); previewing = null; preview = null; previewStatus = { state: 'not_checked', reason: 'initial' }; },
     async remove(id) {
       if (!allowed() || !calendarCompatible || reading || writing || pendingExpected || !rows.some(row => row.id === id && row.kind === kind) || !['success', 'no_data', 'error'].includes(status.state)) return;
       const requestEpoch = epoch, source = hass;
@@ -5812,6 +5843,10 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
         projectPreview: (response, message) => this._projectCalendarPreview(response, message),
         contextLost: () => { this._clearEmailContext(); this._scheduleSaveFocus = null; this._render(); },
         changed: () => { if (this._activeTab === 'schedule') this._renderTab(); } });
+      this._mailCadence = 'daily';
+      this._mailPeriodMode = 'rolling';
+      this._mailPreview = createHaToolsEmailSchedules({ kind: 'energy_report',
+        changed: () => { if (this._activeTab === 'preview') this._renderTab(); } });
       this._attemptHistory = createHaToolsEmailHistory({ escape: _esc, changed: () => { if (this._activeTab === 'history') this._renderTab(); } });
       this._lastSent = {};
       this._lastSentOutcome = {};
@@ -5927,6 +5962,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
         this._resetTariffContext(hass);
         this._hass = hass;
         this._serverSchedules.setContext(hass);
+        this._mailPreview.setContext(hass);
         this._attemptHistory.setContext(hass);
         if (this._activeTab === 'history') this._render();
         if (!hass) { this.shadowRoot.replaceChildren(); return; }
@@ -7248,6 +7284,7 @@ this._installTariffConsumerV3();
 
     _clearEmailContext() {
       this._clearActionFocus();
+      this._mailPreview?.clearPreview();
       this._emailContextVersion++;
       this.shadowRoot?.replaceChildren();
       this._backendConfigRead = null;
@@ -8022,14 +8059,14 @@ this._installTariffConsumerV3();
       const legacyFields = this._activeTab === 'schedule' ? [...el.querySelectorAll('input[id],select[id]')]
         .filter(field => /^(schedule-(?:time|recipients|enabled)-(?:daily|weekly|monthly)|time-(?:daily|weekly|monthly)|day-weekly)$/.test(field.id))
         .map(field => ({ id: field.id, value: field.value, checked: field.checked })) : [];
-      if (this._hass?.user?.is_admin !== true && ['schedule', 'send', 'config', 'history'].includes(this._activeTab)) {
+      if (this._hass?.user?.is_admin !== true && ['schedule', 'preview', 'send', 'config', 'history'].includes(this._activeTab)) {
         el.innerHTML = `<div class="empty-state" role="status">${this._lang === 'pl' ? 'Tylko administrator może zmieniać ustawienia i wysyłać raporty. Podgląd energii jest dostępny w zakładce Przegląd.' : 'Only administrators can change settings and send reports. Energy data remains available in Overview.'}</div>`;
         return;
       }
       switch (this._activeTab) {
         case 'overview': el.innerHTML = this._tabOverview(); this._attachOverviewEvents(); break;
         case 'schedule': el.innerHTML = this._tabSchedule(); this._attachScheduleEvents(); break;
-        case 'preview':  el.innerHTML = this._tabPreview(); break;
+        case 'preview':  el.innerHTML = this._tabPreview(); this._bindMailControls(); this._bindMailFrame('manual-mail-frame', this._mailPreview.model().preview); break;
         case 'send':     el.innerHTML = this._tabSend(); this._attachSendEvents(); break;
         case 'config':   el.innerHTML = this._tabConfig(); this._attachConfigEvents(); break;
         case 'history': {
@@ -8062,7 +8099,7 @@ this._installTariffConsumerV3();
 
     _updateLiveData() {
       // Preserve forms while the user edits settings or schedules.
-      if (!['overview', 'preview'].includes(this._activeTab)) return;
+      if (this._activeTab !== 'overview') return;
       if (this._discoveryDone && Date.now() - (this._lastPeriodRefresh || 0) > 300000) {
         this._fetchAllPeriodStats().then(() => { if (this.isConnected) this._renderTab(); }).catch(() => {});
         if (this._emailBackendAvailable) this._loadEmailBackendConfig();
@@ -8231,7 +8268,7 @@ this._installTariffConsumerV3();
         <button id="schedule-preview" type="button" ${m.previewing || m.writing || !this._serverSchedules.online() ? 'disabled' : ''}>${tr('Podgląd okresu (tylko odczyt)','Preview period (readonly)')}</button></div></fieldset>` : '';
       const p = m.preview, number = value => value === null ? tr('Brak danych','No data') : Number(value).toFixed(2);
       const basis = p?.priceBasis === 'gross' ? tr('brutto','gross') : p?.priceBasis === 'net' ? tr('netto','net') : tr('nieznana','unknown');
-      const preview = p ? `<section class="schedule-preview"><h4>${tr('Podgląd kalendarza energii','Energy calendar preview')}</h4>${status(m.previewStatus)}
+      const preview = p?.html !== undefined ? status(m.previewStatus) + this._renderMailFrame(p, 'schedule-mail-frame') : p ? `<section class="schedule-preview"><h4>${tr('Podgląd kalendarza energii','Energy calendar preview')}</h4>${status(m.previewStatus)}
         <p>${tr('Poprzedni zakończony okres kalendarzowy; koniec przedziału jest wyłączny.','Previous completed calendar period; the end is exclusive.')}</p>
         <dl><dt>${tr('Od / do','From / to')}</dt><dd>${_esc(p.period.start)} / ${_esc(p.period.end)}</dd>
         <dt>${tr('Efektywna strefa raportu','Effective report timezone')}</dt><dd>${_esc(p.effective_timezone)}</dd>
@@ -8270,12 +8307,15 @@ this._installTariffConsumerV3();
       <p>${tr('Kolejny termin','Next fire')}: ${_esc(row.next_fire ?? tr('Brak terminu','No scheduled fire'))}</p>
       ${row.cadence === 'weekly' ? `<p>${_esc(days[row.weekday] ?? tr('Nieznany dzień','Unknown weekday'))}</p>` : row.cadence === 'monthly' ? `<p>${tr('Dzień miesiąca','Day of month')}: ${_esc(row.month_day ?? '—')}</p>` : ''}
       <div class="server-schedule-actions"><button id="schedule-edit-${i}" type="button" data-calendar-edit="${_esc(row.id)}" ${editable ? '' : 'disabled'}>${tr('Edytuj','Edit')}</button>
-      <button id="schedule-send-${i}" type="button" data-calendar-send="${_esc(row.id)}" ${busy || !this._serverSchedules.online() || this._sending || this._smtpRequest ? 'disabled' : ''}>${tr('Wyślij teraz','Send now')}</button>
+      <button id="schedule-send-${i}" type="button" data-calendar-send="${_esc(row.id)}" ${busy || !this._serverSchedules.online() || this._sending || this._smtpRequest ? 'disabled' : ''}>${tr('Wyślij teraz — ','Send now — ')}${_esc(this._mailPeriodLabel(row.cadence, 'rolling'))}</button>
+      <button id="schedule-send-calendar-${i}" type="button" data-calendar-period-send="${_esc(row.id)}" ${busy || !this._serverSchedules.online() || this._sending || this._smtpRequest ? 'disabled' : ''}>${tr('Wyślij poprzedni okres kalendarzowy','Send previous calendar period')}</button>
       <button id="schedule-delete-${i}" type="button" data-calendar-delete="${_esc(row.id)}" ${editable ? '' : 'disabled'}>${tr('Usuń','Delete')}</button></div></article>`).join('')}</div>${editor}${preview}</section>`;
     }
 
     _bindEnergyCalendar() {
       const root = this.shadowRoot, c = this._serverSchedules;
+      this._bindMailFrame('schedule-mail-frame', c.model().preview);
+      root.querySelectorAll('[data-calendar-period-send]').forEach(button => button.addEventListener('click', () => this._sendCalendarPeriodNow(button.dataset.calendarPeriodSend)));
       root.getElementById('schedule-refresh')?.addEventListener('click', () => c.refresh());
       root.getElementById('schedule-new')?.addEventListener('click', () => { c.create(); root.getElementById('schedule-cadence')?.focus(); });
       root.querySelectorAll('[data-calendar-edit]').forEach(button => button.addEventListener('click', () => { c.edit(button.dataset.calendarEdit); root.getElementById('schedule-cadence')?.focus(); }));
@@ -8297,7 +8337,16 @@ this._installTariffConsumerV3();
       const row = this._serverSchedules.model().rows.find(row => row.id === id && row.kind === 'energy_report');
       if (!row) return;
       // Manual send remains explicit and independent from readonly calendar preview.
-      return this._sendReportViaBackend(row.cadence, { recipients: this._serverSchedules.recipientsFor(id) ?? [] });
+      return this._sendReportViaBackend(row.cadence, { period_mode: 'rolling', recipients: this._serverSchedules.recipientsFor(id) ?? [] });
+    }
+
+    async _sendCalendarPeriodNow(id) {
+      if (!this._requireAdmin() || !this._serverSchedules.online()) return;
+      const row = this._serverSchedules.model().rows.find(row => row.id === id && row.kind === 'energy_report');
+      if (!row) return;
+      return this._sendReportViaBackend(row.cadence, { period_mode: 'calendar',
+        timezone: row.timezone || row.effective_timezone || this._hass?.config?.time_zone,
+        recipients: this._serverSchedules.recipientsFor(id) ?? [] });
     }
 
     _renderBackendScheduleCard(cadence) {
@@ -8467,7 +8516,76 @@ this._installTariffConsumerV3();
         }).join('');
     }
 
+    _mailPeriodLabel(cadence, mode = this._mailPeriodMode) {
+      const pl = this._lang === 'pl', index = ['daily', 'weekly', 'monthly'].indexOf(cadence);
+      return (mode === 'calendar' ? (pl ? ['Poprzedni pełny dzień', 'Poprzedni pełny tydzień ISO (od poniedziałku)', 'Poprzedni pełny miesiąc'] :
+        ['Previous completed day', 'Previous completed ISO week (Monday)', 'Previous completed month']) :
+        (pl ? ['Ostatnie 24 h ukończonych godzin Recorder', 'Ostatnie 7 dni ukończonych godzin Recorder', 'Ostatnie 30 dni ukończonych godzin Recorder'] :
+        ['Last 24 h of completed Recorder hours', 'Last 7 days of completed Recorder hours', 'Last 30 days of completed Recorder hours']))[index] || '';
+    }
+
+  _renderMailControls(showCadence = true) {
+    const pl = this._lang === 'pl';
+    const i = Math.max(0, ['daily', 'weekly', 'monthly'].indexOf(this._mailCadence));
+    const rolling = showCadence ? (pl ? ['Ostatnie 24 godziny', 'Ostatnie 7 dni', 'Ostatnie 30 dni'] : ['Last 24 hours', 'Last 7 days', 'Last 30 days'])[i] : (pl ? 'Ostatni okres' : 'Rolling period');
+    const calendar = showCadence ? (pl ? ['Poprzedni pełny dzień', 'Poprzedni pełny tydzień', 'Poprzedni pełny miesiąc'] : ['Previous completed day', 'Previous completed ISO week', 'Previous completed month'])[i] : (pl ? 'Pełny okres kalendarzowy' : 'Completed calendar period');
+    const field = 'display:grid;gap:4px;min-width:0', select = 'width:100%;min-width:0;min-height:44px';
+    return `<div class="mail-controls" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:12px">${showCadence ? `<label style="${field}">${pl ? 'Częstotliwość' : 'Cadence'} <select style="${select}" id="mail-cadence">${['daily', 'weekly', 'monthly'].map((value, i) => `<option value="${value}" ${this._mailCadence === value ? 'selected' : ''}>${(pl ? ['Dzienny', 'Tygodniowy', 'Miesięczny'] : ['Daily', 'Weekly', 'Monthly'])[i]}</option>`).join('')}</select></label>` : ''}
+      <label style="${field}">${pl ? 'Okres' : 'Period'} <select style="${select}" id="mail-period-mode"><option value="rolling" ${this._mailPeriodMode === 'rolling' ? 'selected' : ''}>${rolling}</option><option value="calendar" ${this._mailPeriodMode === 'calendar' ? 'selected' : ''}>${calendar}</option></select></label></div>`;
+  }
+
+
+    _bindMailControls() {
+      for (const [id,key,values] of [['mail-cadence','_mailCadence',['daily','weekly','monthly']],['mail-period-mode','_mailPeriodMode',['rolling','calendar']]]) {
+        const field = this.shadowRoot.getElementById(id);
+        if (field) field.disabled = !!this._emailSendRequest || !!this._smtpRequest;
+        field?.addEventListener('change', event => {
+          if (!values.includes(event.target.value)) return;
+          this[key] = event.target.value; this._mailPreview.clearPreview(); this._renderTab();
+        });
+      }
+      this.shadowRoot.getElementById('mail-preview')?.addEventListener('click', () =>
+        this._mailPreview.previewMail({cadence:this._mailCadence, period_mode:this._mailPeriodMode}));
+      this.shadowRoot.getElementById('mail-discard')?.addEventListener('click', () => { this._mailPreview.clearPreview(); this._renderTab(); });
+    }
+
+  _renderMailFrame(preview, id) {
+    if (!preview || typeof preview.html !== 'string') return '';
+    const pl = this._lang === 'pl', locale = pl ? 'pl-PL' : 'en-US';
+    const zone = preview.effective_timezone || 'UTC';
+    const date = value => {
+      try { return new Intl.DateTimeFormat(locale, { timeZone: zone, year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }).format(new Date(value)); }
+      catch (_) { return pl ? 'Czas niedostępny' : 'Time unavailable'; }
+    };
+    const source = preview.source?.name === 'system_log' ? (pl ? 'Zachowane wpisy dziennika HA' : 'Retained HA log entries') : (pl ? 'Statystyki energii Recorder' : 'Recorder energy statistics');
+    return `<section class="schedule-preview"><h4>${_esc(preview.subject)}</h4>
+      <dl><dt>${pl ? 'Od (włącznie)' : 'From (inclusive)'}</dt><dd>${_esc(date(preview.period.from))}</dd>
+      <dt>${pl ? 'Do (wyłącznie)' : 'To (exclusive)'}</dt><dd>${_esc(date(preview.period.to))}</dd>
+      <dt>${pl ? 'Wygenerowano' : 'Generated'}</dt><dd>${_esc(date(preview.generated_at))}</dd>
+      <dt>${pl ? 'Źródło' : 'Source'}</dt><dd>${_esc(source)}${preview.source?.complete === false ? (pl ? ' — częściowe dane' : ' — partial data') : ''}</dd></dl>
+      <iframe id="${id}" title="${(pl ? 'Podgląd maila energii' : 'Energy mail preview')}" sandbox="" referrerpolicy="no-referrer" style="width:100%;height:600px;border:1px solid var(--divider-color,#ddd);background:white"></iframe></section>`;
+  }
+
+    _bindMailFrame(id, preview) {
+      const frame = this.shadowRoot.getElementById(id);
+      if (!frame || typeof preview?.html !== 'string') return;
+      frame.srcdoc = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'none'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'">` + preview.html;
+    }
+
     _tabPreview() {
+      const pl = this._lang === 'pl', m = this._mailPreview.model(), ui = this._getTariffHostV3().ui();
+      const reasons = {initial: pl ? 'Nie odczytano maila.' : 'Mail has not been read.', loading: pl ? 'Odczytywanie…' : 'Reading…',
+        loaded: pl ? 'Podgląd z serwera; nie wysłano maila.' : 'Server preview; no email sent.',
+        mail_upgrade_required: pl ? 'Podgląd maila wymaga HA Tools Email 2.3.0+.' : 'Mail preview requires HA Tools Email 2.3.0+.'};
+      return `<h3>${pl ? 'Rzeczywisty mail z backendu' : 'Actual backend mail'}</h3>${this._renderMailControls()}
+        <p>${_esc(this._mailPeriodLabel(this._mailCadence))}</p><button class="btn" type="button" id="mail-preview" ${m.previewing || !this._mailPreview.online() ? 'disabled' : ''}>${pl ? 'Odczytaj podgląd maila' : 'Read mail preview'}</button>
+        <button class="btn" type="button" id="mail-discard">${pl ? 'Odrzuć podgląd' : 'Discard preview'}</button>
+        <div role="status">${ui.statusHtml(m.previewStatus.state)}<p>${_esc(reasons[m.previewStatus.reason] || (pl ? 'Odczyt niepotwierdzony. Spróbuj ponownie świadomie.' : 'Read unconfirmed. Read again explicitly.'))}</p></div>
+        ${this._renderMailFrame(m.preview, 'manual-mail-frame')}
+        <details><summary>${pl ? 'Zgodnościowe zestawienie energii (nie podgląd maila)' : 'Compatibility energy summary (not a mail preview)'}</summary>${this._tabLegacyPreview()}</details>`;
+    }
+
+    _tabLegacyPreview() {
       const L = this._lang === 'pl';
       if (!this._discoveryDone) {
         return `<div class="empty-state"><div class="big"><span class="spinner" style="width:32px;height:32px;border-width:3px;border-color:var(--bento-primary);border-top-color:transparent;"></span></div><div class="title">${L ? '\u0141adowanie danych...' : 'Loading data...'}</div></div>`;
@@ -8536,19 +8654,23 @@ this._installTariffConsumerV3();
         ${this._emailResultMarkup('send', this._sendResult)}
         <div class="info-row">\u{1F4E4}\u00A0 ${modeText}</div>
         ${smtpConfig}
+        ${this._renderMailControls(false)}
         ${(this._emailBackendAvailable || this._hasLegacyHaToolsEmail()) ? `<div style="font-size:12px;color:var(--bento-text-secondary);margin:16px 0 12px;padding:10px;background:var(--bento-primary-light);border-radius:var(--bento-radius-xs)">${L ? '💡 Konfiguracja SMTP: <a href="/config/integrations/integration/ha_tools_email">Ustawienia \u2192 Urz\u0105dzenia i us\u0142ugi \u2192 HA Tools Email \u2192 Konfiguruj</a>' : '💡 SMTP settings: <a href="/config/integrations/integration/ha_tools_email">Settings \u2192 Devices &amp; services \u2192 HA Tools Email \u2192 Configure</a>'}</div>` : ''}
         <div class="schedule-card">
           <div class="schedule-row"><div class="schedule-name">\u2600\uFE0F ${L ? 'Wy\u015Blij raport dzienny' : 'Send Daily Report Now'}</div><span class="badge badge-pr">${manualLabel}</span></div>
+          <p>${_esc(this._mailPeriodLabel('daily'))}</p>
           <div id="last-daily" class="last-sent">${this._lastSent.daily ? lastSentLabel('daily') + this._lastSent.daily : ''}</div>
           <div class="btn-row"><button class="btn btn-primary" id="send-daily" ${this._sending || !canSend ? 'disabled' : ''}>${this._sending ? `<span class="spinner"></span>${sendingLabel}` : (L ? '\u2600\uFE0F Wyślij raport dzienny' : '\u2600\uFE0F Send Daily')}</button></div>
         </div>
         <div class="schedule-card">
           <div class="schedule-row"><div class="schedule-name">\u{1F4C6} ${L ? 'Wy\u015Blij raport tygodniowy' : 'Send Weekly Report Now'}</div><span class="badge badge-pr">${manualLabel}</span></div>
+          <p>${_esc(this._mailPeriodLabel('weekly'))}</p>
           <div id="last-weekly" class="last-sent">${this._lastSent.weekly ? lastSentLabel('weekly') + this._lastSent.weekly : ''}</div>
           <div class="btn-row"><button class="btn btn-primary" id="send-weekly" ${this._sending || !canSend ? 'disabled' : ''}>${this._sending ? `<span class="spinner"></span>${sendingLabel}` : (L ? '\u{1F4E4} Wyślij raport tygodniowy' : '\u{1F4E4} Send Weekly')}</button></div>
         </div>
         <div class="schedule-card">
           <div class="schedule-row"><div class="schedule-name">\u{1F4C8} ${L ? 'Wy\u015Blij raport miesi\u0119czny' : 'Send Monthly Report Now'}</div><span class="badge badge-pr">${manualLabel}</span></div>
+          <p>${_esc(this._mailPeriodLabel('monthly'))}</p>
           <div id="last-monthly" class="last-sent">${this._lastSent.monthly ? lastSentLabel('monthly') + this._lastSent.monthly : ''}</div>
           <div class="btn-row"><button class="btn btn-primary" id="send-monthly" ${this._sending || !canSend ? 'disabled' : ''}>${this._sending ? `<span class="spinner"></span>${sendingLabel}` : (L ? '\u{1F4C8} Wyślij raport miesięczny' : '\u{1F4C8} Send Monthly')}</button></div>
         </div>
@@ -8563,6 +8685,7 @@ this._installTariffConsumerV3();
     }
 
     _attachSendEvents() {
+      this._bindMailControls();
       const root = this.shadowRoot;
       const sendDaily = root.getElementById('send-daily');
       const sendWeekly = root.getElementById('send-weekly');
@@ -8805,6 +8928,7 @@ this._installTariffConsumerV3();
         no_data: ['Complete Recorder data is unavailable for this period. No email was sent.', 'Brak kompletnych danych Recorder dla tego okresu. Nie wysłano emaila.'],
         smtp_unconfigured: ['Configure SMTP in HA Tools Email before sending.', 'Przed wysyłką skonfiguruj SMTP w HA Tools Email.'],
         integration_missing: ['HA Tools Email service is unavailable. No email was sent.', 'Usługa HA Tools Email jest niedostępna. Nie wysłano emaila.'],
+        mail_upgrade_required: ['Update HA Tools Email to stable 2.3.0+ for calendar sending. No email was sent.', 'Zaktualizuj HA Tools Email do stabilnego 2.3.0+ dla wysyłki kalendarzowej. Nie wysłano emaila.'],
         upgrade_required: ['Update HA Tools Email to 2.1.2 or newer. No test was sent.', 'Zaktualizuj HA Tools Email do 2.1.2 lub nowszego. Nie wysłano testu.'],
         not_tested: ['SMTP is configured. No test was sent; use Send Now to request a report.', 'SMTP jest skonfigurowany. Nie wysłano testu; użyj Wyślij teraz, aby zamówić raport.'],
         prepare_failed: ['The report could not be prepared. No email was sent. Check HA logs.', 'Nie udało się przygotować raportu. Nie wysłano emaila. Sprawdź logi HA.']
@@ -8827,13 +8951,17 @@ this._installTariffConsumerV3();
 
     async _sendReportViaBackend(cadence, options = {}) {
       if (!this._requireAdmin()) return;
-      if (this._emailBackendReportsUnsupported) return this._sendReport(cadence);
+      const mode = options.period_mode ?? this._mailPeriodMode;
+      if (!['rolling', 'calendar'].includes(mode)) return;
+      if (mode === 'rolling' && this._emailBackendReportsUnsupported) return this._sendReport(cadence, {legacy:true});
       if (!this._hass || this._sending || this._emailSendRequest || this._smtpRequest) return;
       if (!['daily', 'weekly', 'monthly'].includes(cadence)) return;
       if (!this._emailBackendConfig?.smtp_configured) {
         this._setEmailActionResult('send', 'error', 'smtp_unconfigured'); this._renderTab(); return;
       }
-      const recipients = options.recipients ?? this._scheduleRecipients(cadence);
+      const recipients = [...(options.recipients ?? this._scheduleRecipients(cadence))];
+      const timezone = mode === 'calendar' ? options.timezone : undefined;
+      if (recipients.length > 128 || recipients.some(v => typeof v !== 'string' || !v.trim() || v.length > 255 || /[\r\n]/.test(v))) return;
       const token = this._emailContextToken(), source = this._hass;
       const request = this._emailSendRequest = {};
       this._sendResult = { state: 'not_checked', reason: 'sending' };
@@ -8841,16 +8969,29 @@ this._installTariffConsumerV3();
       this._sending = true;
       this._scheduleBusy[cadence] = true;
       this._renderTab(); this._attachSendEvents();
+      let dispatched = false;
       try {
-        const acknowledgement = await source.callWS({ type: 'ha_tools_email/send_now', kind: 'energy_report', cadence, recipients });
+        let manifest;
+        try { manifest = await this._emailReadonlyWs(source, { type: 'manifest/get', integration: 'ha_tools_email' }); }
+        catch (_) { if (mode === 'calendar') throw {code:'mail_upgrade_required'}; }
         if (!this._emailContextCurrent(token)) return;
-        const accepted = acknowledgement?.success !== false && (acknowledgement?.status === 'accepted_by_smtp' || (acknowledgement?.status === undefined && acknowledgement?.success === true));
+        const version = manifest?.version, parts = typeof version === 'string' && /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version) ? version.split('.').map(Number) : [];
+        const modern = manifest?.domain === 'ha_tools_email' && parts.length === 3 && parts.every(Number.isSafeInteger) && parts.join('.') === version && (parts[0] > 2 || parts[0] === 2 && parts[1] >= 3);
+        if (mode === 'calendar' && !modern) {
+          this._setEmailActionResult('send', 'error', 'mail_upgrade_required'); return;
+        }
+        const selection = modern ? {period_mode:mode, ...(mode === 'calendar' && timezone ? {timezone} : {})} : {};
+        dispatched = true;
+        const acknowledgement = await source.callWS({ type: 'ha_tools_email/send_now', kind: 'energy_report', cadence, recipients, ...selection });
+        if (!this._emailContextCurrent(token)) return;
+        const accepted = modern ? acknowledgement?.ok === true && acknowledgement.status === 'accepted_by_smtp' && typeof acknowledgement.attempt_id === 'string' && acknowledgement.attempt_id.trim().length > 0 :
+          acknowledgement?.success !== false && (acknowledgement?.status === 'accepted_by_smtp' || (acknowledgement?.status === undefined && acknowledgement?.success === true));
         if (!accepted) { this._setEmailActionResult('send', 'unconfirmed', 'transport_unknown'); return; }
         this._lastSentOutcome[cadence] = 'accepted_by_smtp';
         this._lastSent[cadence] = new Date().toLocaleString((this._lang === 'pl' ? 'pl-PL' : 'en-US'), { hour12: false });
         this._setEmailActionResult('send', 'success', 'accepted_by_smtp');
-      } catch (_) {
-        if (this._emailContextCurrent(token)) this._setEmailActionResult('send', 'unconfirmed', 'transport_unknown');
+      } catch (error) {
+        if (this._emailContextCurrent(token)) this._setEmailActionResult('send', dispatched ? 'unconfirmed' : 'error', dispatched ? 'transport_unknown' : error?.code === 'mail_upgrade_required' ? 'mail_upgrade_required' : 'prepare_failed');
       } finally {
         if (this._emailSendRequest === request) { this._emailSendRequest = null; this._sending = false; }
         if (this._emailContextCurrent(token)) this._scheduleBusy[cadence] = false;
@@ -8858,10 +8999,10 @@ this._installTariffConsumerV3();
       }
     }
 
-    async _sendReport(type) {
+    async _sendReport(type, options = {}) {
       if (!this._requireAdmin()) return;
       if (!this._hass || this._sending || this._emailSendRequest || this._smtpRequest) return;
-      if (this._emailBackendAvailable && !this._emailBackendReportsUnsupported && ['daily', 'weekly', 'monthly'].includes(type)) {
+      if (!options.legacy && ['daily', 'weekly', 'monthly'].includes(type) && (this._mailPeriodMode === 'calendar' || this._emailBackendAvailable && !this._emailBackendReportsUnsupported)) {
         await this._sendReportViaBackend(type);
         return;
       }
@@ -9101,6 +9242,7 @@ this._installTariffConsumerV3();
       this._tariffHostController?.guard.suspend();
       this._clearEmailContext();
       this._serverSchedules.discard();
+      this._mailPreview.discard();
       this.shadowRoot.getElementById('tab-content')?.replaceChildren();
       this._attemptHistory.discard();
       this._timers.forEach(timer => clearTimeout(timer));
