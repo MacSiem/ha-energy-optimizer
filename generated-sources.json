@@ -12,7 +12,7 @@
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "aea5635f955bc651401abb3a69d514e4645c4714a30db8e9c37ec7a7fff62a95"
+      "sha256": "1bf12a060ae9b811062e6f02ff68a885536ef1c92978eba07a3a579890bd818e"
     },
     {
       "path": "src/chart-vendor.js",
@@ -51,7 +51,7 @@
   },
   "sharedEmailSchedules": {
     "path": "shared/ha-tools-email-schedules.js",
-    "sha256": "cc6452dcc447d51b79c8823fd60c792da705989212869b6f454bad134156d313",
-    "inlineSha256": "a7d9cfeca73f3d1580f5b44148c144d6c88df10ea0abbd14d51714051ba8fb49"
+    "sha256": "a57ac74569bed35d6efa2491ddcc6d15e9df2a350a94ff7be3cc4630f35f97a1",
+    "inlineSha256": "cb665297f8137b6be612516ca83e3c514c50b801d9c74580d967fbd987046e25"
   }
 }

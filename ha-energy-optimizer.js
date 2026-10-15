@@ -5332,6 +5332,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
   };
   const editable = ['id', 'kind', 'cadence', 'time', 'enabled', 'timezone', 'weekday', 'month_day'];
   let hass = null, context = null, epoch = 0, checked = false, rows = [], draft = null;
+  let calendarCompatible = false;
   let reading = null, writing = false, previewing = null, pendingExpected = null, preview = null;
   let status = { state: 'not_checked', reason: 'initial' }, previewStatus = { state: 'not_checked', reason: 'initial' };
   const cancellations = new Set();
@@ -5341,7 +5342,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
   const notify = () => changed();
   const reset = () => {
     epoch++; for (const cancel of [...cancellations]) cancel(); cancellations.clear();
-    checked = false; rows = []; draft = null; privateRows = new Map(); privateDraft = null; pendingRecipients = null; reading = null; writing = false; previewing = null;
+    calendarCompatible = false; checked = false; rows = []; draft = null; privateRows = new Map(); privateDraft = null; pendingRecipients = null; reading = null; writing = false; previewing = null;
     pendingExpected = null; preview = null; status = { state: 'not_checked', reason: 'initial' };
     previewStatus = { state: 'not_checked', reason: 'initial' };
   };
@@ -5384,18 +5385,29 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     privateRows = nextPrivate;
     return cleanList;
   };
+  // list_schedules also exists in 2.1.2, which silently drops calendar fields.
+  // Confirm the loaded integration through HA's manifest API before any mutation.
+  const supportsCalendar = manifest => {
+    if (manifest?.domain !== 'ha_tools_email' || typeof manifest.version !== 'string' ||
+      !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(manifest.version)) return false;
+    const version = manifest.version.split('.').map(Number);
+    return version.every(Number.isSafeInteger) && (version[0] > 2 || version[0] === 2 && version[1] >= 2);
+  };
   const unavailable = error => ['unknown_command', 'not_found'].includes(error?.code);
   const read = () => {
     if (!allowed()) return Promise.resolve();
     if (typeof hass.callWS !== 'function') { checked = true; status = { state: 'not_checked', reason: 'unavailable' }; notify(); return Promise.resolve(); }
     if (reading) return reading.promise;
     const token = { epoch, promise: null }, source = hass;
-    reading = token; checked = true; status = { state: pendingExpected ? 'unconfirmed' : 'not_checked', reason: 'loading' };
+    reading = token; calendarCompatible = false; checked = true; status = { state: pendingExpected ? 'unconfirmed' : 'not_checked', reason: 'loading' };
     token.promise = (async () => {
       try {
+        const manifest = await request(source, { type: 'manifest/get', integration: 'ha_tools_email' }, token);
+        if (epoch !== token.epoch || reading !== token || !allowed()) return;
+        if (!supportsCalendar(manifest)) throw { code: 'not_found' };
         const response = await request(source, { type: 'ha_tools_email/list_schedules' }, token);
         if (epoch !== token.epoch || reading !== token || !allowed()) return;
-        rows = cleanRows(response);
+        rows = cleanRows(response); calendarCompatible = true;
         if (pendingExpected) {
           if (same(pendingExpected, rows.find(row => row.id === pendingExpected.id))) {
             const deleted = pendingExpected.deleted;
@@ -5421,7 +5433,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     if (value.cadence === 'monthly' && (!Number.isInteger(value.month_day) || value.month_day < 1 || value.month_day > 31)) throw { code: 'invalid_fields' };
   };
   const save = async () => {
-    if (!allowed() || !draft || writing || reading || pendingExpected || !['success', 'no_data', 'error'].includes(status.state)) return;
+    if (!allowed() || !calendarCompatible || !draft || writing || reading || pendingExpected || !['success', 'no_data', 'error'].includes(status.state)) return;
     let expected;
     try {
       validate(draft);
@@ -5448,7 +5460,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     } finally { if (requestEpoch === epoch) { writing = false; notify(); } }
   };
   const previewRead = () => {
-    if (!allowed() || previewing || writing) return previewing?.promise || Promise.resolve();
+    if (!allowed() || !calendarCompatible || reading || previewing || writing) return previewing?.promise || Promise.resolve();
     const selection = draft || rows.find(row => row.kind === kind);
     if (!selection) return Promise.resolve();
     try { validate(selection); } catch (error) { previewStatus = { state: 'error', reason: error.code }; notify(); return Promise.resolve(); }
@@ -5517,7 +5529,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     ensureRead() { if (!checked && allowed()) return read(); },
     refresh() { if (!writing) return read(); },
     edit(id) {
-      if (!allowed() || writing || pendingExpected || reading || !['success', 'no_data', 'error'].includes(status.state)) return;
+      if (!allowed() || !calendarCompatible || writing || pendingExpected || reading || !['success', 'no_data', 'error'].includes(status.state)) return;
       const row = rows.find(value => value.id === id && value.kind === kind);
       if (!row) return;
       previewing?.cancel?.(); previewing = null;
@@ -5526,7 +5538,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
       preview = null; previewStatus = { state: 'not_checked', reason: 'initial' }; notify();
     },
     create() {
-      if (!allowed() || reading || writing || pendingExpected || !['success', 'no_data'].includes(status.state)) return;
+      if (!allowed() || !calendarCompatible || reading || writing || pendingExpected || !['success', 'no_data'].includes(status.state)) return;
       // New IDs are allocated only after the explicit New action, never on open.
       let id;
       try {
@@ -5554,7 +5566,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     cancel() { draft = null; privateDraft = null; preview = null; previewing?.cancel?.(); previewing = null; previewStatus = { state: 'not_checked', reason: 'initial' }; notify(); },
     save, preview: previewRead,
     async remove(id) {
-      if (!allowed() || reading || writing || pendingExpected || !rows.some(row => row.id === id && row.kind === kind) || !['success', 'no_data', 'error'].includes(status.state)) return;
+      if (!allowed() || !calendarCompatible || reading || writing || pendingExpected || !rows.some(row => row.id === id && row.kind === kind) || !['success', 'no_data', 'error'].includes(status.state)) return;
       const requestEpoch = epoch, source = hass;
       pendingExpected = { id, deleted: true }; pendingRecipients = null; writing = true;
       status = { state: 'not_checked', reason: 'saving' }; notify();
