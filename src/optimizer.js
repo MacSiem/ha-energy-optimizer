@@ -26,16 +26,6 @@ const energyImportIds = prefs => [...new Set((prefs?.energy_sources || [])
   .flatMap(source => source.stat_energy_from ? [source.stat_energy_from] : (source.flow_from || []).map(flow => flow?.stat_energy_from).filter(Boolean)))];
 const ENERGY_HOUR = 3600000;
 
-// Snapshot scalar identity: HA can mutate the same hass/config/user object.
-// Presentation changes do not invalidate already accepted Recorder measurements.
-const energyMeasurementContextChangedV3 = (card, hass) => {
-  const next = { present: !!hass, connection: hass?.connection ?? null,
-    user: hass?.user?.id ?? null, zone: hass?.config?.time_zone ?? null };
-  const prior = card._measurementBindingV3;
-  card._measurementBindingV3 = next;
-  return !!prior && Object.keys(next).some(key => prior[key] !== next[key]);
-};
-
 async function readEnergyHours(hass, hours) {
   const ids = energyImportIds(await hass.callWS({ type: 'energy/get_prefs' }));
   if (!ids.length) return { ids, noSensors: true };
@@ -282,7 +272,12 @@ class HaEnergyOptimizer extends HTMLElement {
       this.classList.toggle('bento-dark', _d);
     } catch (e) {}
     const previousHass = this._hass;
-    if (energyMeasurementContextChangedV3(this, hass)) {
+    const measurementBinding = { present: !!hass, connection: hass?.connection ?? null,
+        user: hass?.user?.id ?? null, zone: hass?.config?.time_zone ?? null };
+      const previousBinding = this._measurementBindingV3;
+      const measurementsChanged = !!previousBinding && Object.keys(measurementBinding).some(key => previousBinding[key] !== measurementBinding[key]);
+      this._measurementBindingV3 = measurementBinding;
+    if (measurementsChanged) {
       this._energyModel = null;
       this._patternsDataset = null;
       this._patternsState = null;

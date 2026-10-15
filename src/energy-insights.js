@@ -1166,7 +1166,12 @@ this._installTariffConsumerV3();
         const previousLanguage = this._lang;
         const language = hass?.locale?.language || hass?.language;
         if (language) this._lang = language.startsWith('pl') ? 'pl' : 'en';
-        const measurementsChanged = energyMeasurementContextChangedV3(this, hass);
+        // Keep scalar values: Home Assistant may mutate hass in place.
+        const measurementBinding = { present: !!hass, connection: hass?.connection ?? null,
+          user: hass?.user?.id ?? null, zone: hass?.config?.time_zone ?? null };
+        const previousBinding = this._measurementBindingV3;
+        const measurementsChanged = !!previousBinding && Object.keys(measurementBinding).some(key => previousBinding[key] !== measurementBinding[key]);
+        this._measurementBindingV3 = measurementBinding;
         if (measurementsChanged) {
           this._insightsEnergyModel = null;
           this._data = null;
@@ -1195,7 +1200,6 @@ this._installTariffConsumerV3();
           this._firstHassRender = true;
           this._activeTab = localStorage.getItem('ha-tools-energy-insights-active-tab') || 'overview';
           this._loadChartJs();
-          this._lastDataFetch = now;
           this._fetchData();
           this._render();
           this._lastRenderTime = now;
@@ -1220,7 +1224,6 @@ this._installTariffConsumerV3();
 
         // Fetch new data every 5 minutes (recorder stats don't change often)
         if (!this._lastDataFetch || (now - this._lastDataFetch) > 300000) {
-          this._lastDataFetch = now;
           this._fetchData();
         }
       } catch (e) {
@@ -1264,6 +1267,8 @@ this._installTariffConsumerV3();
       if (!this._hass?.callWS || this._insightsReadPending || this._insightDevicePending || this._getTariffHostV3().guard.occupied()) return;
       const read = this._createEnergyReadV3();
       this._insightsReadPending = true;
+      // A blocked dispatch must leave the next session eligible for its first read.
+      this._lastDataFetch = Date.now();
       this._loading = true; this._error = null;
       if (this._domBuilt) this._updateLoadingState();
       try {

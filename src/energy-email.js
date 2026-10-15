@@ -583,7 +583,12 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
         const previousLanguage = this._lang;
         const language = hass?.locale?.language || hass?.language;
         if (language) this._lang = language.startsWith('pl') ? 'pl' : 'en';
-        const measurementsChanged = energyMeasurementContextChangedV3(this, hass);
+        // Keep scalar values: Home Assistant may mutate hass in place.
+        const measurementBinding = { present: !!hass, connection: hass?.connection ?? null,
+          user: hass?.user?.id ?? null, zone: hass?.config?.time_zone ?? null };
+        const previousBinding = this._measurementBindingV3;
+        const measurementsChanged = !!previousBinding && Object.keys(measurementBinding).some(key => previousBinding[key] !== measurementBinding[key]);
+        this._measurementBindingV3 = measurementBinding;
         if (measurementsChanged) {
           for (const period of ['day', 'week', 'month']) {
             this[`_periodCache_${period}`] = null;
