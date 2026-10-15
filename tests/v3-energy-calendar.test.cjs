@@ -197,3 +197,11 @@ test('late tab tariff response cannot repopulate a different user or trigger a b
  assert.equal(f.calls.filter(c=>c.type.endsWith('/get_tariff')).length,2);
  assert.equal(f.calls.some(c=>/set_tariff|set_schedule|send_now/.test(c.type)),false);assert.equal(f.services.length,0);
 });
+
+test('shared tariff confirmed before offline/online is reconfirmed on the first later tab change',async t=>{
+ const f=await confirmedTariffFixture(t,()=>({profile:tariffFixtureProfile,revision:4,updated_at:null}));
+ f.w.dispatchEvent(new f.w.Event('offline'));f.w.dispatchEvent(new f.w.Event('online'));await settle();
+ assert.equal(f.card._sharedTariffProfile,null);await f.open();
+ assert.match(f.root.getElementById('price-display').textContent,/CHF Fixture/);
+ assert.equal(f.calls.filter(c=>c.type.endsWith('/get_tariff')).length,2);assert.equal(f.services.length,0);
+});
