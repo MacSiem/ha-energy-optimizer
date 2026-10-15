@@ -1,0 +1,99 @@
+{
+  "runtime_candidate": "103e3651ad84f58695efdce2ad4928b6059d48a1",
+  "runtime_bundle_sha256": "69db77c16793f98cbcf9741357d196efc26bb0473d691afb9a72d262bc34a466",
+  "viewport_css": [
+    844,
+    1000
+  ],
+  "card_width_css": 844,
+  "images": [
+    {
+      "file": "email-actual-calendar-preview-light.jpg",
+      "sha256": "0f330bd6486545b0384780d887e82a2b1cf78bf8e7af6234f232892f479f1e1f",
+      "pixels": [
+        844,
+        1000
+      ],
+      "source_candidate": "cf88612a769f72c3ea3177bd855ccfe5d6b29db3",
+      "qualification": "Unedited Browser SDK capture of native Chrome, personally inspected; synthetic Recorder QA only."
+    },
+    {
+      "file": "email-overview-dark.jpg",
+      "sha256": "8427048b09e202db5cb870bf68fe1bd1eda5c5dc104faec471d497a98e7c85c9",
+      "pixels": [
+        844,
+        1000
+      ],
+      "source_candidate": "cf88612a769f72c3ea3177bd855ccfe5d6b29db3",
+      "qualification": "Unedited Browser SDK capture of native Chrome, personally inspected; synthetic Recorder QA only."
+    },
+    {
+      "file": "email-overview-light.jpg",
+      "sha256": "c5dcefad2813a03dd2e4036df647a900bd9cfe5c10787c228ff9f165adb72d29",
+      "pixels": [
+        844,
+        1000
+      ],
+      "source_candidate": "cf88612a769f72c3ea3177bd855ccfe5d6b29db3",
+      "qualification": "Unedited Browser SDK capture of native Chrome, personally inspected; synthetic Recorder QA only."
+    },
+    {
+      "file": "insights-daily-chart-light.jpg",
+      "sha256": "eb775f079578deb103c5b929c3022dd53d7d5d80ff02f78409b231908b2cc7bd",
+      "pixels": [
+        844,
+        1000
+      ],
+      "source_candidate": "cf88612a769f72c3ea3177bd855ccfe5d6b29db3",
+      "qualification": "Unedited Browser SDK capture of native Chrome, personally inspected; synthetic Recorder QA only."
+    },
+    {
+      "file": "insights-overview-dark.jpg",
+      "sha256": "3b098c9c16e2cd820242e8a76fee4e9db06f7de243b667ce1b371e1a047501f4",
+      "pixels": [
+        844,
+        1000
+      ],
+      "source_candidate": "cf88612a769f72c3ea3177bd855ccfe5d6b29db3",
+      "qualification": "Unedited Browser SDK capture of native Chrome, personally inspected; synthetic Recorder QA only."
+    },
+    {
+      "file": "insights-overview-light.jpg",
+      "sha256": "6f6862d9989c910aa0bdc41b8f3dbfa3a7259342e630d143b8ab9e339c3dbabf",
+      "pixels": [
+        844,
+        1000
+      ],
+      "source_candidate": "cf88612a769f72c3ea3177bd855ccfe5d6b29db3",
+      "qualification": "Unedited Browser SDK capture of native Chrome, personally inspected; synthetic Recorder QA only."
+    },
+    {
+      "file": "optimizer-dashboard-dark.jpg",
+      "sha256": "e4a60c4bd0e6fee622d84a01a596cf9501797c682210888beee22fb8f0176f80",
+      "pixels": [
+        844,
+        1000
+      ],
+      "source_candidate": "103e3651ad84f58695efdce2ad4928b6059d48a1",
+      "qualification": "Unedited Browser SDK capture of native Chrome, personally inspected; synthetic Recorder QA only."
+    },
+    {
+      "file": "optimizer-patterns-data-dark.jpg",
+      "sha256": "9bbfa0d63c4fcea39c9ac0434bb676c4eaa9455878ee9cd76df2120f901d377d",
+      "pixels": [
+        844,
+        1000
+      ],
+      "source_candidate": "103e3651ad84f58695efdce2ad4928b6059d48a1",
+      "qualification": "Unedited Browser SDK capture of native Chrome, personally inspected; synthetic Recorder QA only."
+    }
+  ],
+  "unchanged_modules_for_earlier_captures": {
+    "src/energy-insights.js": "6e2085a9cbec19fbab32e2e5c6c93c3e469197e91521cac086396010465c5d67",
+    "src/energy-email.js": "612ac28ef1a95dab979b4a657368e108de1a3a0aa70a10e3459170a1dd7d5af5"
+  },
+  "data": "Controlled synthetic Recorder series; qa_energy338 source, fixture@example.invalid recipient, sample CHF tariff. No home data or real recipients.",
+  "windows": "Optimizer: current local day, 23 completed hours / 46 kWh. Earlier Insights: current day, 22 hours / 44 kWh. Email overview: rolling 24 hours / 48 kWh. Calendar preview: previous completed day, 24 hours / 48 kWh. Different windows are intentional.",
+  "email_preview": "Actual backend 2.3.0 HTML, no message sent. Screenshot shows controls and upper report; full chart/table content is scrollable.",
+  "capture_limit": "Rejected SDK images with missing text are excluded. Native screen comparison showed correct values. Original empty-state PNGs remain historical empty-state examples only. Raw SDK bytes were JPEG despite local diagnostic .png suffix; public .jpg files preserve original bytes."
+}

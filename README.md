@@ -92,13 +92,34 @@ confirm inbox delivery; an occupied send is never automatically retried.
 
 ## Screenshots
 
-| Light | Dark |
-|---|---|
-| ![Dashboard tab, light theme](docs/screenshots/card-dashboard-light.png) | ![Dashboard tab, dark theme](docs/screenshots/card-dashboard-dark.png) |
+These are unedited captures from Home Assistant with controlled synthetic
+Recorder statistics and a sample CHF tariff. They contain no household data or
+real email recipients. The interface follows the Home Assistant light/dark theme.
 
-*The Dashboard tab on a fresh installation without a supported Energy
-Dashboard grid-import statistic. It explains how to configure a source instead
-of inventing usage or cost. Dark mode follows your Home Assistant theme.*
+| Energy Optimizer dashboard | Exact measured values |
+|---|---|
+| ![Optimizer dashboard in dark mode: 46 kWh across 23 completed hours](docs/screenshots/optimizer-dashboard-dark.jpg) | ![Patterns Data view with UTC windows, tariff costs and coverage](docs/screenshots/optimizer-patterns-data-dark.jpg) |
+
+| Insights, light | Insights, dark |
+|---|---|
+| ![Insights overview in light mode](docs/screenshots/insights-overview-light.jpg) | ![Insights overview in dark mode](docs/screenshots/insights-overview-dark.jpg) |
+
+| Daily measured chart | Actual calendar mail preview |
+|---|---|
+| ![Daily chart with measured point details and tariff costs](docs/screenshots/insights-daily-chart-light.jpg) | ![Actual backend HTML preview for the previous completed day; no email sent](docs/screenshots/email-actual-calendar-preview-light.jpg) |
+
+| Email overview, light | Email overview, dark |
+|---|---|
+| ![Email overview in light mode](docs/screenshots/email-overview-light.jpg) | ![Email overview in dark mode](docs/screenshots/email-overview-dark.jpg) |
+
+The captures use different explicitly displayed windows: the Optimizer shows
+23 completed hours of the current day (46 kWh), the earlier Insights capture
+22 hours (44 kWh), and Email a rolling 24 hours (48 kWh). The actual mail preview
+shows the previous completed calendar day. Energy charges, variable fees and
+fixed monthly fees remain separate. Actual HTML previews require HA Tools Email
+Integration 2.3.0 or newer; the report continues below the visible preview area.
+[Capture provenance](docs/screenshots/provenance.json) records the source versions
+and unchanged modules used by these images.
 
 ## Installation
 
