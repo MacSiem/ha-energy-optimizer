@@ -1,5 +1,9 @@
 # Changelog — Energy Optimizer
 
+## 3.6.1 (2026-10-16)
+
+- Show the settled first-read status in Energy Email even when Recorder data is partial, no grid-import source is configured, or the read fails. A quiet Home Assistant no longer needs another state update or a period click to replace the initial empty state. Keep the session guard and do not retry stale reads.
+
 ## 3.6.0 (2026-10-15)
 
 - Let the next ordinary Home Assistant update recover a discarded Optimizer or Energy Email measurement read after session, tab or mount changes. A blocked read does not consume the refresh window; stale completion never retries or bypasses the occupied raw request.
