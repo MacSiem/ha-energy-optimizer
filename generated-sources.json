@@ -4,7 +4,7 @@
   "sources": [
     {
       "path": "src/optimizer.js",
-      "sha256": "673003ca25c5439c58b335caf0551f1d4996ace3da0b81ac376168e1d60de329"
+      "sha256": "b97d27bf9e9c4ea26164a1d69817fc0004092c40aa47d941766202fe710dd03a"
     },
     {
       "path": "src/energy-insights.js",
@@ -12,7 +12,7 @@
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "45bedfc91addab339526828f8524be7520b805805dc5424629afdf8a91595b4f"
+      "sha256": "6a6afea91378013ea3c8f85dcce5d09e7ed0330dff64000a88e12c74ab154f40"
     },
     {
       "path": "src/chart-vendor.js",

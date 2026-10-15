@@ -2252,7 +2252,12 @@ this._installTariffConsumerV3();
       // One accepted source/window epoch for each complete period; no cross-period race.
       this._periodRefreshPromise = (async () => {
         for (const period of ['day', 'week', 'month']) {
-          if (await this._fetchRecorderStats(period) === false) break;
+          if (await this._fetchRecorderStats(period) === false) {
+            // A stale tab/mount read supplied no current data. Keep the next
+            // normal hass update eligible without retrying in this callback.
+            this._lastPeriodRefresh = 0;
+            break;
+          }
         }
       })();
       try { await this._periodRefreshPromise; }

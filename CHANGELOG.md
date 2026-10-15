@@ -2,6 +2,8 @@
 
 ## 3.6.0 (2026-10-15)
 
+- Let the next ordinary Home Assistant update recover a discarded Optimizer or Energy Email measurement read after session, tab or mount changes. A blocked read does not consume the refresh window; stale completion never retries or bypasses the occupied raw request.
+
 - Give legacy local and backend schedule time/recipient fields, selects and enabled labels a 44px touch target while preserving their native checkbox, keyboard behavior and explicit-save semantics.
 
 - Keep active units and cost subtitles readable in light and dark themes in Insights and Energy Email. Format partial device summaries for readability while retaining every recorded digit in expanded measurement details.
