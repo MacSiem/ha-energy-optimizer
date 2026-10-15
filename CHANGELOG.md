@@ -2,6 +2,8 @@
 
 ## 3.6.0 (2026-10-15)
 
+- Clear a settled first-read spinner after tab, mount or connection-context changes and let the next HA update read the current context without waiting five minutes. Discard stale responses and preserve the existing raw-read fence.
+
 - Preview the actual server-composed Energy email for daily, weekly and monthly reports, with rolling or previous completed calendar periods. Requires stable HA Tools Email 2.3+ for actual HTML and explicit calendar sending.
 - Share manual period selection between Preview and Send; show actual bounds with timezone and preserve missing measurements. Keep the legacy overview and supported older rolling send paths.
 - Label the existing schedule-row manual send as rolling; provide a separate explicit previous-calendar-period send using that schedule's recipients and timezone. Neither action edits the saved schedule.

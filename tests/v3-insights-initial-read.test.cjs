@@ -20,6 +20,8 @@ for (const boundary of ['tab', 'remount', 'callWS']) {
     const calls = [];
     const callWS = request => {
       calls.push(request.type);
+      if (request.type === 'ha_tools_email/get_tariff')
+        return Promise.resolve({ profile: null, revision: 0, updated_at: null });
       assert.equal(request.type, 'energy/get_prefs');
       return calls.length === 1 ? new Promise(resolve => { resolveFirst = resolve; })
         : Promise.resolve({ energy_sources: [], device_consumption: [] });
@@ -44,7 +46,7 @@ for (const boundary of ['tab', 'remount', 'callWS']) {
       card.hass = hass;
       await flush();
       assert.match(card.shadowRoot.textContent, /Energy Dashboard/, 'next current hass update can complete the first read without a five-minute wait');
-      assert.deepEqual(calls, ['energy/get_prefs', 'energy/get_prefs']);
+      assert.deepEqual(calls, ['energy/get_prefs', 'energy/get_prefs', 'ha_tools_email/get_tariff']);
     } finally {
       card._tariffConsumerUnsubscribeV3?.();
       card._getTariffHostV3().guard.dispose();
