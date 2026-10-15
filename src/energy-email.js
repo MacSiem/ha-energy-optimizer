@@ -1613,6 +1613,16 @@ this._installTariffConsumerV3();
         sources: this._tariffSourceIds || [], windowEnd: this._tariffWindowEnd ?? null };
     }
     _observeTariffContextV3() { this._getTariffHostV3().guard.observe(); }
+    _observeTariffNavigationV3() {
+      // Context purge and editor/write fences remain in force for tabs and periods.
+      this._sharedTariffExpectedV3 ||= this._sharedTariffProfile != null;
+      this._observeTariffContextV3();
+      if (!this._sharedTariffExpectedV3 || Object.hasOwn(this._config, 'tariff_profile')) return;
+      const guard = this._getTariffHostV3().guard, token = guard.snapshot();
+      void this._loadSharedTariffProfile().then(confirmed => {
+        if (confirmed && guard.current(token) && this.isConnected) this._repriceTariffV3();
+      });
+    }
     _createEnergyReadV3() {
       const host = this._getTariffHostV3(), source = this._hass;
       this._tariffWindowEnd = Math.floor(Date.now() / ENERGY_HOUR) * ENERGY_HOUR;
@@ -1689,7 +1699,7 @@ this._installTariffConsumerV3();
     }
 
     _cost(kwh) {
-      if (Object.hasOwn(this._config, 'tariff_profile') || this._sharedTariffProfile != null) return null;
+      if (Object.hasOwn(this._config, 'tariff_profile') || this._sharedTariffProfile != null || this._sharedTariffNeedsConfirmationV3()) return null;
       // Aggregate consumption cannot price a time-dependent tariff.
       if ((this._config.energy_tariff_mode || 'flat') !== 'flat') return null;
       const rate = this._getRate(12, 1);
@@ -2724,7 +2734,7 @@ this._installTariffConsumerV3();
         btn.addEventListener('click', () => {
           const p = btn.dataset.period;
           this._overviewPeriod = p;
-          this._observeTariffContextV3();
+          this._observeTariffNavigationV3();
           this._devicePage = 0;
           // Refresh recorder stats if cache is older than 60s
           const cacheTime = this[`_periodCacheTime_${p}`] || 0;
@@ -2742,7 +2752,7 @@ this._installTariffConsumerV3();
 
     _attachPeriodEvents() {
       this.shadowRoot.querySelectorAll('.period-btn').forEach(btn => {
-        btn.addEventListener('click', () => { this._reportPeriod = btn.dataset.period; this._observeTariffContextV3(); this._renderTab(); });
+        btn.addEventListener('click', () => { this._reportPeriod = btn.dataset.period; this._observeTariffNavigationV3(); this._renderTab(); });
       });
     }
 
@@ -3757,17 +3767,8 @@ this._installTariffConsumerV3();
     _discardAttemptHistory() { this._attemptHistory.discard(); }
 
     setActiveTab(tabId) {
-      // Keep the context purge and editor/write fences. Reconfirm a shared
-      // profile for the new tab instead of displaying a fabricated HA fallback.
-      this._sharedTariffExpectedV3 ||= this._sharedTariffProfile != null;
       this._activeTab = tabId;
-      this._observeTariffContextV3();
-      if (this._sharedTariffExpectedV3 && !Object.hasOwn(this._config, 'tariff_profile')) {
-        const guard = this._getTariffHostV3().guard, token = guard.snapshot();
-        void this._loadSharedTariffProfile().then(confirmed => {
-          if (confirmed && guard.current(token) && this.isConnected) this._repriceTariffV3();
-        });
-      }
+      this._observeTariffNavigationV3();
       if (tabId === 'schedule') { this._serverSchedules.setContext(this._hass); this._serverSchedules.ensureRead(); }
       if (tabId === 'history') this._attemptHistory.setContext(this._hass);
       this._render();
