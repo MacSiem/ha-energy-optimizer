@@ -261,6 +261,21 @@ test('primary device consumption is readable while details retain the exact meas
   } finally { f.close(); }
 });
 
+test('partial device summary formats measured consumption without exposing floating point noise', async () => {
+  const f = await fixture({ transform: (rows, id) => id === 'sensor.hvac_child'
+    ? rows.filter((_, i) => i !== 1).map(r => ({ ...r, change: 0.15 })) : rows });
+  try {
+    await f.card._readInsightDevicesV3();
+    const row = f.card._insightDeviceRowsV3()[1];
+    const article = f.card.shadowRoot.querySelectorAll('[data-insights-device]')[1];
+    assert.equal(row.status, 'partial');
+    assert.equal(article.querySelector('.insights-device-heading span').textContent, 'Unavailable kWh');
+    assert.equal(article.querySelector('p').textContent, 'Partial coverage · Measured subset: 25.05 kWh');
+    const exact = [...article.querySelectorAll('dt')].find(el => el.textContent === 'Measured subset').nextElementSibling;
+    assert.equal(exact.textContent, String(row.recordedKwh) + ' kWh', 'expanded evidence retains all recorded digits');
+  } finally { f.close(); }
+});
+
 test('actual dark theme activates existing card tokens without additional source reads', async () => {
   const f = await fixture(); try {
     const count = f.calls.length;
