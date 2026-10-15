@@ -292,7 +292,8 @@ test('legacy Schedule describes actual settings storage with and without existin
         view.innerHTML = email._tabSchedule();
         const footer = view.lastElementChild.textContent;
         if (helpersReady) {
-          assert.match(footer, language === 'pl' ? /Home Assistant.*każdym urządzeniu/ : /Home Assistant.*all your devices/);
+          assert.match(footer, language === 'pl' ? /starszych automatyzacji HA.*Home Assistant/ : /legacy HA automation fields.*Home Assistant/);
+          assert.match(footer, language === 'pl' ? /Harmonogramy lokalne.*tylko.*przeglądarce/ : /Local schedules.*only.*browser/);
         } else {
           assert.match(footer, language === 'pl' ? /tylko.*przeglądarce/ : /only.*browser/);
           assert.doesNotMatch(footer, /all your devices|każdym urządzeniu/);

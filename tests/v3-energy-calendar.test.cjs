@@ -176,6 +176,7 @@ for(const navigation of ['button','picker'])test('confirmed shared tariff is rea
  assert.doesNotMatch(header(),/PLN|not configured/);assert.match(header(),/not confirmed|Checking/i);
  assert.equal(f.card._sharedTariffProfile,null); // Context still purges the old authority.
  assert.equal(f.card._getTariffV3().valid,false,'unconfirmed shared profile must not price via stale legacy rate');
+ assert.equal(f.card._cost(10),null,'report aggregate fallback must also remain unavailable');
  assert.equal(f.calls.filter(c=>c.type.endsWith('/get_tariff')).length,2);
  pending.resolve({profile:tariffFixtureProfile,revision:4,updated_at:null});await settle();
  assert.match(header(),/CHF Fixture/);assert.equal(f.card._activeTab,'schedule');
@@ -205,4 +206,12 @@ test('shared tariff confirmed before offline/online is reconfirmed on the first 
  assert.equal(f.card._sharedTariffProfile,null);await f.open();
  assert.match(f.root.getElementById('price-display').textContent,/CHF Fixture/);
  assert.equal(f.calls.filter(c=>c.type.endsWith('/get_tariff')).length,2);assert.equal(f.services.length,0);
+});
+
+test('Email Overview period selection reconfirms shared tariff even when Recorder cache is fresh',async t=>{
+ const f=await confirmedTariffFixture(t,()=>({profile:tariffFixtureProfile,revision:4,updated_at:null}));
+ f.card._periodCacheTime_week=Date.now();f.click('overview-period-week');await settle();
+ assert.equal(f.card._overviewPeriod,'week');assert.match(f.root.getElementById('price-display').textContent,/CHF Fixture/);
+ assert.equal(f.calls.filter(c=>c.type.endsWith('/get_tariff')).length,2);
+ assert.equal(f.calls.some(c=>/recorder|set_tariff|set_schedule|send_now/.test(c.type)),false);assert.equal(f.services.length,0);
 });

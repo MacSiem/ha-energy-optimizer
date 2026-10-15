@@ -195,13 +195,15 @@ test('metric and point selection stay local; tariff change reprices settled devi
     f.card.shadowRoot.querySelector('[data-action="load"]').click(); await flush();
     assert.equal(f.card._insightDeviceState.raw, raw);
     assert.equal(f.card._insightDeviceRowsV3()[1].energyCost, 63);
-    f.card.setActiveTab('weekly'); change(f, 'metric', 'energyCost');
+    f.card.setActiveTab('weekly'); await flush();
+    const afterNavigation=f.calls.length;assert.equal(afterNavigation,measured+2);
+    change(f, 'metric', 'energyCost');
     assert.equal(f.card.shadowRoot.querySelector('[data-insights-chart]').dataset.unit, 'EUR');
     const point = f.card.shadowRoot.querySelector('[data-insights-control="point"]');
     point.focus(); point.dispatchEvent(new f.dom.window.KeyboardEvent('keydown', { key: 'Home', bubbles: true }));
     assert.equal(f.card._insightChartState.selected, f.card._insightChartRowsV3()[0].id);
     assert.equal(f.card.shadowRoot.activeElement.dataset.insightsControl, 'point');
-    assert.equal(f.calls.length, measured + 1);
+    assert.equal(f.calls.length, afterNavigation);
   } finally { f.close(); }
 });
 test('device search preserves caret and exposes every configured source through paging without reads', async () => {
