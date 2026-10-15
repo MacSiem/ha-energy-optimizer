@@ -699,7 +699,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
 
     _getTariffV3(proposed) {
       const host = this._getTariffHostV3();
-      return arguments.length ? host.model(proposed) : host.model();
+      return arguments.length ? host.model(proposed) : this._sharedTariffNeedsConfirmationV3() ? host.model({ schema: 0 }) : host.model();
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
@@ -1561,7 +1561,7 @@ this._installTariffConsumerV3();
 // HA_TARIFF_V3_END
       return this._tariffHostController;
     }
-    _tariffCurrency() { return this._getTariffHostV3().currency(); }
+    _tariffCurrency() { return this._sharedTariffNeedsConfirmationV3() ? '' : this._getTariffHostV3().currency(); }
     async _loadSharedTariffProfile() {
       const confirmed = await this._getTariffHostV3().load();
       if (confirmed && this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
@@ -3764,8 +3764,8 @@ this._installTariffConsumerV3();
       this._observeTariffContextV3();
       if (this._sharedTariffExpectedV3 && !Object.hasOwn(this._config, 'tariff_profile')) {
         const guard = this._getTariffHostV3().guard, token = guard.snapshot();
-        void this._loadSharedTariffProfile().then(() => {
-          if (guard.current(token) && this.isConnected) this._render();
+        void this._loadSharedTariffProfile().then(confirmed => {
+          if (confirmed && guard.current(token) && this.isConnected) this._repriceTariffV3();
         });
       }
       if (tabId === 'schedule') { this._serverSchedules.setContext(this._hass); this._serverSchedules.ensureRead(); }

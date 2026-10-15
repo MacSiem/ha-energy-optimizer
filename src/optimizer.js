@@ -391,7 +391,7 @@ class HaEnergyOptimizer extends HTMLElement {
 
   _getTariffV3(proposed) {
     const host = this._getTariffHostV3();
-    return arguments.length ? host.model(proposed) : host.model();
+    return arguments.length ? host.model(proposed) : this._sharedTariffNeedsConfirmationV3() ? host.model({ schema: 0 }) : host.model();
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
@@ -1253,8 +1253,23 @@ this._installTariffConsumerV3();
 // HA_TARIFF_V3_END
     return this._tariffHostController;
   }
-  _tariffCurrency() { return this._getTariffHostV3().currency(); }
-  _loadSharedTariffProfile() { return this._getTariffHostV3().load(); }
+  _tariffCurrency() { return this._sharedTariffNeedsConfirmationV3() ? '' : this._getTariffHostV3().currency(); }
+  async _loadSharedTariffProfile() {
+      const confirmed = await this._getTariffHostV3().load();
+      if (confirmed && this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
+      return confirmed;
+    }
+    _sharedTariffNeedsConfirmationV3() {
+      return this._sharedTariffExpectedV3 && !Object.hasOwn(this._config, 'tariff_profile') && this._sharedTariffReadStatus !== 'success';
+    }
+    _observeTariffNavigationV3() {
+      this._observeTariffContextV3();
+      if (!this._sharedTariffExpectedV3 || Object.hasOwn(this._config, 'tariff_profile')) return;
+      const guard = this._getTariffHostV3().guard, token = guard.snapshot();
+      void this._loadSharedTariffProfile().then(confirmed => {
+        if (confirmed && guard.current(token) && this.isConnected) this._repriceTariffV3();
+      });
+    }
   _tariffDetailsMarkup() { return this._getTariffHostV3().markup(); }
   _bindTariffSettings() {
       if (this._tariffWriteUnconfirmedV3) {
@@ -1320,6 +1335,7 @@ this._installTariffConsumerV3();
     }
 
     _repriceTariffV3() {
+      if (this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
       this._generateRecommendations();
       this._generateComparisonData();
       if (this._energyModel) this._preparePatterns();
@@ -1533,7 +1549,7 @@ this._installTariffConsumerV3();
     panel.querySelectorAll('select[data-pattern-control]').forEach(el => el.addEventListener('change', () => {
       const field = el.dataset.patternControl;
       state[field === 'period' ? 'period' : field === 'point' ? 'selected' : field] = field === 'period' ? Number(el.value) : el.value;
-      if (field === 'period') this._observeTariffContextV3();
+      if (field === 'period') this._observeTariffNavigationV3();
       redraw(field, field !== 'period');
     }));
     panel.querySelectorAll('button[data-pattern-control]').forEach(el => el.addEventListener('click', () => {
@@ -2324,7 +2340,7 @@ canvas {
         button.classList.add('active');
         button.setAttribute('aria-selected', 'true');
         this._currentTab = button.dataset.tab;
-        this._observeTariffContextV3();
+        this._observeTariffNavigationV3();
         this._showTab(button.dataset.tab);
       });
     });
