@@ -2884,7 +2884,7 @@ this._installTariffConsumerV3();
         ${d.cadence === 'weekly' ? select('schedule-weekday',tr('Dzień tygodnia','Weekday'),days.map((v,i)=>[i,v]),d.weekday) : ''}
         ${d.cadence === 'monthly' ? field('schedule-month-day',tr('Dzień miesiąca (1–31)','Day of month (1–31)'),'number',d.month_day,'min="1" max="31" step="1"') : ''}
         ${field('schedule-recipients',tr('Odbiorcy (przecinki; puste: konfiguracja centralna)','Recipients (commas; blank: central configuration)'),'text',(this._serverSchedules.recipientModel() || []).join(', '))}
-        <label for="schedule-enabled"><input type="checkbox" id="schedule-enabled" ${d.enabled ? 'checked' : ''} ${busy ? 'disabled' : ''}>${tr('Włączony','Enabled')}</label></div>
+        <label class="schedule-checkbox" for="schedule-enabled"><input type="checkbox" id="schedule-enabled" ${d.enabled ? 'checked' : ''} ${busy ? 'disabled' : ''}>${tr('Włączony','Enabled')}</label></div>
         <p>${tr('Nowy harmonogram jest wyłączony. Zapis włączonego harmonogramu uruchamia przyszłe wysyłki.','A new schedule is disabled. Saving an enabled schedule activates future deliveries.')}</p>
         <div class="server-schedule-actions"><button id="schedule-save" type="button" ${editable ? '' : 'disabled'}>${tr('Zapisz','Save')}</button><button id="schedule-cancel" type="button">${tr('Anuluj','Cancel')}</button>
         <button id="schedule-preview" type="button" ${m.previewing || m.writing || !this._serverSchedules.online() ? 'disabled' : ''}>${tr('Podgląd okresu (tylko odczyt)','Preview period (readonly)')}</button></div></fieldset>` : '';
@@ -2910,6 +2910,7 @@ this._installTariffConsumerV3();
         .server-schedule-list,.server-schedule-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
         .server-schedules article,.server-schedules fieldset{min-width:0;margin:12px 0;padding:12px;border:1px solid var(--bento-border);border-radius:10px}
         .server-schedules h3,.server-schedules h4{margin:12px 0 8px}
+        .legacy-schedule-ids{min-width:0;max-width:100%;overflow-wrap:anywhere}
         .server-schedules button,.server-schedules input:not([type=checkbox]),.server-schedules select{min-height:44px;min-width:44px;box-sizing:border-box;font:inherit;border:1px solid var(--bento-border);border-radius:8px;color:var(--bento-text);background:var(--bento-bg)}
         .server-schedules input:not([type=checkbox]),.server-schedules select{display:block;width:100%;padding:8px}
         .server-schedules button{padding:8px 12px;cursor:pointer;white-space:normal;overflow-wrap:anywhere}
@@ -3061,7 +3062,7 @@ this._installTariffConsumerV3();
       return `
         ${calendarVisible ? '' : this._renderSmtpSection()}
         <p>${L ? 'Oba systemy mogą wysyłać raporty; możliwe duplikaty. Brak encji nie potwierdza wyłączenia.' : 'Both systems may send reports; duplicate deliveries are possible. An absent entity does not confirm disabled automation.'}</p>
-        <p><code>${dailyId}</code>: ${_esc(dailyState)} · <code>${weeklyId}</code>: ${_esc(weeklyState)} · <code>${monthlyId}</code>: ${_esc(monthlyState)}</p>
+        <p class="legacy-schedule-ids"><code>${dailyId}</code>: ${_esc(dailyState)} · <code>${weeklyId}</code>: ${_esc(weeklyState)} · <code>${monthlyId}</code>: ${_esc(monthlyState)}</p>
         <div class="info-row info-warn">\u26A0\uFE0F\u00A0 ${L
           ? 'Tryb legacy: harmonogramy lokalne zapisuj\u0105 si\u0119 tylko w tej przegl\u0105darce. Stare automatyzacje HA pozostaj\u0105 dost\u0119pne poni\u017Cej.'
           : 'Legacy mode: local schedules are saved only in this browser. Existing HA automation controls remain available below.'}</div>
