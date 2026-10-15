@@ -1910,7 +1910,7 @@ canvas {
 
         .data-source-badge {
           font-size: 11px;
-          color: var(--bento-text-muted);
+          color: var(--bento-text-secondary);
           margin-bottom: 8px;
         }
 
