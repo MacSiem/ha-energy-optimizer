@@ -2604,7 +2604,7 @@ this._installTariffConsumerV3();
       const root = this.shadowRoot;
       const priceEl = root.getElementById('price-display');
       if (!priceEl) return;
-      if (Object.hasOwn(this._config, 'tariff_profile') || this._sharedTariffProfile != null || this._sharedTariffExpectedV3) {
+      if (Object.hasOwn(this._config, 'tariff_profile') || this._sharedTariffProfile != null || this._sharedTariffNeedsConfirmationV3()) {
         priceEl.addEventListener('click', () => {
           const details = root.querySelector('[data-tariff-details]');
           if (details) { details.open = true; this._bindTariffSettings(); (details.querySelector('input:not(:disabled),select:not(:disabled)') || details.querySelector('summary'))?.focus({ preventScroll: true }); }
@@ -3070,8 +3070,8 @@ this._installTariffConsumerV3();
         <div style="margin-top:12px;padding:12px 16px;background:rgba(59,130,246,0.08);border-left:3px solid var(--bento-primary,#3B82F6);border-radius:6px;font-size:13px;color:var(--bento-text);">
           <strong>\u2139\uFE0F Info:</strong> ${this._helpersReady
             ? (L
-              ? 'Ustawienia (email, serwis, godziny) są zapisywane w Home Assistant i działają na każdym urządzeniu.'
-              : 'Settings (email, service, times) are stored in Home Assistant and work across all your devices.')
+              ? 'Poniższe pola starszych automatyzacji HA (email, serwis, godziny) są zapisywane w Home Assistant. Harmonogramy lokalne pozostają tylko w tej przeglądarce.'
+              : 'The legacy HA automation fields below (email, service, times) are stored in Home Assistant. Local schedules remain only in this browser.')
             : (L
               ? 'Helpery HA niedostępne. Ustawienia (email, serwis, godziny) są zapisywane tylko w tej przeglądarce.'
               : 'HA helpers unavailable. Settings (email, service, times) are saved only in this browser.')}
