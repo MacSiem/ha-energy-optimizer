@@ -153,6 +153,8 @@ const createEnergyPatternsV3 = (model, tariff, { days = 7 } = {}) => {
     row.priceBasis = prices.priceBasis;
     row.priceMissing = price?.available ? null : price?.reason || 'missing_rate';
     row.tariffZone = price?.zone ?? null;
+    row.tariffZones = price?.zones ?? [];
+    row.tariffZoneAttribution = price?.zoneAttribution ?? null;
     row.variableMissing = !price?.available || !finite(price.variableCost);
     for (const field of ['energyCost', 'variableCost', 'usageCost'])
       row[field] = price?.available && finite(price[field]) ? (price[field] === 0 ? 0 : price[field]) : null;
@@ -2465,8 +2467,26 @@ canvas {
     return `${row.key} ${String(row.hour).padStart(2, '0')}:${String(row.minute).padStart(2, '0')} ${row.offset}`;
   }
 
+  _dashboardTariffV4(rows) {
+    const profile = this._sharedTariffNeedsConfirmationV3() ? null : this._getTariffHostV3().profile();
+    const zones = Array.isArray(profile?.zones) ? profile.zones : [];
+    const palette = ['#3578cf', '#29856b', '#ad6c1e', '#8d63ba', '#bc5773', '#427f94'];
+    const describe = row => {
+      if (row.priceMissing || !row.tariffZones?.length) return { key: 'unavailable',
+        label: this._text('Tariff unavailable', 'Taryfa niedostępna'), color: '#858a92' };
+      const label = id => id === 'dynamic' ? this._text('Dynamic tariff', 'Taryfa dynamiczna') : zones.find(zone => zone.id === id)?.label || id;
+      if (row.tariffZoneAttribution === 'multiple') return { key: 'multiple:' + JSON.stringify(row.tariffZones),
+        label: this._text('Multiple zones (same rate)', 'Wiele stref (ta sama stawka)') + ': ' + row.tariffZones.map(label).join(' / '), color: '#80679b' };
+      const index = zones.findIndex(zone => zone.id === row.tariffZone);
+      return { key: row.tariffZone, label: label(row.tariffZone), color: palette[(Math.max(0, index)) % palette.length] };
+    };
+    const items = rows.map(describe), legend = [...new Map(items.map(item => [item.key, item])).values()];
+    return { items, legend };
+  }
+
   _dashboardChartMarkupV3() {
     const rows = this._dashboardRowsV3(), t = (en, pl) => this._text(en, pl);
+    const tariff = this._dashboardTariffV4(rows);
     const identity = JSON.stringify([this._energyModel?.ids, this._energyModel?.zone, this._energyModel?.todayStart]);
     if (this._dashboardStateV3?.identity !== identity) this._dashboardStateV3 = { identity, view: 'chart', selected: null };
     const state = this._dashboardStateV3;
@@ -2475,6 +2495,7 @@ canvas {
     const number = row => row.kwh === null ? t('No measurement', 'Brak pomiaru') : `${this._patternsNumber(row.kwh)} kWh`;
     return `<section class="chart-container patterns-measured" data-dashboard-chart-section>
       <h3>${t('Hourly consumption · today', 'Zużycie godzinowe · dzisiaj')}</h3>
+      <div data-dashboard-tariff-legend role="list" aria-label="${t('Tariff zones', 'Strefy taryfy')}" style="display:flex;flex-wrap:wrap;gap:12px;margin:12px 0">${tariff.legend.map(item => `<span role="listitem" style="display:inline-flex;gap:6px;align-items:center;overflow-wrap:anywhere"><span aria-hidden="true" style="width:14px;height:14px;flex:0 0 14px;background:${item.color};border-radius:3px"></span>${_esc(item.label)}</span>`).join('')}</div>
       <p>${_esc(this._energyModel?.zone || '')} · ${_esc((this._energyModel?.ids || []).join(', '))}</p>
       <div class="patterns-switch" role="group" aria-label="${t('Presentation', 'Prezentacja')}">
         <button type="button" data-dashboard-control="chart" aria-pressed="${state.view === 'chart'}">${t('Chart', 'Wykres')}</button>
@@ -2482,8 +2503,8 @@ canvas {
       </div>
       ${state.view === 'chart' ? `<div class="chart-plot"><canvas id="dashboard-chart" role="img" aria-label="${t('Recorded consumption in kWh; exact values in Data and point details below', 'Zarejestrowane zużycie w kWh; dokładne wartości w Danych i szczegółach punktu poniżej')}"></canvas></div>` : `<div class="patterns-table" tabindex="0" role="region" aria-label="${t('Measured data table', 'Tabela zmierzonych danych')}"><table>
         <caption>${t('Same completed intervals as the chart', 'Te same zakończone przedziały co na wykresie')} · kWh</caption>
-        <thead><tr><th scope="col">${t('Local hour and UTC interval', 'Godzina lokalna i przedział UTC')}</th><th scope="col">kWh</th></tr></thead>
-        <tbody>${rows.map(row => `<tr data-dashboard-row="${_esc(row.id)}" data-kwh="${row.kwh === null ? 'null' : row.kwh}"><th scope="row">${_esc(this._dashboardLabelV3(row))}<br><small>${_esc(new Date(row.from).toISOString())} — ${_esc(new Date(row.to).toISOString())}</small></th><td>${_esc(number(row))}</td></tr>`).join('')}</tbody>
+        <thead><tr><th scope="col">${t('Local hour and UTC interval', 'Godzina lokalna i przedział UTC')}</th><th scope="col">kWh</th><th scope="col">${t('Tariff zone', 'Strefa taryfy')}</th></tr></thead>
+        <tbody>${rows.map((row, index) => `<tr data-dashboard-row="${_esc(row.id)}" data-kwh="${row.kwh === null ? 'null' : row.kwh}"><th scope="row">${_esc(this._dashboardLabelV3(row))}<br><small>${_esc(new Date(row.from).toISOString())} — ${_esc(new Date(row.to).toISOString())}</small></th><td>${_esc(number(row))}</td><td data-tariff-zone>${_esc(tariff.items[index].label)}</td></tr>`).join('')}</tbody>
       </table></div>`}
       <div class="patterns-controls"><label>${t('Point details (arrows, Home / End)', 'Szczegóły punktu (strzałki, Home / End)')}<select data-dashboard-control="point" ${rows.length ? '' : 'disabled'}>${rows.map(row => `<option value="${_esc(row.id)}" ${row.id === state.selected ? 'selected' : ''}>${_esc(this._dashboardLabelV3(row))}</option>`).join('')}</select></label></div>
       <p data-dashboard-detail role="status" aria-live="polite">${selected ? `${_esc(this._dashboardLabelV3(selected))}<br>${_esc(new Date(selected.from).toISOString())} — ${_esc(new Date(selected.to).toISOString())}<br>${_esc(number(selected))}` : t('No completed intervals.', 'Brak zakończonych przedziałów.')}</p>
@@ -2537,16 +2558,8 @@ canvas {
           datasets: [{
             label: this._text("Energy Usage (kWh)", "Zużycie energii (kWh)"),
             data: data,
-            backgroundColor: data.map((val, index) => {
-              const hour = rows[index].hour;
-              const isPeak = hour >= (this._config?.peak_hours?.start || 6) && hour < (this._config?.peak_hours?.end || 22);
-              return isPeak ? 'rgba(59, 130, 246, 0.7)' : 'rgba(100, 200, 100, 0.7)';
-            }),
-            borderColor: data.map((val, index) => {
-              const hour = rows[index].hour;
-              const isPeak = hour >= (this._config?.peak_hours?.start || 6) && hour < (this._config?.peak_hours?.end || 22);
-              return isPeak ? 'rgb(59, 130, 246)' : 'rgb(100, 200, 100)';
-            }),
+            backgroundColor: this._dashboardTariffV4(rows).items.map(item => item.color),
+            borderColor: this._dashboardTariffV4(rows).items.map(item => item.color),
             borderWidth: 1,
             borderRadius: 4
           }]
@@ -2557,7 +2570,7 @@ canvas {
           indexAxis: undefined,
           plugins: {
             legend: {
-              display: true,
+              display: false,
               position: 'top'
             },
             tooltip: {
