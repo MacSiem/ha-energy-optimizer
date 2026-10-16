@@ -1,8 +1,10 @@
 'use strict';
 const {test}=require('node:test');const assert=require('node:assert/strict');const {readFileSync}=require('node:fs');const {JSDOM}=require('jsdom');
 const code=['src/optimizer.js','src/energy-insights.js','src/energy-email.js','src/chart-vendor.js'].map(p=>readFileSync(p,'utf8')).join('');
-async function fixture(type){
- const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});dom.window.eval(code);
+async function fixture(type, clock){
+ const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});
+ if(clock){const NativeDate=dom.window.Date;const stamp=Date.parse(clock);dom.window.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[stamp]));}static now(){return stamp;}};}
+ dom.window.eval(code);
  const card=dom.window.document.createElement(type),calls=[];let release;
  card._schedule=()=>{};card._loadChartJs=()=>{};card._discoverAll=async()=>{};card._loadSharedTariffProfile=async()=>{};
  const hass={user:{id:'A',is_admin:true},connection:{connected:true},language:'en',locale:{language:'en'},config:{time_zone:'UTC',currency:'EUR'},states:{},callWS:async req=>{
@@ -13,7 +15,7 @@ async function fixture(type){
   throw Error(req.type);
  }};
  card.setConfig({show_support:false,energy_price:2});card._firstHassRender=true;card._firstRender=true;card._discoveryDone=true;card._emailBackendChecked=true;
- card._lastDataFetch=Date.now();card._lastRenderTime=Date.now();card._lastStatsFetch=Date.now();
+ card._lastDataFetch=dom.window.Date.now();card._lastRenderTime=dom.window.Date.now();card._lastStatsFetch=dom.window.Date.now();
  dom.window.document.body.append(card);card.hass=hass;
  const fetch=()=>type==='ha-energy-insights'?card._fetchData():type==='ha-energy-email'?card._fetchRecorderStats('day'):card._fetchEnergyStats();
  await fetch();
@@ -94,7 +96,7 @@ for(const type of ['ha-energy-optimizer','ha-energy-email'])for(const boundary o
    assert.equal(f.card._energyModel,oldModel,'discarded payload cannot replace the current model');
   }else assert.equal(f.card._periodCache_day,oldDay,'discarded payload cannot replace current period data');
   // Advance past the existing ten-second UI throttle, far below five minutes.
-  const tick=Date.now();f.dom.window.Date.now=()=>tick+11000;
+  const tick=f.dom.window.Date.now();f.dom.window.Date.now=()=>tick+11000;
   f.card.hass=f.hass;await new Promise(resolve=>setImmediate(resolve));
   assert.ok(f.calls.length>occupiedCalls,'next normal hass update must dispatch the current read before five minutes');
   if(type==='ha-energy-optimizer'){
@@ -105,5 +107,13 @@ for(const type of ['ha-energy-optimizer','ha-energy-email'])for(const boundary o
    assert.equal(model.summary(model.start,model.end).total,744);
    assert.equal(model.zone,f.hass.config.time_zone);assert.equal(f.card._statsLoading,false);
   }else {assert.equal(f.value(),24);assert.notEqual(f.card._periodCache_day,oldDay);assert.equal(f.card._periodRefreshPromise,null);}
+ }finally{f.close();}
+});
+
+// This harness needs an accepted Recorder model, not a completed Today hour.
+for(const clock of ['2026-10-16T00:05:00Z','2026-10-16T23:05:00Z'])test(`Optimizer binding fixture accepts the loaded model at ${clock}`,async()=>{
+ const f=await fixture('ha-energy-optimizer',clock);try{
+  assert.equal(f.value(),744,'the independent31-day raw fixture remains744kWh before and after the first completed day hour');
+  if(clock.includes('T00:'))assert.equal(f.card._hasRealData,false,'Today correctly has no completed hour yet');
  }finally{f.close();}
 });
