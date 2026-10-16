@@ -1,4 +1,4 @@
-// HA Energy Optimizer Bundle v3.6.2
+// HA Energy Optimizer Bundle v3.7.0
 // HTML escape helper — wrap any user-derived string before interpolation into innerHTML.
 const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -247,7 +247,7 @@ class HaEnergyOptimizer extends HTMLElement {
     this._comparisonData = null;
     // --- Real data fields ---
     this._hasRealData = false;
-    this._currentPowerW = 0;
+    this._currentPowerW = null;
     this._statsLoading = false;
     this._lastStatsFetch = 0;
     this._energySensorIds = [];
@@ -465,9 +465,9 @@ class HaEnergyOptimizer extends HTMLElement {
 
   _updateEnergyData() {
     if (!this._hass) return;
-    const configured = this._config.power_entity && this._hass.states[this._config.power_entity];
+    const configured = this._config.power_entity && Object.hasOwn(this._hass.states || {}, this._config.power_entity) ? this._hass.states[this._config.power_entity] : null;
     const unit = configured?.attributes?.unit_of_measurement;
-    const value = configured ? Number(configured.state) : NaN;
+    const value = configured && typeof configured.state === 'string' && configured.state.trim() !== '' ? Number(configured.state) : NaN;
     this._currentPowerW = Number.isFinite(value) && (unit === 'W' || unit === 'kW') ? value * (unit === 'kW' ? 1000 : 1) : null;
 
     // Fetch stats every 5 minutes (not on every hass update)
@@ -1466,7 +1466,10 @@ this._installTariffConsumerV3();
   }
 
   _render() {
+    const powerSetup = this.shadowRoot.querySelector('[data-power-setup]');
+    if (powerSetup) this._powerSetupOpenV4 = powerSetup.open;
     const active = this.shadowRoot.activeElement;
+    const focusPower = active?.id === 'power-sensor-guide';
     const focusControl = active?.dataset?.patternControl;
     const focusDashboard = active?.dataset?.dashboardControl;
     const focusTab = active?.dataset?.tab;
@@ -1476,6 +1479,7 @@ this._installTariffConsumerV3();
     this.shadowRoot.innerHTML = this._getStyles() + this._getTemplate();
     bindEnergySupport(this.shadowRoot, 'ha-energy-optimizer', this._hass?.locale?.language || this._hass?.language);
     this._setupEventListeners();
+    if (focusPower) this.shadowRoot.getElementById('power-sensor-guide')?.focus({preventScroll:true});
     this._bindTariffSettings();
     this._renderCurrentTab();
     this._bindPatterns();
@@ -2231,6 +2235,12 @@ canvas {
           border-radius: 2px;
         }
 
+        .power-setup { margin:12px 0; overflow-wrap:anywhere; }
+        .power-setup summary, .power-setup select { min-height:44px; max-width:100%; }
+        .power-setup summary { display:flex; align-items:center; cursor:pointer; color:var(--primary-color); }
+        .power-setup label { display:flex; flex-direction:column; gap:8px; }
+        .power-setup select { font:inherit; color:var(--primary-text-color); background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:10px; padding:8px; }
+        .power-setup pre { white-space:pre-wrap; overflow-wrap:anywhere; }
         .power-draw {
           background: linear-gradient(135deg, var(--primary) 0%, color-mix(in srgb, var(--primary), #000 12%) 100%);
           color: white;
@@ -2350,15 +2360,30 @@ canvas {
     return config;
   }
 
+  _powerMarkupV4() {
+    const t = (en, pl) => this._text(en, pl);
+    if (this._currentPowerW !== null) return `<div class="power-draw"><div class="power-draw-unit">${t('Current Power Draw', 'Moc chwilowa')}</div><div class="power-draw-value">${createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en').number(this._currentPowerW / 1000, {minimumFractionDigits:2, maximumFractionDigits:2})}</div><div class="power-draw-unit">kW</div></div>`;
+    const sensors = Object.entries(this._hass?.states || {}).filter(([id, state]) => id.startsWith('sensor.') && ['W','kW'].includes(state?.attributes?.unit_of_measurement));
+    const selected = sensors.some(([id]) => id === this._powerSetupEntityV4) ? this._powerSetupEntityV4 : '';
+    return `<div class="power-setup"><p data-power-status>${this._config.power_entity
+      ? t('Current power: configured sensor unavailable or has an unsupported unit. Check the sensor (W or kW).', 'Moc chwilowa: pomiar skonfigurowanego czujnika jest niedostępny lub ma nieobsługiwaną jednostkę. Sprawdź czujnik (W lub kW).')
+      : t('Current power: no sensor selected.', 'Moc chwilowa: nie wybrano czujnika.')}</p>
+      <details data-power-setup${this._powerSetupOpenV4 ? ' open' : ''}><summary>${t('Choose sensor', 'Wybierz czujnik')}</summary>
+      <p>${t('Choose a power sensor below. Edit this card, open the code editor and add the selected setting, then save the card. This guide does not save card settings.', 'Wybierz czujnik mocy poniżej. Edytuj tę kartę, otwórz edytor kodu, dodaj wybrane ustawienie i zapisz kartę. Ten poradnik nie zapisuje ustawień karty.')}</p>
+      <label>${t('Power sensor (W or kW)', 'Czujnik mocy (W lub kW)')}<select id="power-sensor-guide"><option value="">${t('Choose…', 'Wybierz…')}</option>${sensors.map(([id,state]) => `<option value="${_esc(id)}"${id === selected ? ' selected' : ''}>${_esc(state.attributes?.friendly_name || id)} (${_esc(id)})</option>`).join('')}</select></label>
+      ${!sensors.length ? `<p>${t('No power sensors in W or kW were found in Home Assistant.', 'Nie znaleziono czujników mocy w W lub kW w Home Assistant.')}</p>` : ''}
+      <pre><code tabindex="0">${_esc(selected ? 'power_entity: ' + selected : t('Select a sensor above.', 'Wybierz czujnik powyżej.'))}</code></pre></details></div>`;
+  }
+
   _getTemplate() {
     const format = createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en', this._energyModel?.zone || this._hass?.config?.time_zone || 'UTC');
     const window = this._todayWindow, selected = window?.selected;
     const periodMarkup = window ? format.periodMarkup({ ...window, label: this._text('Today', 'Dziś'),
       source: 'Energy Dashboard / Recorder', measured: selected?.filter(([, point]) => point.kwh !== null).length,
       expected: selected?.length, unit: this._text('completed intervals', 'zakończonych przedziałów'),
-      details: (this._energySensorIds || []).join(', ') }) : '';
+      details: (this._energySensorIds || []).join(', ') + '. ' + this._text('Only completed Recorder intervals are shown. Repeated local hours keep distinct UTC offsets; future or skipped hours are not measured zero.', 'Pokazano tylko zakończone przedziały Recorder. Powtórzone godziny zachowują odrębne przesunięcia UTC; przyszła lub pominięta godzina nie oznacza zmierzonego zera.') }) : '';
 
-    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>${periodMarkup}<div class="empty-state" role="status">${this._statsLoading ? this._text("Loading Energy Dashboard statistics…", "Ładowanie statystyk panelu Energia…") : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? this._text("No recent Recorder statistics for the configured grid import.", "Brak bieżących statystyk Recorder dla skonfigurowanego importu z sieci.") : this._energyError?.message?.includes('No Energy Dashboard grid import source') ? this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.") : this._energyError ? this._text("Energy statistics could not be loaded.", "Nie udało się wczytać statystyk energii.") : this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.")} <a href="/energy">${this._text("Open Energy Dashboard", "Otwórz panel Energia")}</a></div>${this._energyModel?.points ? `<div id="patterns">${this._patternsMarkup()}</div>` : ''}${this._tariffDetailsMarkup()}${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
+    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>${periodMarkup}${this._powerMarkupV4()}<div class="empty-state" role="status">${this._statsLoading ? this._text("Loading Energy Dashboard statistics…", "Ładowanie statystyk panelu Energia…") : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? this._text("No recent Recorder statistics for the configured grid import.", "Brak bieżących statystyk Recorder dla skonfigurowanego importu z sieci.") : this._energyError?.message?.includes('No Energy Dashboard grid import source') ? this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.") : this._energyError ? this._text("Energy statistics could not be loaded.", "Nie udało się wczytać statystyk energii.") : this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.")} <a href="/energy">${this._text("Open Energy Dashboard", "Otwórz panel Energia")}</a></div>${this._energyModel?.points ? `<div id="patterns">${this._patternsMarkup()}</div>` : ''}${this._tariffDetailsMarkup()}${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
     return `
       <div class="card-container">
         <h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>
@@ -2386,9 +2411,9 @@ canvas {
               <span class="summary-label">${_esc(this._todayTariffCosts().currency || '')} ${this._text('energy only', 'sama energia')}</span>
             </div>
             <div class="summary-card warn">
-              <span class="summary-label">${this._text("Peak Hour", "Godzina szczytu")}</span>
+              <span class="summary-label">${this._text("Highest consumption", "Najwyższe zużycie")}</span>
               ${this._peakHourMarkupV3()}
-              <span class="summary-label">${this._text("Highest consumption", "Największe zużycie")}</span>
+              <span class="summary-label">${this._text("Measured interval", "Zmierzony przedział")}</span>
             </div>
             <div class="summary-card">
               <span class="summary-label">${this._text("Measured hours", "Zmierzone godziny")}</span>
@@ -2397,11 +2422,7 @@ canvas {
             </div>
           </div>
 
-          <div class="power-draw">
-            <div class="power-draw-unit">${this._text("Current Power Draw", "Aktualna moc")}</div>
-            <div class="power-draw-value">${this._currentPowerW === null ? 'N/A' : (this._currentPowerW / 1000).toFixed(2)}</div>
-            <div class="power-draw-unit">kW</div>
-          </div>
+          ${this._powerMarkupV4()}
 
           ${this._dashboardChartMarkupV3()}
         </div>
@@ -2414,8 +2435,8 @@ canvas {
 
         <div id="compare" class="tab-content">
           <div class="comparison-grid">
-            <div class="comparison-card"><div class="comparison-title">${this._text("Last 7 days (168 hours)", "Ostatnie 7 dni (168 godzin)")}</div><div class="comparison-value">${this._comparisonData.thisWeek === null ? 'N/A' : this._comparisonData.thisWeek.toFixed(2)}</div><div class="comparison-title">${this._text("kWh grid import", "kWh importu z sieci")}</div></div>
-            <div class="comparison-card"><div class="comparison-title">${this._text("Previous 7 days (168 hours)", "Poprzednie 7 dni (168 godzin)")}</div><div class="comparison-value">${this._comparisonData.lastWeek === null ? 'N/A' : this._comparisonData.lastWeek.toFixed(2)}</div><div class="comparison-title">${this._text("kWh grid import", "kWh importu z sieci")}</div></div>
+            <div class="comparison-card"><div class="comparison-title">${this._text("Last 7 days (168 hours)", "Ostatnie 7 dni (168 godzin)")}</div><div class="comparison-value">${this._comparisonData.thisWeek === null ? 'N/A' : format.number(this._comparisonData.thisWeek, {minimumFractionDigits:2, maximumFractionDigits:2})}</div><div class="comparison-title">${this._text("kWh grid import", "kWh importu z sieci")}</div></div>
+            <div class="comparison-card"><div class="comparison-title">${this._text("Previous 7 days (168 hours)", "Poprzednie 7 dni (168 godzin)")}</div><div class="comparison-value">${this._comparisonData.lastWeek === null ? 'N/A' : format.number(this._comparisonData.lastWeek, {minimumFractionDigits:2, maximumFractionDigits:2})}</div><div class="comparison-title">${this._text("kWh grid import", "kWh importu z sieci")}</div></div>
           </div>
           <p>${this._text("Only recorded periods are shown. Monthly and cost comparisons need complete source and tariff data.", "Pokazano tylko zarejestrowane okresy. Porównania miesięczne i kosztowe wymagają kompletnych źródeł oraz danych taryfy.")}</p>
         </div>
@@ -2425,6 +2446,12 @@ canvas {
   }
 
   _setupEventListeners() {
+    const powerSetup = this.shadowRoot.querySelector('[data-power-setup]');
+    powerSetup?.addEventListener('toggle', () => { this._powerSetupOpenV4 = powerSetup.open; });
+    powerSetup?.querySelector('select')?.addEventListener('change', event => {
+      this._powerSetupEntityV4 = event.target.value;
+      powerSetup.querySelector('code').textContent = event.target.value ? 'power_entity: ' + event.target.value : this._text('Select a sensor above.', 'Wybierz czujnik powyżej.');
+    });
     const buttons = this.shadowRoot.querySelectorAll('.tab-button');
     buttons.forEach(button => {
       button.addEventListener('click', () => {
@@ -2550,7 +2577,6 @@ canvas {
       </table></div>`}
       <div class="patterns-controls"><label>${t('Point details (arrows, Home / End)', 'Szczegóły punktu (strzałki, Home / End)')}<select data-dashboard-control="point" ${rows.length ? '' : 'disabled'}>${rows.map(row => `<option value="${_esc(row.id)}" ${row.id === state.selected ? 'selected' : ''}>${_esc(this._dashboardLabelV3(row))}</option>`).join('')}</select></label></div>
       <p data-dashboard-detail role="status" aria-live="polite">${selected ? `${_esc(this._dashboardLabelV3(selected))}<br>${_esc(new Date(selected.from).toISOString())} — ${_esc(new Date(selected.to).toISOString())}<br>${_esc(number(selected))}` : t('No completed intervals.', 'Brak zakończonych przedziałów.')}</p>
-      <p>${t('Only completed Recorder intervals are shown. Repeated local hours keep distinct UTC offsets; future or skipped hours are not measured zero.', 'Pokazano tylko zakończone przedziały Recorder. Powtórzone godziny zachowują odrębne przesunięcia UTC; przyszła lub pominięta godzina nie oznacza zmierzonego zera.')}</p>
     </section>`;
   }
 
@@ -2950,8 +2976,9 @@ async _drawComparisonChart() {
     const container = this.shadowRoot.getElementById('recommendations-list');
     if (!container) return;
     const result = this._todayTariffCosts();
-    const number = value => typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : this._text('No data', 'Brak danych');
-    const rateNumber = value => typeof value === 'number' && Number.isFinite(value) ? String(value) : this._text('No data', 'Brak danych');
+    const format = createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en', this._hass?.config?.time_zone || 'UTC');
+    const number = value => typeof value === 'number' && Number.isFinite(value) ? format.number(value, {minimumFractionDigits:2, maximumFractionDigits:2}) : this._text('No data', 'Brak danych');
+    const rateNumber = value => typeof value === 'number' && Number.isFinite(value) ? format.number(value, {maximumSignificantDigits:12, useGrouping:false}) : this._text('No data', 'Brak danych');
     const unit = _esc(result.currency || '');
     const groups = new Map();
     if (result.complete) for (const row of result.rows) {
@@ -2969,7 +2996,7 @@ async _drawComparisonChart() {
     };
     container.innerHTML = `<h3>${this._text('Tariff costs', 'Koszty taryfy')}</h3>
       <p>${this._text('Measured grid import × configured prices. Energy and fees are shown separately.', 'Zmierzony import z sieci × skonfigurowane stawki. Energia i opłaty są pokazane osobno.')}</p>
-      <p>${_esc(this._todayWindow?.start || '')} — ${_esc(this._todayWindow?.end || '')} · ${_esc(result.timezone || '')} · ${result.priceBasis === 'net' ? this._text('net', 'netto') : this._text('gross', 'brutto')}</p>
+      <p>${this._text('Tariff clock', 'Zegar taryfy')}: ${_esc(result.timezone || '')} · ${result.priceBasis === 'net' ? this._text('net', 'netto') : this._text('gross', 'brutto')}</p>
       ${!result.complete ? `<p role="status">${this._text('Cost unavailable: incomplete measurements or tariff. Configure a valid tariff and check source coverage.', 'Koszt niedostępny: niepełne pomiary lub taryfa. Skonfiguruj poprawną taryfę i sprawdź kompletność źródeł.')}</p>` : `
       <div style="max-width:100%;overflow:auto"><table><caption>${this._text('Measured consumption by tariff zone', 'Zmierzony import według stref taryfy')}</caption><thead><tr>
         <th>${this._text('Zone', 'Strefa')}</th><th>kWh</th><th>${this._text('Energy rate', 'Stawka energii')} (${unit}/kWh)</th><th>${this._text('Energy cost', 'Koszt energii')} (${unit})</th><th>${this._text('Variable fees', 'Opłaty zmienne')} (${unit})</th>
@@ -3294,7 +3321,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC') {
     }
 
     _t(key) {
-      const lang = this._hass?.language || localStorage.getItem('ha-tools-language') || 'en';
+      const lang = String(this._hass?.locale?.language || this._hass?.language || localStorage.getItem('ha-tools-language') || 'en').startsWith('pl') ? 'pl' : 'en';
       const T = HAEnergyInsights._translations;
       return (T[lang] || T['en'])[key] || T['en'][key] || key;
     }
@@ -5220,7 +5247,7 @@ this._installTariffConsumerV3();
       const rec = this._getRecommendation(trendDiff, d.todayKwh);
 
       let html = `
-        ${period(d.windows?.daily, this._t('today'))}${d.windows?.daily ? energyTodayBoundaryMarkup(d.windows.daily, d.zone || '', this._lang) : ''}
+        ${period(d.windows?.daily, this._t('today'))}${d.windows?.daily ? energyTodayBoundaryMarkup(d.windows.daily, d.zone || '', this._lang) : ''}<p>${this._lang === 'pl' ? 'Ten sam import z sieci jest dostępny także w' : 'The same grid import is also available in'} <a href="https://github.com/MacSiem/ha-smart-reports#readme" target="_blank" rel="noopener noreferrer">Smart Reports</a>. ${this._lang === 'pl' ? 'Porównuj identyczne okresy i pokrycie źródeł.' : 'Compare matching periods and source coverage.'}</p>
         <div class="stats-grid">
           <div class="stat-card">
             <div class="stat-label">${this._t('today')}</div>
@@ -7317,7 +7344,7 @@ this._installTariffConsumerV3();
     }
 
     _fmt(v, decimals = 2) {
-      return this._float(v).toFixed(decimals);
+      return createFormatUi(this._hass?.locale?.language || this._hass?.language || this._lang || 'en').number(this._float(v), {minimumFractionDigits:decimals, maximumFractionDigits:decimals});
     }
 
     // --- auto-discovery ---
@@ -8426,7 +8453,7 @@ this._installTariffConsumerV3();
           <div class="stat">
             <div class="stat-value" style="color:#10B981">${displayData.length > 0 ? _esc(displayData[0].name.split(' ').slice(0,2).join(' ')) : '-'}</div>
             <div class="stat-label">${L ? 'Największy import' : 'Largest Import'}</div>
-            <div class="stat-sub">${displayData.length > 0 ? displayData[0].month.toFixed(1) + ' kWh' : ''}</div>
+            <div class="stat-sub">${displayData.length > 0 ? this._fmt(displayData[0].month, 1) + ' kWh' : ''}</div>
           </div>
         </div>
         <div class="section-title">\u26A1 ${L ? 'Import według źródła' : 'Import by Source'}</div>
@@ -8438,12 +8465,12 @@ this._installTariffConsumerV3();
           const rows = pageData.map(d => {
             const pct = maxVal > 0 ? (d.month / maxVal * 100) : 0;
             const diff = d.month - d.lastMonth;
-            const diffStr = d.lastMonth > 0 && diff !== 0 ? `<span class="${diff > 0 ? 'trend-up' : 'trend-down'}">${diff > 0 ? '+' : ''}${diff.toFixed(1)} kWh</span>` : '';
+            const diffStr = d.lastMonth > 0 && diff !== 0 ? `<span class="${diff > 0 ? 'trend-up' : 'trend-down'}">${diff > 0 ? '+' : ''}${this._fmt(diff, 1)} kWh</span>` : '';
             const entityInfo = d.entity_id ? `<span style="font-size:10px;color:var(--bento-text-muted)" title="${_esc(d.entity_id)}">${_esc((d.entity_id.split('.')[1] || d.entity_id).substring(0,20))}</span>` : '';
             return `<div class="device-row" title="${_esc(d.entity_id || d.name)}">
               <div class="device-name">${_esc(d.name)} ${entityInfo}${Number.isFinite(d.measuredHours) ? `<div class="helper">${d.measuredHours}/${d.expectedHours} ${L ? 'zmierzonych godzin' : 'measured hours'}</div>` : ''}</div>
               <div class="device-bar-wrap"><div class="device-bar" style="width:${pct}%"></div></div>
-              <div class="device-val">${d.month.toFixed(1)} kWh</div>
+              <div class="device-val">${this._fmt(d.month, 1)} kWh</div>
               <div style="font-size:11px;color:var(--bento-text-secondary);min-width:60px;text-align:right">${diffStr}</div>
             </div>`;
           }).join('');
@@ -8494,7 +8521,7 @@ this._installTariffConsumerV3();
         <p>${tr('Nowy harmonogram jest wyłączony. Zapis włączonego harmonogramu uruchamia przyszłe wysyłki.','A new schedule is disabled. Saving an enabled schedule activates future deliveries.')}</p>
         <div class="server-schedule-actions"><button id="schedule-save" type="button" ${editable ? '' : 'disabled'}>${tr('Zapisz','Save')}</button><button id="schedule-cancel" type="button">${tr('Anuluj','Cancel')}</button>
         <button id="schedule-preview" type="button" ${m.previewing || m.writing || !this._serverSchedules.online() ? 'disabled' : ''}>${tr('Podgląd okresu (tylko odczyt)','Preview period (readonly)')}</button></div></fieldset>` : '';
-      const p = m.preview, number = value => value === null ? tr('Brak danych','No data') : Number(value).toFixed(2);
+      const p = m.preview, number = value => value === null ? tr('Brak danych','No data') : this._fmt(value, 2);
       const basis = p?.priceBasis === 'gross' ? tr('brutto','gross') : p?.priceBasis === 'net' ? tr('netto','net') : tr('nieznana','unknown');
       const preview = p?.html !== undefined ? status(m.previewStatus) + this._renderMailFrame(p, 'schedule-mail-frame') : p ? `<section class="schedule-preview"><h4>${tr('Podgląd kalendarza energii','Energy calendar preview')}</h4>${status(m.previewStatus)}
         <p>${tr('Poprzedni zakończony okres kalendarzowy; koniec przedziału jest wyłączny.','Previous completed calendar period; the end is exclusive.')}</p>
@@ -8736,10 +8763,10 @@ this._installTariffConsumerV3();
             <div style="overflow-wrap:anywhere">${_esc(data.period?.start || '—')} → ${_esc(data.period?.end || '—')}</div>
             <div>${L ? 'Ukończone godziny Recorder; ten sam model co wysyłka i harmonogram.' : 'Completed Recorder hours; same model as sending and schedules.'}</div>
             ${ready ? '' : `<div role="status">${message}</div>`}
-            <div>${ready ? data.total_kwh.toFixed(1) : 'N/A'} kWh · ${this._formatCost(data.total_cost)} ${_esc(this._tariffCurrency())}</div>
+            <div>${ready ? this._fmt(data.total_kwh, 1) : 'N/A'} kWh · ${this._formatCost(data.total_cost)} ${_esc(this._tariffCurrency())}</div>
             ${data.total_cost === null ? `<div>${L ? 'Taryfa nieskonfigurowana' : 'Tariff not configured'}</div>` : ''}
             <table class="preview-table"><thead><tr><th>${L ? 'Źródło' : 'Source'}</th><th>kWh</th><th>${L ? 'Koszt' : 'Cost'}</th></tr></thead>
-            <tbody>${rows.map(row => `<tr><td>${_esc(row.name)}</td><td>${typeof row.kwh === 'number' && Number.isFinite(row.kwh) ? row.kwh.toFixed(2) : 'N/A'}</td><td>${this._formatCost(row.cost)}</td></tr>`).join('')}</tbody></table>
+            <tbody>${rows.map(row => `<tr><td>${_esc(row.name)}</td><td>${typeof row.kwh === 'number' && Number.isFinite(row.kwh) ? this._fmt(row.kwh, 2) : 'N/A'}</td><td>${this._formatCost(row.cost)}</td></tr>`).join('')}</tbody></table>
           </div>`;
         }).join('');
     }
@@ -8849,12 +8876,12 @@ this._installTariffConsumerV3();
           ${periodNote}
           <div style="font-size:12px;color:var(--bento-text-secondary);margin-bottom:10px">\u{1F4E7} ${_esc(recipientLine)} \u00A0\u2022\u00A0 ${range} \u00A0\u2022\u00A0 ${devData.length} ${L ? 'źródeł' : 'sources'}</div>
           <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">
-            <div><span style="font-size:18px;font-weight:700;color:#F59E0B">${totalEnergy === null ? 'N/A' : totalEnergy.toFixed(1)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">kWh</span></div>
+            <div><span style="font-size:18px;font-weight:700;color:#F59E0B">${totalEnergy === null ? 'N/A' : this._fmt(totalEnergy, 1)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">kWh</span></div>
             <div><span style="font-size:18px;font-weight:700;color:#3B82F6">${this._formatCost(totalCost)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">${_esc(this._tariffCurrency())}</span></div>
           </div>
           <table class="preview-table">
             <thead><tr><th>${L ? 'Źródło importu' : 'Import source'}</th><th>kWh</th><th>${L ? 'Koszt' : 'Cost'} (${_esc(this._tariffCurrency())})</th></tr></thead>
-            <tbody>${top5.map(d => `<tr><td>${_esc(d.name)}</td><td>${d.current === null ? 'N/A' : d.current.toFixed(2)}</td><td>${this._formatCost(d.cost)}</td></tr>`).join('')}
+            <tbody>${top5.map(d => `<tr><td>${_esc(d.name)}</td><td>${d.current === null ? 'N/A' : this._fmt(d.current, 2)}</td><td>${this._formatCost(d.cost)}</td></tr>`).join('')}
             ${devData.length > 5 ? `<tr><td colspan="3" style="text-align:center;color:var(--bento-text-secondary);font-size:11px">+ ${devData.length - 5} ${L ? 'więcej źródeł' : 'more sources'}...</td></tr>` : ''}</tbody>
           </table>
         </div>`;
@@ -9275,9 +9302,9 @@ this._installTariffConsumerV3();
         // Build HTML email
         const typeName = { daily: L ? 'Dzienny' : 'Daily', weekly: L ? 'Tygodniowy' : 'Weekly', monthly: L ? 'Miesi\u0119czny' : 'Monthly', quick: L ? 'Podsumowanie' : 'Summary' }[type] || type;
         const deviceRows = devices.map((d, i) => {
-          const kwh = (d.month || 0).toFixed(2);
+          const kwh = this._fmt(d.month || 0, 2);
           const cost = this._formatCost(d.cost ?? this._cost(d.month));
-          const pct = totalKwh > 0 ? ((d.month / totalKwh) * 100).toFixed(0) : 0;
+          const pct = totalKwh > 0 ? this._fmt((d.month / totalKwh) * 100, 0) : 0;
           const bg = i % 2 === 0 ? '#f8fafc' : '#ffffff';
           return `<tr style="background:${bg}"><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:14px">${_esc(d.name)}</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600">${kwh}</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:right">${cost}</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:right;color:#64748b">${pct}%</td></tr>`;
         }).join('');
@@ -9289,7 +9316,7 @@ this._installTariffConsumerV3();
           <div style="padding:20px 28px">
             <div style="display:flex;gap:16px;margin-bottom:20px">
               <div style="flex:1;background:#fef3c7;border-radius:10px;padding:16px;text-align:center">
-                <div style="font-size:28px;font-weight:700;color:#d97706">${totalKwh.toFixed(1)}</div>
+                <div style="font-size:28px;font-weight:700;color:#d97706">${this._fmt(totalKwh, 1)}</div>
                 <div style="font-size:12px;color:#92400e;margin-top:2px">kWh</div>
               </div>
               <div style="flex:1;background:#dbeafe;border-radius:10px;padding:16px;text-align:center">
@@ -9298,7 +9325,7 @@ this._installTariffConsumerV3();
               </div>
               <div style="flex:1;background:#d1fae5;border-radius:10px;padding:16px;text-align:center">
                 <div style="font-size:16px;font-weight:700;color:#047857">${topDevice ? _esc(topDevice.name.split(' ').slice(0,2).join(' ')) : '-'}</div>
-                <div style="font-size:12px;color:#065f46;margin-top:2px">${L ? 'Top' : 'Top'}: ${topDevice ? topDevice.month.toFixed(1) : 0} kWh</div>
+                <div style="font-size:12px;color:#065f46;margin-top:2px">${L ? 'Top' : 'Top'}: ${topDevice ? this._fmt(topDevice.month, 1) : 0} kWh</div>
               </div>
             </div>
             <table style="width:100%;border-collapse:collapse;border-radius:8px;overflow:hidden;border:1px solid #e2e8f0">
@@ -9311,7 +9338,7 @@ this._installTariffConsumerV3();
               <tbody>${deviceRows}
               <tr style="background:#f1f5f9;font-weight:700">
                 <td style="padding:12px 14px;font-size:14px">${L ? '\u0141\u0105cznie' : 'Total'}</td>
-                <td style="padding:12px 14px;text-align:right">${totalKwh.toFixed(2)}</td>
+                <td style="padding:12px 14px;text-align:right">${this._fmt(totalKwh, 2)}</td>
                 <td style="padding:12px 14px;text-align:right">${this._formatCost(totalCost)}</td>
                 <td style="padding:12px 14px;text-align:right">100%</td>
               </tr></tbody>
@@ -9320,7 +9347,7 @@ this._installTariffConsumerV3();
           </div>
         </div>`;
         const title = `\u26A1 ${typeName} ${L ? 'raport energii' : 'Energy Report'} \u2013 ${dateStr}`;
-        const plainText = `${typeName} ${L ? 'raport energii' : 'Energy Report'} - ${dateStr}\n${windowText}\n${L ? '\u0141\u0105cznie' : 'Total'}: ${totalKwh.toFixed(2)} kWh / ${this._formatCost(totalCost)} ${currency}\n${devices.map(d => `${d.name}: ${(d.month||0).toFixed(2)} kWh`).join('\n')}`;
+        const plainText = `${typeName} ${L ? 'raport energii' : 'Energy Report'} - ${dateStr}\n${windowText}\n${L ? '\u0141\u0105cznie' : 'Total'}: ${this._fmt(totalKwh, 2)} kWh / ${this._formatCost(totalCost)} ${currency}\n${devices.map(d => `${d.name}: ${this._fmt(d.month || 0, 2)} kWh`).join('\n')}`;
         // Built-in SMTP via ha_tools_email
         if (!this._emailContextCurrent(token)) return;
         dispatched = true;

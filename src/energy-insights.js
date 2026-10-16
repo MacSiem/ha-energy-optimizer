@@ -2098,7 +2098,7 @@ this._installTariffConsumerV3();
       const cur = this._tariffCurrency();
       const format = createFormatUi(this._hass?.locale?.language || this._hass?.language || this._lang || 'en', d.zone || this._hass?.config?.time_zone || 'UTC');
       const fmt = v => typeof v === 'number' && Number.isFinite(v) ? format.number(v, {minimumFractionDigits:2, maximumFractionDigits:2}) : 'N/A';
-      const period = (window, label) => window ? format.periodMarkup({ ...window, label, source: 'Energy Dashboard / Recorder',
+      const period = (window, label) => window ? format.periodMarkup({ ...window, label, source: 'Energy Dashboard / Recorder · ' + format.count((d.sensors || []).length, {one:this._lang === 'pl' ? 'źródło' : 'source',few:'źródła',many:'źródeł',other:this._lang === 'pl' ? 'źródła' : 'sources'}),
         measured: window.selected?.filter(([, point]) => point.kwh !== null).length, expected: window.selected?.length,
         unit: this._lang === 'pl' ? 'zakończonych przedziałów' : 'completed intervals', details: (d.sensors || []).join(', ') }) : '';
 
@@ -2111,7 +2111,7 @@ this._installTariffConsumerV3();
       const rec = this._getRecommendation(trendDiff, d.todayKwh);
 
       let html = `
-        ${period(d.windows?.daily, this._t('today'))}${d.windows?.daily ? energyTodayBoundaryMarkup(d.windows.daily, d.zone || '', this._lang) : ''}<p>${this._lang === 'pl' ? 'Ten sam import z sieci jest dostępny także w' : 'The same grid import is also available in'} <a href="https://github.com/MacSiem/ha-smart-reports#readme" target="_blank" rel="noopener noreferrer">Smart Reports</a>. ${this._lang === 'pl' ? 'Porównuj identyczne okresy i pokrycie źródeł.' : 'Compare matching periods and source coverage.'}</p>
+        ${d.windows?.daily ? `<div data-today-range>${period(d.windows.daily, this._t('today'))}${energyTodayBoundaryMarkup(d.windows.daily, d.zone || '', this._lang)}</div>` : ''}<p>${this._lang === 'pl' ? 'Ten sam import z sieci jest dostępny także w' : 'The same grid import is also available in'} <a href="https://github.com/MacSiem/ha-smart-reports#readme" target="_blank" rel="noopener noreferrer">Smart Reports</a>. ${this._lang === 'pl' ? 'Porównuj identyczne okresy i pokrycie źródeł.' : 'Compare matching periods and source coverage.'}</p>
         <div class="stats-grid">
           <div class="stat-card">
             <div class="stat-label">${this._t('today')}</div>
