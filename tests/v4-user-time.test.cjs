@@ -45,3 +45,36 @@ test('Patterns and Insights chart axes and titles use local friendly dates',()=>
   insight._getTariffHostV3().guard.dispose();
  }finally{f.close();}
 });
+
+test('an invalid system offset falls back to the validated HA calendar zone',()=>{
+ const vm=require('node:vm');const DateTimeFormat=function(language,options){return arguments.length?new Intl.DateTimeFormat(language,options):{resolvedOptions:()=>({timeZone:'+00:00'})};};
+ const factory=vm.runInNewContext(readFileSync('shared/ha-tools-format.js','utf8')+';createFormatUi',{Intl:{DateTimeFormat,NumberFormat:Intl.NumberFormat,PluralRules:Intl.PluralRules}});
+ assert.equal(factory.forHass(hass()).timeZone,'Europe/Warsaw');
+});
+const tick=()=>new Promise(resolve=>setImmediate(resolve));
+for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email'])test(type+' reprojects an in-place profile time change without another Recorder read',async()=>{
+ const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'}),NativeDate=dom.window.Date,now=Date.parse('2026-10-16T12:30:00Z');
+ dom.window.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
+ dom.window.eval(['optimizer.js','energy-insights.js','energy-email.js','chart-vendor.js'].map(n=>readFileSync('src/'+n,'utf8')).join(''));
+ const card=dom.window.document.createElement(type);card._schedule=()=>{};card.setConfig({show_support:false,energy_price:2,currency:'EUR'});
+ const requests=[],context=hass();context.services={};context.callWS=async req=>{
+  requests.push(req.type);
+  if(req.type==='ha_tools_email/get_config')return {smtp_configured:true,schedules:[]};
+  if(req.type==='ha_tools_email/preview_energy_report')return {status:'no_sources',sources:[]};
+  if(req.type==='ha_tools_email/get_tariff')throw {code:'unknown_command'};
+  if(req.type==='energy/get_prefs')return {energy_sources:[{type:'grid',stat_energy_from:'sensor.qa_grid'}]};
+  if(req.type==='recorder/get_statistics_metadata')return {'sensor.qa_grid':{has_sum:true,unit_class:'energy',statistics_unit_of_measurement:'kWh'}};
+  if(req.type==='recorder/statistics_during_period'){const from=Date.parse(req.start_time),to=Date.parse(req.end_time);return {'sensor.qa_grid':Array.from({length:(to-from)/H},(_,i)=>({start:from+i*H,change:1}))};}
+  throw Error(req.type);
+ };
+ try{
+  dom.window.document.body.append(card);card.hass=context;for(let i=0;i<15;i++)await tick();
+  const root=card.shadowRoot,summary=()=>root.querySelector('[data-energy-period-summary]')?.textContent;
+  const before=summary();assert.match(before,/America\/New_York/);const count=requests.length;
+  const raw=root.querySelector('[data-energy-period-details]').textContent.match(/UTC:.*$/s)[0];
+  context.locale.time_zone='server';card.hass=context;for(let i=0;i<4;i++)await tick();
+  assert.match(summary(),/Europe\/Warsaw/);assert.notEqual(summary(),before);assert.equal(requests.length,count,'format-only gesture must use already measured data');
+  assert.equal(root.querySelector('[data-energy-period-details]').textContent.match(/UTC:.*$/s)[0],raw,'absolute window stays identical');
+  context.locale.time_format='12';card.hass=context;for(let i=0;i<4;i++)await tick();assert.match(summary(),/AM|PM/);assert.equal(requests.length,count);
+ }finally{card._getTariffHostV3().guard.dispose();dom.window.close();}
+});
