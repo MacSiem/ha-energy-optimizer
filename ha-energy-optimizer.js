@@ -149,9 +149,10 @@ async function readEnergyHours(hass, hours) {
 const energyTodayBoundaryMarkup = (today, zone, language = 'en') => {
   if (today?.boundaryComplete !== false) return '';
   const pl = language.split('-')[0] === 'pl';
-  const subset = typeof today.recordedKwh === 'number' && Number.isFinite(today.recordedKwh) ? String(today.recordedKwh) + ' kWh' : (pl ? 'niedostępna' : 'unavailable');
+  const format = createFormatUi(language, zone);
+  const subset = typeof today.recordedKwh === 'number' && Number.isFinite(today.recordedKwh) ? format.number(today.recordedKwh, {maximumSignificantDigits:12, useGrouping:false}) + ' kWh' : (pl ? 'niedostępna' : 'unavailable');
   return `<p data-today-boundary role="status">${pl ? 'Niepełne pokrycie od lokalnej północy: granica dnia przecina godzinowy przedział Recorder. Suma dnia i koszt są niedostępne; nie dzielimy pomiaru.' : 'Incomplete coverage from local midnight: the day boundary crosses an hourly Recorder interval. The day total and cost are unavailable; the measurement is not divided.'}<br>
-    ${_esc(zone)} · ${_esc(today.start)} — ${_esc(today.end)}<br>${pl ? 'Zmierzona część' : 'Measured subset'}: ${_esc(subset)}</p>`;
+    ${_esc(zone)} · ${_esc(format.range(today.start, today.end) || '')}<br>${pl ? 'Zmierzona część' : 'Measured subset'}: ${_esc(subset)}</p>`;
 };
 
 // Pure measured Patterns projection. No globals, WS calls or synthetic flows.
@@ -2350,6 +2351,7 @@ canvas {
     const text = style.getPropertyValue('--primary-text-color').trim() || '#172335';
     const border = style.getPropertyValue('--divider-color').trim() || '#d6dce5';
     config.options.color = text;
+    config.options.locale = this._hass?.locale?.language || this._hass?.language || 'en';
     const legend = config.options.plugins?.legend;
     if (legend) legend.labels = { ...legend.labels, color: text };
     for (const scale of Object.values(config.options.scales || {})) {
@@ -2379,7 +2381,7 @@ canvas {
     const format = createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en', this._energyModel?.zone || this._hass?.config?.time_zone || 'UTC');
     const window = this._todayWindow, selected = window?.selected;
     const periodMarkup = window ? format.periodMarkup({ ...window, label: this._text('Today', 'Dziś'),
-      source: 'Energy Dashboard / Recorder', measured: selected?.filter(([, point]) => point.kwh !== null).length,
+      source: 'Energy Dashboard / Recorder · ' + format.count((this._energySensorIds || []).length, {one:this._text('source','źródło'),few:'źródła',many:'źródeł',other:this._text('sources','źródła')}), measured: selected?.filter(([, point]) => point.kwh !== null).length,
       expected: selected?.length, unit: this._text('completed intervals', 'zakończonych przedziałów'),
       details: (this._energySensorIds || []).join(', ') + '. ' + this._text('Only completed Recorder intervals are shown. Repeated local hours keep distinct UTC offsets; future or skipped hours are not measured zero.', 'Pokazano tylko zakończone przedziały Recorder. Powtórzone godziny zachowują odrębne przesunięcia UTC; przyszła lub pominięta godzina nie oznacza zmierzonego zera.') }) : '';
 
@@ -2547,7 +2549,7 @@ canvas {
       if (row.tariffZoneAttribution === 'multiple') return { key: 'multiple:' + JSON.stringify(row.tariffZones),
         label: this._text('Multiple zones (same rate)', 'Wiele stref (ta sama stawka)') + ': ' + row.tariffZones.map(label).join(' / '), color: '#80679b' };
       const index = zones.findIndex(zone => zone.id === row.tariffZone);
-      return { key: row.tariffZone, label: label(row.tariffZone), color: palette[(Math.max(0, index)) % palette.length] };
+      return { key: row.tariffZone, label: label(row.tariffZone), color: index < palette.length ? palette[Math.max(0,index)] : `hsl(${Math.round(index * 137.5) % 360} 45% 45%)` };
     };
     const items = rows.map(describe), legend = [...new Map(items.map(item => [item.key, item])).values()];
     return { items, legend };
@@ -2576,7 +2578,7 @@ canvas {
         <tbody>${rows.map((row, index) => `<tr data-dashboard-row="${_esc(row.id)}" data-kwh="${row.kwh === null ? 'null' : row.kwh}"><th scope="row">${_esc(this._dashboardLabelV3(row))}<br><small>${_esc(new Date(row.from).toISOString())} — ${_esc(new Date(row.to).toISOString())}</small></th><td>${_esc(number(row))}</td><td data-tariff-zone>${_esc(tariff.items[index].label)}</td></tr>`).join('')}</tbody>
       </table></div>`}
       <div class="patterns-controls"><label>${t('Point details (arrows, Home / End)', 'Szczegóły punktu (strzałki, Home / End)')}<select data-dashboard-control="point" ${rows.length ? '' : 'disabled'}>${rows.map(row => `<option value="${_esc(row.id)}" ${row.id === state.selected ? 'selected' : ''}>${_esc(this._dashboardLabelV3(row))}</option>`).join('')}</select></label></div>
-      <p data-dashboard-detail role="status" aria-live="polite">${selected ? `${_esc(this._dashboardLabelV3(selected))}<br>${_esc(new Date(selected.from).toISOString())} — ${_esc(new Date(selected.to).toISOString())}<br>${_esc(number(selected))}` : t('No completed intervals.', 'Brak zakończonych przedziałów.')}</p>
+      <p data-dashboard-detail role="status" aria-live="polite">${selected ? `${_esc(this._dashboardLabelV3(selected))}<br>${_esc(new Date(selected.from).toISOString())} — ${_esc(new Date(selected.to).toISOString())}<br>${_esc(number(selected))}<br>${_esc(this._dashboardTariffV4([selected]).items[0].label)}${selected.priceMissing ? '<br>' + _esc(selected.priceMissing) : ''}` : t('No completed intervals.', 'Brak zakończonych przedziałów.')}</p>
     </section>`;
   }
 
@@ -2644,7 +2646,7 @@ canvas {
             tooltip: {
               callbacks: {
                 label: (context) => {
-                  return `${context.formattedValue} kWh`;
+                  return `${context.formattedValue} kWh · ${this._dashboardTariffV4(rows).items[context.dataIndex]?.label || ''}`;
                 },
                 title: (context) => {
                   return context[0].label;
@@ -5234,7 +5236,7 @@ this._installTariffConsumerV3();
       const cur = this._tariffCurrency();
       const format = createFormatUi(this._hass?.locale?.language || this._hass?.language || this._lang || 'en', d.zone || this._hass?.config?.time_zone || 'UTC');
       const fmt = v => typeof v === 'number' && Number.isFinite(v) ? format.number(v, {minimumFractionDigits:2, maximumFractionDigits:2}) : 'N/A';
-      const period = (window, label) => window ? format.periodMarkup({ ...window, label, source: 'Energy Dashboard / Recorder',
+      const period = (window, label) => window ? format.periodMarkup({ ...window, label, source: 'Energy Dashboard / Recorder · ' + format.count((d.sensors || []).length, {one:this._lang === 'pl' ? 'źródło' : 'source',few:'źródła',many:'źródeł',other:this._lang === 'pl' ? 'źródła' : 'sources'}),
         measured: window.selected?.filter(([, point]) => point.kwh !== null).length, expected: window.selected?.length,
         unit: this._lang === 'pl' ? 'zakończonych przedziałów' : 'completed intervals', details: (d.sensors || []).join(', ') }) : '';
 
@@ -5247,7 +5249,7 @@ this._installTariffConsumerV3();
       const rec = this._getRecommendation(trendDiff, d.todayKwh);
 
       let html = `
-        ${period(d.windows?.daily, this._t('today'))}${d.windows?.daily ? energyTodayBoundaryMarkup(d.windows.daily, d.zone || '', this._lang) : ''}<p>${this._lang === 'pl' ? 'Ten sam import z sieci jest dostępny także w' : 'The same grid import is also available in'} <a href="https://github.com/MacSiem/ha-smart-reports#readme" target="_blank" rel="noopener noreferrer">Smart Reports</a>. ${this._lang === 'pl' ? 'Porównuj identyczne okresy i pokrycie źródeł.' : 'Compare matching periods and source coverage.'}</p>
+        ${d.windows?.daily ? `<div data-today-range>${period(d.windows.daily, this._t('today'))}${energyTodayBoundaryMarkup(d.windows.daily, d.zone || '', this._lang)}</div>` : ''}<p>${this._lang === 'pl' ? 'Ten sam import z sieci jest dostępny także w' : 'The same grid import is also available in'} <a href="https://github.com/MacSiem/ha-smart-reports#readme" target="_blank" rel="noopener noreferrer">Smart Reports</a>. ${this._lang === 'pl' ? 'Porównuj identyczne okresy i pokrycie źródeł.' : 'Compare matching periods and source coverage.'}</p>
         <div class="stats-grid">
           <div class="stat-card">
             <div class="stat-label">${this._t('today')}</div>
