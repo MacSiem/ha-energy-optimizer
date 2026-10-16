@@ -1,5 +1,13 @@
 # Changelog — Energy Optimizer
 
+## 3.7.0 (2026-10-16)
+
+- Color Dashboard bars by the confirmed tariff's actual interval zones, with a persistent legend and matching Data column. Preserve midnight start, midday valleys, unavailable rates and explicitly mixed zones; reprice without reloading measurements.
+- Replace the absent live-power tile with a compact sensor setup guide. Distinguish an unavailable configured sensor from no selection; preserve measured zero and reject empty sensor states.
+- Label the measured maximum as Highest consumption, independently of tariff peak hours.
+- Share local period, coverage and number formatting across Optimizer, Insights and Energy Email. Keep exact UTC bounds and full source details expandable, preserve rolling/source-hour semantics and visible partial warnings, and recognize regional Polish locales.
+- Keep Insights and Smart Reports as separate views, explain their shared grid-import source and link to the related tool.
+
 ## 3.6.2 (2026-10-16)
 
 - Finish an interrupted initial measurement read in the current online context across all three cards, even when Home Assistant sends no further update. Coalesce Email discovery, wait for old raw reads to settle, and preserve later-refresh and privacy fences.

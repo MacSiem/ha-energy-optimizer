@@ -1,4 +1,4 @@
-// HA Energy Optimizer Bundle v3.6.2
+// HA Energy Optimizer Bundle v3.7.0
 // HTML escape helper — wrap any user-derived string before interpolation into innerHTML.
 const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -467,7 +467,7 @@ class HaEnergyOptimizer extends HTMLElement {
     if (!this._hass) return;
     const configured = this._config.power_entity && Object.hasOwn(this._hass.states || {}, this._config.power_entity) ? this._hass.states[this._config.power_entity] : null;
     const unit = configured?.attributes?.unit_of_measurement;
-    const value = configured ? Number(configured.state) : NaN;
+    const value = configured && typeof configured.state === 'string' && configured.state.trim() !== '' ? Number(configured.state) : NaN;
     this._currentPowerW = Number.isFinite(value) && (unit === 'W' || unit === 'kW') ? value * (unit === 'kW' ? 1000 : 1) : null;
 
     // Fetch stats every 5 minutes (not on every hass update)

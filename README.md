@@ -18,6 +18,16 @@ Part of the [HA Tools](https://github.com/MacSiem/ha-tools-panel) collection for
 
 An interrupted first load resumes in the current online Home Assistant context after the old read settles; it does not need a period click or another state update. The overview distinguishes sources with available measurements from all configured sources. A source with unsupported energy metadata remains part of incomplete coverage.
 
+### Reading periods, tariff colors and live power
+
+Periods use your Home Assistant language and time zone. Open **Source and time details** for the exact UTC bounds and source information. Optimizer and Insights count measured completed intervals shared by every source; Email counts **source-hours** separately for each configured source. These units and rolling windows are not interchangeable. Partial coverage and unavailable costs remain visible.
+
+Dashboard colors come from the confirmed tariff for each complete measurement interval, with matching labels in **Data** and a visible legend. A midday tariff valley is shown at its actual hours. An interval spanning different rates stays unavailable; multiple zones with the same rate are explicitly labeled. Without a confirmed tariff, bars use one neutral color. **Highest consumption** identifies a measured consumption interval, independently of tariff peak hours.
+
+When live power has no selected sensor, **Choose sensor** lists existing power sensors in W or kW and shows the `power_entity` setting. Edit the card, open Home Assistant's code editor, add that setting and save. The guide does not save card YAML or modify helpers. An unavailable configured sensor is labeled separately; a real zero stays zero.
+
+Insights and [Smart Reports](https://github.com/MacSiem/ha-smart-reports#readme) retain separate views of the same Energy Dashboard grid-import sources. Compare matching time bounds, tariff and source coverage before comparing totals. Neither view replaces the other.
+
 ### One repo, three cards
 
 Since v3.3.0 this single file/repo bundles three custom elements — install
