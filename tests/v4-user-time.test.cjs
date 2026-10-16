@@ -79,7 +79,7 @@ async function mountedTimeChange(type, scenario='format'){
    assert.match(summary()||'',/UTC/,'changed measurement calendar must recover without another hass event');
    assert.ok(requests.length>count,'calendar changes fetch new authoritative windows');return;
   }
-  if(scenario==='compound')context.states['sensor.qa_power']={state:'321',attributes:{unit_of_measurement:'W'}};
+  if(scenario==='compound'){context.states['sensor.qa_power']={state:'321',attributes:{unit_of_measurement:'W'}};card._lastStatsFetch=0;}
   const raw=root.querySelector('[data-energy-period-details]').textContent.match(/UTC:.*$/s)[0];
   context.locale.time_zone='server';card.hass=context;for(let i=0;i<4;i++)await tick();
   assert.match(summary(),/Europe\/Warsaw/);if(scenario==='compound')assert.equal(card._currentPowerW,321,'same event must update live power as well as formatting');assert.notEqual(summary(),before);assert.equal(requests.length,count,'format-only gesture must use already measured data');
