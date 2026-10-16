@@ -2482,6 +2482,7 @@ this._installTariffConsumerV3();
           .stat-value { font-size: 24px; font-weight: 700; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
           .stat-label { font-size: 11px; font-weight: 500; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .4px; margin-top: 2px; }
           .stat-sub { font-size: 11px; color: var(--bento-text-secondary); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          .stat-sub.source-coverage { white-space: normal; overflow-wrap: anywhere; }
           .section-title { font-size: 13px; font-weight: 600; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .5px; margin: 16px 0 8px; }
           .device-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--bento-radius-xs); transition: background .15s; box-sizing: border-box; max-width: 100%; overflow: hidden; }
           .device-row:hover { background: var(--bento-primary-light); }
@@ -2923,7 +2924,7 @@ this._installTariffConsumerV3();
           <div class="stat">
             <div class="stat-value" style="color:#F59E0B">${(complete ? totalEnergy : recordedEnergy).toFixed(1)}</div>
             <div class="stat-label">${!complete ? (L ? 'Zarejestrowane zużycie · ' : 'Recorded usage · ') : ''}kWh ${periodLabel}</div>
-            <div class="stat-sub">${displayData.length}/${coverage?.sources?.length ?? displayData.length} ${L ? 'źródeł z pomiarami' : 'sources with measurements'}</div>
+            <div class="stat-sub source-coverage">${displayData.length}/${coverage?.sources?.length ?? displayData.length} ${L ? 'źródeł z pomiarami' : 'sources with measurements'}</div>
           </div>
           <div class="stat">
             <div class="stat-value" style="color:#3B82F6">${this._formatCost(totalCost)}</div>
