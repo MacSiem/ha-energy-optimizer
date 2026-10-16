@@ -145,7 +145,7 @@ Do not install the archived `MacSiem/ha-energy-insights` standalone repository f
 4. Explicitly configure the measured **grid import statistics in Energy Dashboard**. Configure individual device measurements there too if you use the device view. Power sensors in watts, solar production and grid export are not substitutes for grid-import energy statistics.
 5. Check the displayed source, interval, units and coverage against Energy Dashboard and the card's **Data** view. Missing measurements must remain gaps or a partial result; historical zeros from the standalone card are not proof of complete measurements.
 
-Migration replaces that installation with the maintained card. This notice does not change the archived source or repair installed standalone1.0.2 files.
+Migration replaces that installation with the maintained card. This notice does not change the archived source or repair installed standalone 1.0.2 files.
 
 ### Compatibility and optional services
 
