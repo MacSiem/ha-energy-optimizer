@@ -97,7 +97,8 @@ confirm inbox delivery; an occupied send is never automatically retried.
 ## Screenshots
 
 These are unedited captures from Home Assistant with controlled synthetic
-Recorder statistics and a sample CHF tariff. They contain no household data or
+Recorder statistics and sample tariffs (CHF in the earlier chart captures, PLN
+in the current partial Email overview). They contain no household data or
 real email recipients. The interface follows the Home Assistant light/dark theme.
 
 | Energy Optimizer dashboard | Exact measured values |
@@ -114,11 +115,14 @@ real email recipients. The interface follows the Home Assistant light/dark theme
 
 | Email overview, light | Email overview, dark |
 |---|---|
-| ![Email overview in light mode](docs/screenshots/email-overview-light.jpg) | ![Email overview in dark mode](docs/screenshots/email-overview-dark.jpg) |
+| ![Partial Email overview in light mode: 88 kWh measured, 40/48 source-hours](docs/screenshots/email-overview-light.jpg) | ![Partial Email overview in dark mode: 88 kWh measured, full-period cost unavailable](docs/screenshots/email-overview-dark.jpg) |
 
 The captures use different explicitly displayed windows: the Optimizer shows
 23 completed hours of the current day (46 kWh), the earlier Insights capture
-22 hours (44 kWh), and Email a rolling 24 hours (48 kWh). The actual mail preview
+22 hours (44 kWh), and the current Email overview a rolling 24 hours with
+88 kWh recorded across 40/48 configured source-hours. Its measured source rows
+remain visible while the incomplete full-period total and cost stay unavailable.
+The actual mail preview
 shows the previous completed calendar day. Energy charges, variable fees and
 fixed monthly fees remain separate. Actual HTML previews require HA Tools Email
 Integration 2.3.0 or newer; the report continues below the visible preview area.

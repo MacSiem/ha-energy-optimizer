@@ -1,11 +1,6 @@
 {
-  "runtime_candidate": "103e3651ad84f58695efdce2ad4928b6059d48a1",
-  "runtime_bundle_sha256": "69db77c16793f98cbcf9741357d196efc26bb0473d691afb9a72d262bc34a466",
-  "viewport_css": [
-    844,
-    1000
-  ],
-  "card_width_css": 844,
+  "runtime_candidate": "177b609de2ab37db123150a66172a39f6c424b35",
+  "runtime_bundle_sha256": "8054ebe9cbdffaad48d8a0190422b09cff7dc0209ff9261516d9d675a6006862",
   "images": [
     {
       "file": "email-actual-calendar-preview-light.jpg",
@@ -19,23 +14,35 @@
     },
     {
       "file": "email-overview-dark.jpg",
-      "sha256": "8427048b09e202db5cb870bf68fe1bd1eda5c5dc104faec471d497a98e7c85c9",
+      "sha256": "e7c10a9818603b52570b05020df73c3eeb57ebfdf5fb26faa5b4dabe6127942a",
       "pixels": [
-        844,
-        1000
+        1100,
+        1100
       ],
-      "source_candidate": "cf88612a769f72c3ea3177bd855ccfe5d6b29db3",
-      "qualification": "Unedited Browser SDK capture of native Chrome, personally inspected; synthetic Recorder QA only."
+      "source_candidate": "177b609de2ab37db123150a66172a39f6c424b35",
+      "qualification": "Unedited original JPEG bytes from Browser SDK native Chrome capture, personally inspected. Actual Core2026.9.4 and supported HACS branch fresh installation. Synthetic Alpha72kWh+Beta16kWh,40/48source-hours; full cost unavailable despite configured2PLN/kWh. No email sent.",
+      "viewport_css": [
+        1100,
+        1100
+      ],
+      "card_width_css": 844,
+      "runtime_bundle_sha256": "8054ebe9cbdffaad48d8a0190422b09cff7dc0209ff9261516d9d675a6006862"
     },
     {
       "file": "email-overview-light.jpg",
-      "sha256": "c5dcefad2813a03dd2e4036df647a900bd9cfe5c10787c228ff9f165adb72d29",
+      "sha256": "fb31be5172d8f40cc4b624c63862b1f31baa2470572972a8013f4228fa92bc76",
       "pixels": [
-        844,
-        1000
+        1100,
+        1100
       ],
-      "source_candidate": "cf88612a769f72c3ea3177bd855ccfe5d6b29db3",
-      "qualification": "Unedited Browser SDK capture of native Chrome, personally inspected; synthetic Recorder QA only."
+      "source_candidate": "177b609de2ab37db123150a66172a39f6c424b35",
+      "qualification": "Unedited original JPEG bytes from Browser SDK native Chrome capture, personally inspected. Actual Core2026.9.4 and supported HACS branch fresh installation. Synthetic Alpha72kWh+Beta16kWh,40/48source-hours; full cost unavailable despite configured2PLN/kWh. No email sent.",
+      "viewport_css": [
+        1100,
+        1100
+      ],
+      "card_width_css": 844,
+      "runtime_bundle_sha256": "8054ebe9cbdffaad48d8a0190422b09cff7dc0209ff9261516d9d675a6006862"
     },
     {
       "file": "insights-daily-chart-light.jpg",
@@ -88,15 +95,11 @@
       "qualification": "Unedited Browser SDK capture of native Chrome, personally inspected; synthetic Recorder QA only."
     }
   ],
-  "data": "Controlled synthetic Recorder series; qa_energy338 source, fixture@example.invalid recipient, sample CHF tariff. No home data or real recipients.",
-  "windows": "Optimizer: current local day, 23 completed hours / 46 kWh. Earlier Insights: current day, 22 hours / 44 kWh. Email overview: rolling 24 hours / 48 kWh. Calendar preview: previous completed day, 24 hours / 48 kWh. Different windows are intentional.",
+  "data": "Controlled synthetic Recorder only; earlier six chart/preview captures use qa_energy338/sampleCHF; currentEmail qa_cross397_20261016 Alpha/Beta/samplePLN. fixture@example.invalid recipient. No home data or real recipients.",
+  "windows": "Earlier Optimizer:23completedTodayhours/46kWh; Insights22hours/44kWh; calendarpreview previous completedday24hours/48kWh. CurrentEmail2026-10-15T12:00Z to2026-10-16T12:00Z: Alpha72/24hours +Beta16/16hours;88recorded/40of48source-hours, nofullperiodtotalorcost. Different windows are explicit and intentional.",
   "email_preview": "Actual backend 2.3.0 HTML, no message sent. Screenshot shows controls and upper report; full chart/table content is scrollable.",
   "capture_limit": "Rejected SDK images with missing text are excluded. Native screen comparison showed correct values. Original empty-state PNGs remain historical empty-state examples only. Raw SDK bytes were JPEG despite local diagnostic .png suffix; public .jpg files preserve original bytes.",
-  "captured_modules": {
-    "src/energy-insights.js": "6e2085a9cbec19fbab32e2e5c6c93c3e469197e91521cac086396010465c5d67",
-    "src/energy-email.js": "612ac28ef1a95dab979b4a657368e108de1a3a0aa70a10e3459170a1dd7d5af5"
-  },
-  "reuse_after_capture": "Later changes add scoped legacy schedule touch CSS/classes and release discarded Optimizer/Energy Email refresh deadlines. The deadline fix changes only read dispatch/settlement, with no change to accepted measured values, windows, markup or styles shown in these captures. Captured Overview/Preview/Daily/Patterns views contain none of the legacy schedule controls. Affected native schedule targets and refresh recovery are qualified separately. Captured_modules record capture-time hashes, not a claim that all final modules remain byte-identical.",
+  "reuse_after_capture": "Six earlier images retain their actual capture source versions for unchanged accepted complete-data chart/preview rendering. New own-property unit validation and unfinished-first-load recovery do not change those accepted energy-unit datasets, markup or styles. Current partial Email overview markup/coverage changed, so both Email overview images were replaced with current8054 native captures. Current Optimizer/Insights positive, zero and cached repricing plus unsupported-unit behavior were separately qualified on actualHA; earlier images are not claimed as newcaptures.",
   "decorative_banner": {
     "file": "../../banner-v3.6.png",
     "sha256": "50d5be2ed66337246e4be20ac168e5f5154b6fe01278ec736a145962e79d14d9",
@@ -109,5 +112,11 @@
     "title": "Energy Optimizer",
     "subtitle": "Measured energy & tariff costs",
     "old_banner": "banner.png retained as historical asset, no longer referenced by README"
-  }
+  },
+  "layout_notes": "Current Email overviews: viewport1100x1100, card844CSSpx. Earlier six chart/preview images: viewport/card844x1000; per-image source versions remain explicit.",
+  "earlier_capture_modules": {
+    "src/energy-insights.js": "6e2085a9cbec19fbab32e2e5c6c93c3e469197e91521cac086396010465c5d67",
+    "src/energy-email.js": "612ac28ef1a95dab979b4a657368e108de1a3a0aa70a10e3459170a1dd7d5af5"
+  },
+  "current_email_capture_module_sha256": "17223a2f73220c53d8ffddcd30bc72f15b5c4f12dba66ffc58108e7ecd5f8ee0"
 }
