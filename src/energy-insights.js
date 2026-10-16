@@ -1216,6 +1216,9 @@ this._installTariffConsumerV3();
     set hass(hass) {
       try {
         const previousLanguage = this._lang;
+        const presentationKey = createFormatUi.forHass(hass).key;
+        const presentationChanged = this._presentationKeyV4 !== undefined && this._presentationKeyV4 !== presentationKey;
+        this._presentationKeyV4 = presentationKey;
         const language = hass?.locale?.language || hass?.language;
         if (language) this._lang = language.startsWith('pl') ? 'pl' : 'en';
         // Keep scalar values: Home Assistant may mutate hass in place.
@@ -1258,7 +1261,7 @@ this._installTariffConsumerV3();
           return;
         }
 
-        if (previousLanguage !== this._lang && this._domBuilt) {
+        if ((previousLanguage !== this._lang || presentationChanged) && this._domBuilt) {
           const header = this.shadowRoot.querySelector('.panel-header');
           if (header) header.outerHTML = this._renderHeader();
           this.shadowRoot.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1272,7 +1275,7 @@ this._installTariffConsumerV3();
         this._syncChartTheme();
         this._syncSupport();
 
-        if (previousLanguage !== this._lang && !measurementsChanged) return; // A locale gesture only reprojects cached measurements.
+        if ((previousLanguage !== this._lang || presentationChanged) && !measurementsChanged) return; // A locale gesture only reprojects cached measurements.
 
         // Fetch new data every 5 minutes (recorder stats don't change often)
         if (!this._lastDataFetch || (now - this._lastDataFetch) > 300000) {
@@ -1666,7 +1669,8 @@ this._installTariffConsumerV3();
       return this._insightChartDataset?.[this._insightChartState?.resolution === 'hour' ? 'hours' : 'days'] || [];
     }
     _insightRowLabelV3(row) {
-      return row.hour == null ? row.key : `${row.key} ${String(row.hour).padStart(2, '0')}:${String(row.minute).padStart(2, '0')} ${row.offset}`;
+      const format = createFormatUi.forHass(this._hass);
+      return row.hour == null ? format.date(row.from) : format.pointLabel(row.from);
     }
     _insightRowDetailV3(row) {
       if (!row) return this._insightTextV3('No completed intervals in this window.', 'Brak zakończonych przedziałów w tym okresie.');
@@ -1702,7 +1706,7 @@ this._installTariffConsumerV3();
       });
       flush();
       const grid = [low, (low + upper) / 2, upper].map(value => `<line x1="${left}" x2="${right}" y1="${y(value)}" y2="${y(value)}" stroke="var(--bento-border)"/><text x="${left-6}" y="${y(value)+4}" text-anchor="end">${_esc(new Intl.NumberFormat(this._lang, { maximumSignificantDigits: 3 }).format(value))}</text>`).join('');
-      const axes = [0, Math.floor((rows.length-1)/2), rows.length-1].filter((i, index, all) => i >= 0 && all.indexOf(i) === index).map(i => `<text x="${x(i)}" y="242" text-anchor="middle">${_esc(state.resolution === 'hour' ? `${rows[i].hour}:${String(rows[i].minute).padStart(2, '0')}` : rows[i].key.slice(5))}</text>`).join('');
+      const axes = [0, Math.floor((rows.length-1)/2), rows.length-1].filter((i, index, all) => i >= 0 && all.indexOf(i) === index).map(i => `<text x="${x(i)}" y="242" text-anchor="middle">${_esc(state.resolution === 'hour' ? createFormatUi.forHass(this._hass).clock(rows[i].from) : createFormatUi.forHass(this._hass).date(rows[i].from, true))}</text>`).join('');
       return `<svg data-insights-chart data-unit="${_esc(unit)}" viewBox="0 0 ${w} 262" width="100%" height="262" role="img" aria-label="${_esc(metricLabel)} · ${_esc(unit)}; ${this._insightTextV3('use point controls below for exact values', 'dokładne wartości w wyborze punktu poniżej')}"><text x="${left}" y="18">${_esc(unit)}</text>${grid}${marks}${axes}</svg>`;
     }
     _renderInsightChartV3(period) {
@@ -2120,9 +2124,9 @@ this._installTariffConsumerV3();
       if (!this._data) return '';
       const d = this._data;
       const cur = this._tariffCurrency();
-      const format = createFormatUi(this._hass?.locale?.language || this._hass?.language || this._lang || 'en', d.zone || this._hass?.config?.time_zone || 'UTC');
+      const format = createFormatUi.forHass(this._hass);
       const fmt = v => typeof v === 'number' && Number.isFinite(v) ? format.number(v, {minimumFractionDigits:2, maximumFractionDigits:2}) : 'N/A';
-      const period = (window, label) => window ? format.periodMarkup({ ...window, label, source: 'Energy Dashboard / Recorder · ' + format.count((d.sensors || []).length, {one:this._lang === 'pl' ? 'źródło' : 'source',few:'źródła',many:'źródeł',other:this._lang === 'pl' ? 'źródła' : 'sources'}),
+      const period = (window, label) => window ? format.periodMarkup({ ...window, sourceTimeZone:d.zone, label, source: 'Energy Dashboard / Recorder · ' + format.count((d.sensors || []).length, {one:this._lang === 'pl' ? 'źródło' : 'source',few:'źródła',many:'źródeł',other:this._lang === 'pl' ? 'źródła' : 'sources'}),
         measured: window.selected?.filter(([, point]) => point.kwh !== null).length, expected: window.selected?.length,
         unit: this._lang === 'pl' ? 'zakończonych przedziałów' : 'completed intervals', details: (d.sensors || []).join(', ') }) : '';
 

@@ -334,6 +334,9 @@ class HaEnergyOptimizer extends HTMLElement {
       this.classList.toggle('bento-dark', _d);
     } catch (e) {}
     const previousHass = this._hass;
+    const presentationKey = createFormatUi.forHass(hass).key;
+    const presentationChanged = this._presentationKeyV4 !== undefined && this._presentationKeyV4 !== presentationKey;
+    this._presentationKeyV4 = presentationKey;
     const measurementBinding = { present: !!hass, connection: hass?.connection ?? null,
         user: hass?.user?.id ?? null, zone: hass?.config?.time_zone ?? null };
       const previousBinding = this._measurementBindingV3;
@@ -362,7 +365,7 @@ class HaEnergyOptimizer extends HTMLElement {
     if (!hass) { if (previousHass) this._render(); return; }
     if (previousHass && previousHass.connection === hass.connection && previousHass.user?.id === hass.user?.id &&
         previousHass.config?.time_zone === hass.config?.time_zone &&
-        (previousHass.locale?.language || previousHass.language) !== (hass.locale?.language || hass.language)) {
+        (presentationChanged || (previousHass.locale?.language || previousHass.language) !== (hass.locale?.language || hass.language))) {
       this._render();
       return;
     }
@@ -1552,8 +1555,8 @@ this._installTariffConsumerV3();
   }
 
   _patternsRowLabel(row) {
-    if (this._patternsState.resolution === 'day') return row.key;
-    return `${row.key} ${String(row.hour).padStart(2, '0')}:${String(row.minute).padStart(2, '0')} ${row.offset}`;
+    const format = createFormatUi.forHass(this._hass);
+    return this._patternsState.resolution === 'day' ? format.date(row.from) : format.pointLabel(row.from);
   }
 
   _patternsDetail(row) {
@@ -1607,7 +1610,8 @@ this._installTariffConsumerV3();
     flush();
     const ticks = [low, (low + upper) / 2, upper];
     const grid = ticks.map(v => `<line x1="${left}" x2="${right}" y1="${y(v)}" y2="${y(v)}" stroke="var(--bento-border)"/><text x="${left-8}" y="${y(v)+5}" text-anchor="end">${_esc(Number(v.toPrecision(4)))}</text>`).join('');
-    const label = i => state.resolution === 'hour' ? `${rows[i].hour}:${String(rows[i].minute).padStart(2, '0')}` : rows[i].key.slice(5);
+    const format = createFormatUi.forHass(this._hass);
+    const label = i => state.resolution === 'hour' ? format.clock(rows[i].from) : format.date(rows[i].from, true);
     const axis = rows.length ? [0, Math.floor((rows.length-1)/2), rows.length-1].filter((v,i,a) => a.indexOf(v) === i).map(i => `<text x="${x(i)}" y="220" text-anchor="middle">${_esc(label(i))}</text>`).join('') : '';
     return `<svg data-pattern-chart data-unit="${_esc(unit)}" viewBox="0 0 ${w} ${h}" width="100%" height="250" role="img" aria-label="${_esc(this._text('Measured series; choose a row below for details', 'Seria pomiarowa; wybierz poniżej wiersz ze szczegółami'))}">
       <text x="${left}" y="17">${_esc(unit)}</text>${grid}${marks}${axis}${!known.length ? `<text x="${(left+right)/2}" y="110" text-anchor="middle">${this._text('No data', 'Brak danych')}</text>` : ''}</svg>`;
@@ -2405,9 +2409,9 @@ canvas {
   }
 
   _getTemplate() {
-    const format = createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en', this._energyModel?.zone || this._hass?.config?.time_zone || 'UTC');
+    const format = createFormatUi.forHass(this._hass);
     const window = this._todayWindow, selected = window?.selected;
-    const periodMarkup = window ? format.periodMarkup({ ...window, label: this._text('Today', 'Dziś'),
+    const periodMarkup = window ? format.periodMarkup({ ...window, sourceTimeZone:this._energyModel?.zone, label: this._text('Today', 'Dziś'),
       source: 'Energy Dashboard / Recorder · ' + format.count((this._energySensorIds || []).length, {one:this._text('source','źródło'),few:'źródła',many:'źródeł',other:this._text('sources','źródła')}), measured: selected?.filter(([, point]) => point.kwh !== null).length,
       expected: selected?.length, unit: this._text('completed intervals', 'zakończonych przedziałów'),
       details: (this._energySensorIds || []).join(', ') + '. ' + this._text('Only completed Recorder intervals are shown. Repeated local hours keep distinct UTC offsets; future or skipped hours are not measured zero.', 'Pokazano tylko zakończone przedziały Recorder. Powtórzone godziny zachowują odrębne przesunięcia UTC; przyszła lub pominięta godzina nie oznacza zmierzonego zera.') }) : '';
@@ -2562,7 +2566,7 @@ canvas {
   }
 
   _dashboardLabelV3(row) {
-    return `${row.key} ${String(row.hour).padStart(2, '0')}:${String(row.minute).padStart(2, '0')} ${row.offset}`;
+    return createFormatUi.forHass(this._hass).pointLabel(row.from);
   }
 
   _dashboardTariffV4(rows) {
@@ -2645,7 +2649,8 @@ canvas {
 
       const ctx = canvas.getContext('2d');
       const rows = this._dashboardRowsV3();
-      const labels = rows.map(row => this._dashboardLabelV3(row));
+      const format = createFormatUi.forHass(this._hass);
+      const labels = rows.map(row => format.clock(row.from));
       const data = rows.map(row => row.kwh);
 
       const chartConfig = {
@@ -2676,7 +2681,7 @@ canvas {
                   return `${context.formattedValue} kWh · ${this._dashboardTariffV4(rows).items[context.dataIndex]?.label || ''}`;
                 },
                 title: (context) => {
-                  return context[0].label;
+                  return this._dashboardLabelV3(rows[context[0].dataIndex]);
                 }
               }
             }

@@ -668,6 +668,9 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     } catch (e) {}
       try {
         const previousLanguage = this._lang;
+        const presentationKey = createFormatUi.forHass(hass).key;
+        const presentationChanged = this._presentationKeyV4 !== undefined && this._presentationKeyV4 !== presentationKey;
+        this._presentationKeyV4 = presentationKey;
         const language = hass?.locale?.language || hass?.language;
         if (language) this._lang = language.startsWith('pl') ? 'pl' : 'en';
         // Keep scalar values: Home Assistant may mutate hass in place.
@@ -708,7 +711,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
           this._lastRenderTime = now;
           return;
         }
-        if (previousLanguage !== this._lang) {
+        if (previousLanguage !== this._lang || presentationChanged) {
           this._renderPreservingDrafts();
           this._lastRenderTime = now;
           return;
@@ -2948,8 +2951,8 @@ this._installTariffConsumerV3();
       const totalEnergy = complete ? recordedEnergy : null;
       const coverage = this[`_periodCoverage_${period}`];
       const coverageNote = coverage ? `${coverage.measuredHours}/${coverage.expectedHours} ${L ? 'źródłogodzin' : 'source-hours'}` : '';
-      const format = createFormatUi(this._hass?.locale?.language || this._hass?.language || this._lang || 'en', this._hass?.config?.time_zone || 'UTC');
-      const periodMarkup = window ? format.periodMarkup({ ...window, label: periodLabel, source: 'Energy Dashboard / Recorder',
+      const format = createFormatUi.forHass(this._hass);
+      const periodMarkup = window ? format.periodMarkup({ ...window, sourceTimeZone:this._hass?.config?.time_zone, label: periodLabel, source: 'Energy Dashboard / Recorder',
         measured: coverage?.measuredHours, expected: coverage?.expectedHours, unit: L ? 'źródłogodzin' : 'source-hours',
         details: L ? 'Ruchome okno. Pokrycie liczone oddzielnie dla każdego skonfigurowanego źródła.' : 'Rolling window. Coverage counts each configured source separately.' }) : '';
 
