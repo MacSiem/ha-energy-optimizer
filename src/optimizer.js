@@ -24,7 +24,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
     const time = Date.parse(value);
     if (!Number.isFinite(time)) return null;
-    try { return new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium', timeStyle:'short', hourCycle}).format(new Date(time)); }
+    try { return new Intl.DateTimeFormat(dateLanguage, {timeZone, dateStyle:'medium', timeStyle:'short', hourCycle}).format(new Date(time)); }
     catch (_) { return null; }
   };
   const range = (from, to) => {
@@ -3090,8 +3090,8 @@ async _drawComparisonChart() {
   _getPeakHour() { return this._getPeakRowV3()?.hour ?? null; }
 
   _peakHourMarkupV3() {
-    const row = this._getPeakRowV3();
-    return row ? `<div data-dashboard-peak="${_esc(row.id)}" data-kwh="${row.kwh}"><div class="summary-value">${String(row.hour).padStart(2, '0')}:${String(row.minute).padStart(2, '0')}</div><span class="summary-label">${_esc(row.offset)}</span></div>` : '<div class="summary-value">N/A</div>';
+    const row = this._getPeakRowV3(), format = createFormatUi.forHass(this._hass);
+    return row ? `<div data-dashboard-peak="${_esc(row.id)}" data-kwh="${row.kwh}"><div class="summary-value">${_esc(format.clock(row.from, true))}</div><span class="summary-label">${_esc(format.date(row.from))}</span></div>` : '<div class="summary-value">N/A</div>';
   }
 
   _calculateEfficiencyScore() {

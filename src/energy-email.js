@@ -27,7 +27,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
     const time = Date.parse(value);
     if (!Number.isFinite(time)) return null;
-    try { return new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium', timeStyle:'short', hourCycle}).format(new Date(time)); }
+    try { return new Intl.DateTimeFormat(dateLanguage, {timeZone, dateStyle:'medium', timeStyle:'short', hourCycle}).format(new Date(time)); }
     catch (_) { return null; }
   };
   const range = (from, to) => {

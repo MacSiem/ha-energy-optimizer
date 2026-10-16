@@ -33,7 +33,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
     const time = Date.parse(value);
     if (!Number.isFinite(time)) return null;
-    try { return new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium', timeStyle:'short', hourCycle}).format(new Date(time)); }
+    try { return new Intl.DateTimeFormat(dateLanguage, {timeZone, dateStyle:'medium', timeStyle:'short', hourCycle}).format(new Date(time)); }
     catch (_) { return null; }
   };
   const range = (from, to) => {
@@ -1619,7 +1619,7 @@ this._installTariffConsumerV3();
         <p>${t('Recorded device consumption. Submeters can overlap; these readings are not added to grid import.', 'Zarejestrowane zużycie urządzeń. Podliczniki mogą się nakładać; tych odczytów nie dodajemy do importu z sieci.')}</p>
         <div class="insights-controls">${!['daily', 'weekly', 'monthly'].includes(this._activeTab) ? `<label>${t('Period', 'Okres')}<select data-insights-control="device-range">${['daily', 'weekly', 'monthly'].map(key => `<option value="${key}" ${period === key ? 'selected' : ''}>${this._t(key)}</option>`).join('')}</select></label>` : ''}
           <button type="button" data-insights-control="read-devices" ${disabled ? 'disabled' : ''}>${t('Read devices', 'Odczytaj urządzenia')}</button></div>
-        <p>${_esc(new Date(window.from).toISOString())} — ${_esc(new Date(window.to).toISOString())} · ${_esc(window.zone)}</p>
+        <p>${_esc(createFormatUi.forHass(this._hass).range(new Date(window.from).toISOString(), new Date(window.to).toISOString()))} · ${_esc(createFormatUi.forHass(this._hass).timeZone)}</p>
         ${state.status !== 'ready' ? `<p role="status">${this._insightStatusV3(state.status)}</p>` : !rows.length ? `<p role="status">${t('No configured devices in Energy Dashboard.', 'Brak skonfigurowanych urządzeń w panelu Energia.')}</p>` : ''}
         ${rows.length ? `<label class="insights-search">${t('Find a device or source', 'Znajdź urządzenie lub źródło')}<input type="search" data-insights-control="device-search" value="${_esc(this._insightDeviceFilter || '')}"></label>
           <p>${selected.length}/${rows.length} ${t('configured sources', 'skonfigurowanych źródeł')}</p>

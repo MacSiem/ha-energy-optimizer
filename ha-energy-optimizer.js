@@ -24,7 +24,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
     const time = Date.parse(value);
     if (!Number.isFinite(time)) return null;
-    try { return new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium', timeStyle:'short', hourCycle}).format(new Date(time)); }
+    try { return new Intl.DateTimeFormat(dateLanguage, {timeZone, dateStyle:'medium', timeStyle:'short', hourCycle}).format(new Date(time)); }
     catch (_) { return null; }
   };
   const range = (from, to) => {
@@ -1651,6 +1651,7 @@ this._installTariffConsumerV3();
     if (!reuseProjection || !this._patternsDataset) this._preparePatterns();
     else this._selectPatternsRow();
     const data = this._patternsDataset, state = this._patternsState, rows = this._patternsRows();
+    const format = createFormatUi.forHass(this._hass);
     const t = (en, pl) => this._text(en, pl);
     const option = (value, current, label) => `<option value="${_esc(value)}" ${value === current ? 'selected' : ''}>${_esc(label)}</option>`;
     const weekdays = data.weekdays.filter(r => r.count).map(r => {
@@ -1662,14 +1663,14 @@ this._installTariffConsumerV3();
     return `<section class="patterns-measured" aria-label="${t('Measured patterns', 'Zmierzone wzorce')}">
       <h3>${t('Your measured consumption', 'Twoje zmierzone zużycie')}</h3>
       <p>${_esc(data.source.join(', ') || t('No Energy Dashboard grid source', 'Brak źródła sieciowego Energy Dashboard'))} · ${_esc(data.timezone)}</p>
-      <p>${data.from === null ? t('No data', 'Brak danych') : `${_esc(new Date(data.from).toISOString())} — ${_esc(new Date(data.to).toISOString())}`}</p>
+      <p data-pattern-range>${data.from === null ? t('No data', 'Brak danych') : `${_esc(format.range(new Date(data.from).toISOString(), new Date(data.to).toISOString()))} · ${_esc(format.timeZone)}`}</p>
       <p>${data.availableDays}/${data.requestedDays} ${t('loaded local dates', 'wczytanych dat lokalnych')}${data.partialWindow ? ' · ' + t('Partial window', 'Niepełny okres') : ''}.
       ${data.hours.filter(r => !r.missing).length}/${data.hours.length} ${t('measured hours', 'zmierzonych godzin')}.
       ${t('Only complete local days are totalled. Measured hours remain available on partial dates. DST clock gaps have no bucket; repeated hours retain UTC offsets.', 'Sumujemy tylko pełne dni lokalne. Zmierzone godziny niepełnych dat pozostają dostępne. Luki po zmianie czasu nie mają przedziału; powtórzone godziny zachowują przesunięcie UTC.')}</p>
       <div class="patterns-controls">
         <label>${t('Period', 'Okres')}<select data-pattern-control="period">${option(7, state.period, t('7 days', '7 dni'))}${option(30, state.period, t('30 days (loaded data)', '30 dni (wczytane dane)'))}</select></label>
         <label>${t('Resolution', 'Przedziały')}<select data-pattern-control="resolution">${option('day', state.resolution, t('Daily trend', 'Trend dzienny'))}${option('hour', state.resolution, t('Hours of selected date', 'Godziny wybranej daty'))}</select></label>
-        ${state.resolution === 'hour' ? `<label>${t('Local date', 'Data lokalna')}<select data-pattern-control="day">${data.days.map(r => option(r.key, state.day, r.key)).join('')}</select></label>` : ''}
+        ${state.resolution === 'hour' ? `<label>${t('Local date', 'Data lokalna')}<select data-pattern-control="day">${data.days.map(r => option(r.key, state.day, format.date(r.from))).join('')}</select></label>` : ''}
         <label>${t('Measure', 'Miara')}<select data-pattern-control="metric">${option('kwh', state.metric, t('Consumption · kWh', 'Zużycie · kWh'))}${option('energyCost', state.metric, t('Energy cost', 'Koszt energii'))}${option('variableCost', state.metric, t('Variable fees', 'Opłaty zmienne'))}</select></label>
         <label>${t('Chart type', 'Typ wykresu')}<select data-pattern-control="type">${option('line', state.type, t('Line', 'Linia'))}${option('bar', state.type, t('Bars', 'Słupki'))}</select></label>
       </div>
@@ -3233,7 +3234,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
     const time = Date.parse(value);
     if (!Number.isFinite(time)) return null;
-    try { return new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium', timeStyle:'short', hourCycle}).format(new Date(time)); }
+    try { return new Intl.DateTimeFormat(dateLanguage, {timeZone, dateStyle:'medium', timeStyle:'short', hourCycle}).format(new Date(time)); }
     catch (_) { return null; }
   };
   const range = (from, to) => {
@@ -4946,9 +4947,10 @@ this._installTariffConsumerV3();
       const option = (value, selected, label) => `<option value="${_esc(value)}" ${value === selected ? 'selected' : ''}>${_esc(label)}</option>`;
       const selected = rows.find(r => r.id === state.selected);
       const unit = state.metric === 'kwh' ? 'kWh' : data.currency || t('Currency unavailable', 'Brak waluty');
+      const format = createFormatUi.forHass(this._hass);
       return `<section class="insights-measured" data-insights-analysis aria-label="${this._t(period)}">
         <h3>${this._t(period)} · ${t('Recorded consumption', 'Zarejestrowane zużycie')}</h3>
-        <p>${_esc(data.source.join(', '))} · ${_esc(data.timezone)}<br>${_esc(new Date(data.window.from).toISOString())} — ${_esc(new Date(data.window.to).toISOString())}</p>
+        <p>${_esc(data.source.join(', '))}</p><p data-insights-chart-range>${_esc(format.range(new Date(data.window.from).toISOString(), new Date(data.window.to).toISOString()))} · ${_esc(format.timeZone)}</p>
         <div class="insights-controls">
           ${period !== 'daily' ? `<label>${t('Intervals', 'Przedziały')}<select data-insights-control="resolution">${option('day', state.resolution, t('Local dates', 'Daty lokalne'))}${option('hour', state.resolution, t('All measured hours', 'Wszystkie godziny pomiaru'))}</select></label>` : ''}
           <label>${t('Measure', 'Miara')}<select data-insights-control="metric">${option('kwh', state.metric, 'kWh')}${option('energyCost', state.metric, t('Energy cost', 'Koszt energii'))}${option('variableCost', state.metric, t('Variable fees', 'Opłaty zmienne'))}</select></label>
@@ -5625,7 +5627,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
     const time = Date.parse(value);
     if (!Number.isFinite(time)) return null;
-    try { return new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium', timeStyle:'short', hourCycle}).format(new Date(time)); }
+    try { return new Intl.DateTimeFormat(dateLanguage, {timeZone, dateStyle:'medium', timeStyle:'short', hourCycle}).format(new Date(time)); }
     catch (_) { return null; }
   };
   const range = (from, to) => {

@@ -30,6 +30,7 @@ function fixture(){
 }
 test('Dashboard axis is short local time; tooltip and Data use the same friendly absolute point',async()=>{
  const f=fixture();try{
+  assert.match(f.card._peakHourMarkupV3(),/18:00.*GMT-4/);
   const before=f.card._dashboardRowsV3().map(r=>({id:r.id,kwh:r.kwh,energyCost:r.energyCost}));await f.card._drawDashboardChart();const cfg=f.charts.at(-1);
   assert.equal(cfg.data.labels[0],'18:00');assert.match(cfg.options.plugins.tooltip.callbacks.title([{dataIndex:0,label:cfg.data.labels[0]}]),/15 paź.*18:00/);
   f.card.shadowRoot.querySelector('[data-dashboard-control="data"]').click();assert.match(f.card.shadowRoot.querySelector('[data-dashboard-row] th').textContent,/15 paź.*18:00/);
