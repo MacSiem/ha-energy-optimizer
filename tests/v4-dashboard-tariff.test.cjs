@@ -82,3 +82,11 @@ test('a configured unavailable power source is distinguished from no sensor and 
 test('maximum consumption interval is labeled independently of tariff peak hours',()=>{
  const f=fixture();try{const row=f.card.shadowRoot.querySelector('[data-dashboard-peak]');assert.ok(row);assert.match(row.parentElement.textContent,/Highest consumption/);assert.doesNotMatch(row.parentElement.textContent,/Peak Hour/);}finally{f.close();}
 });
+
+test('losing the HA context clears live power instead of showing the previous user reading in the empty view',()=>{
+ const f=fixture({power_entity:'sensor.meter'});try{
+  f.card._hass.states={'sensor.meter':{state:'321',attributes:{unit_of_measurement:'W'}}};f.card._lastStatsFetch=Date.now();
+  f.card.hass=f.card._hass;assert.equal(f.card._currentPowerW,321);
+  f.card.hass=null;assert.equal(f.card._currentPowerW,null);assert.equal(f.card.shadowRoot.querySelector('.power-draw'),null);
+ }finally{f.close();}
+});
