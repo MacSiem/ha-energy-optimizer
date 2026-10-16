@@ -224,6 +224,7 @@ class HaEnergyOptimizer extends HTMLElement {
       // Reconfirm shared prices for this mount; reuse settled measurements.
       this._observeTariffNavigationV3();
     }
+    if (this._initialMeasurementsStartedV3 && !this._initialMeasurementsSettledV3 && this._hass) this._fetchEnergyStats();
   }
 
   disconnectedCallback() {
@@ -358,6 +359,7 @@ class HaEnergyOptimizer extends HTMLElement {
     if (!this._hass || !this._hass.callWS) return;
     if (this._statsLoading) return;
     this._statsLoading = true;
+    this._initialMeasurementsStartedV3 = true;
     // Only a dispatched read may spend this context's refresh window.
     this._lastStatsFetch = Date.now();
     const read = this._createEnergyReadV3();
@@ -405,9 +407,18 @@ class HaEnergyOptimizer extends HTMLElement {
       console.warn('Energy Optimizer: Energy statistics unavailable');
     } finally {
       this._statsLoading = false;
-      // Discarded data leaves the next normal hass update eligible to read;
-      // stale completion itself never retries or releases the raw wire early.
-      if (!currentContext()) this._lastStatsFetch = 0;
+      // Later refreshes remain eligible for the next normal hass update.
+      // Only unfinished first loads resume after the raw wire has settled.
+      if (currentContext()) this._initialMeasurementsSettledV3 = true;
+      else {
+        this._lastStatsFetch = 0;
+        // Finish an interrupted first load after its old wire settles, even
+        // when the last hass update arrived while that wire was occupied.
+        if (!this._initialMeasurementsSettledV3) queueMicrotask(() => {
+          const guard = this._getTariffHostV3().guard;
+          if (this.isConnected && guard.available(guard.observe())) this._fetchEnergyStats();
+        });
+      }
       if (this.isConnected) this._render();
     }
   }
@@ -4280,6 +4291,7 @@ this._installTariffConsumerV3();
         // Reconfirm shared prices for this mount; reuse settled measurements.
         this._observeTariffNavigationV3();
       }
+      if (this._initialMeasurementsStartedV3 && !this._initialMeasurementsSettledV3 && this._hass) this._fetchData();
     }
 
     disconnectedCallback() {
@@ -4314,6 +4326,7 @@ this._installTariffConsumerV3();
       if (!this._hass?.callWS || this._insightsReadPending || this._insightDevicePending || this._getTariffHostV3().guard.occupied()) return;
       const read = this._createEnergyReadV3();
       this._insightsReadPending = true;
+      this._initialMeasurementsStartedV3 = true;
       // A blocked dispatch must leave the next session eligible for its first read.
       this._lastDataFetch = Date.now();
       this._loading = true; this._error = null;
@@ -4332,8 +4345,16 @@ this._installTariffConsumerV3();
         this._insightsReadPending = false;
         this._loading = false;
         // A stale first read supplies no measurements and must not consume the
-        // five-minute refresh window. The next hass update can read its context.
-        if (!read.current()) this._lastDataFetch = 0;
+        // five-minute refresh window. Finish only an interrupted first load
+        // automatically; later refreshes wait for the next normal hass update.
+        if (read.current()) this._initialMeasurementsSettledV3 = true;
+        else {
+          this._lastDataFetch = 0;
+          if (!this._initialMeasurementsSettledV3) queueMicrotask(() => {
+            const guard = this._getTariffHostV3().guard;
+            if (this.isConnected && guard.available(guard.observe())) this._fetchData();
+          });
+        }
         // Repaint current state even when the completed response was discarded;
         // otherwise the old spinner can survive after the read has settled.
         if (this.isConnected && this.ownerDocument?.defaultView?.document) {
@@ -5976,11 +5997,13 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
         this._attemptHistory.setContext(hass);
         if (this._activeTab === 'history') this._render();
         if (!hass) { this.shadowRoot.replaceChildren(); return; }
+        if (this._initialDiscoveryStartedV3) this._ensureInitialDiscovery();
         if ((emailContextChanged || measurementsChanged) && this._firstRender) { this._render(); return; }
         const now = Date.now();
         if (!this._firstRender) {
           this._firstRender = true;
-          this._discoverAll().catch(e => this._renderError(e));
+          this._initialDiscoveryStartedV3 = true;
+          this._ensureInitialDiscovery();
           this._render();
           this._lastRenderTime = now;
           return;
@@ -7164,6 +7187,20 @@ this._installTariffConsumerV3();
 
     // --- auto-discovery ---
 
+    _ensureInitialDiscovery() {
+      if (this._discoveryDone || this._initialDiscoveryPromise || !this.isConnected ||
+        !this._hass?.callWS || !this._emailIdentity(this._hass).online) return;
+      // Preserve occupancy until the old discovery settles. A normal hass
+      // update or mount can then resume discovery with a fresh context token.
+      const token = this._emailContextToken();
+      const operation = this._discoverAll();
+      this._initialDiscoveryPromise = operation;
+      operation.catch(e => { if (this.isConnected) this._renderError(e); }).finally(() => {
+        if (this._initialDiscoveryPromise === operation) this._initialDiscoveryPromise = null;
+        if (!this._emailContextMatches(token)) this._ensureInitialDiscovery();
+      });
+    }
+
     async _discoverAll() {
       const token = this._emailContextToken();
       await this._loadEmailBackendConfig();
@@ -7588,26 +7625,39 @@ this._installTariffConsumerV3();
         if (!read.current()) return false;
         this[statusKey] = 'error';
         console.warn('Energy Email: complete Recorder period data unavailable');
+      } finally {
+        if (read.current()) this._initialMeasurementsSettledV3 = true;
       }
     }
 
     // Coalesce refreshes and retry unavailable data without polling every HA update.
     async _fetchAllPeriodStats() {
       if (this._periodRefreshPromise) return this._periodRefreshPromise;
+      let interrupted = false;
       this._lastPeriodRefresh = Date.now();
       // One accepted source/window epoch for each complete period; no cross-period race.
       this._periodRefreshPromise = (async () => {
         for (const period of ['day', 'week', 'month']) {
           if (await this._fetchRecorderStats(period) === false) {
             // A stale tab/mount read supplied no current data. Keep the next
-            // normal hass update eligible without retrying in this callback.
+            // normal hass update eligible. Only an unfinished first load
+            // resumes after this complete refresh releases its occupancy.
             this._lastPeriodRefresh = 0;
+            interrupted = true;
             break;
           }
         }
       })();
       try { await this._periodRefreshPromise; }
-      finally { this._periodRefreshPromise = null; }
+      finally {
+        this._periodRefreshPromise = null;
+        if (interrupted && !this._initialMeasurementsSettledV3 && this._activeTab === 'overview') queueMicrotask(() => {
+          const guard = this._getTariffHostV3().guard;
+          if (this.isConnected && guard.available(guard.observe())) {
+            this._fetchAllPeriodStats().then(() => { if (this.isConnected) this._render(); }).catch(() => {});
+          }
+        });
+      }
     }
 
     _filterExcluded(data) {
@@ -8216,7 +8266,7 @@ this._installTariffConsumerV3();
       return `
         ${periodNote ? `<div class="info-row" style="overflow-wrap:anywhere">${_esc(periodNote)}</div>` : ''}
         <div class="info-row">${L ? 'Import z sieci: źródła skonfigurowane w Energy Dashboard.' : 'Grid import: sources configured in Energy Dashboard.'}</div>
-        ${!complete ? `<div class="info-row" role="status">${L ? 'Zarejestrowane zużycie' : 'Recorded usage'}: ${recordedEnergy.toFixed(1)} kWh. ${L ? 'Niepełne dane — suma całego okresu niedostępna.' : 'Incomplete data — full-period total unavailable.'} ${_esc(coverageNote)}</div>` : ''}
+        ${!complete ? `<div class="info-row" role="status">${L ? 'Zarejestrowane zużycie' : 'Recorded usage'}: ${recordedEnergy.toFixed(1)} kWh. ${L ? 'Niepełne dane — suma całego okresu niedostępna.' : 'Incomplete data — full-period total unavailable.'} ${_esc(coverageNote)} ${coverage?.sources?.some(row => row.status === 'unsupported') ? (L ? 'Co najmniej jedno źródło ma nieobsługiwane metadane energii.' : 'At least one source has unsupported energy metadata.') : ''}</div>` : ''}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <div class="section-title" style="margin:0;">\u{1F4CA} ${periodLabel}</div>
           <div style="display:flex;gap:4px;">${periodBtns}</div>
@@ -8225,7 +8275,7 @@ this._installTariffConsumerV3();
           <div class="stat">
             <div class="stat-value" style="color:#F59E0B">${(complete ? totalEnergy : recordedEnergy).toFixed(1)}</div>
             <div class="stat-label">${!complete ? (L ? 'Zarejestrowane zużycie · ' : 'Recorded usage · ') : ''}kWh ${periodLabel}</div>
-            <div class="stat-sub">${displayData.length} ${L ? 'źródeł importu' : 'import sources'}</div>
+            <div class="stat-sub">${displayData.length}/${coverage?.sources?.length ?? displayData.length} ${L ? 'źródeł z pomiarami' : 'sources with measurements'}</div>
           </div>
           <div class="stat">
             <div class="stat-value" style="color:#3B82F6">${this._formatCost(totalCost)}</div>
@@ -9273,6 +9323,7 @@ this._installTariffConsumerV3();
         // Reconfirm shared prices for this mount; reuse settled measurements.
         this._observeTariffNavigationV3();
       }
+      if (this._initialDiscoveryStartedV3) this._ensureInitialDiscovery();
     }
 
     disconnectedCallback() {
