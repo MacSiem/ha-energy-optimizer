@@ -19,7 +19,7 @@ async function fixture(type, clock){
  dom.window.document.body.append(card);card.hass=hass;
  const fetch=()=>type==='ha-energy-insights'?card._fetchData():type==='ha-energy-email'?card._fetchRecorderStats('day'):card._fetchEnergyStats();
  await fetch();
- const value=()=>type==='ha-energy-insights'?card._data?.monthKwh:type==='ha-energy-email'?card._getAutoDataForPeriod('day')[0]?.month:card._hasRealData?card._energyModel?.summary(card._energyModel.start,card._energyModel.end).total:null;
+ const value=()=>type==='ha-energy-insights'?card._data?.monthKwh:type==='ha-energy-email'?card._getAutoDataForPeriod('day')[0]?.month:card._energyModel?.summary(card._energyModel.start,card._energyModel.end).total??null;
  assert.ok(value()>0,'fixture must first accept real Recorder measurements');
  return {card,dom,hass,calls,fetch,value,hold(){let resolve;const promise=new Promise(r=>resolve=r);release={promise,resolve};return ()=>{release=null;resolve();};},close(){card._getTariffHostV3().guard.dispose();dom.window.close();}};
 }
