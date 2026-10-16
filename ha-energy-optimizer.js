@@ -33,9 +33,23 @@ function createFormatUi(language = 'en', timeZone = 'UTC') {
     const coverage = typeof measured === 'number' && Number.isFinite(measured) && typeof expected === 'number' && Number.isFinite(expected)
       ? `${numbers.format(measured)}/${numbers.format(expected)} ${unit}` : '';
     const pl = String(language).startsWith('pl');
-    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details><summary style="min-height:44px;display:flex;align-items:center;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
+    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;display:flex;align-items:center;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
   };
-  return {number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup};
+  const capturePeriods = (root, previous, current) => {
+    if (!previous || ['epoch','connection','user'].some(key => previous[key] !== current[key])) return [];
+    return [...root.querySelectorAll('[data-energy-period-key]')].map(element => ({
+      key:element.dataset.energyPeriodKey, open:element.open, focused:root.activeElement === element.querySelector('summary')
+    }));
+  };
+  const restorePeriods = (root, records) => {
+    for (const element of root.querySelectorAll('[data-energy-period-key]')) {
+      const record = records.find(row => row.key === element.dataset.energyPeriodKey);
+      if (!record) continue;
+      element.open = record.open;
+      if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
+    }
+  };
+  return {number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
 // Node tests use the canonical factory; vendored cards keep it local.
 // HA_FORMAT_UI_END
@@ -326,6 +340,9 @@ class HaEnergyOptimizer extends HTMLElement {
       const measurementsChanged = !!previousBinding && Object.keys(measurementBinding).some(key => previousBinding[key] !== measurementBinding[key]);
       this._measurementBindingV3 = measurementBinding;
     if (measurementsChanged) {
+      this._currentPowerW = null;
+      this._powerSetupOpenV4 = false;
+      this._powerSetupEntityV4 = null;
       this._energyModel = null;
       this._patternsDataset = null;
       this._patternsState = null;
@@ -1467,6 +1484,10 @@ this._installTariffConsumerV3();
   }
 
   _render() {
+    const periodFormat = createFormatUi();
+    const periodContext = this._getTariffHostV3().guard.snapshot();
+    const periodUi = periodFormat.capturePeriods(this.shadowRoot, this._periodUiContextV4, periodContext);
+    this._periodUiContextV4 = periodContext;
     const powerSetup = this.shadowRoot.querySelector('[data-power-setup]');
     if (powerSetup) this._powerSetupOpenV4 = powerSetup.open;
     const active = this.shadowRoot.activeElement;
@@ -1489,6 +1510,7 @@ this._installTariffConsumerV3();
     else if (focusControl) this.shadowRoot.querySelector(`[data-pattern-control="${focusControl}"]`)?.focus();
     else if (focusTab) this.shadowRoot.querySelector(`[data-tab="${focusTab}"]`)?.focus();
     else if (focusPicker) this.shadowRoot.querySelector('.energy-tab-picker select')?.focus();
+    periodFormat.restorePeriods(this.shadowRoot, periodUi);
   }
 
   _patternsRows() {
@@ -2364,7 +2386,7 @@ canvas {
 
   _powerMarkupV4() {
     const t = (en, pl) => this._text(en, pl);
-    if (this._currentPowerW !== null) return `<div class="power-draw"><div class="power-draw-unit">${t('Current Power Draw', 'Moc chwilowa')}</div><div class="power-draw-value">${createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en').number(this._currentPowerW / 1000, {minimumFractionDigits:2, maximumFractionDigits:2})}</div><div class="power-draw-unit">kW</div></div>`;
+    if (this._currentPowerW !== null && this._hass?.user?.id && this._hass?.connection?.connected !== false) return `<div class="power-draw"><div class="power-draw-unit">${t('Current Power Draw', 'Moc chwilowa')}</div><div class="power-draw-value">${createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en').number(this._currentPowerW / 1000, {minimumFractionDigits:2, maximumFractionDigits:2})}</div><div class="power-draw-unit">kW</div></div>`;
     const sensors = Object.entries(this._hass?.states || {}).filter(([id, state]) => id.startsWith('sensor.') && ['W','kW'].includes(state?.attributes?.unit_of_measurement));
     const selected = sensors.some(([id]) => id === this._powerSetupEntityV4) ? this._powerSetupEntityV4 : '';
     return `<div class="power-setup"><p data-power-status>${this._config.power_entity
@@ -3180,9 +3202,23 @@ function createFormatUi(language = 'en', timeZone = 'UTC') {
     const coverage = typeof measured === 'number' && Number.isFinite(measured) && typeof expected === 'number' && Number.isFinite(expected)
       ? `${numbers.format(measured)}/${numbers.format(expected)} ${unit}` : '';
     const pl = String(language).startsWith('pl');
-    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details><summary style="min-height:44px;display:flex;align-items:center;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
+    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;display:flex;align-items:center;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
   };
-  return {number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup};
+  const capturePeriods = (root, previous, current) => {
+    if (!previous || ['epoch','connection','user'].some(key => previous[key] !== current[key])) return [];
+    return [...root.querySelectorAll('[data-energy-period-key]')].map(element => ({
+      key:element.dataset.energyPeriodKey, open:element.open, focused:root.activeElement === element.querySelector('summary')
+    }));
+  };
+  const restorePeriods = (root, records) => {
+    for (const element of root.querySelectorAll('[data-energy-period-key]')) {
+      const record = records.find(row => row.key === element.dataset.energyPeriodKey);
+      if (!record) continue;
+      element.open = record.open;
+      if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
+    }
+  };
+  return {number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
 // Node tests use the canonical factory; vendored cards keep it local.
 // HA_FORMAT_UI_END
@@ -4960,6 +4996,10 @@ this._installTariffConsumerV3();
       if (this._insightDeviceState?.raw && this._insightDeviceState.current?.())
         this.shadowRoot.querySelectorAll('[data-insights-device-details]').forEach(el =>
           el.open ? this._insightDeviceDetails.add(el.dataset.insightsDeviceDetails) : this._insightDeviceDetails.delete(el.dataset.insightsDeviceDetails));
+      const periodFormat = createFormatUi();
+      const periodContext = this._getTariffHostV3().guard.snapshot();
+      const periodUi = periodFormat.capturePeriods(this.shadowRoot, this._periodUiContextV4, periodContext);
+      this._periodUiContextV4 = periodContext;
       const focus = this._captureInsightFocusV3();
       this._insightResize?.disconnect();
       this._insightRenderEpoch++;
@@ -4976,6 +5016,7 @@ this._installTariffConsumerV3();
       this._bindTariffSettings();
       this._bindInsightContentV3();
       this._restoreInsightFocusV3(focus);
+      periodFormat.restorePeriods(this.shadowRoot, periodUi);
       // Update tab bar active state
       this.shadowRoot.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === this._activeTab);
@@ -4995,6 +5036,10 @@ this._installTariffConsumerV3();
         this._updateContent();
         return;
       }
+      const periodFormat = createFormatUi();
+      const periodContext = this._getTariffHostV3().guard.snapshot();
+      const periodUi = periodFormat.capturePeriods(this.shadowRoot, this._periodUiContextV4, periodContext);
+      this._periodUiContextV4 = periodContext;
       this.shadowRoot.innerHTML = `
   ${this._getStyles()}
         <div class="panel-root">
@@ -5015,6 +5060,7 @@ this._installTariffConsumerV3();
       this._bindTariffSettings();
       this._bindInsightContentV3();
       this._syncSupport();
+      periodFormat.restorePeriods(this.shadowRoot, periodUi);
     }
 
     _getStyles() {
@@ -5514,9 +5560,23 @@ function createFormatUi(language = 'en', timeZone = 'UTC') {
     const coverage = typeof measured === 'number' && Number.isFinite(measured) && typeof expected === 'number' && Number.isFinite(expected)
       ? `${numbers.format(measured)}/${numbers.format(expected)} ${unit}` : '';
     const pl = String(language).startsWith('pl');
-    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details><summary style="min-height:44px;display:flex;align-items:center;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
+    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;display:flex;align-items:center;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
   };
-  return {number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup};
+  const capturePeriods = (root, previous, current) => {
+    if (!previous || ['epoch','connection','user'].some(key => previous[key] !== current[key])) return [];
+    return [...root.querySelectorAll('[data-energy-period-key]')].map(element => ({
+      key:element.dataset.energyPeriodKey, open:element.open, focused:root.activeElement === element.querySelector('summary')
+    }));
+  };
+  const restorePeriods = (root, records) => {
+    for (const element of root.querySelectorAll('[data-energy-period-key]')) {
+      const record = records.find(row => row.key === element.dataset.energyPeriodKey);
+      if (!record) continue;
+      element.open = record.open;
+      if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
+    }
+  };
+  return {number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
 // Node tests use the canonical factory; vendored cards keep it local.
 // HA_FORMAT_UI_END
@@ -7921,6 +7981,10 @@ this._installTariffConsumerV3();
 
     _render() {
       if (!this._hass) return;
+      const periodFormat = createFormatUi();
+      const periodContext = this._getTariffHostV3().guard.snapshot();
+      const periodUi = periodFormat.capturePeriods(this.shadowRoot, this._periodUiContextV4, periodContext);
+      this._periodUiContextV4 = periodContext;
       this._checkActionFocus();
       const renderToken = this._emailContextVersion;
       const focus = this.shadowRoot.activeElement;
@@ -8201,6 +8265,7 @@ this._installTariffConsumerV3();
         if (!this._actionFocus && target && !target.disabled) { target.focus({ preventScroll: true }); if (selection && target.setSelectionRange) try { target.setSelectionRange(...selection); } catch (_) {} }
       }
       this._restoreActionFocus();
+      periodFormat.restorePeriods(this.shadowRoot, periodUi);
       if (this._hass?.user?.is_admin !== true) {
         const price = this.shadowRoot.getElementById('price-display');
         if (price) { price.style.cursor = 'default'; price.style.borderBottom = 'none'; price.removeAttribute('title'); }
@@ -8301,6 +8366,10 @@ this._installTariffConsumerV3();
       if (!fullRender) this._checkActionFocus();
       const el = this.shadowRoot.getElementById('tab-content');
       if (!el) return;
+      const periodFormat = createFormatUi();
+      const periodContext = this._getTariffHostV3().guard.snapshot();
+      const periodUi = periodFormat.capturePeriods(this.shadowRoot, this._periodUiContextV4, periodContext);
+      this._periodUiContextV4 = periodContext;
       const focused = this.shadowRoot.activeElement, focusId = focused?.id;
       const selection = typeof focused?.selectionStart === 'number' ? [focused.selectionStart,focused.selectionEnd,focused.selectionDirection] : null;
       const legacyFields = this._activeTab === 'schedule' ? [...el.querySelectorAll('input[id],select[id]')]
@@ -8342,6 +8411,7 @@ this._installTariffConsumerV3();
         if (target && !target.disabled && (!outerActive || outerActive === this || outerActive === this.ownerDocument.body)) target.focus({ preventScroll: true });
         this._scheduleSaveFocus = null;
       }
+      periodFormat.restorePeriods(this.shadowRoot, periodUi);
     }
 
     _updateLiveData() {
