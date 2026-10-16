@@ -224,6 +224,7 @@ class HaEnergyOptimizer extends HTMLElement {
       // Reconfirm shared prices for this mount; reuse settled measurements.
       this._observeTariffNavigationV3();
     }
+    if (!this._initialMeasurementsSettledV3 && this._hass) this._fetchEnergyStats();
   }
 
   disconnectedCallback() {
@@ -405,9 +406,18 @@ class HaEnergyOptimizer extends HTMLElement {
       console.warn('Energy Optimizer: Energy statistics unavailable');
     } finally {
       this._statsLoading = false;
-      // Discarded data leaves the next normal hass update eligible to read;
-      // stale completion itself never retries or releases the raw wire early.
-      if (!currentContext()) this._lastStatsFetch = 0;
+      // Later refreshes remain eligible for the next normal hass update.
+      // Only unfinished first loads resume after the raw wire has settled.
+      if (currentContext()) this._initialMeasurementsSettledV3 = true;
+      else {
+        this._lastStatsFetch = 0;
+        // Finish an interrupted first load after its old wire settles, even
+        // when the last hass update arrived while that wire was occupied.
+        if (!this._initialMeasurementsSettledV3) queueMicrotask(() => {
+          const guard = this._getTariffHostV3().guard;
+          if (this.isConnected && guard.available(guard.observe())) this._fetchEnergyStats();
+        });
+      }
       if (this.isConnected) this._render();
     }
   }

@@ -2,6 +2,9 @@
 
 ## 3.6.2 (2026-10-16)
 
+- Finish an interrupted initial measurement read in the current online context across all three cards, even when Home Assistant sends no further update. Coalesce Email discovery, wait for old raw reads to settle, and preserve later-refresh and privacy fences.
+- Distinguish available measured sources from configured sources and explain unsupported energy metadata alongside retained readings.
+
 - Reject unsupported Recorder units in all three cards, including names inherited from JavaScript objects. Such sources cannot produce NaN measurements or a falsely complete Email overview.
 - Document migration from archived standalone Energy Insights 1.0.2, including its history-read false-zero limitation, resource load order and measured-source/coverage checks. The archived release itself is unchanged.
 - Retain available measured rows in the Energy Email overview when another configured grid source has missing or unsupported Recorder data. Show recorded subtotals and measured source-hour coverage while leaving incomplete full-period totals and costs unavailable.

@@ -16,6 +16,8 @@ Part of the [HA Tools](https://github.com/MacSiem/ha-tools-panel) collection for
 4. Live power is shown only if you set `power_entity`; the card does not sum overlapping power sensors.
 5. Chart.js is bundled in the single HACS JavaScript file. There is no CDN request or extra Lovelace resource.
 
+An interrupted first load resumes in the current online Home Assistant context after the old read settles; it does not need a period click or another state update. The overview distinguishes sources with available measurements from all configured sources. A source with unsupported energy metadata remains part of incomplete coverage.
+
 ### One repo, three cards
 
 Since v3.3.0 this single file/repo bundles three custom elements — install

@@ -1237,6 +1237,7 @@ this._installTariffConsumerV3();
         // Reconfirm shared prices for this mount; reuse settled measurements.
         this._observeTariffNavigationV3();
       }
+      if (!this._initialMeasurementsSettledV3 && this._hass) this._fetchData();
     }
 
     disconnectedCallback() {
@@ -1289,8 +1290,16 @@ this._installTariffConsumerV3();
         this._insightsReadPending = false;
         this._loading = false;
         // A stale first read supplies no measurements and must not consume the
-        // five-minute refresh window. The next hass update can read its context.
-        if (!read.current()) this._lastDataFetch = 0;
+        // five-minute refresh window. Finish only an interrupted first load
+        // automatically; later refreshes wait for the next normal hass update.
+        if (read.current()) this._initialMeasurementsSettledV3 = true;
+        else {
+          this._lastDataFetch = 0;
+          if (!this._initialMeasurementsSettledV3) queueMicrotask(() => {
+            const guard = this._getTariffHostV3().guard;
+            if (this.isConnected && guard.available(guard.observe())) this._fetchData();
+          });
+        }
         // Repaint current state even when the completed response was discarded;
         // otherwise the old spinner can survive after the read has settled.
         if (this.isConnected && this.ownerDocument?.defaultView?.document) {

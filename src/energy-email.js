@@ -645,11 +645,12 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
         this._attemptHistory.setContext(hass);
         if (this._activeTab === 'history') this._render();
         if (!hass) { this.shadowRoot.replaceChildren(); return; }
+        if (this._firstRender) this._ensureInitialDiscovery();
         if ((emailContextChanged || measurementsChanged) && this._firstRender) { this._render(); return; }
         const now = Date.now();
         if (!this._firstRender) {
           this._firstRender = true;
-          this._discoverAll().catch(e => this._renderError(e));
+          this._ensureInitialDiscovery();
           this._render();
           this._lastRenderTime = now;
           return;
@@ -1833,6 +1834,20 @@ this._installTariffConsumerV3();
 
     // --- auto-discovery ---
 
+    _ensureInitialDiscovery() {
+      if (this._discoveryDone || this._initialDiscoveryPromise || !this.isConnected ||
+        !this._hass?.callWS || !this._emailIdentity(this._hass).online) return;
+      // Preserve occupancy until the old discovery settles. A normal hass
+      // update or mount can then resume discovery with a fresh context token.
+      const token = this._emailContextToken();
+      const operation = this._discoverAll();
+      this._initialDiscoveryPromise = operation;
+      operation.catch(e => { if (this.isConnected) this._renderError(e); }).finally(() => {
+        if (this._initialDiscoveryPromise === operation) this._initialDiscoveryPromise = null;
+        if (!this._emailContextMatches(token)) this._ensureInitialDiscovery();
+      });
+    }
+
     async _discoverAll() {
       const token = this._emailContextToken();
       await this._loadEmailBackendConfig();
@@ -2257,26 +2272,39 @@ this._installTariffConsumerV3();
         if (!read.current()) return false;
         this[statusKey] = 'error';
         console.warn('Energy Email: complete Recorder period data unavailable');
+      } finally {
+        if (read.current()) this._initialMeasurementsSettledV3 = true;
       }
     }
 
     // Coalesce refreshes and retry unavailable data without polling every HA update.
     async _fetchAllPeriodStats() {
       if (this._periodRefreshPromise) return this._periodRefreshPromise;
+      let interrupted = false;
       this._lastPeriodRefresh = Date.now();
       // One accepted source/window epoch for each complete period; no cross-period race.
       this._periodRefreshPromise = (async () => {
         for (const period of ['day', 'week', 'month']) {
           if (await this._fetchRecorderStats(period) === false) {
             // A stale tab/mount read supplied no current data. Keep the next
-            // normal hass update eligible without retrying in this callback.
+            // normal hass update eligible. Only an unfinished first load
+            // resumes after this complete refresh releases its occupancy.
             this._lastPeriodRefresh = 0;
+            interrupted = true;
             break;
           }
         }
       })();
       try { await this._periodRefreshPromise; }
-      finally { this._periodRefreshPromise = null; }
+      finally {
+        this._periodRefreshPromise = null;
+        if (interrupted && !this._initialMeasurementsSettledV3 && this._activeTab === 'overview') queueMicrotask(() => {
+          const guard = this._getTariffHostV3().guard;
+          if (this.isConnected && guard.available(guard.observe())) {
+            this._fetchAllPeriodStats().then(() => { if (this.isConnected) this._render(); }).catch(() => {});
+          }
+        });
+      }
     }
 
     _filterExcluded(data) {
@@ -2885,7 +2913,7 @@ this._installTariffConsumerV3();
       return `
         ${periodNote ? `<div class="info-row" style="overflow-wrap:anywhere">${_esc(periodNote)}</div>` : ''}
         <div class="info-row">${L ? 'Import z sieci: źródła skonfigurowane w Energy Dashboard.' : 'Grid import: sources configured in Energy Dashboard.'}</div>
-        ${!complete ? `<div class="info-row" role="status">${L ? 'Zarejestrowane zużycie' : 'Recorded usage'}: ${recordedEnergy.toFixed(1)} kWh. ${L ? 'Niepełne dane — suma całego okresu niedostępna.' : 'Incomplete data — full-period total unavailable.'} ${_esc(coverageNote)}</div>` : ''}
+        ${!complete ? `<div class="info-row" role="status">${L ? 'Zarejestrowane zużycie' : 'Recorded usage'}: ${recordedEnergy.toFixed(1)} kWh. ${L ? 'Niepełne dane — suma całego okresu niedostępna.' : 'Incomplete data — full-period total unavailable.'} ${_esc(coverageNote)} ${coverage?.sources?.some(row => row.status === 'unsupported') ? (L ? 'Co najmniej jedno źródło ma nieobsługiwane metadane energii.' : 'At least one source has unsupported energy metadata.') : ''}</div>` : ''}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <div class="section-title" style="margin:0;">\u{1F4CA} ${periodLabel}</div>
           <div style="display:flex;gap:4px;">${periodBtns}</div>
@@ -2894,7 +2922,7 @@ this._installTariffConsumerV3();
           <div class="stat">
             <div class="stat-value" style="color:#F59E0B">${(complete ? totalEnergy : recordedEnergy).toFixed(1)}</div>
             <div class="stat-label">${!complete ? (L ? 'Zarejestrowane zużycie · ' : 'Recorded usage · ') : ''}kWh ${periodLabel}</div>
-            <div class="stat-sub">${displayData.length} ${L ? 'źródeł importu' : 'import sources'}</div>
+            <div class="stat-sub">${displayData.length}/${coverage?.sources?.length ?? displayData.length} ${L ? 'źródeł z pomiarami' : 'sources with measurements'}</div>
           </div>
           <div class="stat">
             <div class="stat-value" style="color:#3B82F6">${this._formatCost(totalCost)}</div>
@@ -3942,6 +3970,7 @@ this._installTariffConsumerV3();
         // Reconfirm shared prices for this mount; reuse settled measurements.
         this._observeTariffNavigationV3();
       }
+      if (this._firstRender) this._ensureInitialDiscovery();
     }
 
     disconnectedCallback() {
