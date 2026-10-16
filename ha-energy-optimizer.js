@@ -382,7 +382,11 @@ class HaEnergyOptimizer extends HTMLElement {
           this._schedule(() => {
             this._renderScheduled = false;
             try {
-              const newHash = Object.keys(hass.states).length + '_' + (hass.states['sun.sun'] ? hass.states['sun.sun'].state : '');
+              const states = this._hass?.states || {};
+              const power = this._config.power_entity && Object.hasOwn(states, this._config.power_entity)
+                ? states[this._config.power_entity] : null;
+              const newHash = JSON.stringify([Object.keys(states).length, states['sun.sun']?.state ?? '',
+                this._config.power_entity ?? null, power?.state ?? null, power?.attributes?.unit_of_measurement ?? null]);
               if (newHash === this._lastStateHash) return;
               this._lastStateHash = newHash;
               this._updateEnergyData();
@@ -431,10 +435,9 @@ class HaEnergyOptimizer extends HTMLElement {
       if (model.noSensors || model.noSeries) throw new Error(model.noSeries ? 'Missing Energy Dashboard statistic series' : 'No Energy Dashboard grid import source');
       const today = model.today();
       this._energyModel = model; // Patterns can expose measured rows without claiming a complete daily total.
-      if (!today.intervalsComplete) throw new Error('Incomplete Energy Dashboard hourly coverage');
-      this._energyModel = model;
       this._todayWindow = today;
       this._energySensorIds = model.ids;
+      if (!today.intervalsComplete) throw new Error('Incomplete Energy Dashboard hourly coverage');
       this._hourlyBucketCounts = model.counts;
       this._energyData = model.hourlyToday;
       const days = model.daily(model.start, model.end).slice(-7);
@@ -459,8 +462,10 @@ class HaEnergyOptimizer extends HTMLElement {
       this._weeklyData = [];
       this._recommendations = [];
       this._comparisonData = null;
-      if (!String(err?.message).includes('Incomplete Energy Dashboard hourly coverage')) this._energyModel = null;
-      this._todayWindow = null;
+      if (!String(err?.message).includes('Incomplete Energy Dashboard hourly coverage')) {
+        this._energyModel = null;
+        this._todayWindow = null;
+      }
       this._dailyTotals = [];
       console.warn('Energy Optimizer: Energy statistics unavailable');
     } finally {
@@ -2407,7 +2412,7 @@ canvas {
       expected: selected?.length, unit: this._text('completed intervals', 'zakończonych przedziałów'),
       details: (this._energySensorIds || []).join(', ') + '. ' + this._text('Only completed Recorder intervals are shown. Repeated local hours keep distinct UTC offsets; future or skipped hours are not measured zero.', 'Pokazano tylko zakończone przedziały Recorder. Powtórzone godziny zachowują odrębne przesunięcia UTC; przyszła lub pominięta godzina nie oznacza zmierzonego zera.') }) : '';
 
-    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>${periodMarkup}${this._powerMarkupV4()}<div class="empty-state" role="status">${this._statsLoading ? this._text("Loading Energy Dashboard statistics…", "Ładowanie statystyk panelu Energia…") : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? this._text("No recent Recorder statistics for the configured grid import.", "Brak bieżących statystyk Recorder dla skonfigurowanego importu z sieci.") : this._energyError?.message?.includes('No Energy Dashboard grid import source') ? this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.") : this._energyError ? this._text("Energy statistics could not be loaded.", "Nie udało się wczytać statystyk energii.") : this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.")} <a href="/energy">${this._text("Open Energy Dashboard", "Otwórz panel Energia")}</a></div>${this._energyModel?.points ? `<div id="patterns">${this._patternsMarkup()}</div>` : ''}${this._tariffDetailsMarkup()}${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
+    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>${periodMarkup}${this._powerMarkupV4()}<div class="empty-state" role="status">${this._statsLoading ? this._text("Loading Energy Dashboard statistics…", "Ładowanie statystyk panelu Energia…") : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? this._text("No recent Recorder statistics for the configured grid import.", "Brak bieżących statystyk Recorder dla skonfigurowanego importu z sieci.") : this._energyError?.message?.includes('No Energy Dashboard grid import source') ? this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.") : this._energyError?.message?.includes('Incomplete Energy Dashboard hourly coverage') ? this._text("Some completed hours have no measurement. The period total is unavailable; measured hours remain in Patterns.", "Brakuje pomiarów dla części zakończonych godzin. Suma okresu jest niedostępna; zmierzone godziny są dostępne we Wzorcach.") : this._energyError ? this._text("Energy statistics could not be loaded.", "Nie udało się wczytać statystyk energii.") : this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.")} <a href="/energy">${this._text("Open Energy Dashboard", "Otwórz panel Energia")}</a></div>${this._energyModel?.points ? `<div id="patterns">${this._patternsMarkup()}</div>` : ''}${this._tariffDetailsMarkup()}${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
     return `
       <div class="card-container">
         <h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>
