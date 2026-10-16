@@ -135,6 +135,18 @@ and the view scope used by these images.
 
 Requires Home Assistant **2024.1.0** or newer.
 
+### Migrating from the archived standalone Energy Insights
+
+Do not install the archived `MacSiem/ha-energy-insights` standalone repository for new dashboards. Its public **1.0.2** release can display zero weekly or monthly consumption when history cannot be read. That zero does not establish measured zero. The archived release has not been patched for this defect; the maintained Insights card is included in this Energy Optimizer package.
+
+1. Back up your dashboard configuration and note the old standalone resource URL.
+2. Remove the old standalone Energy Insights resource from **Settings → Dashboards → Resources** before loading this package. Both register `ha-energy-insights`; leaving the older resource loaded can keep the old card active.
+3. Install **Energy Optimizer** using the HACS instructions above and fully reload Home Assistant in the browser. Keep the dashboard card type `custom:ha-energy-insights`; review its configuration against the current quick start below.
+4. Explicitly configure the measured **grid import statistics in Energy Dashboard**. Configure individual device measurements there too if you use the device view. Power sensors in watts, solar production and grid export are not substitutes for grid-import energy statistics.
+5. Check the displayed source, interval, units and coverage against Energy Dashboard and the card's **Data** view. Missing measurements must remain gaps or a partial result; historical zeros from the standalone card are not proof of complete measurements.
+
+Migration replaces that installation with the maintained card. This notice does not change the archived source or repair installed standalone1.0.2 files.
+
 ### Compatibility and optional services
 
 The **2024.1.0** minimum applies to the three frontend cards. Their required Home Assistant APIs are `energy/get_prefs`, `recorder/get_statistics_metadata` and `recorder/statistics_during_period` with hourly `change` values; these commands and request fields exist in Home Assistant Core 2024.1.0. Energy Dashboard grid-import configuration and valid Recorder sum statistics are required for measured totals. The cards use Home Assistant state, theme, locale, currency and timezone data supplied to custom cards.
