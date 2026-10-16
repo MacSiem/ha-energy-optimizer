@@ -90,3 +90,22 @@ test('losing the HA context clears live power instead of showing the previous us
   f.card.hass=null;assert.equal(f.card._currentPowerW,null);assert.equal(f.card.shadowRoot.querySelector('.power-draw'),null);
  }finally{f.close();}
 });
+
+test('ordinary HA sensor updates refresh live power even when entity count and sun stay unchanged',()=>{
+ const f=fixture({power_entity:'sensor.meter'});try{
+  const jobs=[];f.card._schedule=callback=>{jobs.push(callback);};
+  const flush=()=>{for(let n=0;jobs.length&&n<50;n++)jobs.shift()();assert.equal(jobs.length,0);};
+  const base={...f.card._hass,states:{'sensor.meter':{state:'1',attributes:{unit_of_measurement:'W'}}}};
+  f.card._lastStatsFetch=Date.now();f.card.hass=base;flush();
+  // A prior ordinary HA update establishes the normal throttled repaint state.
+  f.card._lastRenderTime=Date.now()-1000;f.card.hass={...base};flush();
+  const update=value=>{
+   f.card._lastRenderTime=Date.now()-1000;
+   f.card.hass={...base,states:{'sensor.meter':{state:value,attributes:{unit_of_measurement:'W'}}}};flush();
+  };
+  update('321');assert.match(f.card.shadowRoot.querySelector('.power-draw').textContent,/0[.,]32/);
+  update('0');assert.match(f.card.shadowRoot.querySelector('.power-draw').textContent,/0[.,]00/);
+  update('unavailable');assert.equal(f.card.shadowRoot.querySelector('.power-draw'),null);
+  assert.match(f.card.shadowRoot.querySelector('[data-power-status]').textContent,/unavailable/i);
+ }finally{f.close();}
+});

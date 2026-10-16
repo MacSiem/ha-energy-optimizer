@@ -30,3 +30,24 @@ for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email']
   if(type==='ha-energy-email')assert.match(root.querySelector('.device-val').textContent,/26,4/,'source rows use the same HA number format');
  }finally{card._getTariffHostV3().guard.dispose();dom.window.close();}
 });
+
+test('Optimizer keeps local period and measured coverage when the newest completed hour is missing',async()=>{
+ const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});const NativeDate=dom.window.Date,now=Date.parse('2026-03-29T05:30:00Z');
+ dom.window.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
+ dom.window.eval(readFileSync('src/optimizer.js','utf8'));const card=dom.window.document.createElement('ha-energy-optimizer');card._schedule=()=>{};dom.window.document.body.append(card);
+ card._hass={user:{id:'qa',is_admin:true},connection:{connected:true},language:'pl-PL',locale:{language:'pl-PL'},states:{},config:{time_zone:'Europe/Warsaw',currency:'EUR'},callWS:async req=>{
+  if(req.type==='energy/get_prefs')return {energy_sources:[{type:'grid',stat_energy_from:'sensor.qa_grid'}]};
+  if(req.type==='recorder/get_statistics_metadata')return {'sensor.qa_grid':{has_sum:true,unit_class:'energy',statistics_unit_of_measurement:'kWh'}};
+  if(req.type==='recorder/statistics_during_period'){const from=Date.parse(req.start_time),to=Date.parse(req.end_time);return {'sensor.qa_grid':Array.from({length:(to-from)/3600000-1},(_,i)=>({start:from+i*3600000,change:1.1}))};}
+  throw Error(req.type);
+ }};card.setConfig({show_support:false,energy_price:2,currency:'EUR'});
+ try{
+  await card._fetchEnergyStats();card._render();const root=card.shadowRoot;
+  assert.equal(card._hasRealData,false,'a partial day does not become a complete total');
+  const summary=root.querySelector('[data-energy-period-summary]');assert.ok(summary,'known source window remains visible for partial data');
+  assert.match(summary.textContent,/5\/6.*zakończonych/);assert.match(summary.textContent,/Europe\/Warsaw/);
+  assert.match(root.querySelector('[data-energy-period-details]').textContent,/2026-03-29T05:00:00\.000Z/);
+  assert.match(root.querySelector('[role="status"]').textContent,/niepełn|brak.*pomiar/i);
+  assert.doesNotMatch(root.querySelector('[role="status"]').textContent,/Nie udało się wczytać/);
+ }finally{card._getTariffHostV3().guard.dispose();dom.window.close();}
+});
