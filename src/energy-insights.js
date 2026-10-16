@@ -1822,6 +1822,10 @@ this._installTariffConsumerV3();
       if (this._insightDeviceState?.raw && this._insightDeviceState.current?.())
         this.shadowRoot.querySelectorAll('[data-insights-device-details]').forEach(el =>
           el.open ? this._insightDeviceDetails.add(el.dataset.insightsDeviceDetails) : this._insightDeviceDetails.delete(el.dataset.insightsDeviceDetails));
+      const periodFormat = createFormatUi();
+      const periodContext = this._getTariffHostV3().guard.snapshot();
+      const periodUi = periodFormat.capturePeriods(this.shadowRoot, this._periodUiContextV4, periodContext);
+      this._periodUiContextV4 = periodContext;
       const focus = this._captureInsightFocusV3();
       this._insightResize?.disconnect();
       this._insightRenderEpoch++;
@@ -1838,6 +1842,7 @@ this._installTariffConsumerV3();
       this._bindTariffSettings();
       this._bindInsightContentV3();
       this._restoreInsightFocusV3(focus);
+      periodFormat.restorePeriods(this.shadowRoot, periodUi);
       // Update tab bar active state
       this.shadowRoot.querySelectorAll('.tab-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.tab === this._activeTab);
@@ -1857,6 +1862,10 @@ this._installTariffConsumerV3();
         this._updateContent();
         return;
       }
+      const periodFormat = createFormatUi();
+      const periodContext = this._getTariffHostV3().guard.snapshot();
+      const periodUi = periodFormat.capturePeriods(this.shadowRoot, this._periodUiContextV4, periodContext);
+      this._periodUiContextV4 = periodContext;
       this.shadowRoot.innerHTML = `
   ${this._getStyles()}
         <div class="panel-root">
@@ -1877,6 +1886,7 @@ this._installTariffConsumerV3();
       this._bindTariffSettings();
       this._bindInsightContentV3();
       this._syncSupport();
+      periodFormat.restorePeriods(this.shadowRoot, periodUi);
     }
 
     _getStyles() {

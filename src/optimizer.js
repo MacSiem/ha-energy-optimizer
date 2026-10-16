@@ -326,6 +326,9 @@ class HaEnergyOptimizer extends HTMLElement {
       const measurementsChanged = !!previousBinding && Object.keys(measurementBinding).some(key => previousBinding[key] !== measurementBinding[key]);
       this._measurementBindingV3 = measurementBinding;
     if (measurementsChanged) {
+      this._currentPowerW = null;
+      this._powerSetupOpenV4 = false;
+      this._powerSetupEntityV4 = null;
       this._energyModel = null;
       this._patternsDataset = null;
       this._patternsState = null;
@@ -1467,6 +1470,10 @@ this._installTariffConsumerV3();
   }
 
   _render() {
+    const periodFormat = createFormatUi();
+    const periodContext = this._getTariffHostV3().guard.snapshot();
+    const periodUi = periodFormat.capturePeriods(this.shadowRoot, this._periodUiContextV4, periodContext);
+    this._periodUiContextV4 = periodContext;
     const powerSetup = this.shadowRoot.querySelector('[data-power-setup]');
     if (powerSetup) this._powerSetupOpenV4 = powerSetup.open;
     const active = this.shadowRoot.activeElement;
@@ -1489,6 +1496,7 @@ this._installTariffConsumerV3();
     else if (focusControl) this.shadowRoot.querySelector(`[data-pattern-control="${focusControl}"]`)?.focus();
     else if (focusTab) this.shadowRoot.querySelector(`[data-tab="${focusTab}"]`)?.focus();
     else if (focusPicker) this.shadowRoot.querySelector('.energy-tab-picker select')?.focus();
+    periodFormat.restorePeriods(this.shadowRoot, periodUi);
   }
 
   _patternsRows() {
@@ -2364,7 +2372,7 @@ canvas {
 
   _powerMarkupV4() {
     const t = (en, pl) => this._text(en, pl);
-    if (this._currentPowerW !== null) return `<div class="power-draw"><div class="power-draw-unit">${t('Current Power Draw', 'Moc chwilowa')}</div><div class="power-draw-value">${createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en').number(this._currentPowerW / 1000, {minimumFractionDigits:2, maximumFractionDigits:2})}</div><div class="power-draw-unit">kW</div></div>`;
+    if (this._currentPowerW !== null && this._hass?.user?.id && this._hass?.connection?.connected !== false) return `<div class="power-draw"><div class="power-draw-unit">${t('Current Power Draw', 'Moc chwilowa')}</div><div class="power-draw-value">${createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en').number(this._currentPowerW / 1000, {minimumFractionDigits:2, maximumFractionDigits:2})}</div><div class="power-draw-unit">kW</div></div>`;
     const sensors = Object.entries(this._hass?.states || {}).filter(([id, state]) => id.startsWith('sensor.') && ['W','kW'].includes(state?.attributes?.unit_of_measurement));
     const selected = sensors.some(([id]) => id === this._powerSetupEntityV4) ? this._powerSetupEntityV4 : '';
     return `<div class="power-setup"><p data-power-status>${this._config.power_entity

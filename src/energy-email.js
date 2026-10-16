@@ -2443,6 +2443,10 @@ this._installTariffConsumerV3();
 
     _render() {
       if (!this._hass) return;
+      const periodFormat = createFormatUi();
+      const periodContext = this._getTariffHostV3().guard.snapshot();
+      const periodUi = periodFormat.capturePeriods(this.shadowRoot, this._periodUiContextV4, periodContext);
+      this._periodUiContextV4 = periodContext;
       this._checkActionFocus();
       const renderToken = this._emailContextVersion;
       const focus = this.shadowRoot.activeElement;
@@ -2723,6 +2727,7 @@ this._installTariffConsumerV3();
         if (!this._actionFocus && target && !target.disabled) { target.focus({ preventScroll: true }); if (selection && target.setSelectionRange) try { target.setSelectionRange(...selection); } catch (_) {} }
       }
       this._restoreActionFocus();
+      periodFormat.restorePeriods(this.shadowRoot, periodUi);
       if (this._hass?.user?.is_admin !== true) {
         const price = this.shadowRoot.getElementById('price-display');
         if (price) { price.style.cursor = 'default'; price.style.borderBottom = 'none'; price.removeAttribute('title'); }
@@ -2823,6 +2828,10 @@ this._installTariffConsumerV3();
       if (!fullRender) this._checkActionFocus();
       const el = this.shadowRoot.getElementById('tab-content');
       if (!el) return;
+      const periodFormat = createFormatUi();
+      const periodContext = this._getTariffHostV3().guard.snapshot();
+      const periodUi = periodFormat.capturePeriods(this.shadowRoot, this._periodUiContextV4, periodContext);
+      this._periodUiContextV4 = periodContext;
       const focused = this.shadowRoot.activeElement, focusId = focused?.id;
       const selection = typeof focused?.selectionStart === 'number' ? [focused.selectionStart,focused.selectionEnd,focused.selectionDirection] : null;
       const legacyFields = this._activeTab === 'schedule' ? [...el.querySelectorAll('input[id],select[id]')]
@@ -2864,6 +2873,7 @@ this._installTariffConsumerV3();
         if (target && !target.disabled && (!outerActive || outerActive === this || outerActive === this.ownerDocument.body)) target.focus({ preventScroll: true });
         this._scheduleSaveFocus = null;
       }
+      periodFormat.restorePeriods(this.shadowRoot, periodUi);
     }
 
     _updateLiveData() {
