@@ -185,7 +185,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC') {
     }
 
     _t(key) {
-      const lang = this._hass?.language || localStorage.getItem('ha-tools-language') || 'en';
+      const lang = String(this._hass?.locale?.language || this._hass?.language || localStorage.getItem('ha-tools-language') || 'en').startsWith('pl') ? 'pl' : 'en';
       const T = HAEnergyInsights._translations;
       return (T[lang] || T['en'])[key] || T['en'][key] || key;
     }
