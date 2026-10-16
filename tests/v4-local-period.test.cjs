@@ -18,7 +18,7 @@ for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email']
   card._render();const root=card.shadowRoot,summary=root.querySelector('[data-energy-period-summary]');assert.ok(summary,'visible local period summary');
   assert.match(summary.textContent,/29 mar/);assert.match(summary.textContent,/07:00/);assert.match(summary.textContent,/Europe\/Warsaw/);assert.doesNotMatch(summary.textContent,/T\d\d:\d\d|\.000Z/);
   assert.match(summary.textContent,type==='ha-energy-email'?/24\/24.*źródłogodzin/:/6\/6.*zakończonych/);
-  assert.match(summary.textContent,type==='ha-energy-email'?/24/:/dziś/i);
+  assert.match(summary.textContent,type==='ha-energy-email'?/24/:/(dziś|dzisiaj)/i);
   const details=root.querySelector('[data-energy-period-details]');assert.ok(details);assert.equal(details.tagName,'DETAILS');assert.ok(details.querySelector('summary'));
   assert.match(details.textContent,/2026-03-29T05:00:00\.000Z/);assert.equal(details.open,false);
   const before=calls.length;details.open=true;assert.equal(calls.length,before,'details never reload source measurements');

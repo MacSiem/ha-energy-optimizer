@@ -59,3 +59,24 @@ test('same-price mixed zones stay multiple while mixed rates stay unavailable',(
   label=f.card.shadowRoot.querySelectorAll('[data-dashboard-row]')[3].querySelector('[data-tariff-zone]');assert.match(label.textContent,/unavailable/i);
  }finally{f.close();}
 });
+test('missing live power is a compact actionable guide with only measured power sensors',()=>{
+ const f=fixture();try{
+  f.card._hass.states={'sensor.meter':{state:'0',attributes:{unit_of_measurement:'W',friendly_name:'Meter <power>'}},'sensor.energy':{state:'4',attributes:{unit_of_measurement:'kWh'}}};
+  f.card._lastStatsFetch=Date.now();f.card._updateEnergyData();f.card._render();const root=f.card.shadowRoot;
+  assert.equal(root.querySelector('.power-draw'),null,'no giant N/A tile');const guide=root.querySelector('[data-power-setup]');assert.ok(guide);assert.match(guide.querySelector('summary').textContent,/Choose sensor/);
+  const select=guide.querySelector('select');assert.ok(select);assert.deepEqual(Array.from(select.options).map(x=>x.value),['','sensor.meter']);
+  select.value='sensor.meter';select.dispatchEvent(new f.dom.window.Event('change',{bubbles:true}));
+  assert.match(guide.querySelector('code').textContent,/power_entity: sensor.meter/);assert.match(guide.textContent,/edit.*card|card.*edit/i);assert.equal(f.card._config.power_entity,undefined,'choosing a snippet does not silently persist card YAML');assert.equal(root.querySelector('power'),null);
+ }finally{f.close();}
+});
+test('a configured unavailable power source is distinguished from no sensor and zero remains measured',()=>{
+ const f=fixture({power_entity:'sensor.meter'});try{
+  f.card._hass.states={'sensor.meter':{state:'unavailable',attributes:{unit_of_measurement:'W'}}};f.card._lastStatsFetch=Date.now();f.card._updateEnergyData();f.card._render();
+  assert.match(f.card.shadowRoot.querySelector('[data-power-status]').textContent,/unavailable/i);
+  f.card._hass.states['sensor.meter'].state='0';f.card._updateEnergyData();f.card._render();
+  assert.equal(f.card._currentPowerW,0);assert.match(f.card.shadowRoot.querySelector('.power-draw').textContent,/0[.,]00/);assert.equal(f.card.shadowRoot.querySelector('[data-power-status]'),null);
+ }finally{f.close();}
+});
+test('maximum consumption interval is labeled independently of tariff peak hours',()=>{
+ const f=fixture();try{const row=f.card.shadowRoot.querySelector('[data-dashboard-peak]');assert.ok(row);assert.match(row.parentElement.textContent,/Highest consumption/);assert.doesNotMatch(row.parentElement.textContent,/Peak Hour/);}finally{f.close();}
+});
