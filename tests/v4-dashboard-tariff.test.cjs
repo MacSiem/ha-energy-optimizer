@@ -12,7 +12,7 @@ function fixture(config={}) {
  card._hass={user:{id:'qa',is_admin:true},connection:{connected:true},language:'en',locale:{language:'en'},config:{time_zone:'UTC',currency:'EUR'},states:{}};
  card.setConfig({show_support:false,peak_rate:1,off_peak_rate:0.5,peak_hours:{start:0,end:8},...config});
  const start=Date.parse('2026-01-01T00:00:00Z'),end=start+10*3600000;
- card._energyModel={ids:['sensor.qa_grid'],zone:'UTC',start,todayStart:start,end,points:new Map(Array.from({length:10},(_,h)=>[start+h*3600000,{kwh:1}]))};
+ card._energyModel={ids:['sensor.qa_grid'],zone:'UTC',start,todayStart:start,end,summary:()=>({total:null}),points:new Map(Array.from({length:10},(_,h)=>[start+h*3600000,{kwh:1}]))};
  card._hasRealData=true;card._todayWindow={start:new Date(start).toISOString(),end:new Date(end).toISOString(),total:10,boundaryComplete:true};
  card._render();
  return {dom,card,charts,close(){card._getTariffHostV3().guard.dispose();dom.window.close();}};
