@@ -247,7 +247,7 @@ class HaEnergyOptimizer extends HTMLElement {
     this._comparisonData = null;
     // --- Real data fields ---
     this._hasRealData = false;
-    this._currentPowerW = 0;
+    this._currentPowerW = null;
     this._statsLoading = false;
     this._lastStatsFetch = 0;
     this._energySensorIds = [];
@@ -465,7 +465,7 @@ class HaEnergyOptimizer extends HTMLElement {
 
   _updateEnergyData() {
     if (!this._hass) return;
-    const configured = this._config.power_entity && this._hass.states[this._config.power_entity];
+    const configured = this._config.power_entity && Object.hasOwn(this._hass.states || {}, this._config.power_entity) ? this._hass.states[this._config.power_entity] : null;
     const unit = configured?.attributes?.unit_of_measurement;
     const value = configured ? Number(configured.state) : NaN;
     this._currentPowerW = Number.isFinite(value) && (unit === 'W' || unit === 'kW') ? value * (unit === 'kW' ? 1000 : 1) : null;
@@ -1466,7 +1466,10 @@ this._installTariffConsumerV3();
   }
 
   _render() {
+    const powerSetup = this.shadowRoot.querySelector('[data-power-setup]');
+    if (powerSetup) this._powerSetupOpenV4 = powerSetup.open;
     const active = this.shadowRoot.activeElement;
+    const focusPower = active?.id === 'power-sensor-guide';
     const focusControl = active?.dataset?.patternControl;
     const focusDashboard = active?.dataset?.dashboardControl;
     const focusTab = active?.dataset?.tab;
@@ -1476,6 +1479,7 @@ this._installTariffConsumerV3();
     this.shadowRoot.innerHTML = this._getStyles() + this._getTemplate();
     bindEnergySupport(this.shadowRoot, 'ha-energy-optimizer', this._hass?.locale?.language || this._hass?.language);
     this._setupEventListeners();
+    if (focusPower) this.shadowRoot.getElementById('power-sensor-guide')?.focus({preventScroll:true});
     this._bindTariffSettings();
     this._renderCurrentTab();
     this._bindPatterns();
@@ -2231,6 +2235,12 @@ canvas {
           border-radius: 2px;
         }
 
+        .power-setup { margin:12px 0; overflow-wrap:anywhere; }
+        .power-setup summary, .power-setup select { min-height:44px; max-width:100%; }
+        .power-setup summary { display:flex; align-items:center; cursor:pointer; color:var(--primary-color); }
+        .power-setup label { display:flex; flex-direction:column; gap:8px; }
+        .power-setup select { font:inherit; color:var(--primary-text-color); background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:10px; padding:8px; }
+        .power-setup pre { white-space:pre-wrap; overflow-wrap:anywhere; }
         .power-draw {
           background: linear-gradient(135deg, var(--primary) 0%, color-mix(in srgb, var(--primary), #000 12%) 100%);
           color: white;
@@ -2350,6 +2360,21 @@ canvas {
     return config;
   }
 
+  _powerMarkupV4() {
+    const t = (en, pl) => this._text(en, pl);
+    if (this._currentPowerW !== null) return `<div class="power-draw"><div class="power-draw-unit">${t('Current Power Draw', 'Moc chwilowa')}</div><div class="power-draw-value">${createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en').number(this._currentPowerW / 1000, {minimumFractionDigits:2, maximumFractionDigits:2})}</div><div class="power-draw-unit">kW</div></div>`;
+    const sensors = Object.entries(this._hass?.states || {}).filter(([id, state]) => id.startsWith('sensor.') && ['W','kW'].includes(state?.attributes?.unit_of_measurement));
+    const selected = sensors.some(([id]) => id === this._powerSetupEntityV4) ? this._powerSetupEntityV4 : '';
+    return `<div class="power-setup"><p data-power-status>${this._config.power_entity
+      ? t('Current power: configured sensor unavailable or has an unsupported unit. Check the sensor (W or kW).', 'Moc chwilowa: pomiar skonfigurowanego czujnika jest niedostępny lub ma nieobsługiwaną jednostkę. Sprawdź czujnik (W lub kW).')
+      : t('Current power: no sensor selected.', 'Moc chwilowa: nie wybrano czujnika.')}</p>
+      <details data-power-setup${this._powerSetupOpenV4 ? ' open' : ''}><summary>${t('Choose sensor', 'Wybierz czujnik')}</summary>
+      <p>${t('Choose a power sensor below. Edit this card, open the code editor and add the selected setting, then save the card. This guide does not save card settings.', 'Wybierz czujnik mocy poniżej. Edytuj tę kartę, otwórz edytor kodu, dodaj wybrane ustawienie i zapisz kartę. Ten poradnik nie zapisuje ustawień karty.')}</p>
+      <label>${t('Power sensor (W or kW)', 'Czujnik mocy (W lub kW)')}<select id="power-sensor-guide"><option value="">${t('Choose…', 'Wybierz…')}</option>${sensors.map(([id,state]) => `<option value="${_esc(id)}"${id === selected ? ' selected' : ''}>${_esc(state.attributes?.friendly_name || id)} (${_esc(id)})</option>`).join('')}</select></label>
+      ${!sensors.length ? `<p>${t('No power sensors in W or kW were found in Home Assistant.', 'Nie znaleziono czujników mocy w W lub kW w Home Assistant.')}</p>` : ''}
+      <pre><code tabindex="0">${_esc(selected ? 'power_entity: ' + selected : t('Select a sensor above.', 'Wybierz czujnik powyżej.'))}</code></pre></details></div>`;
+  }
+
   _getTemplate() {
     const format = createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en', this._energyModel?.zone || this._hass?.config?.time_zone || 'UTC');
     const window = this._todayWindow, selected = window?.selected;
@@ -2358,7 +2383,7 @@ canvas {
       expected: selected?.length, unit: this._text('completed intervals', 'zakończonych przedziałów'),
       details: (this._energySensorIds || []).join(', ') }) : '';
 
-    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>${periodMarkup}<div class="empty-state" role="status">${this._statsLoading ? this._text("Loading Energy Dashboard statistics…", "Ładowanie statystyk panelu Energia…") : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? this._text("No recent Recorder statistics for the configured grid import.", "Brak bieżących statystyk Recorder dla skonfigurowanego importu z sieci.") : this._energyError?.message?.includes('No Energy Dashboard grid import source') ? this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.") : this._energyError ? this._text("Energy statistics could not be loaded.", "Nie udało się wczytać statystyk energii.") : this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.")} <a href="/energy">${this._text("Open Energy Dashboard", "Otwórz panel Energia")}</a></div>${this._energyModel?.points ? `<div id="patterns">${this._patternsMarkup()}</div>` : ''}${this._tariffDetailsMarkup()}${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
+    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>${periodMarkup}${this._powerMarkupV4()}<div class="empty-state" role="status">${this._statsLoading ? this._text("Loading Energy Dashboard statistics…", "Ładowanie statystyk panelu Energia…") : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? this._text("No recent Recorder statistics for the configured grid import.", "Brak bieżących statystyk Recorder dla skonfigurowanego importu z sieci.") : this._energyError?.message?.includes('No Energy Dashboard grid import source') ? this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.") : this._energyError ? this._text("Energy statistics could not be loaded.", "Nie udało się wczytać statystyk energii.") : this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.")} <a href="/energy">${this._text("Open Energy Dashboard", "Otwórz panel Energia")}</a></div>${this._energyModel?.points ? `<div id="patterns">${this._patternsMarkup()}</div>` : ''}${this._tariffDetailsMarkup()}${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
     return `
       <div class="card-container">
         <h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>
@@ -2386,9 +2411,9 @@ canvas {
               <span class="summary-label">${_esc(this._todayTariffCosts().currency || '')} ${this._text('energy only', 'sama energia')}</span>
             </div>
             <div class="summary-card warn">
-              <span class="summary-label">${this._text("Peak Hour", "Godzina szczytu")}</span>
+              <span class="summary-label">${this._text("Highest consumption", "Najwyższe zużycie")}</span>
               ${this._peakHourMarkupV3()}
-              <span class="summary-label">${this._text("Highest consumption", "Największe zużycie")}</span>
+              <span class="summary-label">${this._text("Measured interval", "Zmierzony przedział")}</span>
             </div>
             <div class="summary-card">
               <span class="summary-label">${this._text("Measured hours", "Zmierzone godziny")}</span>
@@ -2397,11 +2422,7 @@ canvas {
             </div>
           </div>
 
-          <div class="power-draw">
-            <div class="power-draw-unit">${this._text("Current Power Draw", "Aktualna moc")}</div>
-            <div class="power-draw-value">${this._currentPowerW === null ? 'N/A' : (this._currentPowerW / 1000).toFixed(2)}</div>
-            <div class="power-draw-unit">kW</div>
-          </div>
+          ${this._powerMarkupV4()}
 
           ${this._dashboardChartMarkupV3()}
         </div>
@@ -2425,6 +2446,12 @@ canvas {
   }
 
   _setupEventListeners() {
+    const powerSetup = this.shadowRoot.querySelector('[data-power-setup]');
+    powerSetup?.addEventListener('toggle', () => { this._powerSetupOpenV4 = powerSetup.open; });
+    powerSetup?.querySelector('select')?.addEventListener('change', event => {
+      this._powerSetupEntityV4 = event.target.value;
+      powerSetup.querySelector('code').textContent = event.target.value ? 'power_entity: ' + event.target.value : this._text('Select a sensor above.', 'Wybierz czujnik powyżej.');
+    });
     const buttons = this.shadowRoot.querySelectorAll('.tab-button');
     buttons.forEach(button => {
       button.addEventListener('click', () => {
