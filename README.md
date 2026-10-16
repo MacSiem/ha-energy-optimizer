@@ -11,7 +11,7 @@ Part of the [HA Tools](https://github.com/MacSiem/ha-tools-panel) collection for
 ## How it works
 
 1. All three cards read the **grid import statistics selected in your Energy Dashboard** using `energy/get_prefs`. They validate Recorder metadata and use the hourly `change` series. Solar production, grid export, power sensors in watts, and unrelated statistics are excluded.
-2. Usage appears only when every configured source has every completed hourly bucket in the selected window. Missing or invalid data produces an explicit empty or error state. No demo numbers are shown.
+2. Complete usage totals require every configured source and completed hourly bucket in the selected window. Insights and the Email overview retain available measured rows and clearly label partial coverage; recorded subsets never become complete totals or prices. Missing or invalid measurements remain gaps. No demo numbers are shown.
 3. Costs use measured hourly import and an explicitly configured tariff. Energy, variable charges and fixed monthly charges are separate; this is not a complete utility bill. The tariff supplies its own currency, clock and gross/net basis. There is no load-shifting slider or hypothetical saving.
 4. Live power is shown only if you set `power_entity`; the card does not sum overlapping power sensors.
 5. Chart.js is bundled in the single HACS JavaScript file. There is no CDN request or extra Lovelace resource.
@@ -25,7 +25,7 @@ once, use any of them:
 |---|---|
 | `custom:ha-energy-optimizer` | Dashboard with hourly Chart/Data, measured Patterns by day/hour, tariff-zone costs and consecutive-week totals. |
 | `custom:ha-energy-insights` | Overview, Daily / Weekly / Monthly Chart/Data and Tips. Device measurements configured in Energy Dashboard are read only on request; parent/submeter relationships and partial coverage stay visible, and device rows are never added to the grid-import total. |
-| `custom:ha-energy-email` | Recorder-backed 24h / 7d / 30d overview and report preview. Sending requires an administrator, complete data, and configured SMTP in HA Tools Email. Actual HTML mail previews and explicit manual calendar sends require **HA Tools Email 2.3.0+**; summary/rolling compatibility supports **2.1.2+**, and calendar schedules and shared tariffs require **2.2.0+**. Legacy direct sending also validates hourly coverage. Local schedule settings are retained but do not run a server schedule. HA Tools Email & Reports 4.5.0+ forwards to this maintained card. |
+| `custom:ha-energy-email` | Recorder-backed 24h / 7d / 30d overview and report preview. Sending requires an administrator and configured SMTP in HA Tools Email. With **HA Tools Email 2.3.1+**, actual emails retain available measurements and show incomplete coverage; a partial report does not claim a complete total or cost. Actual HTML mail previews and explicit manual calendar sends require **HA Tools Email 2.3.0+**; summary/rolling compatibility supports **2.1.2+**, and calendar schedules and shared tariffs require **2.2.0+**. Legacy direct sending also validates hourly coverage. Local schedule settings are retained but do not run a server schedule. HA Tools Email & Reports 4.5.0+ forwards to this maintained card. |
 
 ### What is automatic vs. manual
 
@@ -43,6 +43,8 @@ Optimizer and Insights “Today” cover completed hourly buckets since local mi
 Accepted measurements are cleared when the HA connection, user or measurement timezone changes, and when the card loses its HA context. A new context cannot display the preceding session’s cached grid or email totals while its own measurements are pending. Language and theme changes retain the current measurements.
 
 If local midnight falls inside an hourly Recorder aggregate (for example in a half-hour or quarter-hour timezone), the complete Today total and cost stay unavailable. The measured subset, timezone and exact interval remain visible; original hourly measurements are retained in Chart/Data without dividing a bucket. Rolling 24h / 168h / 720h reports keep their exact completed-hour windows.
+
+The Email overview keeps valid sources when another source is missing or has incomplete history. Each row shows measured hours, while the recorded subtotal describes only those measurements. A failed refresh hides the older ranking instead of presenting stale values as the current period. A fully measured zero remains zero; an unknown tariff still leaves its price unavailable.
 
 Wh, kWh and MWh are normalized to kWh. Missing sources, hours, duplicate timestamps, negative changes and unsupported metadata cannot produce a complete total. Future hours remain blank. Cost requires a configured tariff; there is no assumed electricity price.
 

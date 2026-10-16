@@ -1,5 +1,11 @@
 # Changelog — Energy Optimizer
 
+## 3.6.2 (2026-10-16)
+
+- Retain available measured rows in the Energy Email overview when another configured grid source has missing or unsupported Recorder data. Show recorded subtotals and measured source-hour coverage while leaving incomplete full-period totals and costs unavailable.
+- Replace an older complete ranking with the new partial result, and hide stale rankings after failed reads. Exclude conflicting duplicate hourly buckets; preserve complete measured zero without inventing a tariff price.
+- Clarify the difference between the local rolling overview and the shared mail composer. HA Tools Email 2.3.1+ preserves partial measurements in actual HTML and plain-text reports for both mail consumers.
+
 ## 3.6.1 (2026-10-16)
 
 - Show the settled first-read status in Energy Email even when Recorder data is partial, no grid-import source is configured, or the read fails. A quiet Home Assistant no longer needs another state update or a period click to replace the initial empty state. Keep the session guard and do not retry stale reads.
