@@ -106,38 +106,37 @@ confirm inbox delivery; an occupied send is never automatically retried.
 
 ## Screenshots
 
-These are unedited captures from Home Assistant with controlled synthetic
-Recorder statistics and sample tariffs (CHF in the earlier chart captures, PLN
-in the current partial Email overview). They contain no household data or
-real email recipients. The interface follows the Home Assistant light/dark theme.
+These are unedited native Chrome captures with controlled synthetic Recorder
+statistics and a sample EUR tariff. They contain no household data or real
+recipients. The interface follows the Home Assistant light/dark theme.
 
 | Energy Optimizer dashboard | Exact measured values |
 |---|---|
-| ![Optimizer dashboard in dark mode: 46 kWh across 23 completed hours](docs/screenshots/optimizer-dashboard-dark.jpg) | ![Patterns Data view with UTC windows, tariff costs and coverage](docs/screenshots/optimizer-patterns-data-dark.jpg) |
+| ![Optimizer dashboard in dark mode: 81.60 kWh across 22 completed hours](docs/screenshots/optimizer-dashboard-dark.jpg) | ![Patterns Data view with local dates, exact UTC details, tariff costs and coverage](docs/screenshots/optimizer-patterns-data-dark.jpg) |
 
 | Insights, light | Insights, dark |
 |---|---|
-| ![Insights overview in light mode](docs/screenshots/insights-overview-light.jpg) | ![Insights overview in dark mode](docs/screenshots/insights-overview-dark.jpg) |
+| ![Insights overview in light mode with local periods and partial weekly coverage](docs/screenshots/insights-overview-light.jpg) | ![Insights overview in dark mode with the same measured periods](docs/screenshots/insights-overview-dark.jpg) |
 
-| Daily measured chart | Actual calendar mail preview |
+| Daily measured chart | Earlier actual calendar mail preview |
 |---|---|
-| ![Daily chart with measured point details and tariff costs](docs/screenshots/insights-daily-chart-light.jpg) | ![Actual backend HTML preview for the previous completed day; no email sent](docs/screenshots/email-actual-calendar-preview-light.jpg) |
+| ![Daily chart with friendly local point labels and a measured zero](docs/screenshots/insights-daily-chart-light.jpg) | ![Unchanged backend HTML preview for an earlier previous completed day; no email sent](docs/screenshots/email-actual-calendar-preview-light.jpg) |
 
 | Email overview, light | Email overview, dark |
 |---|---|
-| ![Partial Email overview in light mode: 88 kWh measured, 40/48 source-hours](docs/screenshots/email-overview-light.jpg) | ![Partial Email overview in dark mode: 88 kWh measured, full-period cost unavailable](docs/screenshots/email-overview-dark.jpg) |
+| ![Email overview in light mode: 90.6 kWh across 48 of 48 source-hours](docs/screenshots/email-overview-light.jpg) | ![Email overview in dark mode with the same rolling period and sources](docs/screenshots/email-overview-dark.jpg) |
 
-The captures use different explicitly displayed windows: the Optimizer shows
-23 completed hours of the current day (46 kWh), the earlier Insights capture
-22 hours (44 kWh), and the current Email overview a rolling 24 hours with
-88 kWh recorded across 40/48 configured source-hours. Its measured source rows
-remain visible while the incomplete full-period total and cost stay unavailable.
-The actual mail preview
-shows the previous completed calendar day. Energy charges, variable fees and
-fixed monthly fees remain separate. Actual HTML previews require HA Tools Email
-Integration 2.3.0 or newer; the report continues below the visible preview area.
-[Capture provenance](docs/screenshots/provenance.json) records the source versions
-and the view scope used by these images.
+The current Optimizer and Insights captures show 81.60 kWh across 22 completed
+intervals in the UTC measurement calendar, displayed in Europe/Warsaw. Their
+incomplete weekly and monthly windows keep totals unavailable. Email shows a
+rolling 24 completed hours: Alpha 60.4 kWh plus Beta 30.2 kWh, 90.6 kWh across 48 of 48
+configured source-hours. These windows differ deliberately. The earlier actual
+mail preview retains its original previous-calendar-day example; that backend
+preview mechanism is unchanged. Energy charges, variable fees and fixed monthly
+fees stay separate. Actual HTML previews require HA Tools Email Integration 2.3.0
+or newer; the full report is scrollable. No message was sent for these captures.
+[Capture provenance](docs/screenshots/provenance.json) records exact source
+versions, image hashes and the scope of the one reused historical preview.
 
 ## Installation
 
