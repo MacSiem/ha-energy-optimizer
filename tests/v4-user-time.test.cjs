@@ -22,8 +22,7 @@ test('repeated local DST hours retain distinguishable point labels and absolute 
 function fixture(){
  const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'}),charts=[];
  dom.window.captureChart=cfg=>charts.push(cfg);dom.window.HTMLCanvasElement.prototype.getContext=()=>({});
- dom.window.eval(readFileSync('src/optimizer.js','utf8')+'\nconst HA_ENERGY_CHART=class{constructor(ctx,cfg){window.captureChart(cfg)}destroy(){}};');
- dom.window.eval(readFileSync('src/energy-insights.js','utf8'));
+ dom.window.eval(readFileSync('src/optimizer.js','utf8')+readFileSync('src/energy-insights.js','utf8')+'\nconst HA_ENERGY_CHART=class{constructor(ctx,cfg){window.captureChart(cfg)}destroy(){}};');
  const card=dom.window.document.createElement('ha-energy-optimizer');card._schedule=()=>{};card._hass=hass();card.setConfig({show_support:false,energy_price:2,currency:'EUR'});
  card._energyModel={ids:['sensor.qa_grid'],zone:'Europe/Warsaw',start:stamp,todayStart:stamp,end:stamp+2*H,summary:()=>({total:2}),points:new Map([[stamp,{kwh:1}],[stamp+H,{kwh:1}]])};
  card._todayWindow={start:new Date(stamp).toISOString(),end:new Date(stamp+2*H).toISOString(),total:2,boundaryComplete:true};card._hasRealData=true;card._loadChartJS=async()=>{};card._render();
