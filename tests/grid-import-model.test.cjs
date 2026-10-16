@@ -131,7 +131,9 @@ test('misaligned grid source hours fail closed instead of undercounting', async 
   try {
     await card._fetchEnergyStats();
     assert.equal(card._hasRealData, false);
-    assert.match(card._getTemplate(), /statistics could not be loaded/);
+    assert.match(card._getTemplate(), /Some completed hours have no measurement/);
+    assert.match(card._getTemplate(), /period total is unavailable/);
+    assert.doesNotMatch(card._getTemplate(), /statistics could not be loaded/);
   } finally { dom.window.close(); }
 });
 
@@ -147,7 +149,9 @@ test('interior missing Recorder hour cannot produce a complete daily model', asy
   try {
     await card._fetchEnergyStats();
     assert.equal(card._hasRealData, false);
-    assert.match(card._getTemplate(), /statistics could not be loaded/);
+    assert.match(card._getTemplate(), /Some completed hours have no measurement/);
+    assert.match(card._getTemplate(), /period total is unavailable/);
+    assert.doesNotMatch(card._getTemplate(), /statistics could not be loaded/);
   } finally { dom.window.close(); }
 });
 

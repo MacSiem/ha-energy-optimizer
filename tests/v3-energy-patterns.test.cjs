@@ -162,7 +162,9 @@ test('a partial loaded Recorder model remains visible without claiming a complet
     await card._fetchEnergyStats();
     assert.equal(card._hasRealData, false);
     assert.ok(card._energyModel.points);
-    assert.match(card._getTemplate(), /statistics could not be loaded/);
+    assert.match(card._getTemplate(), /Some completed hours have no measurement/);
+    assert.match(card._getTemplate(), /period total is unavailable/);
+    assert.doesNotMatch(card._getTemplate(), /statistics could not be loaded/);
     assert.ok(card.shadowRoot.querySelector('#patterns'));
     assert.equal(card._patternsDataset.hours.find(r => r.from === Date.parse('2026-10-12T11:00:00Z')).kwh, 2);
     assert.equal(card._patternsDataset.days.at(-1).kwh, null);
