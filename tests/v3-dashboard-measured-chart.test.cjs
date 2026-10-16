@@ -14,7 +14,7 @@ async function fixture(now='2026-10-25T05:00:00Z', zone='Europe/Warsaw') {
   dom.window.eval(source+'\nconst HA_ENERGY_CHART=class{constructor(ctx,config){window.captureChart(ctx,config)}destroy(){}};');
   const card=dom.window.document.createElement('ha-energy-optimizer');card._schedule=()=>{};
   const calls=[];
-  card._hass={user:{id:'synthetic',is_admin:true},connection:{connected:true},language:'en',locale:{language:'en'},config:{time_zone:zone,currency:'EUR'},states:{},callWS:async m=>{
+  card._hass={user:{id:'synthetic',is_admin:true},connection:{connected:true},language:'en',locale:{language:'en',time_zone:'server',time_format:'24'},config:{time_zone:zone,currency:'EUR'},states:{},callWS:async m=>{
     calls.push(m);if(m.type==='energy/get_prefs')return {energy_sources:[{type:'grid',stat_energy_from:'sensor.synthetic_grid'}]};
     if(m.type==='recorder/get_statistics_metadata')return {'sensor.synthetic_grid':{has_sum:true,unit_class:'energy',statistics_unit_of_measurement:'kWh'}};
     if(m.type==='recorder/statistics_during_period'){const start=Date.parse(m.start_time);return {'sensor.synthetic_grid':Array.from({length:(end-start)/H},(_,i)=>({start:start+i*H,change:i%3===0?0:1}))};}
@@ -34,7 +34,7 @@ test('Dashboard Chart/Data preserves separate repeated DST hours and exact zero 
     const rows=[...f.card.shadowRoot.querySelectorAll('[data-dashboard-row]')];
     assert.equal(rows.length,7);assert.equal(new Set(rows.map(n=>n.dataset.dashboardRow)).size,7);
     assert.deepEqual(rows.map(n=>Number(n.dataset.kwh)),values);assert.ok(values.includes(0));
-    assert.match(rows[2].textContent,/GMT\+02:00/);assert.match(rows[3].textContent,/GMT\+01:00/);
+    assert.match(rows[2].textContent,/GMT\+(?:02:00|2)(?!\d)/);assert.match(rows[3].textContent,/GMT\+(?:01:00|1)(?!\d)/);
     click(f,'chart');assert.equal(f.calls.length,before,'presentation changes never fetch measurements');
   }finally{f.close();}
 });
@@ -73,7 +73,7 @@ test('peak hour uses one absolute bucket rather than the sum of repeated local h
     // The legacy wall-clock aggregate falsely makes 02:00 the sole maximum (2 kWh).
     assert.equal(f.card._getPeakHour(),0,'first maximum actual interval is local midnight');
     const peak=f.card.shadowRoot.querySelector('[data-dashboard-peak]');assert.ok(peak);
-    assert.match(peak.textContent,/00:00/);assert.match(peak.textContent,/GMT\+02:00/);
+    assert.match(peak.textContent,/00:00/);assert.match(peak.textContent,/GMT\+(?:02:00|2)(?!\d)/);
     assert.equal(peak.dataset.kwh,'1');
   }finally{f.close();}
 });

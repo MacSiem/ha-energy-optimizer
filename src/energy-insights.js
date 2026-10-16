@@ -1736,7 +1736,8 @@ this._installTariffConsumerV3();
       });
       flush();
       const grid = [low, (low + upper) / 2, upper].map(value => `<line x1="${left}" x2="${right}" y1="${y(value)}" y2="${y(value)}" stroke="var(--bento-border)"/><text x="${left-6}" y="${y(value)+4}" text-anchor="end">${_esc(new Intl.NumberFormat(this._lang, { maximumSignificantDigits: 3 }).format(value))}</text>`).join('');
-      const axes = [0, Math.floor((rows.length-1)/2), rows.length-1].filter((i, index, all) => i >= 0 && all.indexOf(i) === index).map(i => `<text x="${x(i)}" y="242" text-anchor="middle">${_esc(state.resolution === 'hour' ? createFormatUi.forHass(this._hass).clock(rows[i].from) : createFormatUi.forHass(this._hass).date(rows[i].from, true))}</text>`).join('');
+      const labels = createFormatUi.forHass(this._hass).chartLabels(rows.map(row => row.from), state.resolution);
+      const axes = [0, Math.floor((rows.length-1)/2), rows.length-1].filter((i, index, all) => i >= 0 && all.indexOf(i) === index).map(i => `<text x="${x(i)}" y="242" text-anchor="middle">${_esc(labels[i])}</text>`).join('');
       return `<svg data-insights-chart data-unit="${_esc(unit)}" viewBox="0 0 ${w} 262" width="100%" height="262" role="img" aria-label="${_esc(metricLabel)} · ${_esc(unit)}; ${this._insightTextV3('use point controls below for exact values', 'dokładne wartości w wyborze punktu poniżej')}"><text x="${left}" y="18">${_esc(unit)}</text>${grid}${marks}${axes}</svg>`;
     }
     _renderInsightChartV3(period) {

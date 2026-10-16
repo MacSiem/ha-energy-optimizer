@@ -1641,7 +1641,8 @@ this._installTariffConsumerV3();
     const ticks = [low, (low + upper) / 2, upper];
     const grid = ticks.map(v => `<line x1="${left}" x2="${right}" y1="${y(v)}" y2="${y(v)}" stroke="var(--bento-border)"/><text x="${left-8}" y="${y(v)+5}" text-anchor="end">${_esc(Number(v.toPrecision(4)))}</text>`).join('');
     const format = createFormatUi.forHass(this._hass);
-    const label = i => state.resolution === 'hour' ? format.clock(rows[i].from) : format.date(rows[i].from, true);
+    const labels = format.chartLabels(rows.map(row => row.from), state.resolution);
+    const label = i => labels[i];
     const axis = rows.length ? [0, Math.floor((rows.length-1)/2), rows.length-1].filter((v,i,a) => a.indexOf(v) === i).map(i => `<text x="${x(i)}" y="220" text-anchor="middle">${_esc(label(i))}</text>`).join('') : '';
     return `<svg data-pattern-chart data-unit="${_esc(unit)}" viewBox="0 0 ${w} ${h}" width="100%" height="250" role="img" aria-label="${_esc(this._text('Measured series; choose a row below for details', 'Seria pomiarowa; wybierz poniżej wiersz ze szczegółami'))}">
       <text x="${left}" y="17">${_esc(unit)}</text>${grid}${marks}${axis}${!known.length ? `<text x="${(left+right)/2}" y="110" text-anchor="middle">${this._text('No data', 'Brak danych')}</text>` : ''}</svg>`;
@@ -2681,7 +2682,7 @@ canvas {
       const ctx = canvas.getContext('2d');
       const rows = this._dashboardRowsV3();
       const format = createFormatUi.forHass(this._hass);
-      const labels = rows.map(row => format.clock(row.from));
+      const labels = format.chartLabels(rows.map(row => row.from));
       const data = rows.map(row => row.kwh);
 
       const chartConfig = {
