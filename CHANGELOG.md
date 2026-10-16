@@ -2,6 +2,7 @@
 
 ## 3.6.2 (2026-10-16)
 
+- Reject unsupported Recorder units in all three cards, including names inherited from JavaScript objects. Such sources cannot produce NaN measurements or a falsely complete Email overview.
 - Document migration from archived standalone Energy Insights 1.0.2, including its history-read false-zero limitation, resource load order and measured-source/coverage checks. The archived release itself is unchanged.
 - Retain available measured rows in the Energy Email overview when another configured grid source has missing or unsupported Recorder data. Show recorded subtotals and measured source-hour coverage while leaving incomplete full-period totals and costs unavailable.
 - Replace an older complete ranking with the new partial result, and hide stale rankings after failed reads. Exclude conflicting duplicate hourly buckets; preserve complete measured zero without inventing a tariff price.

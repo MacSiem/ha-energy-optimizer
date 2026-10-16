@@ -20,7 +20,7 @@ const bindEnergySupport = (root, key, language) => {
 
 // Recorder WS uses milliseconds; older captures may use seconds or ISO strings.
 const energyTimestamp = value => typeof value === 'number' ? (value > 1e11 ? value : value * 1000) : typeof value === 'string' ? Date.parse(value) : NaN;
-const energyFactor = unit => ({ Wh: 0.001, kWh: 1, MWh: 1000 })[unit];
+const energyFactor = unit => { const factors = { Wh: 0.001, kWh: 1, MWh: 1000 }; return Object.hasOwn(factors, unit) ? factors[unit] : undefined; };
 const energyImportIds = prefs => [...new Set((prefs?.energy_sources || [])
   .filter(source => source?.type === 'grid')
   .flatMap(source => source.stat_energy_from ? [source.stat_energy_from] : (source.flow_from || []).map(flow => flow?.stat_energy_from).filter(Boolean)))];

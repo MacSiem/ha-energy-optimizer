@@ -46,7 +46,7 @@ If local midnight falls inside an hourly Recorder aggregate (for example in a ha
 
 The Email overview keeps valid sources when another source is missing or has incomplete history. Each row shows measured hours, while the recorded subtotal describes only those measurements. A failed refresh hides the older ranking instead of presenting stale values as the current period. A fully measured zero remains zero; an unknown tariff still leaves its price unavailable.
 
-Wh, kWh and MWh are normalized to kWh. Missing sources, hours, duplicate timestamps, negative changes and unsupported metadata cannot produce a complete total. Future hours remain blank. Cost requires a configured tariff; there is no assumed electricity price.
+Wh, kWh and MWh are normalized to kWh. Unsupported units remain unavailable in all three cards. Missing sources, hours, duplicate timestamps, negative changes and unsupported metadata cannot produce a complete total. Future hours remain blank. Cost requires a configured tariff; there is no assumed electricity price.
 
 Opening Energy Email only reads data and existing settings. It never creates helpers or automations. Explicit administrator saves use existing input_text helpers when available and browser storage otherwise. Ordinary users can read energy data; email configuration, scheduling and sending are reserved for administrators. With HA Tools Email 2.2.0+, all three cards can read the same server tariff. Administrator saves require confirmed backend readback; household users may read the profile. Card YAML tariffs remain available without the backend. A shared tariff that cannot be confirmed withholds costs rather than substituting another price.
 
