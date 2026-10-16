@@ -1868,7 +1868,7 @@ this._installTariffConsumerV3();
     }
 
     _fmt(v, decimals = 2) {
-      return this._float(v).toFixed(decimals);
+      return createFormatUi(this._hass?.locale?.language || this._hass?.language || this._lang || 'en').number(this._float(v), {minimumFractionDigits:decimals, maximumFractionDigits:decimals});
     }
 
     // --- auto-discovery ---
@@ -2977,7 +2977,7 @@ this._installTariffConsumerV3();
           <div class="stat">
             <div class="stat-value" style="color:#10B981">${displayData.length > 0 ? _esc(displayData[0].name.split(' ').slice(0,2).join(' ')) : '-'}</div>
             <div class="stat-label">${L ? 'Największy import' : 'Largest Import'}</div>
-            <div class="stat-sub">${displayData.length > 0 ? displayData[0].month.toFixed(1) + ' kWh' : ''}</div>
+            <div class="stat-sub">${displayData.length > 0 ? this._fmt(displayData[0].month, 1) + ' kWh' : ''}</div>
           </div>
         </div>
         <div class="section-title">\u26A1 ${L ? 'Import według źródła' : 'Import by Source'}</div>
@@ -2989,12 +2989,12 @@ this._installTariffConsumerV3();
           const rows = pageData.map(d => {
             const pct = maxVal > 0 ? (d.month / maxVal * 100) : 0;
             const diff = d.month - d.lastMonth;
-            const diffStr = d.lastMonth > 0 && diff !== 0 ? `<span class="${diff > 0 ? 'trend-up' : 'trend-down'}">${diff > 0 ? '+' : ''}${diff.toFixed(1)} kWh</span>` : '';
+            const diffStr = d.lastMonth > 0 && diff !== 0 ? `<span class="${diff > 0 ? 'trend-up' : 'trend-down'}">${diff > 0 ? '+' : ''}${this._fmt(diff, 1)} kWh</span>` : '';
             const entityInfo = d.entity_id ? `<span style="font-size:10px;color:var(--bento-text-muted)" title="${_esc(d.entity_id)}">${_esc((d.entity_id.split('.')[1] || d.entity_id).substring(0,20))}</span>` : '';
             return `<div class="device-row" title="${_esc(d.entity_id || d.name)}">
               <div class="device-name">${_esc(d.name)} ${entityInfo}${Number.isFinite(d.measuredHours) ? `<div class="helper">${d.measuredHours}/${d.expectedHours} ${L ? 'zmierzonych godzin' : 'measured hours'}</div>` : ''}</div>
               <div class="device-bar-wrap"><div class="device-bar" style="width:${pct}%"></div></div>
-              <div class="device-val">${d.month.toFixed(1)} kWh</div>
+              <div class="device-val">${this._fmt(d.month, 1)} kWh</div>
               <div style="font-size:11px;color:var(--bento-text-secondary);min-width:60px;text-align:right">${diffStr}</div>
             </div>`;
           }).join('');
@@ -3045,7 +3045,7 @@ this._installTariffConsumerV3();
         <p>${tr('Nowy harmonogram jest wyłączony. Zapis włączonego harmonogramu uruchamia przyszłe wysyłki.','A new schedule is disabled. Saving an enabled schedule activates future deliveries.')}</p>
         <div class="server-schedule-actions"><button id="schedule-save" type="button" ${editable ? '' : 'disabled'}>${tr('Zapisz','Save')}</button><button id="schedule-cancel" type="button">${tr('Anuluj','Cancel')}</button>
         <button id="schedule-preview" type="button" ${m.previewing || m.writing || !this._serverSchedules.online() ? 'disabled' : ''}>${tr('Podgląd okresu (tylko odczyt)','Preview period (readonly)')}</button></div></fieldset>` : '';
-      const p = m.preview, number = value => value === null ? tr('Brak danych','No data') : Number(value).toFixed(2);
+      const p = m.preview, number = value => value === null ? tr('Brak danych','No data') : this._fmt(value, 2);
       const basis = p?.priceBasis === 'gross' ? tr('brutto','gross') : p?.priceBasis === 'net' ? tr('netto','net') : tr('nieznana','unknown');
       const preview = p?.html !== undefined ? status(m.previewStatus) + this._renderMailFrame(p, 'schedule-mail-frame') : p ? `<section class="schedule-preview"><h4>${tr('Podgląd kalendarza energii','Energy calendar preview')}</h4>${status(m.previewStatus)}
         <p>${tr('Poprzedni zakończony okres kalendarzowy; koniec przedziału jest wyłączny.','Previous completed calendar period; the end is exclusive.')}</p>
@@ -3287,10 +3287,10 @@ this._installTariffConsumerV3();
             <div style="overflow-wrap:anywhere">${_esc(data.period?.start || '—')} → ${_esc(data.period?.end || '—')}</div>
             <div>${L ? 'Ukończone godziny Recorder; ten sam model co wysyłka i harmonogram.' : 'Completed Recorder hours; same model as sending and schedules.'}</div>
             ${ready ? '' : `<div role="status">${message}</div>`}
-            <div>${ready ? data.total_kwh.toFixed(1) : 'N/A'} kWh · ${this._formatCost(data.total_cost)} ${_esc(this._tariffCurrency())}</div>
+            <div>${ready ? this._fmt(data.total_kwh, 1) : 'N/A'} kWh · ${this._formatCost(data.total_cost)} ${_esc(this._tariffCurrency())}</div>
             ${data.total_cost === null ? `<div>${L ? 'Taryfa nieskonfigurowana' : 'Tariff not configured'}</div>` : ''}
             <table class="preview-table"><thead><tr><th>${L ? 'Źródło' : 'Source'}</th><th>kWh</th><th>${L ? 'Koszt' : 'Cost'}</th></tr></thead>
-            <tbody>${rows.map(row => `<tr><td>${_esc(row.name)}</td><td>${typeof row.kwh === 'number' && Number.isFinite(row.kwh) ? row.kwh.toFixed(2) : 'N/A'}</td><td>${this._formatCost(row.cost)}</td></tr>`).join('')}</tbody></table>
+            <tbody>${rows.map(row => `<tr><td>${_esc(row.name)}</td><td>${typeof row.kwh === 'number' && Number.isFinite(row.kwh) ? this._fmt(row.kwh, 2) : 'N/A'}</td><td>${this._formatCost(row.cost)}</td></tr>`).join('')}</tbody></table>
           </div>`;
         }).join('');
     }
@@ -3400,12 +3400,12 @@ this._installTariffConsumerV3();
           ${periodNote}
           <div style="font-size:12px;color:var(--bento-text-secondary);margin-bottom:10px">\u{1F4E7} ${_esc(recipientLine)} \u00A0\u2022\u00A0 ${range} \u00A0\u2022\u00A0 ${devData.length} ${L ? 'źródeł' : 'sources'}</div>
           <div style="display:flex;gap:16px;margin-bottom:10px;flex-wrap:wrap">
-            <div><span style="font-size:18px;font-weight:700;color:#F59E0B">${totalEnergy === null ? 'N/A' : totalEnergy.toFixed(1)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">kWh</span></div>
+            <div><span style="font-size:18px;font-weight:700;color:#F59E0B">${totalEnergy === null ? 'N/A' : this._fmt(totalEnergy, 1)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">kWh</span></div>
             <div><span style="font-size:18px;font-weight:700;color:#3B82F6">${this._formatCost(totalCost)}</span> <span style="font-size:11px;color:var(--bento-text-secondary)">${_esc(this._tariffCurrency())}</span></div>
           </div>
           <table class="preview-table">
             <thead><tr><th>${L ? 'Źródło importu' : 'Import source'}</th><th>kWh</th><th>${L ? 'Koszt' : 'Cost'} (${_esc(this._tariffCurrency())})</th></tr></thead>
-            <tbody>${top5.map(d => `<tr><td>${_esc(d.name)}</td><td>${d.current === null ? 'N/A' : d.current.toFixed(2)}</td><td>${this._formatCost(d.cost)}</td></tr>`).join('')}
+            <tbody>${top5.map(d => `<tr><td>${_esc(d.name)}</td><td>${d.current === null ? 'N/A' : this._fmt(d.current, 2)}</td><td>${this._formatCost(d.cost)}</td></tr>`).join('')}
             ${devData.length > 5 ? `<tr><td colspan="3" style="text-align:center;color:var(--bento-text-secondary);font-size:11px">+ ${devData.length - 5} ${L ? 'więcej źródeł' : 'more sources'}...</td></tr>` : ''}</tbody>
           </table>
         </div>`;
@@ -3826,9 +3826,9 @@ this._installTariffConsumerV3();
         // Build HTML email
         const typeName = { daily: L ? 'Dzienny' : 'Daily', weekly: L ? 'Tygodniowy' : 'Weekly', monthly: L ? 'Miesi\u0119czny' : 'Monthly', quick: L ? 'Podsumowanie' : 'Summary' }[type] || type;
         const deviceRows = devices.map((d, i) => {
-          const kwh = (d.month || 0).toFixed(2);
+          const kwh = this._fmt(d.month || 0, 2);
           const cost = this._formatCost(d.cost ?? this._cost(d.month));
-          const pct = totalKwh > 0 ? ((d.month / totalKwh) * 100).toFixed(0) : 0;
+          const pct = totalKwh > 0 ? this._fmt((d.month / totalKwh) * 100, 0) : 0;
           const bg = i % 2 === 0 ? '#f8fafc' : '#ffffff';
           return `<tr style="background:${bg}"><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;font-size:14px">${_esc(d.name)}</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:600">${kwh}</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:right">${cost}</td><td style="padding:10px 14px;border-bottom:1px solid #e2e8f0;text-align:right;color:#64748b">${pct}%</td></tr>`;
         }).join('');
@@ -3840,7 +3840,7 @@ this._installTariffConsumerV3();
           <div style="padding:20px 28px">
             <div style="display:flex;gap:16px;margin-bottom:20px">
               <div style="flex:1;background:#fef3c7;border-radius:10px;padding:16px;text-align:center">
-                <div style="font-size:28px;font-weight:700;color:#d97706">${totalKwh.toFixed(1)}</div>
+                <div style="font-size:28px;font-weight:700;color:#d97706">${this._fmt(totalKwh, 1)}</div>
                 <div style="font-size:12px;color:#92400e;margin-top:2px">kWh</div>
               </div>
               <div style="flex:1;background:#dbeafe;border-radius:10px;padding:16px;text-align:center">
@@ -3849,7 +3849,7 @@ this._installTariffConsumerV3();
               </div>
               <div style="flex:1;background:#d1fae5;border-radius:10px;padding:16px;text-align:center">
                 <div style="font-size:16px;font-weight:700;color:#047857">${topDevice ? _esc(topDevice.name.split(' ').slice(0,2).join(' ')) : '-'}</div>
-                <div style="font-size:12px;color:#065f46;margin-top:2px">${L ? 'Top' : 'Top'}: ${topDevice ? topDevice.month.toFixed(1) : 0} kWh</div>
+                <div style="font-size:12px;color:#065f46;margin-top:2px">${L ? 'Top' : 'Top'}: ${topDevice ? this._fmt(topDevice.month, 1) : 0} kWh</div>
               </div>
             </div>
             <table style="width:100%;border-collapse:collapse;border-radius:8px;overflow:hidden;border:1px solid #e2e8f0">
@@ -3862,7 +3862,7 @@ this._installTariffConsumerV3();
               <tbody>${deviceRows}
               <tr style="background:#f1f5f9;font-weight:700">
                 <td style="padding:12px 14px;font-size:14px">${L ? '\u0141\u0105cznie' : 'Total'}</td>
-                <td style="padding:12px 14px;text-align:right">${totalKwh.toFixed(2)}</td>
+                <td style="padding:12px 14px;text-align:right">${this._fmt(totalKwh, 2)}</td>
                 <td style="padding:12px 14px;text-align:right">${this._formatCost(totalCost)}</td>
                 <td style="padding:12px 14px;text-align:right">100%</td>
               </tr></tbody>
@@ -3871,7 +3871,7 @@ this._installTariffConsumerV3();
           </div>
         </div>`;
         const title = `\u26A1 ${typeName} ${L ? 'raport energii' : 'Energy Report'} \u2013 ${dateStr}`;
-        const plainText = `${typeName} ${L ? 'raport energii' : 'Energy Report'} - ${dateStr}\n${windowText}\n${L ? '\u0141\u0105cznie' : 'Total'}: ${totalKwh.toFixed(2)} kWh / ${this._formatCost(totalCost)} ${currency}\n${devices.map(d => `${d.name}: ${(d.month||0).toFixed(2)} kWh`).join('\n')}`;
+        const plainText = `${typeName} ${L ? 'raport energii' : 'Energy Report'} - ${dateStr}\n${windowText}\n${L ? '\u0141\u0105cznie' : 'Total'}: ${this._fmt(totalKwh, 2)} kWh / ${this._formatCost(totalCost)} ${currency}\n${devices.map(d => `${d.name}: ${this._fmt(d.month || 0, 2)} kWh`).join('\n')}`;
         // Built-in SMTP via ha_tools_email
         if (!this._emailContextCurrent(token)) return;
         dispatched = true;
