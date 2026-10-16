@@ -1,7 +1,9 @@
 'use strict';
 const {test}=require('node:test');const assert=require('node:assert/strict');const {readFileSync}=require('node:fs');const {JSDOM}=require('jsdom');
 const code=['src/optimizer.js','src/energy-insights.js','src/energy-email.js','src/chart-vendor.js'].map(p=>readFileSync(p,'utf8')).join('');
-async function fixture(type, clock){
+// Normal race cases need the full navigation UI, which requires completed
+// Today hours. Dedicated clock cases below also qualify the midnight model.
+async function fixture(type, clock='2026-10-16T12:30:00Z'){
  const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});
  if(clock){const NativeDate=dom.window.Date;const stamp=Date.parse(clock);dom.window.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[stamp]));}static now(){return stamp;}};}
  dom.window.eval(code);
