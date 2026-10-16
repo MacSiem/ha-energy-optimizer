@@ -2260,7 +2260,7 @@ canvas {
 
         .power-setup { margin:12px 0; overflow-wrap:anywhere; }
         .power-setup summary, .power-setup select { min-height:44px; max-width:100%; }
-        .power-setup summary { display:flex; align-items:center; cursor:pointer; color:var(--primary-color); }
+        .power-setup summary { display:list-item; list-style-position:inside; box-sizing:border-box; padding:12px 0; cursor:pointer; color:var(--primary-color); }
         .power-setup label { display:flex; flex-direction:column; gap:8px; }
         .power-setup select { font:inherit; color:var(--primary-text-color); background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:10px; padding:8px; }
         .power-setup pre { white-space:pre-wrap; overflow-wrap:anywhere; }
