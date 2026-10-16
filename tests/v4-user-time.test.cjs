@@ -38,7 +38,7 @@ test('Dashboard axis is short local time; tooltip and Data use the same friendly
 });
 test('Patterns and Insights chart axes and titles use local friendly dates',()=>{
  const f=fixture();try{
-  f.card._patternsMarkup();const row=f.card._dashboardRowsV3()[0];assert.match(f.card._patternsRowLabel(row),/15 paź.*18:00/);
+  const patterns=f.dom.window.document.createElement('div');patterns.innerHTML=f.card._patternsMarkup();assert.match(patterns.querySelector('[data-pattern-control=day] option').textContent,/paź/);assert.doesNotMatch(patterns.querySelector('[data-pattern-range]').textContent,/\d{4}-\d\d-\d\dT/);const row=f.card._dashboardRowsV3()[0];assert.match(f.card._patternsRowLabel(row),/15 paź.*18:00/);
   const insight=f.dom.window.document.createElement('ha-energy-insights');insight._hass=hass();insight._lang='pl';insight._insightChartDataset={hours:[row],currency:'EUR'};insight._insightChartState={resolution:'hour',metric:'kwh',type:'bar',selected:row.id};
   assert.match(insight._insightRowLabelV3(row),/15 paź.*18:00/);const root=f.dom.window.document.createElement('div');root.innerHTML=insight._insightSvgV3(400);
   assert.match(root.querySelector('title').textContent,/15 paź.*18:00/);assert.equal([...root.querySelectorAll('text')].at(-1).textContent,'18:00');

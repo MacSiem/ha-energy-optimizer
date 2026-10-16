@@ -1746,9 +1746,10 @@ this._installTariffConsumerV3();
       const option = (value, selected, label) => `<option value="${_esc(value)}" ${value === selected ? 'selected' : ''}>${_esc(label)}</option>`;
       const selected = rows.find(r => r.id === state.selected);
       const unit = state.metric === 'kwh' ? 'kWh' : data.currency || t('Currency unavailable', 'Brak waluty');
+      const format = createFormatUi.forHass(this._hass);
       return `<section class="insights-measured" data-insights-analysis aria-label="${this._t(period)}">
         <h3>${this._t(period)} · ${t('Recorded consumption', 'Zarejestrowane zużycie')}</h3>
-        <p>${_esc(data.source.join(', '))} · ${_esc(data.timezone)}<br>${_esc(new Date(data.window.from).toISOString())} — ${_esc(new Date(data.window.to).toISOString())}</p>
+        <p>${_esc(data.source.join(', '))}</p><p data-insights-chart-range>${_esc(format.range(new Date(data.window.from).toISOString(), new Date(data.window.to).toISOString()))} · ${_esc(format.timeZone)}</p>
         <div class="insights-controls">
           ${period !== 'daily' ? `<label>${t('Intervals', 'Przedziały')}<select data-insights-control="resolution">${option('day', state.resolution, t('Local dates', 'Daty lokalne'))}${option('hour', state.resolution, t('All measured hours', 'Wszystkie godziny pomiaru'))}</select></label>` : ''}
           <label>${t('Measure', 'Miara')}<select data-insights-control="metric">${option('kwh', state.metric, 'kWh')}${option('energyCost', state.metric, t('Energy cost', 'Koszt energii'))}${option('variableCost', state.metric, t('Variable fees', 'Opłaty zmienne'))}</select></label>
