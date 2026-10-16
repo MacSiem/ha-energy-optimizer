@@ -4,7 +4,7 @@
   "sources": [
     {
       "path": "src/optimizer.js",
-      "sha256": "d1deb9254623b757eb037b826378db512a58300d8d2d5d6fb7aa2e7245861ef6"
+      "sha256": "7ede8c0e10790d8e47a890e9e07f3aebaad328dc1adb6b0469db42e9d82ea420"
     },
     {
       "path": "src/energy-insights.js",

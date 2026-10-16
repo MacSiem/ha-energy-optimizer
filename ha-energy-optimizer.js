@@ -404,7 +404,7 @@ class HaEnergyOptimizer extends HTMLElement {
     if (!measurementsChanged && previousHass && previousHass.connection === hass.connection && previousHass.user?.id === hass.user?.id &&
         previousHass.config?.time_zone === hass.config?.time_zone &&
         (presentationChanged || (previousHass.locale?.language || previousHass.language) !== (hass.locale?.language || hass.language))) {
-      this._updateEnergyData();
+      this._updateEnergyData(false);
       this._render();
       return;
     }
@@ -528,7 +528,7 @@ class HaEnergyOptimizer extends HTMLElement {
     }
   }
 
-  _updateEnergyData() {
+  _updateEnergyData(refreshStats = true) {
     if (!this._hass) return;
     const configured = this._config.power_entity && Object.hasOwn(this._hass.states || {}, this._config.power_entity) ? this._hass.states[this._config.power_entity] : null;
     const unit = configured?.attributes?.unit_of_measurement;
@@ -537,7 +537,7 @@ class HaEnergyOptimizer extends HTMLElement {
 
     // Fetch stats every 5 minutes (not on every hass update)
     const now = Date.now();
-    if (!this._lastStatsFetch || (now - this._lastStatsFetch) > 300000) {
+    if (refreshStats && (!this._lastStatsFetch || (now - this._lastStatsFetch) > 300000)) {
       this._fetchEnergyStats();
     }
   }
