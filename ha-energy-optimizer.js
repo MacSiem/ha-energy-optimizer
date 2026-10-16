@@ -401,9 +401,10 @@ class HaEnergyOptimizer extends HTMLElement {
     this._resetTariffContext(hass);
     this._hass = hass;
     if (!hass) { if (previousHass) this._render(); return; }
-    if (previousHass && previousHass.connection === hass.connection && previousHass.user?.id === hass.user?.id &&
+    if (!measurementsChanged && previousHass && previousHass.connection === hass.connection && previousHass.user?.id === hass.user?.id &&
         previousHass.config?.time_zone === hass.config?.time_zone &&
         (presentationChanged || (previousHass.locale?.language || previousHass.language) !== (hass.locale?.language || hass.language))) {
+      this._updateEnergyData();
       this._render();
       return;
     }
