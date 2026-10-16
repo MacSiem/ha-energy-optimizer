@@ -71,7 +71,10 @@ test('grid import uses unique configured roots and converts Wh without counting 
     assert.equal(card._hasRealData, true);
     assert.equal(card._calculateTodayUsage(), 2.5);
     assert.equal(card._calculateTodayCost(), null);
-    assert.match(card._getTemplate(), /Grid import from 2 Energy Dashboard source/);
+    const summary = card.shadowRoot.querySelector('[data-energy-period-summary]');
+    assert.ok(summary);assert.match(summary.textContent, /2 sources/);
+    const details = card.shadowRoot.querySelector('[data-energy-period-details]');
+    assert.match(details.textContent, /sensor.grid_a/);assert.match(details.textContent, /sensor.grid_b/);
     assert.doesNotMatch(card._getTemplate(), /Demo data/);
     assert.deepEqual(Array.from(calls.find(call => call.type === 'recorder/statistics_during_period').statistic_ids), ['sensor.grid_a', 'sensor.grid_b']);
   } finally { dom.window.close(); }
