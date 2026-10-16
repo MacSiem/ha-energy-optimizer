@@ -16,7 +16,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     if (!Number.isFinite(time)) return null;
     try { return new Intl.DateTimeFormat(locale, {timeZone, ...options}).format(time); } catch (_) { return null; }
   };
-  const clock = value => localized(value, {hour:'2-digit', minute:'2-digit', hourCycle});
+  const clock = (value, withOffset = false) => localized(value, {hour:'2-digit', minute:'2-digit', hourCycle, ...(withOffset ? {timeZoneName:'shortOffset'} : {})});
   const date = (value, short = false) => localized(value, {day:'numeric', month:'short', ...(short ? {} : {year:'numeric'})}, dateLanguage);
   const pointLabel = value => localized(value, {year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hourCycle, timeZoneName:'shortOffset'});
   const key = JSON.stringify([language, timeZone, hourCycle, dateLanguage]);
