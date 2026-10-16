@@ -5,7 +5,7 @@ for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email']
  const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});const NativeDate=dom.window.Date,now=Date.parse('2026-03-29T05:30:00Z');
  dom.window.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
  dom.window.eval(code);const card=dom.window.document.createElement(type);card._schedule=()=>{};dom.window.document.body.append(card);
- const calls=[];const hass={user:{id:'qa',is_admin:true},connection:{connected:true},language:'pl-PL',locale:{language:'pl-PL'},states:{},services:{},config:{time_zone:'Europe/Warsaw',currency:'EUR'},callWS:async req=>{
+ const calls=[];const hass={user:{id:'qa',is_admin:true},connection:{connected:true},language:'pl-PL',locale:{language:'pl-PL',time_zone:'server',time_format:'24'},states:{},services:{},config:{time_zone:'Europe/Warsaw',currency:'EUR'},callWS:async req=>{
   calls.push(req.type);
   if(req.type==='energy/get_prefs')return {energy_sources:[{type:'grid',stat_energy_from:'sensor.qa_grid'}]};
   if(req.type==='recorder/get_statistics_metadata')return {'sensor.qa_grid':{has_sum:true,unit_class:'energy',statistics_unit_of_measurement:'kWh'}};
@@ -35,7 +35,7 @@ test('Optimizer keeps local period and measured coverage when the newest complet
  const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});const NativeDate=dom.window.Date,now=Date.parse('2026-03-29T05:30:00Z');
  dom.window.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
  dom.window.eval(readFileSync('src/optimizer.js','utf8'));const card=dom.window.document.createElement('ha-energy-optimizer');card._schedule=()=>{};dom.window.document.body.append(card);
- card._hass={user:{id:'qa',is_admin:true},connection:{connected:true},language:'pl-PL',locale:{language:'pl-PL'},states:{},config:{time_zone:'Europe/Warsaw',currency:'EUR'},callWS:async req=>{
+ card._hass={user:{id:'qa',is_admin:true},connection:{connected:true},language:'pl-PL',locale:{language:'pl-PL',time_zone:'server',time_format:'24'},states:{},config:{time_zone:'Europe/Warsaw',currency:'EUR'},callWS:async req=>{
   if(req.type==='energy/get_prefs')return {energy_sources:[{type:'grid',stat_energy_from:'sensor.qa_grid'}]};
   if(req.type==='recorder/get_statistics_metadata')return {'sensor.qa_grid':{has_sum:true,unit_class:'energy',statistics_unit_of_measurement:'kWh'}};
   if(req.type==='recorder/statistics_during_period'){const from=Date.parse(req.start_time),to=Date.parse(req.end_time);return {'sensor.qa_grid':Array.from({length:(to-from)/3600000-1},(_,i)=>({start:from+i*3600000,change:1.1}))};}

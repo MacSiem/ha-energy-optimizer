@@ -55,12 +55,12 @@ test('an invalid system offset falls back to the validated HA calendar zone',()=
  assert.equal(factory.forHass(hass()).timeZone,'Europe/Warsaw');
 });
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
-for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email'])test(type+' reprojects an in-place profile time change without another Recorder read',async()=>{
+async function mountedTimeChange(type, scenario='format'){
  const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'}),NativeDate=dom.window.Date,now=Date.parse('2026-10-16T12:30:00Z');
  dom.window.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
  dom.window.eval(['optimizer.js','energy-insights.js','energy-email.js','chart-vendor.js'].map(n=>readFileSync('src/'+n,'utf8')).join(''));
- const card=dom.window.document.createElement(type);card._schedule=()=>{};card.setConfig({show_support:false,energy_price:2,currency:'EUR'});
- const requests=[],context=hass();context.services={};context.callWS=async req=>{
+ const card=dom.window.document.createElement(type);card._schedule=()=>{};card.setConfig({show_support:false,energy_price:2,currency:'EUR',power_entity:'sensor.qa_power'});
+ const requests=[],context=hass(scenario==='calendar'?{time_zone:'server'}:{});context.states={'sensor.qa_power':{state:'0',attributes:{unit_of_measurement:'W'}}};context.services={};context.callWS=async req=>{
   requests.push(req.type);
   if(req.type==='ha_tools_email/get_config')return {smtp_configured:true,schedules:[]};
   if(req.type==='ha_tools_email/preview_energy_report')return {status:'no_sources',sources:[]};
@@ -73,11 +73,20 @@ for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email']
  try{
   dom.window.document.body.append(card);card.hass=context;for(let i=0;i<15;i++)await tick();
   const root=card.shadowRoot,summary=()=>root.querySelector('[data-energy-period-summary]')?.textContent;
-  const before=summary();assert.match(before,/America\/New_York/);const count=requests.length;
+  const before=summary();assert.match(before,scenario==='calendar'?/Europe\/Warsaw/:/America\/New_York/);const count=requests.length;
+  if(scenario==='calendar'){
+   context.config.time_zone='UTC';card.hass=context;for(let i=0;i<15;i++)await tick();
+   assert.match(summary()||'',/UTC/,'changed measurement calendar must recover without another hass event');
+   assert.ok(requests.length>count,'calendar changes fetch new authoritative windows');return;
+  }
+  if(scenario==='compound')context.states['sensor.qa_power']={state:'321',attributes:{unit_of_measurement:'W'}};
   const raw=root.querySelector('[data-energy-period-details]').textContent.match(/UTC:.*$/s)[0];
   context.locale.time_zone='server';card.hass=context;for(let i=0;i<4;i++)await tick();
-  assert.match(summary(),/Europe\/Warsaw/);assert.notEqual(summary(),before);assert.equal(requests.length,count,'format-only gesture must use already measured data');
+  assert.match(summary(),/Europe\/Warsaw/);if(scenario==='compound')assert.equal(card._currentPowerW,321,'same event must update live power as well as formatting');assert.notEqual(summary(),before);assert.equal(requests.length,count,'format-only gesture must use already measured data');
   assert.equal(root.querySelector('[data-energy-period-details]').textContent.match(/UTC:.*$/s)[0],raw,'absolute window stays identical');
   context.locale.time_format='12';card.hass=context;for(let i=0;i<4;i++)await tick();assert.match(summary(),/AM|PM/);assert.equal(requests.length,count);
  }finally{card._getTariffHostV3().guard.dispose();dom.window.close();}
-});
+}
+for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email'])test(type+' reprojects an in-place profile time change without another Recorder read',()=>mountedTimeChange(type));
+test('Optimizer handles a profile time change and live power in the same event',()=>mountedTimeChange('ha-energy-optimizer','compound'));
+test('Optimizer refetches after an in-place server calendar change',()=>mountedTimeChange('ha-energy-optimizer','calendar'));
