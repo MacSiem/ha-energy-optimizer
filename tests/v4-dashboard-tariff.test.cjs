@@ -73,6 +73,8 @@ test('a configured unavailable power source is distinguished from no sensor and 
  const f=fixture({power_entity:'sensor.meter'});try{
   f.card._hass.states={'sensor.meter':{state:'unavailable',attributes:{unit_of_measurement:'W'}}};f.card._lastStatsFetch=Date.now();f.card._updateEnergyData();f.card._render();
   assert.match(f.card.shadowRoot.querySelector('[data-power-status]').textContent,/unavailable/i);
+  f.card._hass.states['sensor.meter'].state='';f.card._updateEnergyData();f.card._render();
+  assert.equal(f.card._currentPowerW,null,'an empty sensor state is not a measured zero');
   f.card._hass.states['sensor.meter'].state='0';f.card._updateEnergyData();f.card._render();
   assert.equal(f.card._currentPowerW,0);assert.match(f.card.shadowRoot.querySelector('.power-draw').textContent,/0[.,]00/);assert.equal(f.card.shadowRoot.querySelector('[data-power-status]'),null);
  }finally{f.close();}
