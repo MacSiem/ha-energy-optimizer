@@ -2,6 +2,44 @@
 // HTML escape helper — wrap any user-derived string before interpolation into innerHTML.
 const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+// HA_FORMAT_UI_START
+// Localized presentation; raw values remain available to callers for details/export.
+function createFormatUi(language = 'en', timeZone = 'UTC') {
+  const numbers = new Intl.NumberFormat(language);
+  const plurals = new Intl.PluralRules(language);
+  const count = (value, forms) => `${numbers.format(value)} ${forms[plurals.select(value)] || forms.other}`;
+  const dateTime = value => {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
+    const time = Date.parse(value);
+    if (!Number.isFinite(time)) return null;
+    try { return new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium', timeStyle:'short'}).format(new Date(time)); }
+    catch (_) { return null; }
+  };
+  const range = (from, to) => {
+    const first = Date.parse(from), last = Date.parse(to);
+    if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return null;
+    try {
+      const day = new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium'});
+      const clock = new Intl.DateTimeFormat(language, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle:'h23'});
+      return day.format(first) === day.format(last)
+        ? `${day.format(first)} (${clock.format(first)}–${clock.format(last)})`
+        : `${dateTime(from)} – ${dateTime(to)}`;
+    } catch (_) { return null; }
+  };
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const periodMarkup = ({start, end, label, source, measured, expected, unit, details = ''}) => {
+    const local = range(start, end);
+    if (!local) return '';
+    const coverage = typeof measured === 'number' && Number.isFinite(measured) && typeof expected === 'number' && Number.isFinite(expected)
+      ? `${numbers.format(measured)}/${numbers.format(expected)} ${unit}` : '';
+    const pl = String(language).startsWith('pl');
+    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details><summary style="min-height:44px;display:flex;align-items:center;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
+  };
+  return {number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup};
+}
+// Node tests use the canonical factory; vendored cards keep it local.
+// HA_FORMAT_UI_END
+
 // Card-owned support footer; never mutate sibling cards or the document.
 const ENERGY_OPTIMIZER_DONATE_HTML = `<div class="donate-section" data-source="own-card" style="margin:8px 0 0;padding:4px 0;background:none;border:0;box-shadow:none;min-height:0;display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex-direction:row;justify-content:flex-start;text-align:left"><a href="https://buymeacoffee.com/macsiem" target="_blank" rel="noopener noreferrer" style="font-size:11px;color:var(--secondary-text-color,#64748b);font-weight:400;text-decoration:underline">Optional support for HA Tools</a><button type="button" class="support-dismiss" aria-label="Dismiss support link" style="margin-left:auto;padding:2px 6px;min-height:0;line-height:1;border:0;background:none;color:var(--secondary-text-color,#64748b);cursor:pointer">×</button></div>`;
 const energySupportDismissed = key => { try { return localStorage.getItem(key + '-support-dismissed') === '1'; } catch (_) { return false; } };
@@ -2313,15 +2351,19 @@ canvas {
   }
 
   _getTemplate() {
-    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2><div class="empty-state" role="status">${this._statsLoading ? this._text("Loading Energy Dashboard statistics…", "Ładowanie statystyk panelu Energia…") : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? this._text("No recent Recorder statistics for the configured grid import.", "Brak bieżących statystyk Recorder dla skonfigurowanego importu z sieci.") : this._energyError?.message?.includes('No Energy Dashboard grid import source') ? this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.") : this._energyError ? this._text("Energy statistics could not be loaded.", "Nie udało się wczytać statystyk energii.") : this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.")} <a href="/energy">${this._text("Open Energy Dashboard", "Otwórz panel Energia")}</a></div>${this._energyModel?.points ? `<div id="patterns">${this._patternsMarkup()}</div>` : ''}${this._tariffDetailsMarkup()}${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
+    const format = createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en', this._energyModel?.zone || this._hass?.config?.time_zone || 'UTC');
+    const window = this._todayWindow, selected = window?.selected;
+    const periodMarkup = window ? format.periodMarkup({ ...window, label: this._text('Today', 'Dziś'),
+      source: 'Energy Dashboard / Recorder', measured: selected?.filter(([, point]) => point.kwh !== null).length,
+      expected: selected?.length, unit: this._text('completed intervals', 'zakończonych przedziałów'),
+      details: (this._energySensorIds || []).join(', ') }) : '';
+
+    if (!this._hasRealData) return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>${periodMarkup}<div class="empty-state" role="status">${this._statsLoading ? this._text("Loading Energy Dashboard statistics…", "Ładowanie statystyk panelu Energia…") : this._energyError?.message?.includes('Missing Energy Dashboard statistic series') ? this._text("No recent Recorder statistics for the configured grid import.", "Brak bieżących statystyk Recorder dla skonfigurowanego importu z sieci.") : this._energyError?.message?.includes('No Energy Dashboard grid import source') ? this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.") : this._energyError ? this._text("Energy statistics could not be loaded.", "Nie udało się wczytać statystyk energii.") : this._text("No supported Energy Dashboard grid import statistics found.", "Nie znaleziono obsługiwanych statystyk importu z sieci w panelu Energia.")} <a href="/energy">${this._text("Open Energy Dashboard", "Otwórz panel Energia")}</a></div>${this._energyModel?.points ? `<div id="patterns">${this._patternsMarkup()}</div>` : ''}${this._tariffDetailsMarkup()}${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
     return `
       <div class="card-container">
         <h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>
 
-        <div class="data-source-badge">
-          📊 ${this._text('Grid import from', 'Import z sieci ze źródeł panelu Energia:')} ${(this._energySensorIds || []).length}${this._text(' Energy Dashboard source(s)', '')}<br>
-          ${_esc(this._todayWindow?.start || '')} — ${_esc(this._todayWindow?.end || '')} • ${_esc(this._energyModel?.zone || '')}
-        </div>
+        ${periodMarkup}
 
         ${energyTodayBoundaryMarkup(this._todayWindow, this._energyModel?.zone || '', this._hass?.locale?.language || this._hass?.language || 'en')}
         <div class="tabs" role="tablist">
@@ -2335,12 +2377,12 @@ canvas {
           <div class="grid">
             <div class="summary-card">
               <span class="summary-label">${this._text("Today's Usage", "Zużycie dzisiaj")}</span>
-              <div class="summary-value">${this._calculateTodayUsage() === null ? 'N/A' : this._calculateTodayUsage().toFixed(2)}</div>
+              <div class="summary-value">${this._calculateTodayUsage() === null ? 'N/A' : format.number(this._calculateTodayUsage(), {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
               <span class="summary-label">kWh</span>
             </div>
             <div class="summary-card alt">
               <span class="summary-label">${this._text("Cost Estimate", "Koszt okresu")}</span>
-              <div class="summary-value">${this._calculateTodayCost() === null ? 'N/A' : this._calculateTodayCost().toFixed(2)}</div>
+              <div class="summary-value">${this._calculateTodayCost() === null ? 'N/A' : format.number(this._calculateTodayCost(), {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
               <span class="summary-label">${_esc(this._todayTariffCosts().currency || '')} ${this._text('energy only', 'sama energia')}</span>
             </div>
             <div class="summary-card warn">

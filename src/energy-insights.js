@@ -11,6 +11,44 @@
   // Component-local XSS protection: never reads from or publishes a global helper.
   const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"\']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
+// HA_FORMAT_UI_START
+// Localized presentation; raw values remain available to callers for details/export.
+function createFormatUi(language = 'en', timeZone = 'UTC') {
+  const numbers = new Intl.NumberFormat(language);
+  const plurals = new Intl.PluralRules(language);
+  const count = (value, forms) => `${numbers.format(value)} ${forms[plurals.select(value)] || forms.other}`;
+  const dateTime = value => {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
+    const time = Date.parse(value);
+    if (!Number.isFinite(time)) return null;
+    try { return new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium', timeStyle:'short'}).format(new Date(time)); }
+    catch (_) { return null; }
+  };
+  const range = (from, to) => {
+    const first = Date.parse(from), last = Date.parse(to);
+    if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return null;
+    try {
+      const day = new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium'});
+      const clock = new Intl.DateTimeFormat(language, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle:'h23'});
+      return day.format(first) === day.format(last)
+        ? `${day.format(first)} (${clock.format(first)}–${clock.format(last)})`
+        : `${dateTime(from)} – ${dateTime(to)}`;
+    } catch (_) { return null; }
+  };
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const periodMarkup = ({start, end, label, source, measured, expected, unit, details = ''}) => {
+    const local = range(start, end);
+    if (!local) return '';
+    const coverage = typeof measured === 'number' && Number.isFinite(measured) && typeof expected === 'number' && Number.isFinite(expected)
+      ? `${numbers.format(measured)}/${numbers.format(expected)} ${unit}` : '';
+    const pl = String(language).startsWith('pl');
+    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details><summary style="min-height:44px;display:flex;align-items:center;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
+  };
+  return {number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup};
+}
+// Node tests use the canonical factory; vendored cards keep it local.
+// HA_FORMAT_UI_END
+
   const _insightsCopyV3 = value => {
     const clone = value == null ? value : JSON.parse(JSON.stringify(value));
     const freeze = item => { if (item && typeof item === 'object') { Object.values(item).forEach(freeze); Object.freeze(item); } return item; };
@@ -2058,7 +2096,11 @@ this._installTariffConsumerV3();
       if (!this._data) return '';
       const d = this._data;
       const cur = this._tariffCurrency();
-      const fmt = v => typeof v === 'number' && Number.isFinite(v) ? v.toFixed(2) : 'N/A';
+      const format = createFormatUi(this._hass?.locale?.language || this._hass?.language || this._lang || 'en', d.zone || this._hass?.config?.time_zone || 'UTC');
+      const fmt = v => typeof v === 'number' && Number.isFinite(v) ? format.number(v, {minimumFractionDigits:2, maximumFractionDigits:2}) : 'N/A';
+      const period = (window, label) => window ? format.periodMarkup({ ...window, label, source: 'Energy Dashboard / Recorder',
+        measured: window.selected?.filter(([, point]) => point.kwh !== null).length, expected: window.selected?.length,
+        unit: this._lang === 'pl' ? 'zakończonych przedziałów' : 'completed intervals', details: (d.sensors || []).join(', ') }) : '';
 
       const trendDiff = d.thisWeekKwh !== null && d.prevWeekKwh > 0
         ? ((d.thisWeekKwh - d.prevWeekKwh) / d.prevWeekKwh * 100)
@@ -2069,7 +2111,7 @@ this._installTariffConsumerV3();
       const rec = this._getRecommendation(trendDiff, d.todayKwh);
 
       let html = `
-        ${d.windows?.daily ? `<p data-today-range>${_esc(d.zone || '')} · ${_esc(d.windows.daily.start)} — ${_esc(d.windows.daily.end)}</p>${energyTodayBoundaryMarkup(d.windows.daily, d.zone || '', this._lang)}` : ''}
+        ${period(d.windows?.daily, this._t('today'))}${d.windows?.daily ? energyTodayBoundaryMarkup(d.windows.daily, d.zone || '', this._lang) : ''}
         <div class="stats-grid">
           <div class="stat-card">
             <div class="stat-label">${this._t('today')}</div>
@@ -2077,12 +2119,12 @@ this._installTariffConsumerV3();
             <div class="stat-sub">kWh • ${fmt(d.todayCost)} ${_esc(cur)}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">${this._t('thisWeek')}</div>
+            <div class="stat-label">${this._t('thisWeek')}</div>${period(d.windows?.weekly, this._t('thisWeek'))}
             <div class="stat-value">${fmt(d.thisWeekKwh)}</div>
             <div class="stat-sub">kWh • ${fmt(d.weekCost)} ${_esc(cur)}</div>
           </div>
           <div class="stat-card">
-            <div class="stat-label">${this._t('thisMonth')}</div>
+            <div class="stat-label">${this._t('thisMonth')}</div>${period(d.windows?.monthly, this._t('thisMonth'))}
             <div class="stat-value">${fmt(d.monthKwh)}</div>
             <div class="stat-sub">kWh • ${fmt(d.monthCost)} ${_esc(cur)}</div>
           </div>

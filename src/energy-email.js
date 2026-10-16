@@ -5,6 +5,44 @@
   // Component-local XSS protection: never reads from or publishes a global helper.
 const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
 
+// HA_FORMAT_UI_START
+// Localized presentation; raw values remain available to callers for details/export.
+function createFormatUi(language = 'en', timeZone = 'UTC') {
+  const numbers = new Intl.NumberFormat(language);
+  const plurals = new Intl.PluralRules(language);
+  const count = (value, forms) => `${numbers.format(value)} ${forms[plurals.select(value)] || forms.other}`;
+  const dateTime = value => {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
+    const time = Date.parse(value);
+    if (!Number.isFinite(time)) return null;
+    try { return new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium', timeStyle:'short'}).format(new Date(time)); }
+    catch (_) { return null; }
+  };
+  const range = (from, to) => {
+    const first = Date.parse(from), last = Date.parse(to);
+    if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return null;
+    try {
+      const day = new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium'});
+      const clock = new Intl.DateTimeFormat(language, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle:'h23'});
+      return day.format(first) === day.format(last)
+        ? `${day.format(first)} (${clock.format(first)}–${clock.format(last)})`
+        : `${dateTime(from)} – ${dateTime(to)}`;
+    } catch (_) { return null; }
+  };
+  const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const periodMarkup = ({start, end, label, source, measured, expected, unit, details = ''}) => {
+    const local = range(start, end);
+    if (!local) return '';
+    const coverage = typeof measured === 'number' && Number.isFinite(measured) && typeof expected === 'number' && Number.isFinite(expected)
+      ? `${numbers.format(measured)}/${numbers.format(expected)} ${unit}` : '';
+    const pl = String(language).startsWith('pl');
+    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details><summary style="min-height:44px;display:flex;align-items:center;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
+  };
+  return {number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup};
+}
+// Node tests use the canonical factory; vendored cards keep it local.
+// HA_FORMAT_UI_END
+
   // Component-local persistence retains this card's existing localStorage keys.
   const haToolsPersistence = { _cache: {}, _hass: null, setHass(h) { this._hass = h; }, async save(k, d) { try { localStorage.setItem('ha-tools-' + k, JSON.stringify(d)); } catch(e) { console.debug('[ha-energy-email] caught:', e); } }, async load(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } }, loadSync(k) { try { const r = localStorage.getItem('ha-tools-' + k); return r ? JSON.parse(r) : null; } catch(e) { return null; } } };
 
@@ -1772,7 +1810,7 @@ this._installTariffConsumerV3();
     }
 
     _formatCost(value) {
-      return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : 'N/A';
+      return typeof value === 'number' && Number.isFinite(value) ? createFormatUi(this._hass?.locale?.language || this._hass?.language || this._lang || 'en').number(value, {minimumFractionDigits:2, maximumFractionDigits:2}) : 'N/A';
     }
 
     _sharedTariffNeedsConfirmationV3() {
@@ -2886,6 +2924,11 @@ this._installTariffConsumerV3();
       const totalEnergy = complete ? recordedEnergy : null;
       const coverage = this[`_periodCoverage_${period}`];
       const coverageNote = coverage ? `${coverage.measuredHours}/${coverage.expectedHours} ${L ? 'źródłogodzin' : 'source-hours'}` : '';
+      const format = createFormatUi(this._hass?.locale?.language || this._hass?.language || this._lang || 'en', this._hass?.config?.time_zone || 'UTC');
+      const periodMarkup = window ? format.periodMarkup({ ...window, label: periodLabel, source: 'Energy Dashboard / Recorder',
+        measured: coverage?.measuredHours, expected: coverage?.expectedHours, unit: L ? 'źródłogodzin' : 'source-hours',
+        details: L ? 'Ruchome okno. Pokrycie liczone oddzielnie dla każdego skonfigurowanego źródła.' : 'Rolling window. Coverage counts each configured source separately.' }) : '';
+
       const totalCost = complete && displayData.length && displayData.every(d => typeof d.cost === 'number' && Number.isFinite(d.cost))
         ? displayData.reduce((sum, d) => sum + d.cost, 0) : null;
       const maxVal = Math.max(...displayData.map(x => x.month)) || 1;
@@ -2910,19 +2953,19 @@ this._installTariffConsumerV3();
         };
         return `<div class="section-title">${periodLabel}</div><div>${periodBtns}</div>
           <div class="empty-state" role="status">${_esc(messages[status] || messages.error)}${['no_sources', 'partial', 'unsupported'].includes(status) ? ` <a href="/energy">${L ? 'Otwórz panel Energia' : 'Open Energy Dashboard'}</a>` : ''}</div>
-          ${periodNote ? `<div class="info-row" style="overflow-wrap:anywhere">${_esc(periodNote)}</div>` : ''}`;
+          ${periodMarkup}`;
       }
       return `
-        ${periodNote ? `<div class="info-row" style="overflow-wrap:anywhere">${_esc(periodNote)}</div>` : ''}
+        ${periodMarkup}
         <div class="info-row">${L ? 'Import z sieci: źródła skonfigurowane w Energy Dashboard.' : 'Grid import: sources configured in Energy Dashboard.'}</div>
-        ${!complete ? `<div class="info-row" role="status">${L ? 'Zarejestrowane zużycie' : 'Recorded usage'}: ${recordedEnergy.toFixed(1)} kWh. ${L ? 'Niepełne dane — suma całego okresu niedostępna.' : 'Incomplete data — full-period total unavailable.'} ${_esc(coverageNote)} ${coverage?.sources?.some(row => row.status === 'unsupported') ? (L ? 'Co najmniej jedno źródło ma nieobsługiwane metadane energii.' : 'At least one source has unsupported energy metadata.') : ''}</div>` : ''}
+        ${!complete ? `<div class="info-row" role="status">${L ? 'Zarejestrowane zużycie' : 'Recorded usage'}: ${format.number(recordedEnergy, {minimumFractionDigits:1, maximumFractionDigits:1})} kWh. ${L ? 'Niepełne dane — suma całego okresu niedostępna.' : 'Incomplete data — full-period total unavailable.'} ${_esc(coverageNote)} ${coverage?.sources?.some(row => row.status === 'unsupported') ? (L ? 'Co najmniej jedno źródło ma nieobsługiwane metadane energii.' : 'At least one source has unsupported energy metadata.') : ''}</div>` : ''}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <div class="section-title" style="margin:0;">\u{1F4CA} ${periodLabel}</div>
           <div style="display:flex;gap:4px;">${periodBtns}</div>
         </div>
         <div class="grid3">
           <div class="stat">
-            <div class="stat-value" style="color:#F59E0B">${(complete ? totalEnergy : recordedEnergy).toFixed(1)}</div>
+            <div class="stat-value" style="color:#F59E0B">${format.number(complete ? totalEnergy : recordedEnergy, {minimumFractionDigits:1, maximumFractionDigits:1})}</div>
             <div class="stat-label">${!complete ? (L ? 'Zarejestrowane zużycie · ' : 'Recorded usage · ') : ''}kWh ${periodLabel}</div>
             <div class="stat-sub source-coverage">${displayData.length}/${coverage?.sources?.length ?? displayData.length} ${L ? 'źródeł z pomiarami' : 'sources with measurements'}</div>
           </div>
