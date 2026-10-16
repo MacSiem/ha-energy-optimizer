@@ -20,7 +20,10 @@ function preview(options = {}) {
   card._discoveryDone = true;
   card._lang = 'en';
   card._discoveredDevices = options.devices || [];
-  if (options.zero) card._periodCache_day = [{ name: 'Measured zero source', month: 0, cost: null }];
+  if (options.zero) {
+    card._periodStatus_day = 'ready';
+    card._periodCache_day = [{ name: 'Measured zero source', month: 0, cost: null, complete: true, measuredHours: 24, expectedHours: 24 }];
+  }
   const output = dom.window.document.createElement('div');
   output.innerHTML = card._tabLegacyPreview();
   return { dom, card, output };

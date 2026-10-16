@@ -39,11 +39,18 @@ for (const outcome of ['partial', 'no_sources', 'error']) test(`Email first read
     assert.equal(card._periodStatus_day, outcome);
     const status = card.shadowRoot.querySelector('[role="status"]')?.textContent || '';
     assert.match(status, {
-      partial: /Period statistics are incomplete or invalid/,
+      partial: /Recorded usage.*full-period total unavailable/,
       no_sources: /Configure a grid-import source/,
       error: /Energy statistics could not be loaded/,
     }[outcome]);
-    assert.equal(card._getAutoDataForPeriod('day').length, 0, 'missing totals stay unavailable');
+    const rows = card._getAutoDataForPeriod('day');
+    assert.equal(rows.length, outcome === 'partial' ? 1 : 0, 'valid partial measurements remain visible');
+    if (outcome === 'partial') {
+      assert.equal(rows[0].month, 2);
+      assert.equal(rows[0].complete, false);
+      assert.equal(rows[0].measuredHours, 1);
+      assert.equal(rows[0].cost, null, 'a partial period does not claim complete cost');
+    }
     assert.equal(calls.length, outcome === 'partial' ? 9 : 3, 'completion does not add polling or retries');
   } finally {
     card._getTariffHostV3().guard.dispose();
