@@ -42,11 +42,11 @@ for (const boundary of ['tab', 'remount', 'callWS']) {
       resolveFirst({ energy_sources: [], device_consumption: [] });
       await firstRead; await flush();
       assert.equal(card.shadowRoot.querySelector('.loading'), null, 'settled stale read must stop showing a spinner');
-      assert.deepEqual(calls, ['energy/get_prefs'], 'stale completion must not dispatch a retry or stale Recorder request');
+      assert.match(card.shadowRoot.textContent, /Energy Dashboard/, 'unfinished initial read resumes on quiet HA after its stale wire settles');
+      assert.deepEqual(calls, ['energy/get_prefs', 'energy/get_prefs', 'ha_tools_email/get_tariff'], 'one fresh initial read; no stale Recorder dispatch');
       card.hass = hass;
       await flush();
-      assert.match(card.shadowRoot.textContent, /Energy Dashboard/, 'next current hass update can complete the first read without a five-minute wait');
-      assert.deepEqual(calls, ['energy/get_prefs', 'energy/get_prefs', 'ha_tools_email/get_tariff']);
+      assert.deepEqual(calls, ['energy/get_prefs', 'energy/get_prefs', 'ha_tools_email/get_tariff'], 'completed initial read is not repeated by the next hass update');
     } finally {
       card._tariffConsumerUnsubscribeV3?.();
       card._getTariffHostV3().guard.dispose();

@@ -224,7 +224,7 @@ class HaEnergyOptimizer extends HTMLElement {
       // Reconfirm shared prices for this mount; reuse settled measurements.
       this._observeTariffNavigationV3();
     }
-    if (!this._initialMeasurementsSettledV3 && this._hass) this._fetchEnergyStats();
+    if (this._initialMeasurementsStartedV3 && !this._initialMeasurementsSettledV3 && this._hass) this._fetchEnergyStats();
   }
 
   disconnectedCallback() {
@@ -359,6 +359,7 @@ class HaEnergyOptimizer extends HTMLElement {
     if (!this._hass || !this._hass.callWS) return;
     if (this._statsLoading) return;
     this._statsLoading = true;
+    this._initialMeasurementsStartedV3 = true;
     // Only a dispatched read may spend this context's refresh window.
     this._lastStatsFetch = Date.now();
     const read = this._createEnergyReadV3();

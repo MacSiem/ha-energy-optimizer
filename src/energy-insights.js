@@ -1237,7 +1237,7 @@ this._installTariffConsumerV3();
         // Reconfirm shared prices for this mount; reuse settled measurements.
         this._observeTariffNavigationV3();
       }
-      if (!this._initialMeasurementsSettledV3 && this._hass) this._fetchData();
+      if (this._initialMeasurementsStartedV3 && !this._initialMeasurementsSettledV3 && this._hass) this._fetchData();
     }
 
     disconnectedCallback() {
@@ -1272,6 +1272,7 @@ this._installTariffConsumerV3();
       if (!this._hass?.callWS || this._insightsReadPending || this._insightDevicePending || this._getTariffHostV3().guard.occupied()) return;
       const read = this._createEnergyReadV3();
       this._insightsReadPending = true;
+      this._initialMeasurementsStartedV3 = true;
       // A blocked dispatch must leave the next session eligible for its first read.
       this._lastDataFetch = Date.now();
       this._loading = true; this._error = null;

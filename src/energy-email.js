@@ -645,11 +645,12 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
         this._attemptHistory.setContext(hass);
         if (this._activeTab === 'history') this._render();
         if (!hass) { this.shadowRoot.replaceChildren(); return; }
-        if (this._firstRender) this._ensureInitialDiscovery();
+        if (this._initialDiscoveryStartedV3) this._ensureInitialDiscovery();
         if ((emailContextChanged || measurementsChanged) && this._firstRender) { this._render(); return; }
         const now = Date.now();
         if (!this._firstRender) {
           this._firstRender = true;
+          this._initialDiscoveryStartedV3 = true;
           this._ensureInitialDiscovery();
           this._render();
           this._lastRenderTime = now;
@@ -3970,7 +3971,7 @@ this._installTariffConsumerV3();
         // Reconfirm shared prices for this mount; reuse settled measurements.
         this._observeTariffNavigationV3();
       }
-      if (this._firstRender) this._ensureInitialDiscovery();
+      if (this._initialDiscoveryStartedV3) this._ensureInitialDiscovery();
     }
 
     disconnectedCallback() {
