@@ -4,15 +4,15 @@
   "sources": [
     {
       "path": "src/optimizer.js",
-      "sha256": "6208ae1b01333407d8c229a1e32cebfc81b4a970130c9905b31c23860c49c947"
+      "sha256": "e50e121efcbd6f8eca7f645bb7ab85d551f4a6c9462271ba65d921f93766303b"
     },
     {
       "path": "src/energy-insights.js",
-      "sha256": "f34eec9b5a5be222406c6ad1e38a0c140c9a37532cb21c2b2399d6d40c6c524f"
+      "sha256": "374e5a825aa76348684c9b3a9d785ad48e1e34c2b5c016839cb0cede492ecbff"
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "326ef69c37e553fec5fa311c5eddea9f0e7582cb10a289519355ab51c04cea25"
+      "sha256": "91d9b4a237d6591327839c3d08fadce77644cc7ae464415b5b83a45c7f43495a"
     },
     {
       "path": "src/chart-vendor.js",
@@ -56,7 +56,7 @@
   },
   "sharedFormat": {
     "path": "shared/ha-tools-format.js",
-    "sha256": "5f1ef6c8ab20670f699d9b622301557d85f41eec7a868ca84adf4a4c1acfb09b",
-    "inlineSha256": "c4ba93d935981899c1b1e259d5fb721701e95c56d6b5c01b940a2d7e41194101"
+    "sha256": "ad4a1410fad37f7009cb627e9b0851beb5506b3fddc97f26db480675b906607d",
+    "inlineSha256": "0857006bd514b0e35a545841f617e88a7efa7e20bec08a7977a33229fec8abcb"
   }
 }

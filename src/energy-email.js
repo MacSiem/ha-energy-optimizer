@@ -36,7 +36,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC') {
     const coverage = typeof measured === 'number' && Number.isFinite(measured) && typeof expected === 'number' && Number.isFinite(expected)
       ? `${numbers.format(measured)}/${numbers.format(expected)} ${unit}` : '';
     const pl = String(language).startsWith('pl');
-    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;display:flex;align-items:center;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
+    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;box-sizing:border-box;padding:12px 0;display:list-item;list-style-position:inside;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
   };
   const capturePeriods = (root, previous, current) => {
     if (!previous || ['epoch','connection','user'].some(key => previous[key] !== current[key])) return [];

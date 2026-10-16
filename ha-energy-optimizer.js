@@ -33,7 +33,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC') {
     const coverage = typeof measured === 'number' && Number.isFinite(measured) && typeof expected === 'number' && Number.isFinite(expected)
       ? `${numbers.format(measured)}/${numbers.format(expected)} ${unit}` : '';
     const pl = String(language).startsWith('pl');
-    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;display:flex;align-items:center;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
+    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;box-sizing:border-box;padding:12px 0;display:list-item;list-style-position:inside;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
   };
   const capturePeriods = (root, previous, current) => {
     if (!previous || ['epoch','connection','user'].some(key => previous[key] !== current[key])) return [];
@@ -2260,7 +2260,7 @@ canvas {
 
         .power-setup { margin:12px 0; overflow-wrap:anywhere; }
         .power-setup summary, .power-setup select { min-height:44px; max-width:100%; }
-        .power-setup summary { display:flex; align-items:center; cursor:pointer; color:var(--primary-color); }
+        .power-setup summary { display:list-item; list-style-position:inside; box-sizing:border-box; padding:12px 0; cursor:pointer; color:var(--primary-color); }
         .power-setup label { display:flex; flex-direction:column; gap:8px; }
         .power-setup select { font:inherit; color:var(--primary-text-color); background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:10px; padding:8px; }
         .power-setup pre { white-space:pre-wrap; overflow-wrap:anywhere; }
@@ -3202,7 +3202,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC') {
     const coverage = typeof measured === 'number' && Number.isFinite(measured) && typeof expected === 'number' && Number.isFinite(expected)
       ? `${numbers.format(measured)}/${numbers.format(expected)} ${unit}` : '';
     const pl = String(language).startsWith('pl');
-    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;display:flex;align-items:center;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
+    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;box-sizing:border-box;padding:12px 0;display:list-item;list-style-position:inside;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
   };
   const capturePeriods = (root, previous, current) => {
     if (!previous || ['epoch','connection','user'].some(key => previous[key] !== current[key])) return [];
@@ -5295,7 +5295,7 @@ this._installTariffConsumerV3();
       const rec = this._getRecommendation(trendDiff, d.todayKwh);
 
       let html = `
-        ${d.windows?.daily ? `<div data-today-range>${period(d.windows.daily, this._t('today'))}${energyTodayBoundaryMarkup(d.windows.daily, d.zone || '', this._lang)}</div>` : ''}<p>${this._lang === 'pl' ? 'Ten sam import z sieci jest dostępny także w' : 'The same grid import is also available in'} <a href="https://github.com/MacSiem/ha-smart-reports#readme" target="_blank" rel="noopener noreferrer">Smart Reports</a>. ${this._lang === 'pl' ? 'Porównuj identyczne okresy i pokrycie źródeł.' : 'Compare matching periods and source coverage.'}</p>
+        ${d.windows?.daily ? `<div data-today-range>${period(d.windows.daily, this._t('today'))}${energyTodayBoundaryMarkup(d.windows.daily, d.zone || '', this._lang)}</div>` : ''}<p>${this._lang === 'pl' ? 'Ten sam import z sieci jest dostępny także w' : 'The same grid import is also available in'} <a href="https://github.com/MacSiem/ha-smart-reports#readme" target="_blank" rel="noopener noreferrer" style="display:inline-flex;align-items:center;min-height:44px">Smart Reports</a>. ${this._lang === 'pl' ? 'Porównuj identyczne okresy i pokrycie źródeł.' : 'Compare matching periods and source coverage.'}</p>
         <div class="stats-grid">
           <div class="stat-card">
             <div class="stat-label">${this._t('today')}</div>
@@ -5560,7 +5560,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC') {
     const coverage = typeof measured === 'number' && Number.isFinite(measured) && typeof expected === 'number' && Number.isFinite(expected)
       ? `${numbers.format(measured)}/${numbers.format(expected)} ${unit}` : '';
     const pl = String(language).startsWith('pl');
-    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;display:flex;align-items:center;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
+    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;box-sizing:border-box;padding:12px 0;display:list-item;list-style-position:inside;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
   };
   const capturePeriods = (root, previous, current) => {
     if (!previous || ['epoch','connection','user'].some(key => previous[key] !== current[key])) return [];
