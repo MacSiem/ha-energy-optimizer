@@ -19,6 +19,7 @@ test('repeated local DST hours retain distinguishable point labels and absolute 
  assert.equal(format.clock(first),format.clock(second));assert.notEqual(format.pointLabel(first),format.pointLabel(second));
  assert.match(format.pointLabel(first),/GMT-4/);assert.match(format.pointLabel(second),/GMT-5/);
  const labels=format.chartLabels([first,second]);assert.notEqual(labels[0],labels[1]);assert.match(labels[0],/GMT-4/);assert.match(labels[1],/GMT-5/);
+ const multi=format.chartLabels([first,first+48*H]);assert.match(multi[0],/Nov 1/);assert.match(multi[1],/Nov 3/);
 });
 function fixture(){
  const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'}),charts=[];

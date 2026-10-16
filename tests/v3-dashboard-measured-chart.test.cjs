@@ -42,7 +42,9 @@ test('Dashboard spring transition omits nonexistent hour rather than showing a m
   const f=await fixture('2026-03-29T05:00:00Z');try{
     await f.card._drawDashboardChart();assert.equal(f.configs.at(-1).data.labels.length,6);
     click(f,'data');const rows=[...f.card.shadowRoot.querySelectorAll('[data-dashboard-row]')];assert.equal(rows.length,6);
-    assert.equal(rows.some(n=>/2026-03-29 02:00/.test(n.textContent)),false);
+    const labels=Array.from(f.configs.at(-1).data.labels);
+    assert.equal(labels.some(label=>/^02:00\b/.test(label)),false,'nonexistent local 02:00 remains absent');
+    assert.ok(labels.some(label=>/^03:00\b/.test(label)),'the local clock advances to 03:00');
   }finally{f.close();}
 });
 test('Dashboard keyboard point navigation, locale refresh and view toggles preserve identity and focus',async()=>{
