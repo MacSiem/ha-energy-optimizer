@@ -34,7 +34,7 @@ test('Dashboard Chart/Data preserves separate repeated DST hours and exact zero 
     const rows=[...f.card.shadowRoot.querySelectorAll('[data-dashboard-row]')];
     assert.equal(rows.length,7);assert.equal(new Set(rows.map(n=>n.dataset.dashboardRow)).size,7);
     assert.deepEqual(rows.map(n=>Number(n.dataset.kwh)),values);assert.ok(values.includes(0));
-    assert.match(rows[2].textContent,/GMT\+(?:02:00|2)(?!\d)/);assert.match(rows[3].textContent,/GMT\+(?:01:00|1)(?!\d)/);
+    assert.match(rows[2].querySelector('th').firstChild.textContent,/GMT\+(?:02:00|2)(?!\d)/);assert.match(rows[3].querySelector('th').firstChild.textContent,/GMT\+(?:01:00|1)(?!\d)/);
     click(f,'chart');assert.equal(f.calls.length,before,'presentation changes never fetch measurements');
   }finally{f.close();}
 });
