@@ -71,6 +71,7 @@ test('grid import uses unique configured roots and converts Wh without counting 
     assert.equal(card._hasRealData, true);
     assert.equal(card._calculateTodayUsage(), 2.5);
     assert.equal(card._calculateTodayCost(), null);
+    card._schedule = () => {};card._render();
     const summary = card.shadowRoot.querySelector('[data-energy-period-summary]');
     assert.ok(summary);assert.match(summary.textContent, /2 sources/);
     const details = card.shadowRoot.querySelector('[data-energy-period-details]');
