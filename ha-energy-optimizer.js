@@ -5960,6 +5960,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
             this[`_periodCache_${period}`] = null;
             this[`_periodRaw_${period}`] = null;
             this[`_periodWindow_${period}`] = null;
+            this[`_periodCoverage_${period}`] = null;
             this[`_periodStatus_${period}`] = 'no_data';
             this[`_periodCacheTime_${period}`] = 0;
           }
@@ -7032,13 +7033,13 @@ this._installTariffConsumerV3();
       if (!this._hass) return;
       if (this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
       for (const period of ['day', 'week', 'month']) {
-        if (this[`_periodStatus_${period}`] !== 'ready') continue;
+        if (!['ready', 'partial', 'unsupported'].includes(this[`_periodStatus_${period}`])) continue;
         const measured = this[`_periodRaw_${period}`];
         if (!measured) continue;
         const rows = new Map(measured.map(row => [row.id, row]));
         this[`_periodCache_${period}`] = this[`_periodCache_${period}`].map(row => {
           const source = rows.get(row.entity_id);
-          return source ? { ...row, cost: this._bucketCost(source.buckets, source.unit) } : row;
+          return source ? { ...row, cost: row.complete === false ? null : this._bucketCost(source.buckets, source.unit) } : row;
         });
       }
       this._render();
@@ -7517,6 +7518,7 @@ this._installTariffConsumerV3();
     }
 
     _getAutoDataForPeriod(period) {
+      if (['error', 'no_data', 'no_sources'].includes(this[`_periodStatus_${period}`])) return [];
       const cached = this[`_periodCache_${period}`];
       return Array.isArray(cached) ? [...cached].sort((a, b) => b.month - a.month) : [];
     }
@@ -7542,34 +7544,45 @@ this._installTariffConsumerV3();
           period: 'hour', types: ['change'] });
         await this._loadSharedTariffProfile();
         if (!read.current()) return false;
-        const result = [], measured = [];
+        const result = [], measured = [], coverage = [];
+        let unsupported = false;
         const hasSamples = ids.some(id => stats?.[id]?.length);
         for (const id of ids) {
           const meta = metadata[id];
           const unit = meta?.statistics_unit_of_measurement || meta?.unit_of_measurement;
           if (meta?.has_sum !== true || !energyFactor(unit) || (meta.unit_class && meta.unit_class !== 'energy')) {
-            this[statusKey] = 'unsupported'; return;
+            unsupported = true;
+            coverage.push({ id, measuredHours: 0, expectedHours: hours, complete: false, status: 'unsupported' });
+            continue;
           }
-          const buckets = new Map();
+          const buckets = new Map(), rejected = new Set();
+          let invalid = false;
           for (const point of stats?.[id] || []) {
             const stamp = energyTimestamp(point.start);
             const change = typeof point.change === 'number' ? point.change : NaN;
             if (!Number.isFinite(stamp) || stamp < start.getTime() || stamp >= end.getTime() ||
-                (stamp - start.getTime()) % 3600000 !== 0 || buckets.has(stamp) || !Number.isFinite(change) || change < 0) {
-              this[statusKey] = 'partial'; return;
+                (stamp - start.getTime()) % 3600000 !== 0 || buckets.has(stamp) || rejected.has(stamp) || !Number.isFinite(change) || change < 0) {
+              invalid = true;
+              if (Number.isFinite(stamp)) { buckets.delete(stamp); rejected.add(stamp); }
+              continue;
             }
             buckets.set(stamp, change);
           }
-          if (buckets.size !== hours) { this[statusKey] = hasSamples ? 'partial' : 'no_data'; return; }
+          const complete = buckets.size === hours && !invalid;
+          coverage.push({ id, measuredHours: buckets.size, expectedHours: hours, complete, status: complete ? 'ready' : 'partial' });
+          if (!buckets.size) continue;
           const kwh = [...buckets.values()].reduce((sum, value) => sum + value * energyFactor(unit), 0);
           measured.push({ id, unit, buckets });
-          result.push({ name: read.hass.states?.[id]?.attributes?.friendly_name || id,
-            key: id, entity_id: id, month: kwh, lastMonth: null, cost: this._bucketCost(buckets, unit), source: 'recorder' });
+          result.push({ name: read.hass.states?.[id]?.attributes?.friendly_name || meta.name || id,
+            key: id, entity_id: id, month: kwh, lastMonth: null, complete,
+            measuredHours: buckets.size, expectedHours: hours,
+            cost: complete ? this._bucketCost(buckets, unit) : null, source: 'recorder' });
         }
         if (!read.current()) return false;
         this[`_periodRaw_${period}`] = measured;
         this[cacheKey] = result;
-        this[statusKey] = 'ready';
+        this[`_periodCoverage_${period}`] = { measuredHours: coverage.reduce((sum, row) => sum + row.measuredHours, 0), expectedHours: ids.length * hours, sources: coverage };
+        this[statusKey] = coverage.every(row => row.complete) ? 'ready' : unsupported ? 'unsupported' : hasSamples ? 'partial' : 'no_data';
         this[`_periodCacheTime_${period}`] = Date.now();
       } catch (e) {
         if (!read.current()) return false;
@@ -8169,8 +8182,12 @@ this._installTariffConsumerV3();
       const displayData = this._getOverviewDataForPeriod(period);
       const window = this[`_periodWindow_${period}`];
       const periodNote = window ? `${window.start} — ${window.end}` : '';
-      const totalEnergy = displayData.length ? displayData.reduce((sum, d) => sum + d.month, 0) : null;
-      const totalCost = displayData.length && displayData.every(d => typeof d.cost === 'number' && Number.isFinite(d.cost))
+      const complete = this[`_periodStatus_${period}`] === 'ready';
+      const recordedEnergy = displayData.length ? displayData.reduce((sum, d) => sum + d.month, 0) : null;
+      const totalEnergy = complete ? recordedEnergy : null;
+      const coverage = this[`_periodCoverage_${period}`];
+      const coverageNote = coverage ? `${coverage.measuredHours}/${coverage.expectedHours} ${L ? 'źródłogodzin' : 'source-hours'}` : '';
+      const totalCost = complete && displayData.length && displayData.every(d => typeof d.cost === 'number' && Number.isFinite(d.cost))
         ? displayData.reduce((sum, d) => sum + d.cost, 0) : null;
       const maxVal = Math.max(...displayData.map(x => x.month)) || 1;
       const periodBtns = ['day', 'week', 'month'].map(p => {
@@ -8199,14 +8216,15 @@ this._installTariffConsumerV3();
       return `
         ${periodNote ? `<div class="info-row" style="overflow-wrap:anywhere">${_esc(periodNote)}</div>` : ''}
         <div class="info-row">${L ? 'Import z sieci: źródła skonfigurowane w Energy Dashboard.' : 'Grid import: sources configured in Energy Dashboard.'}</div>
+        ${!complete ? `<div class="info-row" role="status">${L ? 'Zarejestrowane zużycie' : 'Recorded usage'}: ${recordedEnergy.toFixed(1)} kWh. ${L ? 'Niepełne dane — suma całego okresu niedostępna.' : 'Incomplete data — full-period total unavailable.'} ${_esc(coverageNote)}</div>` : ''}
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
           <div class="section-title" style="margin:0;">\u{1F4CA} ${periodLabel}</div>
           <div style="display:flex;gap:4px;">${periodBtns}</div>
         </div>
         <div class="grid3">
           <div class="stat">
-            <div class="stat-value" style="color:#F59E0B">${totalEnergy === null ? 'N/A' : totalEnergy.toFixed(1)}</div>
-            <div class="stat-label">kWh ${periodLabel}</div>
+            <div class="stat-value" style="color:#F59E0B">${(complete ? totalEnergy : recordedEnergy).toFixed(1)}</div>
+            <div class="stat-label">${!complete ? (L ? 'Zarejestrowane zużycie · ' : 'Recorded usage · ') : ''}kWh ${periodLabel}</div>
             <div class="stat-sub">${displayData.length} ${L ? 'źródeł importu' : 'import sources'}</div>
           </div>
           <div class="stat">
@@ -8232,7 +8250,7 @@ this._installTariffConsumerV3();
             const diffStr = d.lastMonth > 0 && diff !== 0 ? `<span class="${diff > 0 ? 'trend-up' : 'trend-down'}">${diff > 0 ? '+' : ''}${diff.toFixed(1)} kWh</span>` : '';
             const entityInfo = d.entity_id ? `<span style="font-size:10px;color:var(--bento-text-muted)" title="${_esc(d.entity_id)}">${_esc((d.entity_id.split('.')[1] || d.entity_id).substring(0,20))}</span>` : '';
             return `<div class="device-row" title="${_esc(d.entity_id || d.name)}">
-              <div class="device-name">${_esc(d.name)} ${entityInfo}</div>
+              <div class="device-name">${_esc(d.name)} ${entityInfo}${Number.isFinite(d.measuredHours) ? `<div class="helper">${d.measuredHours}/${d.expectedHours} ${L ? 'zmierzonych godzin' : 'measured hours'}</div>` : ''}</div>
               <div class="device-bar-wrap"><div class="device-bar" style="width:${pct}%"></div></div>
               <div class="device-val">${d.month.toFixed(1)} kWh</div>
               <div style="font-size:11px;color:var(--bento-text-secondary);min-width:60px;text-align:right">${diffStr}</div>
@@ -8629,12 +8647,12 @@ this._installTariffConsumerV3();
         const window = this[`_periodWindow_${p.key}`];
         const range = window ? `${_esc(window.start)} → ${_esc(window.end)}` : (L ? p.rangeL : p.rangeE);
         const devData = getDevData(p.key);
-        const hasData = devData.length > 0 && devData.every(d => typeof d.current === 'number' && Number.isFinite(d.current));
+        const hasData = this[`_periodStatus_${p.key}`] === 'ready' && devData.length > 0 && devData.every(d => typeof d.current === 'number' && Number.isFinite(d.current));
         const totalEnergy = hasData ? devData.reduce((s, d) => s + d.current, 0) : null;
         const totalCost = hasData && devData.every(d => typeof d.cost === 'number' && Number.isFinite(d.cost)) ? devData.reduce((s, d) => s + d.cost, 0) : null;
         const top5 = devData.slice(0, 5);
         const isPeriodData = devData.length > 0 && devData[0].hasPeriod;
-        const periodNote = !hasData ? `<div role="status">${L ? 'Brak kompletnych danych dla tego okresu.' : 'No complete data available for this period.'}</div>` : '';
+        const periodNote = !hasData ? `<div role="status">${L ? 'Niepełne dane — suma okresu niedostępna. Wiersze pokazują tylko zarejestrowane pomiary.' : 'Incomplete data — period total unavailable. Rows show recorded measurements only.'}</div>` : '';
         return `<div class="preview-box" style="margin-bottom:14px">
           <h3 style="margin:0 0 8px">${p.icon} ${title} \u2013 ${today}</h3>
           ${periodNote}
