@@ -4,7 +4,19 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 
 // HA_FORMAT_UI_START
 // Localized presentation; raw values remain available to callers for details/export.
-function createFormatUi(language = 'en', timeZone = 'UTC') {
+function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
+  const hourCycle = preferences.hourCycle || 'h23';
+  const dateLanguage = preferences.dateLanguage || language;
+  const stamp = value => typeof value === 'number' ? (Number.isFinite(value) ? value : NaN) : typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) ? Date.parse(value) : NaN;
+  const localized = (value, options, locale = language) => {
+    const time = stamp(value);
+    if (!Number.isFinite(time)) return null;
+    try { return new Intl.DateTimeFormat(locale, {timeZone, ...options}).format(time); } catch (_) { return null; }
+  };
+  const clock = value => localized(value, {hour:'2-digit', minute:'2-digit', hourCycle});
+  const date = (value, short = false) => localized(value, {day:'numeric', month:'short', ...(short ? {} : {year:'numeric'})}, dateLanguage);
+  const pointLabel = value => localized(value, {year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hourCycle, timeZoneName:'shortOffset'});
+  const key = JSON.stringify([language, timeZone, hourCycle, dateLanguage]);
   const numbers = new Intl.NumberFormat(language);
   const plurals = new Intl.PluralRules(language);
   const count = (value, forms) => `${numbers.format(value)} ${forms[plurals.select(value)] || forms.other}`;
@@ -12,28 +24,28 @@ function createFormatUi(language = 'en', timeZone = 'UTC') {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
     const time = Date.parse(value);
     if (!Number.isFinite(time)) return null;
-    try { return new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium', timeStyle:'short'}).format(new Date(time)); }
+    try { return new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium', timeStyle:'short', hourCycle}).format(new Date(time)); }
     catch (_) { return null; }
   };
   const range = (from, to) => {
     const first = Date.parse(from), last = Date.parse(to);
     if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return null;
     try {
-      const day = new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium'});
-      const clock = new Intl.DateTimeFormat(language, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle:'h23'});
+      const day = new Intl.DateTimeFormat(dateLanguage, {timeZone, dateStyle:'medium'});
+      const clock = new Intl.DateTimeFormat(language, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle});
       return day.format(first) === day.format(last)
         ? `${day.format(first)} (${clock.format(first)}–${clock.format(last)})`
         : `${dateTime(from)} – ${dateTime(to)}`;
     } catch (_) { return null; }
   };
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const periodMarkup = ({start, end, label, source, measured, expected, unit, details = ''}) => {
+  const periodMarkup = ({start, end, label, source, measured, expected, unit, details = '', sourceTimeZone = ''}) => {
     const local = range(start, end);
     if (!local) return '';
     const coverage = typeof measured === 'number' && Number.isFinite(measured) && typeof expected === 'number' && Number.isFinite(expected)
       ? `${numbers.format(measured)}/${numbers.format(expected)} ${unit}` : '';
     const pl = String(language).startsWith('pl');
-    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;box-sizing:border-box;padding:12px 0;display:list-item;list-style-position:inside;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
+    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;box-sizing:border-box;padding:12px 0;display:list-item;list-style-position:inside;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p>${sourceTimeZone && sourceTimeZone !== timeZone ? `<p>${escape(pl ? 'Strefa pomiarów i granic okresu' : 'Measurement calendar time zone')}: ${escape(sourceTimeZone)}</p>` : ''}<p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
   };
   const capturePeriods = (root, previous, current) => {
     if (!previous || ['epoch','connection','user'].some(key => previous[key] !== current[key])) return [];
@@ -49,8 +61,26 @@ function createFormatUi(language = 'en', timeZone = 'UTC') {
       if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
     }
   };
-  return {number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
+  return {timeZone, key, clock, date, pointLabel, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
+// Presentation follows the HA profile; measurement and tariff calendars remain separate.
+createFormatUi.forHass = hass => {
+  const locale = hass?.locale || {};
+  const systemLanguage = typeof navigator !== 'undefined' ? navigator.language : undefined;
+  const language = locale.language || hass?.language || systemLanguage || 'en';
+  const validZone = value => {
+    if (typeof value !== 'string' || !(value === 'UTC' || value.includes('/')) || /^[+-]/.test(value)) return null;
+    try { new Intl.DateTimeFormat('en', {timeZone:value}).format(0); return value; } catch (_) { return null; }
+  };
+  let systemZone;
+  try { systemZone = validZone(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch (_) {}
+  const serverZone = validZone(hass?.config?.time_zone);
+  const timeZone = (locale.time_zone === 'server' ? serverZone : systemZone) || serverZone || 'UTC';
+  const clockLanguage = locale.time_format === 'system' ? systemLanguage || language : language;
+  const hourCycle = locale.time_format === '12' ? 'h12' : locale.time_format === '24' ? 'h23'
+    : new Intl.DateTimeFormat(clockLanguage, {hour:'numeric'}).resolvedOptions().hourCycle;
+  return createFormatUi(language, timeZone, {hourCycle, dateLanguage:locale.date_format === 'system' ? systemLanguage || language : language});
+};
 // Node tests use the canonical factory; vendored cards keep it local.
 // HA_FORMAT_UI_END
 
@@ -334,6 +364,9 @@ class HaEnergyOptimizer extends HTMLElement {
       this.classList.toggle('bento-dark', _d);
     } catch (e) {}
     const previousHass = this._hass;
+    const presentationKey = createFormatUi.forHass(hass).key;
+    const presentationChanged = this._presentationKeyV4 !== undefined && this._presentationKeyV4 !== presentationKey;
+    this._presentationKeyV4 = presentationKey;
     const measurementBinding = { present: !!hass, connection: hass?.connection ?? null,
         user: hass?.user?.id ?? null, zone: hass?.config?.time_zone ?? null };
       const previousBinding = this._measurementBindingV3;
@@ -362,7 +395,7 @@ class HaEnergyOptimizer extends HTMLElement {
     if (!hass) { if (previousHass) this._render(); return; }
     if (previousHass && previousHass.connection === hass.connection && previousHass.user?.id === hass.user?.id &&
         previousHass.config?.time_zone === hass.config?.time_zone &&
-        (previousHass.locale?.language || previousHass.language) !== (hass.locale?.language || hass.language)) {
+        (presentationChanged || (previousHass.locale?.language || previousHass.language) !== (hass.locale?.language || hass.language))) {
       this._render();
       return;
     }
@@ -1552,8 +1585,8 @@ this._installTariffConsumerV3();
   }
 
   _patternsRowLabel(row) {
-    if (this._patternsState.resolution === 'day') return row.key;
-    return `${row.key} ${String(row.hour).padStart(2, '0')}:${String(row.minute).padStart(2, '0')} ${row.offset}`;
+    const format = createFormatUi.forHass(this._hass);
+    return this._patternsState.resolution === 'day' ? format.date(row.from) : format.pointLabel(row.from);
   }
 
   _patternsDetail(row) {
@@ -1607,7 +1640,8 @@ this._installTariffConsumerV3();
     flush();
     const ticks = [low, (low + upper) / 2, upper];
     const grid = ticks.map(v => `<line x1="${left}" x2="${right}" y1="${y(v)}" y2="${y(v)}" stroke="var(--bento-border)"/><text x="${left-8}" y="${y(v)+5}" text-anchor="end">${_esc(Number(v.toPrecision(4)))}</text>`).join('');
-    const label = i => state.resolution === 'hour' ? `${rows[i].hour}:${String(rows[i].minute).padStart(2, '0')}` : rows[i].key.slice(5);
+    const format = createFormatUi.forHass(this._hass);
+    const label = i => state.resolution === 'hour' ? format.clock(rows[i].from) : format.date(rows[i].from, true);
     const axis = rows.length ? [0, Math.floor((rows.length-1)/2), rows.length-1].filter((v,i,a) => a.indexOf(v) === i).map(i => `<text x="${x(i)}" y="220" text-anchor="middle">${_esc(label(i))}</text>`).join('') : '';
     return `<svg data-pattern-chart data-unit="${_esc(unit)}" viewBox="0 0 ${w} ${h}" width="100%" height="250" role="img" aria-label="${_esc(this._text('Measured series; choose a row below for details', 'Seria pomiarowa; wybierz poniżej wiersz ze szczegółami'))}">
       <text x="${left}" y="17">${_esc(unit)}</text>${grid}${marks}${axis}${!known.length ? `<text x="${(left+right)/2}" y="110" text-anchor="middle">${this._text('No data', 'Brak danych')}</text>` : ''}</svg>`;
@@ -2405,9 +2439,9 @@ canvas {
   }
 
   _getTemplate() {
-    const format = createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en', this._energyModel?.zone || this._hass?.config?.time_zone || 'UTC');
+    const format = createFormatUi.forHass(this._hass);
     const window = this._todayWindow, selected = window?.selected;
-    const periodMarkup = window ? format.periodMarkup({ ...window, label: this._text('Today', 'Dziś'),
+    const periodMarkup = window ? format.periodMarkup({ ...window, sourceTimeZone:this._energyModel?.zone, label: this._text('Today', 'Dziś'),
       source: 'Energy Dashboard / Recorder · ' + format.count((this._energySensorIds || []).length, {one:this._text('source','źródło'),few:'źródła',many:'źródeł',other:this._text('sources','źródła')}), measured: selected?.filter(([, point]) => point.kwh !== null).length,
       expected: selected?.length, unit: this._text('completed intervals', 'zakończonych przedziałów'),
       details: (this._energySensorIds || []).join(', ') + '. ' + this._text('Only completed Recorder intervals are shown. Repeated local hours keep distinct UTC offsets; future or skipped hours are not measured zero.', 'Pokazano tylko zakończone przedziały Recorder. Powtórzone godziny zachowują odrębne przesunięcia UTC; przyszła lub pominięta godzina nie oznacza zmierzonego zera.') }) : '';
@@ -2562,7 +2596,7 @@ canvas {
   }
 
   _dashboardLabelV3(row) {
-    return `${row.key} ${String(row.hour).padStart(2, '0')}:${String(row.minute).padStart(2, '0')} ${row.offset}`;
+    return createFormatUi.forHass(this._hass).pointLabel(row.from);
   }
 
   _dashboardTariffV4(rows) {
@@ -2645,7 +2679,8 @@ canvas {
 
       const ctx = canvas.getContext('2d');
       const rows = this._dashboardRowsV3();
-      const labels = rows.map(row => this._dashboardLabelV3(row));
+      const format = createFormatUi.forHass(this._hass);
+      const labels = rows.map(row => format.clock(row.from));
       const data = rows.map(row => row.kwh);
 
       const chartConfig = {
@@ -2676,7 +2711,7 @@ canvas {
                   return `${context.formattedValue} kWh · ${this._dashboardTariffV4(rows).items[context.dataIndex]?.label || ''}`;
                 },
                 title: (context) => {
-                  return context[0].label;
+                  return this._dashboardLabelV3(rows[context[0].dataIndex]);
                 }
               }
             }
@@ -3178,7 +3213,19 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 
 // HA_FORMAT_UI_START
 // Localized presentation; raw values remain available to callers for details/export.
-function createFormatUi(language = 'en', timeZone = 'UTC') {
+function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
+  const hourCycle = preferences.hourCycle || 'h23';
+  const dateLanguage = preferences.dateLanguage || language;
+  const stamp = value => typeof value === 'number' ? (Number.isFinite(value) ? value : NaN) : typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) ? Date.parse(value) : NaN;
+  const localized = (value, options, locale = language) => {
+    const time = stamp(value);
+    if (!Number.isFinite(time)) return null;
+    try { return new Intl.DateTimeFormat(locale, {timeZone, ...options}).format(time); } catch (_) { return null; }
+  };
+  const clock = value => localized(value, {hour:'2-digit', minute:'2-digit', hourCycle});
+  const date = (value, short = false) => localized(value, {day:'numeric', month:'short', ...(short ? {} : {year:'numeric'})}, dateLanguage);
+  const pointLabel = value => localized(value, {year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hourCycle, timeZoneName:'shortOffset'});
+  const key = JSON.stringify([language, timeZone, hourCycle, dateLanguage]);
   const numbers = new Intl.NumberFormat(language);
   const plurals = new Intl.PluralRules(language);
   const count = (value, forms) => `${numbers.format(value)} ${forms[plurals.select(value)] || forms.other}`;
@@ -3186,28 +3233,28 @@ function createFormatUi(language = 'en', timeZone = 'UTC') {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
     const time = Date.parse(value);
     if (!Number.isFinite(time)) return null;
-    try { return new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium', timeStyle:'short'}).format(new Date(time)); }
+    try { return new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium', timeStyle:'short', hourCycle}).format(new Date(time)); }
     catch (_) { return null; }
   };
   const range = (from, to) => {
     const first = Date.parse(from), last = Date.parse(to);
     if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return null;
     try {
-      const day = new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium'});
-      const clock = new Intl.DateTimeFormat(language, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle:'h23'});
+      const day = new Intl.DateTimeFormat(dateLanguage, {timeZone, dateStyle:'medium'});
+      const clock = new Intl.DateTimeFormat(language, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle});
       return day.format(first) === day.format(last)
         ? `${day.format(first)} (${clock.format(first)}–${clock.format(last)})`
         : `${dateTime(from)} – ${dateTime(to)}`;
     } catch (_) { return null; }
   };
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const periodMarkup = ({start, end, label, source, measured, expected, unit, details = ''}) => {
+  const periodMarkup = ({start, end, label, source, measured, expected, unit, details = '', sourceTimeZone = ''}) => {
     const local = range(start, end);
     if (!local) return '';
     const coverage = typeof measured === 'number' && Number.isFinite(measured) && typeof expected === 'number' && Number.isFinite(expected)
       ? `${numbers.format(measured)}/${numbers.format(expected)} ${unit}` : '';
     const pl = String(language).startsWith('pl');
-    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;box-sizing:border-box;padding:12px 0;display:list-item;list-style-position:inside;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
+    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;box-sizing:border-box;padding:12px 0;display:list-item;list-style-position:inside;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p>${sourceTimeZone && sourceTimeZone !== timeZone ? `<p>${escape(pl ? 'Strefa pomiarów i granic okresu' : 'Measurement calendar time zone')}: ${escape(sourceTimeZone)}</p>` : ''}<p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
   };
   const capturePeriods = (root, previous, current) => {
     if (!previous || ['epoch','connection','user'].some(key => previous[key] !== current[key])) return [];
@@ -3223,8 +3270,26 @@ function createFormatUi(language = 'en', timeZone = 'UTC') {
       if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
     }
   };
-  return {number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
+  return {timeZone, key, clock, date, pointLabel, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
+// Presentation follows the HA profile; measurement and tariff calendars remain separate.
+createFormatUi.forHass = hass => {
+  const locale = hass?.locale || {};
+  const systemLanguage = typeof navigator !== 'undefined' ? navigator.language : undefined;
+  const language = locale.language || hass?.language || systemLanguage || 'en';
+  const validZone = value => {
+    if (typeof value !== 'string' || !(value === 'UTC' || value.includes('/')) || /^[+-]/.test(value)) return null;
+    try { new Intl.DateTimeFormat('en', {timeZone:value}).format(0); return value; } catch (_) { return null; }
+  };
+  let systemZone;
+  try { systemZone = validZone(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch (_) {}
+  const serverZone = validZone(hass?.config?.time_zone);
+  const timeZone = (locale.time_zone === 'server' ? serverZone : systemZone) || serverZone || 'UTC';
+  const clockLanguage = locale.time_format === 'system' ? systemLanguage || language : language;
+  const hourCycle = locale.time_format === '12' ? 'h12' : locale.time_format === '24' ? 'h23'
+    : new Intl.DateTimeFormat(clockLanguage, {hour:'numeric'}).resolvedOptions().hourCycle;
+  return createFormatUi(language, timeZone, {hourCycle, dateLanguage:locale.date_format === 'system' ? systemLanguage || language : language});
+};
 // Node tests use the canonical factory; vendored cards keep it local.
 // HA_FORMAT_UI_END
 
@@ -4381,6 +4446,9 @@ this._installTariffConsumerV3();
     set hass(hass) {
       try {
         const previousLanguage = this._lang;
+        const presentationKey = createFormatUi.forHass(hass).key;
+        const presentationChanged = this._presentationKeyV4 !== undefined && this._presentationKeyV4 !== presentationKey;
+        this._presentationKeyV4 = presentationKey;
         const language = hass?.locale?.language || hass?.language;
         if (language) this._lang = language.startsWith('pl') ? 'pl' : 'en';
         // Keep scalar values: Home Assistant may mutate hass in place.
@@ -4423,7 +4491,7 @@ this._installTariffConsumerV3();
           return;
         }
 
-        if (previousLanguage !== this._lang && this._domBuilt) {
+        if ((previousLanguage !== this._lang || presentationChanged) && this._domBuilt) {
           const header = this.shadowRoot.querySelector('.panel-header');
           if (header) header.outerHTML = this._renderHeader();
           this.shadowRoot.querySelectorAll('.tab-btn').forEach(btn => {
@@ -4437,7 +4505,7 @@ this._installTariffConsumerV3();
         this._syncChartTheme();
         this._syncSupport();
 
-        if (previousLanguage !== this._lang && !measurementsChanged) return; // A locale gesture only reprojects cached measurements.
+        if ((previousLanguage !== this._lang || presentationChanged) && !measurementsChanged) return; // A locale gesture only reprojects cached measurements.
 
         // Fetch new data every 5 minutes (recorder stats don't change often)
         if (!this._lastDataFetch || (now - this._lastDataFetch) > 300000) {
@@ -4831,7 +4899,8 @@ this._installTariffConsumerV3();
       return this._insightChartDataset?.[this._insightChartState?.resolution === 'hour' ? 'hours' : 'days'] || [];
     }
     _insightRowLabelV3(row) {
-      return row.hour == null ? row.key : `${row.key} ${String(row.hour).padStart(2, '0')}:${String(row.minute).padStart(2, '0')} ${row.offset}`;
+      const format = createFormatUi.forHass(this._hass);
+      return row.hour == null ? format.date(row.from) : format.pointLabel(row.from);
     }
     _insightRowDetailV3(row) {
       if (!row) return this._insightTextV3('No completed intervals in this window.', 'Brak zakończonych przedziałów w tym okresie.');
@@ -4867,7 +4936,7 @@ this._installTariffConsumerV3();
       });
       flush();
       const grid = [low, (low + upper) / 2, upper].map(value => `<line x1="${left}" x2="${right}" y1="${y(value)}" y2="${y(value)}" stroke="var(--bento-border)"/><text x="${left-6}" y="${y(value)+4}" text-anchor="end">${_esc(new Intl.NumberFormat(this._lang, { maximumSignificantDigits: 3 }).format(value))}</text>`).join('');
-      const axes = [0, Math.floor((rows.length-1)/2), rows.length-1].filter((i, index, all) => i >= 0 && all.indexOf(i) === index).map(i => `<text x="${x(i)}" y="242" text-anchor="middle">${_esc(state.resolution === 'hour' ? `${rows[i].hour}:${String(rows[i].minute).padStart(2, '0')}` : rows[i].key.slice(5))}</text>`).join('');
+      const axes = [0, Math.floor((rows.length-1)/2), rows.length-1].filter((i, index, all) => i >= 0 && all.indexOf(i) === index).map(i => `<text x="${x(i)}" y="242" text-anchor="middle">${_esc(state.resolution === 'hour' ? createFormatUi.forHass(this._hass).clock(rows[i].from) : createFormatUi.forHass(this._hass).date(rows[i].from, true))}</text>`).join('');
       return `<svg data-insights-chart data-unit="${_esc(unit)}" viewBox="0 0 ${w} 262" width="100%" height="262" role="img" aria-label="${_esc(metricLabel)} · ${_esc(unit)}; ${this._insightTextV3('use point controls below for exact values', 'dokładne wartości w wyborze punktu poniżej')}"><text x="${left}" y="18">${_esc(unit)}</text>${grid}${marks}${axes}</svg>`;
     }
     _renderInsightChartV3(period) {
@@ -5285,9 +5354,9 @@ this._installTariffConsumerV3();
       if (!this._data) return '';
       const d = this._data;
       const cur = this._tariffCurrency();
-      const format = createFormatUi(this._hass?.locale?.language || this._hass?.language || this._lang || 'en', d.zone || this._hass?.config?.time_zone || 'UTC');
+      const format = createFormatUi.forHass(this._hass);
       const fmt = v => typeof v === 'number' && Number.isFinite(v) ? format.number(v, {minimumFractionDigits:2, maximumFractionDigits:2}) : 'N/A';
-      const period = (window, label) => window ? format.periodMarkup({ ...window, label, source: 'Energy Dashboard / Recorder · ' + format.count((d.sensors || []).length, {one:this._lang === 'pl' ? 'źródło' : 'source',few:'źródła',many:'źródeł',other:this._lang === 'pl' ? 'źródła' : 'sources'}),
+      const period = (window, label) => window ? format.periodMarkup({ ...window, sourceTimeZone:d.zone, label, source: 'Energy Dashboard / Recorder · ' + format.count((d.sensors || []).length, {one:this._lang === 'pl' ? 'źródło' : 'source',few:'źródła',many:'źródeł',other:this._lang === 'pl' ? 'źródła' : 'sources'}),
         measured: window.selected?.filter(([, point]) => point.kwh !== null).length, expected: window.selected?.length,
         unit: this._lang === 'pl' ? 'zakończonych przedziałów' : 'completed intervals', details: (d.sensors || []).join(', ') }) : '';
 
@@ -5536,7 +5605,19 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 
 // HA_FORMAT_UI_START
 // Localized presentation; raw values remain available to callers for details/export.
-function createFormatUi(language = 'en', timeZone = 'UTC') {
+function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
+  const hourCycle = preferences.hourCycle || 'h23';
+  const dateLanguage = preferences.dateLanguage || language;
+  const stamp = value => typeof value === 'number' ? (Number.isFinite(value) ? value : NaN) : typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) ? Date.parse(value) : NaN;
+  const localized = (value, options, locale = language) => {
+    const time = stamp(value);
+    if (!Number.isFinite(time)) return null;
+    try { return new Intl.DateTimeFormat(locale, {timeZone, ...options}).format(time); } catch (_) { return null; }
+  };
+  const clock = value => localized(value, {hour:'2-digit', minute:'2-digit', hourCycle});
+  const date = (value, short = false) => localized(value, {day:'numeric', month:'short', ...(short ? {} : {year:'numeric'})}, dateLanguage);
+  const pointLabel = value => localized(value, {year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hourCycle, timeZoneName:'shortOffset'});
+  const key = JSON.stringify([language, timeZone, hourCycle, dateLanguage]);
   const numbers = new Intl.NumberFormat(language);
   const plurals = new Intl.PluralRules(language);
   const count = (value, forms) => `${numbers.format(value)} ${forms[plurals.select(value)] || forms.other}`;
@@ -5544,28 +5625,28 @@ function createFormatUi(language = 'en', timeZone = 'UTC') {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
     const time = Date.parse(value);
     if (!Number.isFinite(time)) return null;
-    try { return new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium', timeStyle:'short'}).format(new Date(time)); }
+    try { return new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium', timeStyle:'short', hourCycle}).format(new Date(time)); }
     catch (_) { return null; }
   };
   const range = (from, to) => {
     const first = Date.parse(from), last = Date.parse(to);
     if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return null;
     try {
-      const day = new Intl.DateTimeFormat(language, {timeZone, dateStyle:'medium'});
-      const clock = new Intl.DateTimeFormat(language, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle:'h23'});
+      const day = new Intl.DateTimeFormat(dateLanguage, {timeZone, dateStyle:'medium'});
+      const clock = new Intl.DateTimeFormat(language, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle});
       return day.format(first) === day.format(last)
         ? `${day.format(first)} (${clock.format(first)}–${clock.format(last)})`
         : `${dateTime(from)} – ${dateTime(to)}`;
     } catch (_) { return null; }
   };
   const escape = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  const periodMarkup = ({start, end, label, source, measured, expected, unit, details = ''}) => {
+  const periodMarkup = ({start, end, label, source, measured, expected, unit, details = '', sourceTimeZone = ''}) => {
     const local = range(start, end);
     if (!local) return '';
     const coverage = typeof measured === 'number' && Number.isFinite(measured) && typeof expected === 'number' && Number.isFinite(expected)
       ? `${numbers.format(measured)}/${numbers.format(expected)} ${unit}` : '';
     const pl = String(language).startsWith('pl');
-    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;box-sizing:border-box;padding:12px 0;display:list-item;list-style-position:inside;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p><p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
+    return `<div class="energy-period-v4" style="overflow-wrap:anywhere"><p data-energy-period-summary>${[source, label, local, coverage, timeZone].filter(Boolean).map(escape).join(' · ')}</p><details data-energy-period-details data-energy-period-key="${escape(start + '|' + end)}"><summary style="min-height:44px;box-sizing:border-box;padding:12px 0;display:list-item;list-style-position:inside;cursor:pointer">${pl ? 'Źródło i szczegóły czasu' : 'Source and time details'}</summary><p>${escape(details)}</p>${sourceTimeZone && sourceTimeZone !== timeZone ? `<p>${escape(pl ? 'Strefa pomiarów i granic okresu' : 'Measurement calendar time zone')}: ${escape(sourceTimeZone)}</p>` : ''}<p>UTC: ${escape(start)} — ${escape(end)}</p></details></div>`;
   };
   const capturePeriods = (root, previous, current) => {
     if (!previous || ['epoch','connection','user'].some(key => previous[key] !== current[key])) return [];
@@ -5581,8 +5662,26 @@ function createFormatUi(language = 'en', timeZone = 'UTC') {
       if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
     }
   };
-  return {number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
+  return {timeZone, key, clock, date, pointLabel, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
+// Presentation follows the HA profile; measurement and tariff calendars remain separate.
+createFormatUi.forHass = hass => {
+  const locale = hass?.locale || {};
+  const systemLanguage = typeof navigator !== 'undefined' ? navigator.language : undefined;
+  const language = locale.language || hass?.language || systemLanguage || 'en';
+  const validZone = value => {
+    if (typeof value !== 'string' || !(value === 'UTC' || value.includes('/')) || /^[+-]/.test(value)) return null;
+    try { new Intl.DateTimeFormat('en', {timeZone:value}).format(0); return value; } catch (_) { return null; }
+  };
+  let systemZone;
+  try { systemZone = validZone(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch (_) {}
+  const serverZone = validZone(hass?.config?.time_zone);
+  const timeZone = (locale.time_zone === 'server' ? serverZone : systemZone) || serverZone || 'UTC';
+  const clockLanguage = locale.time_format === 'system' ? systemLanguage || language : language;
+  const hourCycle = locale.time_format === '12' ? 'h12' : locale.time_format === '24' ? 'h23'
+    : new Intl.DateTimeFormat(clockLanguage, {hour:'numeric'}).resolvedOptions().hourCycle;
+  return createFormatUi(language, timeZone, {hourCycle, dateLanguage:locale.date_format === 'system' ? systemLanguage || language : language});
+};
 // Node tests use the canonical factory; vendored cards keep it local.
 // HA_FORMAT_UI_END
 
@@ -6197,6 +6296,9 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     } catch (e) {}
       try {
         const previousLanguage = this._lang;
+        const presentationKey = createFormatUi.forHass(hass).key;
+        const presentationChanged = this._presentationKeyV4 !== undefined && this._presentationKeyV4 !== presentationKey;
+        this._presentationKeyV4 = presentationKey;
         const language = hass?.locale?.language || hass?.language;
         if (language) this._lang = language.startsWith('pl') ? 'pl' : 'en';
         // Keep scalar values: Home Assistant may mutate hass in place.
@@ -6237,7 +6339,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
           this._lastRenderTime = now;
           return;
         }
-        if (previousLanguage !== this._lang) {
+        if (previousLanguage !== this._lang || presentationChanged) {
           this._renderPreservingDrafts();
           this._lastRenderTime = now;
           return;
@@ -8477,8 +8579,8 @@ this._installTariffConsumerV3();
       const totalEnergy = complete ? recordedEnergy : null;
       const coverage = this[`_periodCoverage_${period}`];
       const coverageNote = coverage ? `${coverage.measuredHours}/${coverage.expectedHours} ${L ? 'źródłogodzin' : 'source-hours'}` : '';
-      const format = createFormatUi(this._hass?.locale?.language || this._hass?.language || this._lang || 'en', this._hass?.config?.time_zone || 'UTC');
-      const periodMarkup = window ? format.periodMarkup({ ...window, label: periodLabel, source: 'Energy Dashboard / Recorder',
+      const format = createFormatUi.forHass(this._hass);
+      const periodMarkup = window ? format.periodMarkup({ ...window, sourceTimeZone:this._hass?.config?.time_zone, label: periodLabel, source: 'Energy Dashboard / Recorder',
         measured: coverage?.measuredHours, expected: coverage?.expectedHours, unit: L ? 'źródłogodzin' : 'source-hours',
         details: L ? 'Ruchome okno. Pokrycie liczone oddzielnie dla każdego skonfigurowanego źródła.' : 'Rolling window. Coverage counts each configured source separately.' }) : '';
 
