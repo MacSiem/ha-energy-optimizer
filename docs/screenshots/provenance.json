@@ -107,5 +107,9 @@
     "title": "Energy Optimizer",
     "subtitle": "Measured energy & tariff costs",
     "old_banner": "banner.png retained as historical asset, no longer referenced by README"
+  },
+  "reuse_for_3_7_1": {
+    "runtime_bundle_sha256": "4320fce88074ee7f9b1ddcd7da1c9b36fb41e45cca43c27bc2457de7f9bd0c4e",
+    "qualification": "The only runtime delta passes the existing dateLanguage preference into full point labels. These accepted captures use matching HA/system date languages, so their date strings and layout remain unchanged. Original image/capture-source hashes are retained; these are qualified reused 3.7 captures, not new 3.7.1 captures. Measurement windows, tariff values and the backend mail preview are unchanged."
   }
 }
