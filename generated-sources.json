@@ -56,7 +56,7 @@
   },
   "sharedFormat": {
     "path": "shared/ha-tools-format.js",
-    "sha256": "7ae962ca9be64dc2688222e1e8b59547296612fc0b9c12f4b903fe8cb9789f8b",
-    "inlineSha256": "f7475b3741661bda167725239984715cd0da82d4d0b25e860b932f9d1fa2d762"
+    "sha256": "74439e388c76e03837890852840a3df6104c8756dfbce6cd5c0bf173903f12a2",
+    "inlineSha256": "07a9a500a7dd99d4f823a2f5ace289247f6370cee5a3a4c041ce75c5341036ee"
   }
 }
