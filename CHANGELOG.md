@@ -1,5 +1,10 @@
 # Changelog — Energy Optimizer
 
+## 3.7.1 (2026-10-17)
+
+- Respect the system date format in full chart point labels, tooltips and Data when it differs from the Home Assistant interface language. Keep measured point identities and costs unchanged.
+- Add advisory frontend review hints to CI without creating a release gate.
+
 ## 3.7.0 (2026-10-17)
 
 - Color Dashboard bars by the confirmed tariff's actual interval zones, with a persistent legend and matching Data column. Preserve midnight start, midday valleys, unavailable rates and explicitly mixed zones; reprice without reloading measurements.

@@ -41,3 +41,8 @@ jobs:
           npm ci >/dev/null 2>&1
           node .github/smoke.cjs
           node --test tests/*.test.cjs
+      - name: HA frontend review hints
+        continue-on-error: true
+        run: |
+          python3 scripts/ha_ci_advisory.py --root . src/optimizer.js src/energy-insights.js src/energy-email.js shared/ha-tools-format.js > "$RUNNER_TEMP/ha-ci-advisory.json"
+          python3 -m json.tool "$RUNNER_TEMP/ha-ci-advisory.json"
