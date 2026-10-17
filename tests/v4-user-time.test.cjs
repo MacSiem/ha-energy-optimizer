@@ -49,6 +49,32 @@ test('Patterns and Insights chart axes and titles use local friendly dates',()=>
  }finally{f.close();}
 });
 
+for(const scenario of [
+ {ui:'pl',system:'en-US',month:/Oct/,otherMonth:/paź/},
+ {ui:'en',system:'pl-PL',month:/paź/,otherMonth:/Oct/},
+])test(`system date format reaches chart point labels with ${scenario.ui} UI and ${scenario.system} system`,async()=>{
+ const f=fixture();try{
+  Object.defineProperty(f.dom.window.navigator,'language',{configurable:true,value:scenario.system});
+  f.card._hass.locale.language=scenario.ui;f.card._hass.locale.date_format='system';
+  const before=f.card._dashboardRowsV3().map(r=>({id:r.id,kwh:r.kwh,energyCost:r.energyCost}));
+  await f.card._drawDashboardChart();const chart=f.charts.at(-1);
+  const tooltip=chart.options.plugins.tooltip.callbacks.title([{dataIndex:0,label:chart.data.labels[0]}]);
+  assert.match(tooltip,scenario.month,'tooltip follows the selected system date format');assert.doesNotMatch(tooltip,scenario.otherMonth);
+  f.card._render();f.card.shadowRoot.querySelector('[data-dashboard-control="data"]').click();
+  assert.match(f.card.shadowRoot.querySelector('[data-dashboard-row] th').textContent,scenario.month,'Data agrees with the tooltip');
+  const row=f.card._dashboardRowsV3()[0];assert.match(f.card._patternsRowLabel(row),scenario.month);
+  const insight=f.dom.window.document.createElement('ha-energy-insights');
+  try{
+   insight._hass=f.card._hass;insight._lang=scenario.ui;insight._insightChartDataset={hours:[row],currency:'EUR'};
+   insight._insightChartState={resolution:'hour',metric:'kwh',type:'bar',selected:row.id};
+   const root=f.dom.window.document.createElement('div');root.innerHTML=insight._insightSvgV3(400);
+   assert.match(root.querySelector('title').textContent,scenario.month,'Insights SVG point title follows the same preference');
+   assert.match(insight._insightRowLabelV3(row),scenario.month);
+  }finally{insight._getTariffHostV3().guard.dispose();}
+  assert.deepEqual(f.card._dashboardRowsV3().map(r=>({id:r.id,kwh:r.kwh,energyCost:r.energyCost})),before,'date presentation preserves point identities, readings and prices');
+ }finally{f.close();}
+});
+
 test('an invalid system offset falls back to the validated HA calendar zone',()=>{
  const vm=require('node:vm');const DateTimeFormat=function(language,options){return arguments.length?new Intl.DateTimeFormat(language,options):{resolvedOptions:()=>({timeZone:'+00:00'})};};
  const factory=vm.runInNewContext(readFileSync('shared/ha-tools-format.js','utf8')+';createFormatUi',{Intl:{DateTimeFormat,NumberFormat:Intl.NumberFormat,PluralRules:Intl.PluralRules}});
