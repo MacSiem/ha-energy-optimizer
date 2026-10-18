@@ -34,7 +34,7 @@ for(const mutate of [d=>d.comparisons.previous.chart.markers.push(copy(pair(0)))
 });
 test('DST gap/fold unknown marker stays unknown; supported partial marker remains visible without full reconciliation claim',()=>{
  const dto=fixture(),chart=dto.comparisons.previous.chart;chart.status='partial';chart.reconciles_comparison_energy=false;chart.markers[1]={...pair(1),status:'unknown',reason:'unmatched_calendar_frames',current_kwh:null,baseline_kwh:null,baseline_from:null,baseline_to:null,selected_current_source_seconds:0,selected_baseline_source_seconds:0};
- for(const language of ['en','pl'])use(dto,{view:'data',selected:1},({root})=>{const rows=root.querySelectorAll('[data-analysis-bin]');assert.match(rows[0].querySelector('[data-analysis-baseline-value]').textContent,/4 kWh/);assert.match(rows[1].querySelector('[data-analysis-baseline-value]').textContent,/No data|Brak danych/);assert.match(root.querySelector('[data-analysis-baseline="partial"]').textContent,/selected intervals|wybrane przedziały/);assert.doesNotMatch(root.querySelector('[data-analysis-chart]').textContent,/unmatched_calendar_frames|calendar_frame_bijection/);},language);
+ for(const language of ['en','pl'])use(dto,{view:'data',selected:1},({root})=>{const rows=root.querySelectorAll('[data-analysis-bin]');assert.match(rows[0].querySelector('[data-analysis-baseline-value]').textContent,/4 kWh/);assert.match(rows[1].querySelector('[data-analysis-baseline-value]').textContent,/No data|Brak danych/);assert.match(root.querySelector('[data-analysis-baseline="partial"]').textContent,/selected intervals|wybranych przedziałów/);assert.doesNotMatch(root.querySelector('[data-analysis-chart]').textContent,/unmatched_calendar_frames|calendar_frame_bijection/);},language);
 });
 test('common mask uses producer selected current, keeps whole household distinct, and never recomputes selected amount',()=>{
  const dto=fixture(),c=dto.comparisons.previous;c.comparison_scope=c.chart.comparison_scope='common_measurements';
@@ -85,4 +85,13 @@ test('unknown common marker keeps the measured household bar while selected comp
  Object.assign(c.chart.markers[0],{mapping:'common_source_frame_intersection',current_kwh:'0',baseline_kwh:'0'});
  c.chart.markers[1]={...pair(1),status:'unknown',reason:'no_common_measurements',current_kwh:null,baseline_kwh:null};
  use(dto,{view:'chart',selected:1},({root})=>{const point=root.querySelectorAll('.analysis-point')[1];assert.ok(parseFloat(point.querySelector('.analysis-column').style.height)>0);assert.match(point.getAttribute('aria-label'),/Whole household: 2 kWh/);assert.match(point.getAttribute('aria-label'),/common measurements: No data/);assert.equal(point.querySelector('[data-analysis-marker]'),null);});
+});
+
+// Values in accessible Data must retain producer Decimal precision, not merely
+// pass an unrounded argument into a formatter that defaults to three places.
+test('accessible marker values display the producer Decimal without default three-place rounding',()=>{
+ const dto=fixture();
+ use(dto,{view:'data'},({root})=>assert.equal(root.querySelectorAll('[data-analysis-baseline-value]')[1].textContent,'7.123456789123456789 kWh'));
+ dto.comparisons.previous.chart.markers[1].baseline_kwh='-0.000000000123456789123456789';
+ use(dto,{view:'data'},({root})=>assert.equal(root.querySelectorAll('[data-analysis-baseline-value]')[1].textContent,'-0,000000000123456789123456789 kWh'),'pl');
 });
