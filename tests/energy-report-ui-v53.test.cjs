@@ -128,3 +128,14 @@ test('native auth/current_user shape omits is_active; server ACK and capabilitie
   await f.load();assert.ok(f.node('text'));f.clean();
  }finally{f.close();}
 });
+
+
+test('ordinary hass state updates preserve the mounted report, disclosures and current input focus without IO',async()=>{
+ const f=fixture();try{await f.mount();await f.load();const frame=f.node('html'),details=f.node('text').parentElement;
+  details.open=true;const input=f.node('anchor');input.focus();const count=f.requests.length;
+  f.update({...f.hass,states:{'sensor.unrelated':{state:'1',attributes:{}}}});await tick();
+  assert.equal(f.node('html'),frame,'unrelated updates must not reload the report iframe');
+  assert.equal(f.node('text').parentElement,details);assert.equal(details.open,true);
+  assert.equal(f.card.shadowRoot.activeElement,input);assert.equal(f.requests.length,count);f.clean();
+ }finally{f.close();}
+});
