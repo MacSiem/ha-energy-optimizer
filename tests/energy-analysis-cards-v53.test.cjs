@@ -287,3 +287,19 @@ for(const spec of cases){
   }finally{f.close();}
  });
 }
+
+for(const language of ['en','pl'])test('Insights useful Tips are available without reading measurements or access to analysis: '+language,async()=>{
+ const f=setup({...cases[1],home:'tips'},{response:()=>Promise.reject({code:'unauthorized'})});
+ try {
+  f.update({...f.hass,language,locale:{...f.hass.locale,language}});await f.mount();
+  const tips=f.card.shadowRoot.querySelectorAll('[data-energy-tips-v53] .tip-card');
+  assert.equal(tips.length,5);assert.equal(f.analyses.length,0);f.assertSubscriptions(0);f.assertNoHistory();
+  assert.equal(f.card.shadowRoot.querySelector('.analysis-tiles'),null);
+  for(const tip of tips){const heading=tip.querySelector('strong').textContent,body=tip.querySelector('p').textContent;assert.ok(heading.length>2);assert.ok(body.length>20);assert.notEqual(heading,body);}
+  assert.match(tips[0].textContent,/Energy Dashboard|panelu Energia/);
+  assert.doesNotMatch(f.card.shadowRoot.querySelector('[data-energy-tips-v53]').textContent,/energy_price|template sensors|ENERGY STAR/);
+  f.tab('overview');await settle();assert.equal(f.analyses.length,1);f.assertSubscriptions();
+  f.tab('tips');await settle();assert.equal(f.analyses.length,1);f.assertSubscriptions(0);assert.equal(f.card.shadowRoot.querySelectorAll('[data-energy-tips-v53] .tip-card').length,5);
+  assert.equal(f.card.shadowRoot.querySelector('.analysis-tiles'),null);f.assertQuiet();
+ }finally{f.close();}
+});
