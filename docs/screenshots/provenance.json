@@ -1,100 +1,118 @@
 {
-  "runtime_candidate": "94a5724b72b94e13545006c9f8b615555a1ff2cc",
-  "runtime_bundle_sha256": "7faeeda3cef976065f0cb90924125219ff8093de0d0b81d06facf825093be2ed",
+  "runtime_candidate": "989e05e959d4b7e2ed2f4aa5b252fd0e2e1c6944",
+  "runtime_bundle_sha256": "ba3973fc80763648d8f750bc412b6147bdf48eb3b1254c2a3b94c13bdb66f2bb",
+  "backend_candidate": "0869a2e2acef805224a72d5668df27da314dd215",
   "images": [
     {
-      "file": "optimizer-dashboard-dark.jpg",
-      "sha256": "e79e17596d0688f7c540c022e927e7a7f8654b733a3f6069d63ff1aad6715413",
+      "file": "optimizer-mobile-light.jpg",
+      "sha256": "76fd91c97d02352e19a71007871a58c5d6fb639557f26733a51b0f2536b60675",
       "pixels": [
-        1920,
-        1080
+        390,
+        674
       ],
-      "source_candidate": "94a5724b72b94e13545006c9f8b615555a1ff2cc",
-      "runtime_bundle_sha256": "7faeeda3cef976065f0cb90924125219ff8093de0d0b81d06facf825093be2ed",
-      "qualification": "Unedited original JPEG bytes from an actual native Chrome OS capture, personally inspected. Fullscreen with browser toolbar hidden and 90% site zoom; no household data or real recipients. Diagnostic suffix.png corrected to.jpg without conversion."
+      "captured_at": "2026-10-18T08:56:08.256198+00:00",
+      "source_candidate": "989e05e959d4b7e2ed2f4aa5b252fd0e2e1c6944",
+      "backend_candidate": "0869a2e2acef805224a72d5668df27da314dd215",
+      "capture": "w22-390-light-optimizer-settled.jpg",
+      "qualification": "Unedited actual native Chrome capture, personally inspected; synthetic measurements only. Stable visible frame, no household data, personal tabs or real recipient. Current 4.0 frontend and 2.4 backend. Mobile viewport390x674; this is device emulation, not native browser zoom200%."
     },
     {
-      "file": "optimizer-patterns-data-dark.jpg",
-      "sha256": "346825683925b956b8abaef52affdfa125b4cef4c4fc26ba62f84d80eb46a68a",
+      "file": "optimizer-mobile-dark.jpg",
+      "sha256": "40f5aa0d91512792c4eb8ec68b6c6d8d42c072d1a5bbbc34f1d846031a69ef3b",
       "pixels": [
-        1920,
-        1080
+        390,
+        674
       ],
-      "source_candidate": "94a5724b72b94e13545006c9f8b615555a1ff2cc",
-      "runtime_bundle_sha256": "7faeeda3cef976065f0cb90924125219ff8093de0d0b81d06facf825093be2ed",
-      "qualification": "Unedited original JPEG bytes from an actual native Chrome OS capture, personally inspected. Fullscreen with browser toolbar hidden and 90% site zoom; no household data or real recipients. Diagnostic suffix.png corrected to.jpg without conversion."
+      "captured_at": "2026-10-18T08:51:15.169546+00:00",
+      "source_candidate": "989e05e959d4b7e2ed2f4aa5b252fd0e2e1c6944",
+      "backend_candidate": "0869a2e2acef805224a72d5668df27da314dd215",
+      "capture": "w22-390-dark-optimizer.jpg",
+      "qualification": "Unedited actual native Chrome capture, personally inspected; synthetic measurements only. Stable visible frame, no household data, personal tabs or real recipient. Current 4.0 frontend and 2.4 backend. Mobile viewport390x674; this is device emulation, not native browser zoom200%."
     },
     {
-      "file": "insights-overview-dark.jpg",
-      "sha256": "eef2bb296d8edc57d7916ce89b7d9659fa061c8288e45f72a273e1b1e2f4ce6e",
+      "file": "insights-mobile-light.jpg",
+      "sha256": "25260ad0df70b1b1e7a5f29870cde03a842200a0fbb103338a38f10048baee06",
       "pixels": [
-        1920,
-        1080
+        390,
+        674
       ],
-      "source_candidate": "94a5724b72b94e13545006c9f8b615555a1ff2cc",
-      "runtime_bundle_sha256": "7faeeda3cef976065f0cb90924125219ff8093de0d0b81d06facf825093be2ed",
-      "qualification": "Unedited original JPEG bytes from an actual native Chrome OS capture, personally inspected. Fullscreen with browser toolbar hidden and 90% site zoom; no household data or real recipients. Diagnostic suffix.png corrected to.jpg without conversion."
+      "captured_at": "2026-10-18T08:55:28.106685+00:00",
+      "source_candidate": "989e05e959d4b7e2ed2f4aa5b252fd0e2e1c6944",
+      "backend_candidate": "0869a2e2acef805224a72d5668df27da314dd215",
+      "capture": "w22-390-light-insights.jpg",
+      "qualification": "Unedited actual native Chrome capture, personally inspected; synthetic measurements only. Stable visible frame, no household data, personal tabs or real recipient. Current 4.0 frontend and 2.4 backend. Mobile viewport390x674; this is device emulation, not native browser zoom200%."
     },
     {
-      "file": "insights-overview-light.jpg",
-      "sha256": "586d5c98d04713098068206cd490e1bbade5bfcf209b9d09426fc98d66723200",
+      "file": "insights-mobile-dark.jpg",
+      "sha256": "023fd03da8f773b207b16829872934a448d2f1b04460b7a2fd5860944920bdd2",
       "pixels": [
-        1920,
-        1080
+        390,
+        674
       ],
-      "source_candidate": "94a5724b72b94e13545006c9f8b615555a1ff2cc",
-      "runtime_bundle_sha256": "7faeeda3cef976065f0cb90924125219ff8093de0d0b81d06facf825093be2ed",
-      "qualification": "Unedited original JPEG bytes from an actual native Chrome OS capture, personally inspected. Fullscreen with browser toolbar hidden and 90% site zoom; no household data or real recipients. Diagnostic suffix.png corrected to.jpg without conversion."
+      "captured_at": "2026-10-18T08:53:21.656830+00:00",
+      "source_candidate": "989e05e959d4b7e2ed2f4aa5b252fd0e2e1c6944",
+      "backend_candidate": "0869a2e2acef805224a72d5668df27da314dd215",
+      "capture": "w22-390-dark-insights-graph.jpg",
+      "qualification": "Unedited actual native Chrome capture, personally inspected; synthetic measurements only. Stable visible frame, no household data, personal tabs or real recipient. Current 4.0 frontend and 2.4 backend. Mobile viewport390x674; this is device emulation, not native browser zoom200%."
     },
     {
-      "file": "insights-daily-chart-light.jpg",
-      "sha256": "712e7b75e50cca3e3453a4cbc06059af0c2d5260c95866cfe32fa79a0ee75ec3",
+      "file": "email-mobile-light.jpg",
+      "sha256": "e92e6347fb38108c7817cb04321090721531fd3608c34cf6232935b84339b290",
       "pixels": [
-        1920,
-        1080
+        390,
+        674
       ],
-      "source_candidate": "94a5724b72b94e13545006c9f8b615555a1ff2cc",
-      "runtime_bundle_sha256": "7faeeda3cef976065f0cb90924125219ff8093de0d0b81d06facf825093be2ed",
-      "qualification": "Unedited original JPEG bytes from an actual native Chrome OS capture, personally inspected. Fullscreen with browser toolbar hidden and 90% site zoom; no household data or real recipients. Diagnostic suffix.png corrected to.jpg without conversion."
+      "captured_at": "2026-10-18T08:55:12.212247+00:00",
+      "source_candidate": "989e05e959d4b7e2ed2f4aa5b252fd0e2e1c6944",
+      "backend_candidate": "0869a2e2acef805224a72d5668df27da314dd215",
+      "capture": "w22-390-light-email.jpg",
+      "qualification": "Unedited actual native Chrome capture, personally inspected; synthetic measurements only. Stable visible frame, no household data, personal tabs or real recipient. Current 4.0 frontend and 2.4 backend. Mobile viewport390x674; this is device emulation, not native browser zoom200%."
     },
     {
-      "file": "email-overview-light.jpg",
-      "sha256": "52f1b1050feb6d3b2e18768b15cd478e3e14856c4869ca6ea01ee9fde28b4a8f",
+      "file": "email-mobile-dark.jpg",
+      "sha256": "8f17166e99ede00bbaef52c5a32d76f78c08af897941365286c57cd918379985",
       "pixels": [
-        1920,
-        1080
+        390,
+        674
       ],
-      "source_candidate": "94a5724b72b94e13545006c9f8b615555a1ff2cc",
-      "runtime_bundle_sha256": "7faeeda3cef976065f0cb90924125219ff8093de0d0b81d06facf825093be2ed",
-      "qualification": "Unedited original JPEG bytes from an actual native Chrome OS capture, personally inspected. Fullscreen with browser toolbar hidden and 90% site zoom; no household data or real recipients. Diagnostic suffix.png corrected to.jpg without conversion."
+      "captured_at": "2026-10-18T08:53:05.299647+00:00",
+      "source_candidate": "989e05e959d4b7e2ed2f4aa5b252fd0e2e1c6944",
+      "backend_candidate": "0869a2e2acef805224a72d5668df27da314dd215",
+      "capture": "w22-390-dark-email-overview.jpg",
+      "qualification": "Unedited actual native Chrome capture, personally inspected; synthetic measurements only. Stable visible frame, no household data, personal tabs or real recipient. Current 4.0 frontend and 2.4 backend. Mobile viewport390x674; this is device emulation, not native browser zoom200%."
     },
     {
-      "file": "email-overview-dark.jpg",
-      "sha256": "228c15e5f9945a295383b6357f662a9ee489539bdf235f96b2d5dae6433643ba",
+      "file": "email-polish-preview-dark.jpg",
+      "sha256": "c960d2260763b75ab1318550b71be0aa0b5d28d211943b84b8a81ca858587caa",
       "pixels": [
         1920,
-        1080
+        783
       ],
-      "source_candidate": "94a5724b72b94e13545006c9f8b615555a1ff2cc",
-      "runtime_bundle_sha256": "7faeeda3cef976065f0cb90924125219ff8093de0d0b81d06facf825093be2ed",
-      "qualification": "Unedited original JPEG bytes from an actual native Chrome OS capture, personally inspected. Fullscreen with browser toolbar hidden and 90% site zoom; no household data or real recipients. Diagnostic suffix.png corrected to.jpg without conversion."
+      "captured_at": "2026-10-18T08:38:41.816923+00:00",
+      "source_candidate": "989e05e959d4b7e2ed2f4aa5b252fd0e2e1c6944",
+      "backend_candidate": "0869a2e2acef805224a72d5668df27da314dd215",
+      "capture": "manual-weekly-pl-phone-dark.jpg",
+      "qualification": "Unedited actual native Chrome capture, personally inspected; synthetic measurements only. Stable visible frame, no household data, personal tabs or real recipient. Actual backend Polish weekly HTML inside the isolated HA preview, Phone390/Dark; not an inbox-delivery or mail-client screenshot."
     },
     {
-      "file": "email-actual-calendar-preview-light.jpg",
-      "sha256": "0f330bd6486545b0384780d887e82a2b1cf78bf8e7af6234f232892f479f1e1f",
+      "file": "compact-masonry-pl-dark.jpg",
+      "sha256": "28d5f7500de4a6aa18e8352753e1b381f9d93adc7ce94f69ae9755721050e451",
       "pixels": [
-        844,
-        1000
+        1920,
+        783
       ],
-      "source_candidate": "cf88612a769f72c3ea3177bd855ccfe5d6b29db3",
-      "qualification": "Historical accepted report-preview capture, preserved byte-for-byte at its stated source candidate. Actual backend HTML and report-calendar preview mechanism are unchanged in 3.7; not a new capture."
+      "captured_at": "2026-10-18T08:13:10.755639+00:00",
+      "source_candidate": "989e05e959d4b7e2ed2f4aa5b252fd0e2e1c6944",
+      "backend_candidate": "84e0e2abbc21e23c9be69f171c472d2367204386",
+      "capture": "three-compact-pl-dark.jpg",
+      "qualification": "Unedited actual native Chrome capture, personally inspected; synthetic measurements only. Stable visible frame, no household data, personal tabs or real recipient. Qualified reuse: the same frontend989 compact renderer; backend0869 changes mail presentation only. Missing new measured hour is N/A, never zero."
     }
   ],
-  "data": "Controlled synthetic QA37 Recorder Alpha/Beta, sampleEUR Warsaw tariff, fixture@example.invalid only. Seven new frontend captures contain no home data or personal browser tabs.",
-  "windows": "Current Optimizer/Insights: UTC measurement calendar,2026-10-16T00:00Z–22:00Z,22complete intervals/81.60kWh/103.20EUR energy; displayedEurope/Warsaw02:00–00:00. Email:2026-10-15T22:00Z–2026-10-16T22:00Z, Alpha60.4+Beta30.2=90.6kWh/48of48source-hours. Weekly167/168 and monthly719/720 are partial with totals unavailable. Different windows are intentional.",
-  "email_preview": "Historical earlier backend2.3.0 actual HTML previous-calendar-day preview, unchanged source cf88612. No email sent in the current capture batch.",
-  "capture_limit": "Browser/CDP surface captures showed pre-animation faded state unlike the actual OS window and were rejected. Published seven new JPEGs preserve original OS capture bytes; no crop, retouch, scaling or compositing. Native viewport/zoom and44px layout checks are separately qualified.",
-  "reuse_after_capture": "Only the unchanged actual-mail-preview image retains its historical capture source. All seven active frontend period/chart/overview images were replaced on runtime94a5724/7faeeda3.",
+  "data": "Controlled synthetic Recorder Alpha/Beta, sample EUR gross tariff, no household data or real recipient.",
+  "windows": "Optimizer/Insights today18Oct2026 Europe/Warsaw00:00–10:00:37.20kWh/10completedhours. Optimizer usage cost34.50EUR includes energy25.20EUR and variablefees9.30EUR. Email rolling24h:90.6kWh/48of48sourcehours/103.20EUR energy cost. Weekly actual mail5–12Oct:634.20kWh/336sourcehours/880.95EUR usagecost. Fixed monthly7EUR remains separate. Different windows and cost components are intentional.",
+  "email_preview": "Current Polish weekly actual backend HTML, HA languagepl/Warsaw, readable local header, chart and comparison dates. Preview-only, no Send.",
+  "capture_limit": "Mobile screenshots have actual CSSheight674, not800. Device emulation is separate from browser200% zoom. The first transient faded390light frame was rejected; optimizer-mobile-light uses the later settled capture. Published images retain original JPEG bytes without crop/retouch/scaling/compositing. This image set is product documentation; it does not assert completion of the whole W22 matrix or mail-client delivery.",
+  "compact": "Three compact cards in Masonry after actual Polish visual-editor saves; N/A reflects a missing new measured hour. Same frontend989, backend source84e; later backend0869 changes mail dates only, without compact/tariff engine changes.",
   "decorative_banner": {
     "file": "../../banner-v3.6.png",
     "sha256": "50d5be2ed66337246e4be20ac168e5f5154b6fe01278ec736a145962e79d14d9",
@@ -107,9 +125,5 @@
     "title": "Energy Optimizer",
     "subtitle": "Measured energy & tariff costs",
     "old_banner": "banner.png retained as historical asset, no longer referenced by README"
-  },
-  "reuse_for_3_7_1": {
-    "runtime_bundle_sha256": "4320fce88074ee7f9b1ddcd7da1c9b36fb41e45cca43c27bc2457de7f9bd0c4e",
-    "qualification": "The only runtime delta passes the existing dateLanguage preference into full point labels. These accepted captures use matching HA/system date languages, so their date strings and layout remain unchanged. Original image/capture-source hashes are retained; these are qualified reused 3.7 captures, not new 3.7.1 captures. Measurement windows, tariff values and the backend mail preview are unchanged."
   }
 }

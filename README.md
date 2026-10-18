@@ -137,37 +137,42 @@ confirm inbox delivery; an occupied send is never automatically retried.
 
 ## Screenshots
 
-These are unedited native Chrome captures with controlled synthetic Recorder
-statistics and a sample EUR tariff. They contain no household data or real
-recipients. The interface follows the Home Assistant light/dark theme.
+These unedited native Chrome captures use synthetic Recorder statistics and a
+sample EUR tariff. They contain no household data or real recipients. The cards
+follow Home Assistant's light/dark theme and date/time preferences.
 
-| Energy Optimizer dashboard | Exact measured values |
+| Optimizer, phone light | Optimizer, phone dark |
 |---|---|
-| ![Optimizer dashboard in dark mode: 81.60 kWh across 22 completed hours](docs/screenshots/optimizer-dashboard-dark.jpg) | ![Patterns Data view with local dates, exact UTC details, tariff costs and coverage](docs/screenshots/optimizer-patterns-data-dark.jpg) |
+| ![Optimizer with readable local dates, measured usage of 37.20 kWh and usage cost of 34.50 EUR](docs/screenshots/optimizer-mobile-light.jpg) | ![The same Optimizer view in the dark theme](docs/screenshots/optimizer-mobile-dark.jpg) |
 
-| Insights, light | Insights, dark |
+| Insights, phone light | Insights, phone dark |
 |---|---|
-| ![Insights overview in light mode with local periods and partial weekly coverage](docs/screenshots/insights-overview-light.jpg) | ![Insights overview in dark mode with the same measured periods](docs/screenshots/insights-overview-dark.jpg) |
+| ![Insights daily bars with short three-hour ticks and local point details](docs/screenshots/insights-mobile-light.jpg) | ![Insights daily chart and exact point selector in dark mode](docs/screenshots/insights-mobile-dark.jpg) |
 
-| Daily measured chart | Earlier actual calendar mail preview |
+| Email overview, phone light | Email overview, phone dark |
 |---|---|
-| ![Daily chart with friendly local point labels and a measured zero](docs/screenshots/insights-daily-chart-light.jpg) | ![Unchanged backend HTML preview for an earlier previous completed day; no email sent](docs/screenshots/email-actual-calendar-preview-light.jpg) |
+| ![Email overview: 90.6 kWh across 48 of 48 source-hours, with 103.20 EUR energy cost](docs/screenshots/email-mobile-light.jpg) | ![The same rolling Email overview and source measurements in dark mode](docs/screenshots/email-mobile-dark.jpg) |
 
-| Email overview, light | Email overview, dark |
+| Actual Polish mail preview | Compact cards in Masonry |
 |---|---|
-| ![Email overview in light mode: 90.6 kWh across 48 of 48 source-hours](docs/screenshots/email-overview-light.jpg) | ![Email overview in dark mode with the same rolling period and sources](docs/screenshots/email-overview-dark.jpg) |
+| ![Server-composed Polish weekly mail in Phone/Dark preview; no message sent](docs/screenshots/email-polish-preview-dark.jpg) | ![Three compact cards after Polish visual-editor saves; missing data stays N/A](docs/screenshots/compact-masonry-pl-dark.jpg) |
 
-The current Optimizer and Insights captures show 81.60 kWh across 22 completed
-intervals in the UTC measurement calendar, displayed in Europe/Warsaw. Their
-incomplete weekly and monthly windows keep totals unavailable. Email shows a
-rolling 24 completed hours: Alpha 60.4 kWh plus Beta 30.2 kWh, 90.6 kWh across 48 of 48
-configured source-hours. These windows differ deliberately. The earlier actual
-mail preview retains its original previous-calendar-day example; that backend
-preview mechanism is unchanged. Energy charges, variable fees and fixed monthly
-fees stay separate. Actual HTML previews require HA Tools Email Integration 2.3.0
-or newer; the full report is scrollable. No message was sent for these captures.
-[Capture provenance](docs/screenshots/provenance.json) records exact source
-versions, image hashes and the scope of the one reused historical preview.
+The phone captures use a 390 px viewport. Optimizer and Insights show 37.20 kWh
+across 10 completed hours on 18 October 2026 in the Home Assistant measurement
+calendar. Optimizer's 34.50 EUR usage cost includes 25.20 EUR energy and 9.30 EUR
+variable fees. The Email overview uses a separate 24-hour window: 90.6 kWh across
+48 of 48 source-hours and 103.20 EUR energy cost. Its weekly mail preview covers the
+previous completed ISO week, 5–12 October: 634.20 kWh and 880.95 EUR usage cost. Fixed
+monthly fees stay separate; these amounts are not a complete utility bill.
+
+The compact example deliberately includes a missing new measured hour, so its
+cost is N/A. Open full view reveals the detailed card. Configure compact mode,
+title and visible/default tabs in the visual editor; Sections supports 3/6-column
+compact cards and 12-column full cards, alongside Masonry and Panel layouts.
+Phone/Computer and Light/Dark preview controls only change local presentation.
+The mail image is the actual server HTML in HA, not an inbox-delivery test.
+[Capture provenance](docs/screenshots/provenance.json) records image hashes,
+source versions, exact dimensions and the qualified compact-image reuse.
 
 ## Installation
 
