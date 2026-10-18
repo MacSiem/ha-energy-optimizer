@@ -32,7 +32,88 @@ test('negative backend costs and missing variable fees remain field-level values
 test('snapshot response cannot inject private extensions into the compact cache',async()=>{const s=setup();try{const call=s.card._hass.callWS;s.card._hass.callWS=async request=>({...await call(request),smtp:'PRIVATE_CANARY',current:{available:true,zone_class:null,cheap:null,energy_rate:2,variable_rate:0.5,usage_rate:2.5,secret:'PRIVATE_CANARY'}});s.backend.snapshot();await drain();assert.equal(JSON.stringify(s.card._energySnapshotV5).includes('PRIVATE_CANARY'),false);}finally{s.guard.dispose();}});
 test('a legacy YAML profile waits for the shared tariff read before any price or snapshot dispatch',async()=>{const s=setup();try{s.setDescriptor({profile,source:'override',revision:null,ready:false});s.backend.priceBuckets([row()]);s.backend.snapshot();await drain();assert.equal(s.calls.length,0);assert.equal(s.card._energySnapshotV5,null);s.setDescriptor({profile,source:'override',revision:null,ready:true});s.backend.priceBuckets([row()]);await drain();assert.equal(s.backend.priceBuckets([row()]).energyCost,6);}finally{s.guard.dispose();}});
 test('mounted snapshots refresh without a hass render and stop after guard suspension',async()=>{const s=setup();let backend;try{s.card.isConnected=true;backend=createEnergyBackendV5({card:s.card,guard:s.guard,describe:()=>({profile,source:'override',revision:null}),refreshMs:10});backend.snapshot();await new Promise(r=>setTimeout(r,35));assert.ok(s.calls.filter(c=>c.type.endsWith('energy_snapshot')).length>=2);s.guard.suspend();const count=s.calls.length;await new Promise(r=>setTimeout(r,25));assert.equal(s.calls.length,count);assert.equal(s.card._energySnapshotV5,null);}finally{s.guard.dispose();}});
-test('transient failure permits a later bounded retry only when the raw slot is free',async()=>{const s=setup();try{let n=0;s.card._hass.callWS=async request=>{if(!n++)throw {code:'energy_unavailable'};return s.oracle(request);};const b=createEnergyBackendV5({card:s.card,guard:s.guard,describe:()=>({profile,source:'override',revision:null}),retryMs:10});b.priceBuckets([row()]);await drain();assert.equal(b.priceBuckets([row()]).energyCost,null);await new Promise(r=>setTimeout(r,15));b.priceBuckets([row()]);await drain();assert.equal(b.priceBuckets([row()]).energyCost,6);assert.equal(n,2);}finally{s.guard.dispose();}});
+function priceStatusMarkup(s) {
+ const {createTariffHostV3}=require('../shared/ha-tools-tariff-host.js');
+ const host=createTariffHostV3({card:s.card,kind:'optimizer',guard:s.guard,
+  createModel:createEnergyTariffV3,legacyProfile:()=>profile,createSettings:()=>{},createUi:()=>{}});
+ return ()=>host.markup();
+}
+test('transient failure permits a later bounded retry only when the raw slot is free',async t=>{
+ t.mock.timers.enable({apis:['setTimeout','Date'],now:1792290000000});
+ const s=setup();try{
+  let n=0,release;
+  s.card._hass.callWS=request=>{if(!n++)return Promise.reject({code:'energy_unavailable'});return new Promise(resolve=>{release=()=>resolve(s.oracle(request));});};
+  const b=createEnergyBackendV5({card:s.card,guard:s.guard,describe:()=>({profile,source:'override',revision:null}),retryMs:10});
+  const markup=priceStatusMarkup(s);
+  b.priceBuckets([row()]);await drain();assert.equal(b.priceBuckets([row()]).energyCost,null);
+  assert.equal(s.card._energyPriceStatusV5,'backend_unavailable');assert.match(markup(),/Energy pricing is unavailable/);
+  assert.equal(n,1,'no retry before the retry interval');
+  t.mock.timers.tick(10);b.priceBuckets([row()]);await tick();assert.equal(s.guard.occupied(),true);
+  assert.equal(s.card._energyPriceStatusV5,'backend_unavailable','pending retry is not recovery');
+  b.priceBuckets([row()]);assert.equal(n,2,'the raw slot still prevents another retry');
+  release();await drain();assert.equal(b.priceBuckets([row()]).energyCost,6);
+  assert.equal(s.card._energyPriceStatusV5,null);
+  assert.doesNotMatch(markup(),/Energy pricing is unavailable|history exceeds the pricing limit/);assert.equal(n,2);
+ }finally{s.guard.dispose();}
+});
+test('price status aggregates independent failures until every retry recovers',async t=>{
+ t.mock.timers.enable({apis:['setTimeout','Date'],now:1792290000000});
+ const s=setup();try{
+  const attempts=new Map(),release=new Map();
+  s.card._hass.callWS=request=>{
+   const id=request.queries[0].buckets[0].from,n=attempts.get(id)||0;attempts.set(id,n+1);
+   if(!n)return Promise.reject({code:id===row(0).from?'invalid_energy_price_queries':'energy_unavailable'});
+   return new Promise(resolve=>release.set(id,()=>resolve(s.oracle(request))));
+  };
+  const b=createEnergyBackendV5({card:s.card,guard:s.guard,describe:()=>({profile,source:'override',revision:null}),retryMs:10});
+  const markup=priceStatusMarkup(s);
+  b.priceBuckets([row(0)]);await drain();b.priceBuckets([row(1)]);await drain();
+  assert.equal(s.card._energyPriceStatusV5,'backend_request_limit','limit errors retain stable priority across request order');
+  assert.match(markup(),/history exceeds the pricing limit/);
+  t.mock.timers.tick(10);b.priceBuckets([row(0)]);await tick();
+  assert.equal(s.card._energyPriceStatusV5,'backend_request_limit','retain the retrying record error');
+  release.get(row(0).from)();await drain();assert.equal(b.priceBuckets([row(0)]).energyCost,6);
+  assert.equal(s.card._energyPriceStatusV5,'backend_unavailable','another failed record survives an unrelated successful batch');
+  assert.match(markup(),/Energy pricing is unavailable/);assert.doesNotMatch(markup(),/history exceeds the pricing limit/);
+  b.priceBuckets([row(1)]);await tick();assert.equal(s.card._energyPriceStatusV5,'backend_unavailable');
+  release.get(row(1).from)();await drain();assert.equal(b.priceBuckets([row(1)]).energyCost,6);
+  assert.equal(s.card._energyPriceStatusV5,null);
+  assert.doesNotMatch(markup(),/Energy pricing is unavailable|history exceeds the pricing limit/);
+  assert.deepEqual([...attempts.values()],[2,2]);
+ }finally{s.guard.dispose();}
+});
+test('context clear drops old price errors and a late retry cannot restore them',async t=>{
+ t.mock.timers.enable({apis:['setTimeout','Date'],now:1792290000000});
+ const s=setup();try{
+  let attempts=0,release;
+  s.card._hass.callWS=request=>{attempts++;if(attempts===1)return Promise.reject({code:'energy_unavailable'});if(attempts===2)return new Promise((_resolve,reject)=>{release=()=>reject({code:'invalid_energy_price_queries'});});return Promise.resolve(s.oracle(request));};
+  const b=createEnergyBackendV5({card:s.card,guard:s.guard,describe:()=>({profile,source:'override',revision:null}),retryMs:10});
+  const markup=priceStatusMarkup(s);
+  b.priceBuckets([row()]);await drain();assert.equal(s.card._energyPriceStatusV5,'backend_unavailable');
+  t.mock.timers.tick(10);b.priceBuckets([row()]);await tick();assert.equal(s.guard.occupied(),true);
+  s.card._config={source:'new-context'};s.guard.observe();assert.equal(s.card._energyPriceStatusV5,null);
+  assert.equal(s.guard.occupied(),true,'context clear must not release the raw slot');
+  release();await drain();assert.equal(s.card._energyPriceStatusV5,null);
+  b.priceBuckets([row(1)]);await drain();assert.equal(b.priceBuckets([row(1)]).energyCost,6);
+  assert.equal(s.card._energyPriceStatusV5,null);
+  assert.doesNotMatch(markup(),/Energy pricing is unavailable|history exceeds the pricing limit/);assert.equal(attempts,3);
+ }finally{s.guard.dispose();}
+});
+test('snapshot refresh keeps an expired price error until its query actually recovers',async t=>{
+ t.mock.timers.enable({apis:['setTimeout','Date'],now:1792290000000});
+ const s=setup();try{
+  const original=s.card._hass.callWS;
+  s.card._hass.callWS=request=>request.queries?(request.queries[0].buckets[0].from===row(0).from?Promise.reject({code:'energy_unavailable'}):Promise.resolve(s.oracle(request))):original(request);
+  s.card.isConnected=true;
+  const b=createEnergyBackendV5({card:s.card,guard:s.guard,describe:()=>({profile,source:'override',revision:null}),retryMs:10,refreshMs:20});
+  b.priceBuckets([row()]);await drain();assert.equal(s.card._energyPriceStatusV5,'backend_unavailable');
+  b.snapshot();await drain();t.mock.timers.tick(20);await drain();
+  assert.equal(s.card._energyPriceStatusV5,'backend_unavailable','timer expiry and an unrelated successful snapshot do not recover pricing');
+  b.priceBuckets([row(1)]);await drain();assert.equal(b.priceBuckets([row(1)]).energyCost,6);
+  assert.equal(s.card._energyPriceStatusV5,'backend_unavailable','snapshot refresh must retain the old failed record even when a new query succeeds');
+  s.guard.suspend();assert.equal(s.card._energyPriceStatusV5,null);
+ }finally{s.guard.dispose();}
+});
 test('the host compiles a profile once for repeated synchronous point projections',()=>{const {createTariffHostV3}=require('../shared/ha-tools-tariff-host.js');const {energyTariffProfileV3}=require('../shared/ha-tools-energy-tariff.js');let count=0;const card={_config:{tariff_profile:profile},_hass:{user:{id:'qa'},connection:{connected:true},config:{time_zone:'UTC'}}};const h=createTariffHostV3({card,kind:'optimizer',createModel:p=>{count++;return createEnergyTariffV3(p);},legacyProfile:energyTariffProfileV3,createSettings:()=>{},createUi:()=>{}});try{const first=h.model();for(let i=0;i<100;i++)assert.equal(h.model(),first);assert.equal(count,1);}finally{h.guard.dispose();}});
 test('a mounted card coalesces snapshot ticks while the raw request is occupied',async t=>{t.mock.timers.enable({apis:['setTimeout','Date'],now:1792290000000});const s=setup();try{const response=await s.card._hass.callWS({type:'ha_tools_email/energy_snapshot'});s.calls.length=0;s.card.isConnected=true;let release;s.card._hass.callWS=request=>{s.calls.push(request);return s.calls.length===1?new Promise(r=>release=()=>r(response)):Promise.resolve(response);};const b=createEnergyBackendV5({card:s.card,guard:s.guard,describe:()=>({profile,source:'override',revision:null}),refreshMs:10});b.snapshot();await tick();for(let i=0;i<4;i++){t.mock.timers.tick(10);await tick();}assert.equal(s.calls.length,1);release();await drain();s.guard.suspend();assert.ok(s.calls.length<=2,'only the newest queued snapshot may follow the unresolved raw request');}finally{s.guard.dispose();}});
 for(const name of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email'])test(`${name}: a confirmed empty shared profile is reconfirmed after tab navigation`,async()=>{const {JSDOM}=require('jsdom'),fs=require('node:fs');const {energyBackend,drainBackend}=require('./helpers/energy-backend-fixture.cjs');const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});let card;try{dom.window.eval(['optimizer','energy-insights','energy-email'].map(f=>fs.readFileSync(`src/${f}.js`,'utf8')).join('\n'));card=dom.window.document.createElement(name);let reads=0;card._hass={user:{id:'fixture',is_admin:true},connection:{connected:true},config:{time_zone:'UTC',currency:'CHF'},states:{}};card._hass.callWS=energyBackend(card,async req=>{assert.equal(req.type,'ha_tools_email/get_tariff');reads++;return {profile:null,revision:0,updated_at:null};});card.setConfig({energy_price:2,currency:'CHF'});await card._loadSharedTariffProfile();await drainBackend();if(name==='ha-energy-optimizer')card._currentTab='patterns';else card._activeTab=name==='ha-energy-insights'?'daily':'schedule';card._observeTariffNavigationV3();await drainBackend();assert.equal(reads,2);card._getTariffV3().priceBuckets([row()]);await drainBackend();assert.equal(card._getTariffV3().priceBuckets([row()]).energyCost,6);}finally{card?._getTariffHostV3().guard.dispose();dom.window.close();}});
