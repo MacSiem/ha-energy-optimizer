@@ -152,3 +152,27 @@ test('finite scientific Decimal strings stay visible and sort by exact value',()
  withView(root=>{assert.ok(seen.includes('1e-9'));assert.match(root.querySelector('.analysis-ranking li').textContent,/Kuchnia/);},dto,{},'en',
   {...base,number:(value,options)=>{seen.push(value);return base.number(value,options);}});
 });
+
+
+test('historical comparison amounts retain each side currency and unknown deltas',()=>{
+  const dto=fixture(),costs=dto.comparisons.previous.costs;
+  Object.assign(costs,{status:'unknown',reason:'currency_or_basis_mismatch',current:{currency:'EUR',usage_cost:'10.00',total_cost:'11.00'},baseline:{currency:'PLN',usage_cost:'40.00',total_cost:'44.00'},delta_cost:null,delta_total_cost:null});
+  for(const language of ['pl','en'])withView(root=>{
+    const rows=[...root.querySelectorAll('table')][0].querySelectorAll('tbody tr');
+    assert.match(rows[2].cells[1].textContent,/10 EUR/);assert.match(rows[2].cells[2].textContent,/40 PLN/);
+    assert.match(rows[3].cells[1].textContent,/11 EUR/);assert.match(rows[3].cells[2].textContent,/44 PLN/);
+    assert.match(rows[2].cells[3].textContent,/Brak danych|No data/);assert.match(rows[3].cells[3].textContent,/Brak danych|No data/);
+  },dto,{section:'comparison'},language);
+});
+
+test('numeric millisecond dynamic intervals display as user-zone instants',()=>{
+  const dto=fixture(),from=1791590400000,to=1791594000000;
+  dto.rates[0].profile.dynamic={intervals:[{from,to,energyRate:'1',variableRate:'0'}]};
+  for(const zone of ['Europe/Warsaw','Pacific/Honolulu']){
+    const format=createFormatUi('en',zone);
+    withView(root=>{
+      const table=[...root.querySelectorAll('table')].find(n=>n.caption.textContent==='Dynamic rate intervals');
+      assert.equal(table.tBodies[0].rows[0].cells[0].textContent,format.dateTime(new Date(from).toISOString())+' – '+format.dateTime(new Date(to).toISOString()));
+    },dto,{section:'rates'},'en',format);
+  }
+});
