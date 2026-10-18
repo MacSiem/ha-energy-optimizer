@@ -320,7 +320,7 @@ for(const spec of cases)test(`${spec.type}: proven whole-period facts reach the 
  const f=setup(spec,{response:()=>clone(snapshot)});
  try{
   f.update({...f.hass,config:{...f.hass.config,time_zone:'Europe/Warsaw'}});
-  await f.mount();const root=analysisRoot(f);
+  await f.mount();assert.ok(f.card.shadowRoot.querySelector('.energy-analysis-v53'),JSON.stringify({state:f.card._analysisHostV53?.state(),zone:f.card._hass?.config?.time_zone,requests:f.analyses,errors:f.errors}));const root=analysisRoot(f);
   assert.match(root.querySelector('.analysis-tile strong').textContent,/^250 kWh$/);
   assert.match(root.querySelector('[data-analysis-cheap-share] strong').textContent,/^23[.,]2\s?%$/);
   const peak=root.querySelector('[data-analysis-peak]');assert.equal(peak.dataset.analysisPeakId,snapshot.period_summary.peak_hour.id);
