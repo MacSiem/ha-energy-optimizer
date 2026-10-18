@@ -7,11 +7,11 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   const t = (en, polish) => pl ? polish : en;
   const esc = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const unknown = () => t('No data', 'Brak danych');
-  const valid = value => typeof value === 'string' ? /^-?\d+(?:\.\d+)?$/.test(value) : typeof value === 'number' && Number.isFinite(value);
+  const valid = value => typeof value === 'string' ? /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(value) && Number.isFinite(Number(value)) : typeof value === 'number' && Number.isFinite(value);
   // Pass Decimal strings directly to the shared Intl formatter. Never reprice or round a bill here.
   const number = (value, options) => valid(value) ? ui.number(value, options) : unknown();
   const quantity = (value, unit = 'kWh', signed = false) => valid(value)
-    ? `${signed && !String(value).startsWith('-') && /[1-9]/.test(String(value)) ? '+' : ''}${number(value)}${unit === '%' ? '' : ' '}${unit}` : unknown();
+    ? `${signed && !String(value).startsWith('-') && /[1-9]/.test(String(value).split(/[eE]/)[0]) ? '+' : ''}${number(value)}${unit === '%' ? '' : ' '}${unit}` : unknown();
   const money = (value, currency, signed = false) => quantity(value, currency || t('currency unknown','waluta nieznana'), signed);
   const dateTime = value => ui.dateTime(value) || unknown();
   const range = period => ui.range(period?.start, period?.end) || unknown();
@@ -45,12 +45,19 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     return Object.values(devices).find(row=>row[key+'_id'] === id && row[key+'_name'])?.[key+'_name'] || t('Unnamed group','Grupa bez nazwy');
   };
   // Exact ordering of server decimal values; Number conversion is reserved for bar geometry below.
+  const parts = value => {
+    const text=String(value), match=/^([+-]?)(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?$/.exec(text);
+    const digits=(match[2]+(match[3] || '')).replace(/^0+/,'');
+    return {sign:!digits?0:match[1]==='-'?-1:1,digits,
+      magnitude:digits.length+Number(match[4] || 0)-(match[3] || '').length};
+  };
   const compare = (a,b) => {
-    const x=String(a), y=String(b), nx=x.startsWith('-'), ny=y.startsWith('-');
-    if (nx !== ny) return nx ? -1 : 1;
-    const [xi,xf='']=x.replace('-','').replace(/^0+(?=\d)/,'').split('.'), [yi,yf='']=y.replace('-','').replace(/^0+(?=\d)/,'').split('.');
-    const length=Math.max(xf.length,yf.length), diff=xi.length-yi.length || (xi>yi?1:xi<yi?-1:0) || (xf.padEnd(length,'0')>yf.padEnd(length,'0')?1:xf.padEnd(length,'0')<yf.padEnd(length,'0')?-1:0);
-    return nx ? -diff : diff;
+    const x=parts(a),y=parts(b);
+    if(x.sign!==y.sign)return x.sign-y.sign;
+    if(!x.sign)return 0;
+    const size=Math.max(x.digits.length,y.digits.length);
+    const xd=x.digits.padEnd(size,'0'),yd=y.digits.padEnd(size,'0');
+    return x.sign*(x.magnitude-y.magnitude || (xd>yd?1:xd<yd?-1:0));
   };
   const rowsFor = (groups, level, metadata = groups) => {
     const rows = Object.entries(groups?.[level] || {}).map(([id,row])=>({id,label:groupLabel(metadata,level,id),row}));
@@ -86,8 +93,9 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   };
   const groupsView = (snapshot,level) => {
     const groups=snapshot.groups, rows=rowsFor(groups,level),max=maximum(rows.map(x=>x.row.kwh));
+    const colors=new Map(Object.keys(groups?.[level] || {}).sort().map((id,index)=>[id,Math.min(index,4)]));
     return `<section data-analysis-groups><h3>${esc(t('Energy flow — from and to','Przepływ energii — skąd i dokąd'))}</h3><p>${esc(t('From','Skąd'))}: ${esc(groups?.energy_domain === 'grid_import' ? t('Grid import','Import z sieci') : t('Measured energy','Zmierzona energia'))} · ${esc(quantity(snapshot.totals?.kwh))}</p><p>${esc(t('Energy by tariff zone: no server breakdown.','Energia według stref taryfy: brak rozbicia z serwera.'))}</p><h4>${esc(t('To','Dokąd'))}</h4>
-      <ol class="analysis-ranking">${rows.map(({id,label,row},index)=>`<li class="${id === 'unmeasured' ? 'analysis-unmeasured' : ''}"><div><strong>${esc(label)}</strong><span>${esc(quantity(row.kwh))} · ${esc(money(row.usage_cost,groups?.currency))}</span></div><div class="analysis-track" aria-hidden="true"><span class="analysis-rank rank-${Math.min(index,5)}" style="width:${width(row.kwh,max)}%"></span></div></li>`).join('')}</ol>
+      <ol class="analysis-ranking">${rows.map(({id,label,row},index)=>`<li class="${id === 'unmeasured' ? 'analysis-unmeasured' : ''}"><div><strong>${esc(label)}</strong><span>${esc(quantity(row.kwh))} · ${esc(money(row.usage_cost,groups?.currency))}</span></div><div class="analysis-track" aria-hidden="true"><span class="analysis-rank rank-${colors.get(id) ?? 4}" style="width:${width(row.kwh,max)}%"></span></div></li>`).join('')}</ol>
       ${!rows.length ? `<p>${esc(unknown())}</p>` : ''}
       ${table(t('Group measurements and usage costs','Pomiary grup i koszty zużycia'),[t('Group','Grupa'),'kWh',t('Usage cost','Koszt zużycia'),t('Coverage','Pokrycie')],rows.map(({label,row})=>[esc(label),esc(quantity(row.kwh)),esc(money(row.usage_cost,groups?.currency)),esc(coverage(row.coverage))]))}
       <p class="analysis-note">${esc(t('Assignments follow the current Home Assistant registry. No room and unmeasured energy are separate. Group costs exclude household fixed fees.','Przypisania pochodzą z aktualnego rejestru Home Assistant. Bez pokoju i Niezmierzone są osobnymi pozycjami. Koszty grup nie obejmują opłat stałych gospodarstwa.'))}</p></section>`;
@@ -193,7 +201,8 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
 .energy-analysis-v53 .analysis-ranking li>div:first-child,.energy-analysis-v53 .analysis-deltas li>div:first-child{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px}
 .energy-analysis-v53 .analysis-track,.energy-analysis-v53 .analysis-delta-track{height:10px;background:var(--secondary-background-color);border-radius:3px;margin-top:6px;position:relative}
 .energy-analysis-v53 .analysis-rank{display:block;height:100%;background:var(--energy-device-consumption-color,#df6635)}
-.energy-analysis-v53 .rank-1{background:#8b78d9}.energy-analysis-v53 .rank-2{background:#d8558d}.energy-analysis-v53 .rank-3{background:#b88c0b}.energy-analysis-v53 .rank-4,.energy-analysis-v53 .rank-5{background:#718096}
+.energy-analysis-v53 .rank-0{background:#eb6834}.energy-analysis-v53 .rank-1{background:#6250d6}.energy-analysis-v53 .rank-2{background:#e87ba4}.energy-analysis-v53 .rank-3{background:#eda100}.energy-analysis-v53 .rank-4{background:#718096}
+:host(.bento-dark) .energy-analysis-v53 .rank-0{background:#d95926}:host(.bento-dark) .energy-analysis-v53 .rank-1{background:#9085e9}:host(.bento-dark) .energy-analysis-v53 .rank-2{background:#d55181}:host(.bento-dark) .energy-analysis-v53 .rank-3{background:#c98500}
 .energy-analysis-v53 .analysis-unmeasured .analysis-rank{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--secondary-text-color) 3px,var(--secondary-text-color) 4px);border:1px solid var(--secondary-text-color)}
 .energy-analysis-v53 .analysis-delta-track:before{content:'';position:absolute;left:50%;height:100%;border-left:1px solid var(--secondary-text-color)}
 .energy-analysis-v53 .analysis-decrease{position:absolute;right:50%;height:100%;background:#287fd1}
