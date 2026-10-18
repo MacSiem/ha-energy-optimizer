@@ -49,3 +49,39 @@ test('Insights source disclosure keeps manual state and summary/point focus acro
  const point=root.querySelector('[data-insights-control="point"]');point.focus();point.value=f.rows[1].id;point.dispatchEvent(new f.w.Event('change',{bubbles:true}));assert.equal(f.c._insightChartState.selected,f.rows[1].id);assert.equal(root.activeElement.dataset.insightsControl,'point');assert.equal(f.c._insightChartDataset.hours,f.rows);
  }finally{f.close();}
 });
+
+test('Insights uses the user system time for labels and retains the distinct measurement calendar in details',()=>{
+ const f=chartFixture();try{
+  const Native=f.w.Intl.DateTimeFormat;
+  const create=args=>{
+   const formatter=Reflect.construct(Native,args);
+   if(!args.length){const resolved=formatter.resolvedOptions.bind(formatter);formatter.resolvedOptions=()=>({...resolved(),timeZone:'Europe/Warsaw'});}
+   return formatter;
+  };
+  f.w.Intl.DateTimeFormat=new Proxy(Native,{apply:(_target,_this,args)=>create(args),construct:(_target,args)=>create(args)});
+  f.c._hass.config.time_zone='Asia/Tokyo';f.c._hass.locale={language:'en',time_zone:'local',time_format:'24'};
+  f.c._insightChartDataset.timezone='Asia/Tokyo';f.rows.forEach((row,index)=>{row.timezone='Asia/Tokyo';row.hour=9+index;});
+  const raw=JSON.stringify(f.rows),selected=f.c._insightChartState.selected;f.c._updateContent();
+  const root=f.c.shadowRoot,chartDetails=root.querySelector('[data-insights-source-details]');
+  const zone=[...chartDetails.querySelectorAll('dt')].find(el=>el.textContent==='Measurement time zone');
+  assert.equal(zone.nextElementSibling.textContent,'Asia/Tokyo');
+  const day=new Native('en',{timeZone:'Europe/Warsaw',dateStyle:'medium'}),clock=new Native('en',{timeZone:'Europe/Warsaw',hour:'2-digit',minute:'2-digit',hourCycle:'h23'});
+  const {from,to}=f.c._insightChartDataset.window;
+  assert.equal(root.querySelector('[data-insights-chart-range]').textContent,`${day.format(from)} (${clock.format(from)}–${clock.format(to)})`);
+  const point=new Native('en',{timeZone:'Europe/Warsaw',year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',hourCycle:'h23',timeZoneName:'shortOffset'});
+  assert.equal(root.querySelector('[data-insights-control="point"] option').textContent,point.format(f.rows[0].from));
+  assert.equal(JSON.stringify(f.rows),raw);assert.equal(f.c._insightChartState.selected,selected);
+ }finally{f.close();}
+});
+test('reloading the Energy bundle preserves foreign card metadata and registers each Energy card once',()=>{
+ const dom=setup(),w=dom.window;try{
+  const foreign={type:'foreign-card',name:'Foreign card'};w.customCards.push(foreign);
+  const originalDefinitions=['ha-energy-optimizer','ha-energy-insights','ha-energy-email'].map(type=>w.customElements.get(type));
+  w.eval(fs.readFileSync('src/optimizer.js','utf8')+insights+email);
+  for(const [index,type] of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email'].entries()){
+   assert.equal(w.customCards.filter(card=>card.type===type).length,1,type);
+   assert.equal(w.customElements.get(type),originalDefinitions[index]);
+  }
+  assert.ok(w.customCards.includes(foreign));
+ }finally{w.close();}
+});
