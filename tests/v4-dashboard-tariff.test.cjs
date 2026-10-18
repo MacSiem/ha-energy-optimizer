@@ -140,6 +140,7 @@ test('peak summary hides an equal HA display zone but retains a different zone',
 
 test('dashboard axis thins labels to three-hour spacing without dropping points or full tooltip dates',async()=>{
  const f=fixture();try{
+  f.card._hass.locale.time_zone='server'; // Anchor the UTC fixture to its intended display clock.
   await f.card._drawDashboardChart();const cfg=f.charts.at(-1),ticks=cfg.options.scales.x.ticks;
   assert.ok(ticks && typeof ticks.callback==='function','axis labels need an explicit cadence independent of data');
   const context={getLabelForValue:index=>cfg.data.labels[index]};

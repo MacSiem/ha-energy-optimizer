@@ -13,7 +13,7 @@ function fixture(){
  card.setConfig({show_support:false,energy_price:2,currency:'EUR'});
  card._energyModel={ids:['sensor.qa'],zone:'Asia/Tokyo',start,todayStart:start,end:start+15*H,summary:()=>({total:15}),points:new Map(Array.from({length:15},(_,i)=>[start+i*H,{kwh:i===13?0:1}]))};
  card._todayWindow={start:new Date(start).toISOString(),end:new Date(start+15*H).toISOString(),total:14,boundaryComplete:true};card._hasRealData=true;card._loadChartJS=async()=>{};card._render();
- const rows=Array.from({length:15},(_,i)=>({id:String(start+i*H),from:new Date(start+i*H).toISOString(),to:new Date(start+(i+1)*H).toISOString(),key:'2026-10-18',kwh:i===13?0:1,energyCost:2,variableCost:0.5}));
+ const rows=Array.from({length:15},(_,i)=>({id:String(start+i*H),from:new Date(start+i*H).toISOString(),to:new Date(start+(i+1)*H).toISOString(),key:'2026-10-18',hour:i,kwh:i===13?0:1,energyCost:2,variableCost:0.5}));
  return{dom,card,charts,rows,close(){card._getTariffHostV3().guard.dispose();dom.window.close();}};
 }
 for(const width of [390,1280])test(`hourly SVG axes at ${width} align to three-hour display clock and keep all points`,()=>{
@@ -31,7 +31,7 @@ for(const width of [390,1280])test(`hourly SVG axes at ${width} align to three-h
 test('Dashboard aligns labels to clock hours instead of every third data index',async()=>{
  const f=fixture();try{await f.card._drawDashboardChart();const cfg=f.charts.at(-1),ticks=cfg.options.scales.x.ticks;
  const context={getLabelForValue:i=>cfg.data.labels[i]};
- assert.deepEqual(cfg.data.labels.map((_,i)=>ticks.callback.call(context,i,i)).filter(Boolean),['18','21','00','03','06']);
+ assert.deepEqual(Array.from(cfg.data.labels,(_,i)=>ticks.callback.call(context,i,i)).filter(Boolean),['18','21','00','03','06']);
  assert.equal(cfg.data.datasets[0].data.length,15);assert.equal(cfg.data.datasets[0].data[13],0);
  assert.match(cfg.options.plugins.tooltip.callbacks.title([{dataIndex:13}]),/Oct 18.*06:00 AM GMT-4/);
  }finally{f.close();}
