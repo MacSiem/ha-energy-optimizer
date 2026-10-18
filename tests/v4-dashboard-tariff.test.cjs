@@ -130,7 +130,7 @@ test('peak summary hides an equal HA display zone but retains a different zone',
  const f=fixture();try{
   f.card._hass.locale={language:'en',time_zone:'server',time_format:'24'};f.card._hass.config.time_zone='UTC';f.card._render();
   assert.doesNotMatch(f.card.shadowRoot.querySelector('[data-dashboard-peak] .summary-value').textContent,/GMT|UTC/);
-  f.card._hass.locale.time_zone='local';f.dom.window.Intl.DateTimeFormat=new Proxy(f.dom.window.Intl.DateTimeFormat,{construct(target,args){if(!args[1])return{resolvedOptions:()=>({timeZone:'Asia/Tokyo'})};return Reflect.construct(target,args);}});f.card._render();
+  f.card._hass.locale.time_zone='local';f.dom.window.Intl.DateTimeFormat=new Proxy(f.dom.window.Intl.DateTimeFormat,{apply(target,receiver,args){if(!args.length)return{resolvedOptions:()=>({timeZone:'Asia/Tokyo'})};return Reflect.apply(target,receiver,args);},construct(target,args){return Reflect.construct(target,args);}});f.card._render();
   assert.match(f.card.shadowRoot.querySelector('[data-dashboard-peak] .summary-value').textContent,/GMT\+9/);
  }finally{f.close();}
 });

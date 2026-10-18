@@ -2725,6 +2725,10 @@ canvas {
               }
             },
             x: {
+              ticks: {
+                autoSkip: false, minRotation: 0, maxRotation: 0,
+                callback(value) { return Number(value) % 3 === 0 ? this.getLabelForValue(value) : ''; }
+              },
               title: {
                 display: true,
                 text: this._text("Hour of Day", "Godzina dnia")
