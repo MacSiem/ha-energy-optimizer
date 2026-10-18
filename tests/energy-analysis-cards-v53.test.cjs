@@ -313,3 +313,25 @@ for(const language of ['en','pl'])test('Insights useful Tips are available witho
   assert.equal(f.card.shadowRoot.querySelector('.analysis-tiles'),null);f.assertQuiet();
  }finally{f.close();}
 });
+
+// Actual producer/service/pricing fixture with synthetic provider IO; no native HA claim.
+for(const spec of cases)test(`${spec.type}: proven whole-period facts reach the actual card and survive presentation changes`,async()=>{
+ const snapshot=JSON.parse(read('tests/fixtures/analysis-wholeperiod-v53.json'));
+ const f=setup(spec,{response:()=>clone(snapshot)});
+ try{
+  f.update({...f.hass,config:{...f.hass.config,time_zone:'Europe/Warsaw'}});
+  await f.mount();const root=analysisRoot(f);
+  assert.match(root.querySelector('.analysis-tile strong').textContent,/^250 kWh$/);
+  assert.match(root.querySelector('[data-analysis-cheap-share] strong').textContent,/^23[.,]2\s?%$/);
+  const peak=root.querySelector('[data-analysis-peak]');assert.equal(peak.dataset.analysisPeakId,snapshot.period_summary.peak_hour.id);
+  assert.match(peak.querySelector('strong').textContent,/18:00/);assert.match(peak.textContent,/22 kWh/);
+  const zones=root.querySelector('[data-analysis-period-zone-total]');assert.ok(zones);assert.equal(zones.querySelectorAll('[data-analysis-period-zone]').length,2);
+  assert.match(zones.textContent,/58 kWh/);assert.match(zones.textContent,/192 kWh/);assert.match(zones.textContent,/211.2 EUR/);
+  assert.equal(f.card._analysisHostV53.state().snapshot.snapshot_id,snapshot.snapshot_id);
+  const reads=f.analyses.length;control(f,'view','data').click();assert.equal(f.card.shadowRoot.querySelectorAll('[data-analysis-bin]').length,24);
+  f.update({...f.hass,locale:{...f.hass.locale,language:'pl'}});await settle();
+  assert.match(f.card.shadowRoot.querySelector('[data-analysis-cheap-share]').textContent,/taniej/);
+  assert.equal(f.analyses.length,reads);assert.equal(f.card._analysisHostV53.state().snapshot.snapshot_id,snapshot.snapshot_id);
+  f.assertNoHistory();f.assertQuiet();
+ }finally{f.close();}
+});

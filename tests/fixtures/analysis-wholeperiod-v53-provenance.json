@@ -1,0 +1,54 @@
+{
+  "backend_head": "dd220b62562ca369bbecf614f17e1c6c4def33c1",
+  "scope": "Actual EnergyAnalysisService/accumulators/historicalpricing with synthetic auth/registry/provider IO. No native HA or production data.",
+  "snapshot_id": "02894b26e5ef4f564492c11a43e81068525ca57cef644f902ed73f7d5eb5ae28",
+  "sha256": "55edd81b79e14909e62882b5a6e2d3fc049fcaca77cebf553373164646d4520f",
+  "query_count": 4,
+  "totals": {
+    "energy_cost": "221.00",
+    "variable_cost": "25.00",
+    "legacy_combined_cost": "0.00",
+    "usage_cost": "246.00",
+    "fixed_cost": "1.00",
+    "total_cost": "247.00",
+    "effective_price": "0.99",
+    "currency": "EUR",
+    "price_basis": "gross",
+    "kwh": "250.0",
+    "recorded_household_kwh": "250.0",
+    "measurement_complete": true,
+    "pricing_complete": true,
+    "components_complete": true,
+    "known_costs": {
+      "energy_cost": "221.00",
+      "variable_cost": "25.00",
+      "legacy_combined_cost": "0.00"
+    }
+  },
+  "share": {
+    "status": "ready",
+    "reason": null,
+    "scope": "complete_household_hours",
+    "classification_source": "explicit_tariff_classification",
+    "known_cheap_kwh": "58.0",
+    "classified_kwh": "250.0",
+    "total_kwh": "250.0",
+    "ratio": "0.232"
+  },
+  "peak": {
+    "status": "ready",
+    "reason": null,
+    "scope": "complete_household_hours",
+    "id": "1791648000000:1791651600000",
+    "from": 1791648000000,
+    "to": 1791651600000,
+    "start": "2026-10-10T16:00:00+00:00",
+    "end": "2026-10-10T17:00:00+00:00",
+    "local_start": "2026-10-10T18:00:00+02:00",
+    "local_end": "2026-10-10T19:00:00+02:00",
+    "fold": 0,
+    "end_fold": 0,
+    "kwh": "22.0",
+    "tied_count": 1
+  }
+}
