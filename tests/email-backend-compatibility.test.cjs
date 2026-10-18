@@ -108,7 +108,12 @@ test('older backend preview and schedule send use the same Recorder report', asy
   try {
     await card._loadEmailBackendConfig();
     await card._fetchAllPeriodStats();
+    // Preview is now a mounted report host. The real old backend does not
+    // support its subscription command; structured rejection selects compatibility.
+    card._hass.connection.subscribeMessage = async () => { throw {code:'unknown_command'}; };
+    dom.window.document.body.append(card);
     card._activeTab = 'preview'; card._render();
+    for (let i=0;i<4;i++) await new Promise(resolve=>setImmediate(resolve));
     assert.doesNotMatch(card.shadowRoot.textContent, /Server preview unavailable/);
     assert.match(card.shadowRoot.textContent, /24\.0\s*kWh/);
     await card._sendScheduleNow('daily');
