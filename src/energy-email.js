@@ -652,6 +652,10 @@ function createHaToolsMailPresentation({ escape = value => String(value), langua
    *   energy_price: 0.30                   (optional tariff; no assumed default)
    *   notify_service: email_report         (optional, auto-detected)
    */
+  // HA_ENERGY_REPORT_V53_START
+  // Filled from shared/ha-tools-energy-report.js by sync-tariff.cjs --write.
+  // HA_ENERGY_REPORT_V53_END
+
   class HAEnergyEmail extends HTMLElement {
     static getConfigElement() { return document.createElement('ha-energy-email-editor'); }
     constructor() {
@@ -810,11 +814,13 @@ function createHaToolsMailPresentation({ escape = value => String(value), langua
         this._resetTariffContext(hass);
         this._hass = hass;
         this._analysisHostV53?.observe();
+        this._reportHostV53?.observe();
         this._serverSchedules.setContext(hass);
         this._mailPreview.setContext(hass);
         this._attemptHistory.setContext(hass);
         if (this._activeTab === 'history') this._render();
         if (!hass) { this.shadowRoot.replaceChildren(); return; }
+        if (this._activeTab==='preview' && this._firstRender) { this._render(); return; }
         if (this._initialDiscoveryStartedV3) this._ensureInitialDiscovery();
         if ((emailContextChanged || measurementsChanged) && this._firstRender) { this._render(); return; }
         const now = Date.now();
@@ -831,7 +837,7 @@ function createHaToolsMailPresentation({ escape = value => String(value), langua
           this._lastRenderTime = now;
           return;
         }
-        if (!this._emailBackendChecked && this._activeTab !== 'schedule') this._loadEmailBackendConfig().catch(e => this._showToast('⚠️ ' + (e?.message || e)));
+        if (!this._emailBackendChecked && !['schedule','preview'].includes(this._activeTab)) this._loadEmailBackendConfig().catch(e => this._showToast('⚠️ ' + (e?.message || e)));
         if (now - this._lastRenderTime < 10000) {
           if (!this._renderScheduled) {
             this._renderScheduled = true;
@@ -2627,7 +2633,7 @@ this._installTariffConsumerV3();
       // Context purge and editor/write fences remain in force for tabs and periods.
       this._sharedTariffExpectedV3 ||= this._sharedTariffProfile != null;
       this._observeTariffContextV3();
-      if (!this._sharedTariffExpectedV3 || Object.hasOwn(this._config, 'tariff_profile')) return;
+      if (this._activeTab==='preview' || !this._sharedTariffExpectedV3 || Object.hasOwn(this._config, 'tariff_profile')) return;
       const guard = this._getTariffHostV3().guard, token = guard.snapshot();
       void this._loadSharedTariffProfile().then(confirmed => {
         if (confirmed && guard.current(token) && this.isConnected) this._repriceTariffV3();
@@ -2786,7 +2792,7 @@ this._installTariffConsumerV3();
     // --- auto-discovery ---
 
     _ensureInitialDiscovery() {
-      if (this._discoveryDone || this._initialDiscoveryPromise || !this.isConnected ||
+      if (this._activeTab === 'preview' || this._discoveryDone || this._initialDiscoveryPromise || !this.isConnected ||
         !this._hass?.callWS || !this._emailIdentity(this._hass).online) return;
       // Preserve occupancy until the old discovery settles. A normal hass
       // update or mount can then resume discovery with a fresh context token.
@@ -3372,7 +3378,7 @@ this._installTariffConsumerV3();
         .map(field => ({ id: field.id, value: field.value, checked: field.checked }));
       const L = this._lang === 'pl';
       const recipient = this._getRecipient();
-      const recipientDisplay = recipient
+      const recipientDisplay = this._activeTab==='preview' ? (L ? 'Raport energii w Home Assistant' : 'Energy report in Home Assistant') : recipient
         ? `${L ? 'Do' : 'To'}: ${_esc(recipient)}`
         : (L ? 'Nie ustawiono odbiorcy' : 'No recipient set');
       this.shadowRoot.innerHTML = `
@@ -3605,20 +3611,20 @@ this._installTariffConsumerV3();
             <div class="header-icon">\u{1F4E7}</div>
             <div>
               <div class="header-title">${_esc(this._config.title)}</div>
-              <div class="header-sub">${recipientDisplay} \u00A0\u2022\u00A0 ${this._hass?.user?.is_admin === true ? `<button type="button" id="price-display" aria-label="${L ? 'Edytuj taryfę energii' : 'Edit energy tariff'}">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())} \u270E</button>` : `<span id="price-display">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())}</span>`}</div>
+              <div class="header-sub">${recipientDisplay} ${this._activeTab==='preview' ? '' : `\u00A0\u2022\u00A0 ${this._hass?.user?.is_admin === true ? `<button type="button" id="price-display" aria-label="${L ? 'Edytuj taryfę energii' : 'Edit energy tariff'}">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())} \u270E</button>` : `<span id="price-display">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())}</span>`}`}</div>
             </div>
           </div>
-          <label class="email-tab-picker">${L ? 'Widok' : 'View'}<select id="email-tab-select" aria-label="${L ? 'Widok' : 'View'}">${['overview','schedule','preview','send','config','history'].map((tab,i)=>`<option value="${tab}" ${this._activeTab===tab?'selected':''}>${(L?['Przegląd','Harmonogram','Podgląd','Wyślij teraz','Ustawienia','Historia']:['Overview','Schedule','Preview','Send Now','Config','History'])[i]}</option>`).join('')}</select></label>
+          <label class="email-tab-picker">${L ? 'Widok' : 'View'}<select id="email-tab-select" aria-label="${L ? 'Widok' : 'View'}">${['overview','schedule','preview','send','config','history'].map((tab,i)=>({tab,i})).filter(({tab})=>this._hass?.user?.is_admin===true||['overview','preview'].includes(tab)).map(({tab,i})=>`<option value="${tab}" ${this._activeTab===tab?'selected':''}>${(L?['Przegląd','Harmonogram','Podgląd','Wyślij teraz','Ustawienia','Historia']:['Overview','Schedule','Preview','Send Now','Config','History'])[i]}</option>`).join('')}</select></label>
           <div class="tabs" role="tablist" aria-label="${L ? 'Widoki Energy Email' : 'Energy Email views'}">
             <button class="tab-btn ${this._activeTab === 'overview' ? 'active' : ''}" id="email-tab-overview" data-tab="overview">\u{1F4CA} ${L ? "Przegląd" : "Overview"}</button>
-            <button class="tab-btn ${this._activeTab === 'schedule' ? 'active' : ''}" id="email-tab-schedule" data-tab="schedule">\u{1F4C5} ${L ? "Harmonogram" : "Schedule"}</button>
+            ${this._hass?.user?.is_admin===true ? `<button class="tab-btn ${this._activeTab === 'schedule' ? 'active' : ''}" id="email-tab-schedule" data-tab="schedule">\u{1F4C5} ${L ? "Harmonogram" : "Schedule"}</button>` : ''}
             <button class="tab-btn ${this._activeTab === 'preview' ? 'active' : ''}" id="email-tab-preview" data-tab="preview">\u{1F4CB} ${L ? "Podgląd" : "Preview"}</button>
-            <button class="tab-btn ${this._activeTab === 'send' ? 'active' : ''}" id="email-tab-send" data-tab="send">\u{1F4E4} ${L ? "Wyślij teraz" : "Send Now"}</button>
-            <button class="tab-btn ${this._activeTab === 'config' ? 'active' : ''}" id="email-tab-config" data-tab="config">\u2699\uFE0F ${L ? "Ustawienia" : "Config"}</button>
-            <button class="tab-btn ${this._activeTab === 'history' ? 'active' : ''}" id="email-tab-history" data-tab="history">${L ? 'Historia' : 'History'}</button>
+            ${this._hass?.user?.is_admin===true ? `<button class="tab-btn ${this._activeTab === 'send' ? 'active' : ''}" id="email-tab-send" data-tab="send">\u{1F4E4} ${L ? "Wyślij teraz" : "Send Now"}</button>` : ''}
+            ${this._hass?.user?.is_admin===true ? `<button class="tab-btn ${this._activeTab === 'config' ? 'active' : ''}" id="email-tab-config" data-tab="config">\u2699\uFE0F ${L ? "Ustawienia" : "Config"}</button>` : ''}
+            ${this._hass?.user?.is_admin===true ? `<button class="tab-btn ${this._activeTab === 'history' ? 'active' : ''}" id="email-tab-history" data-tab="history">${L ? 'Historia' : 'History'}</button>` : ''}
           </div>
           <div id="tab-content" tabindex="-1" role="region" aria-label="${(L ? {overview:'Przegląd',schedule:'Harmonogram',preview:'Podgląd',send:'Wyślij teraz',config:'Ustawienia',history:'Historia'} : {overview:'Overview',schedule:'Schedule',preview:'Preview',send:'Send Now',config:'Config',history:'History'})[this._activeTab] || 'Energy Email'}"></div>
-          ${this._tariffDetailsMarkup()}
+          ${this._activeTab==='preview' ? '' : this._tariffDetailsMarkup()}
           ${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-email') ? OWN_SUPPORT_FOOTER : ''}
         </div>
         <div class="toast" id="toast"></div>
@@ -3632,10 +3638,10 @@ this._installTariffConsumerV3();
       });
       this.shadowRoot.getElementById('email-tab-select')?.addEventListener('change', event => this.setActiveTab(event.target.value));
       this._renderTab(true);
-      this._bindTariffSettings();
+      if(this._activeTab!=='preview')this._bindTariffSettings();
       this._bindEmailEvents();
       this._bindPriceEdit();
-      if (renderToken === this._emailContextVersion && this._hass?.user?.is_admin === true) {
+      if (renderToken === this._emailContextVersion && (this._hass?.user?.is_admin === true || this._activeTab==='preview')) {
         for (const saved of formFields) { const field = this.shadowRoot.getElementById(saved.id); if (!field) continue;
           field.value = saved.value; if (typeof saved.checked === 'boolean') field.checked = saved.checked; }
         const target = focusId && this.shadowRoot.getElementById(focusId);
@@ -3753,6 +3759,13 @@ this._installTariffConsumerV3();
       if (!fullRender) this._checkActionFocus();
       const el = this.shadowRoot.getElementById('tab-content');
       if (!el) return;
+      if(this._activeTab!=='preview')this._reportHostV53?.stop();
+      if(this._activeTab==='preview') {
+        this._analysisHostV53?.stop();
+        this._reportHostV53 ||= createEnergyReportV53({card:this,format:createFormatUi});
+        // Reuse this root: report redraws preserve controls and focused selection.
+        this._reportHostV53.mount(el);return;
+      }
       if(this._activeTab==='overview' && !this._analysisLegacyAllowedV53()) {
         el.innerHTML='<div data-analysis-mount-v53></div>';this._syncAnalysisV53();return;
       }
@@ -3766,7 +3779,7 @@ this._installTariffConsumerV3();
       const legacyFields = this._activeTab === 'schedule' ? [...el.querySelectorAll('input[id],select[id]')]
         .filter(field => /^(schedule-(?:time|recipients|enabled)-(?:daily|weekly|monthly)|time-(?:daily|weekly|monthly)|day-weekly)$/.test(field.id))
         .map(field => ({ id: field.id, value: field.value, checked: field.checked })) : [];
-      if (this._hass?.user?.is_admin !== true && ['schedule', 'preview', 'send', 'config', 'history'].includes(this._activeTab)) {
+      if (this._hass?.user?.is_admin !== true && ['schedule', 'send', 'config', 'history'].includes(this._activeTab)) {
         el.innerHTML = `<div class="empty-state" role="status">${this._lang === 'pl' ? 'Tylko administrator może zmieniać ustawienia i wysyłać raporty. Podgląd energii jest dostępny w zakładce Przegląd.' : 'Only administrators can change settings and send reports. Energy data remains available in Overview.'}</div>`;
         return;
       }
@@ -4961,7 +4974,9 @@ this._installTariffConsumerV3();
       if(this._hass) {
       this._analysisHostV53?.observe();
       queueMicrotask(()=>{
-        if(!this.isConnected || !this._analysisIsActiveV53())return;
+        if(!this.isConnected)return;
+        if(this._activeTab==='preview'){this._render();return;}
+        if(!this._analysisIsActiveV53())return;
         if(this.shadowRoot?.querySelector('[data-analysis-mount-v53]'))this._syncAnalysisV53();
         else this._render();
       });
@@ -4975,6 +4990,7 @@ this._installTariffConsumerV3();
     }
 
     disconnectedCallback() {
+      this._reportHostV53?.stop();
       this._analysisHostV53?.stop();
       this._optionsResizeV5?.disconnect();
       this._tariffHostController?.guard.suspend();
@@ -5002,6 +5018,7 @@ this._installTariffConsumerV3();
 
     setActiveTab(tabId) {
       this._activeTab = tabId;
+      if(tabId!=='preview' && this._initialDiscoveryStartedV3)this._ensureInitialDiscovery();
       this._observeTariffNavigationV3();
       if (tabId === 'schedule') { this._serverSchedules.setContext(this._hass); this._serverSchedules.ensureRead(); }
       if (tabId === 'history') this._attemptHistory.setContext(this._hass);

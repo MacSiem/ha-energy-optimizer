@@ -11,6 +11,13 @@ const runtime = modules.map(module => module.text.replace(/^'use strict';\n/, ''
 const sha = digest(JSON.stringify(provenance));
 const manifestPath = path.join(root, 'generated-sources.json');
 const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+const reportPath = 'shared/ha-tools-energy-report.js';
+const reportSource = fs.readFileSync(path.join(root, reportPath), 'utf8');
+const reportInline = reportSource.replace(/^if \(typeof module[^\n]*$/gm, '').trimEnd();
+const reportBlock = '// HA_ENERGY_REPORT_V53_START\n' + reportInline + '\n// HA_ENERGY_REPORT_V53_END';
+const reportProvenance = {path:reportPath,sha256:digest(reportSource),inlineSha256:digest(reportInline)};
+if (!process.argv.includes('--write') && JSON.stringify(manifest.sharedEnergyReport) !== JSON.stringify(reportProvenance)) throw new Error('Report factory provenance failed');
+if (process.argv.includes('--write')) manifest.sharedEnergyReport = reportProvenance;
 const formatPath = 'shared/ha-tools-format.js';
 const formatSource = fs.readFileSync(path.join(root, formatPath), 'utf8');
 const formatInline = formatSource.replace(/^if \(typeof module[^\n]*$/gm, '').trimEnd();
@@ -22,7 +29,9 @@ for (const [file, kind] of [['src/optimizer.js', 'optimizer'], ['src/energy-insi
   const target = path.join(root, file), original = fs.readFileSync(target, 'utf8');
   const block = `// HA_TARIFF_V3_START sha256=${sha}\n${runtime}\nthis._tariffHostController = createTariffHostV3({ card: this, kind: '${kind}', createModel: createEnergyTariffV3, legacyProfile: energyTariffProfileV3, createSettings: createTariffSettingsV3, createUi: createUiV3, ...this._createTariffConsumerV3(createTariffGuardV3) });\nthis._installTariffConsumerV3();\n// HA_TARIFF_V3_END`;
   if (!original.includes('// HA_TARIFF_V3_START')) throw new Error(`Missing tariff consumer: ${file}`);
-  const formatted = original.replace(/\/\/ HA_FORMAT_UI_START\n[\s\S]*?\/\/ HA_FORMAT_UI_END/, formatBlock);
+  const withReport = kind === 'email' ? original.replace(/\/\/ HA_ENERGY_REPORT_V53_START\n[\s\S]*?\/\/ HA_ENERGY_REPORT_V53_END/, reportBlock) : original;
+  if (kind === 'email' && !original.includes('// HA_ENERGY_REPORT_V53_START')) throw new Error('Missing report consumer');
+  const formatted = withReport.replace(/\/\/ HA_FORMAT_UI_START\n[\s\S]*?\/\/ HA_FORMAT_UI_END/, formatBlock);
   if (!original.includes('// HA_FORMAT_UI_START')) throw new Error('Missing format factory consumer: ' + file);
   const next = formatted.replace(/\/\/ HA_TARIFF_V3_START[^\n]*\n[\s\S]*?\/\/ HA_TARIFF_V3_END/, block);
   if (process.argv.includes('--write')) fs.writeFileSync(target, next);
