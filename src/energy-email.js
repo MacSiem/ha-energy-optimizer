@@ -683,7 +683,7 @@ function createEnergyReportV53({card, format}) {
       JSON.stringify(h?.locale||{})];
   };
   const same=(a,b)=>a&&b&&a.length===b.length&&a.every((v,i)=>v===b[i]);
-  const available=()=>card.isConnected && !!card._hass?.user?.id && card._hass?.user?.is_active===true &&
+  const available=()=>card.isConnected && !!card._hass?.user?.id && card._hass?.user?.is_active!==false &&
     card._hass?.connected!==false && card._hass?.connection?.connected!==false && !offline;
   const mounted=()=>active&&root?.isConnected&&card._activeTab==='preview';
   const current=(s,r)=>mounted()&&s===session&&(r===undefined||r===revision)&&same(identity,context())&&available();
@@ -816,7 +816,7 @@ function createEnergyReportV53({card, format}) {
     const labels=preferences().language==='pl'?['Dzień','Tydzień','Miesiąc','Rok']:['Day','Week','Month','Year'];
     const comparisons=selection.period==='day'?['previous','same_weekday','mean7']:['previous','year_ago'];
     const names={previous:text('Previous period','Poprzedni okres'),same_weekday:text('Same weekday','Ten sam dzień tygodnia'),mean7:text('Mean of 7 previous days','Średnia z 7 poprzednich dni'),year_ago:text('Same period last year','Ten sam okres rok temu')};
-    const message=status==='ready'?text('Report ready. Downloads use the same report.','Raport gotowy. Pliki zawierają ten sam raport.'):status==='loading'?text('Loading…','Wczytywanie…'):status==='denied'?text('You do not have access to this report.','Nie masz dostępu do tego raportu.'):status==='error'?text('Report unavailable. Check access and update HA Tools Email, then retry.','Raport niedostępny. Sprawdź dostęp i zaktualizuj HA Tools Email, a następnie ponów.'):text('Choose a period and read your energy report here. Email setup is optional.','Wybierz okres i odczytaj raport energii tutaj. Konfiguracja email jest opcjonalna.');
+    const message=status==='ready'?text('Report ready. Downloads use the same report.','Raport gotowy. Pliki zawierają ten sam raport.'):status==='loading'?text('Loading…','Wczytywanie…'):status==='denied'?text('Ask your administrator for access to energy reports.','Poproś administratora o dostęp do raportów energii.'):status==='error'?text('Report unavailable. Check access and update HA Tools Email, then retry.','Raport niedostępny. Sprawdź dostęp i zaktualizuj HA Tools Email, a następnie ponów.'):text('Choose a period and read your energy report here. Email setup is optional.','Wybierz okres i odczytaj raport energii tutaj. Konfiguracja email jest opcjonalna.');
     const enabled=available()&&capabilities?.visible&&capabilities?.read;
     const select=(name,title,values)=>`<label style="display:grid;gap:4px">${title}<select id="energy-report-${name}" data-energy-report="${name}">${values.map(([value,label])=>`<option value="${value}" ${selection[name]===value?'selected':''}>${esc(label)}</option>`).join('')}</select></label>`;
     root.innerHTML=`<section aria-label="${text('Energy report','Raport energii')}" style="min-width:0;overflow-wrap:anywhere;font-size:14px"><h3>${text('Energy report in Home Assistant','Raport energii w Home Assistant')}</h3><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">${select('period',text('Period','Okres'),['day','week','month','year'].map((v,i)=>[v,labels[i]]))}<label style="display:grid;gap:4px">${text('Date in the measurement calendar (optional)','Data w kalendarzu pomiarów (opcjonalnie)')}<input id="energy-report-anchor" type="date" data-energy-report="anchor" value="${esc(selection.anchor||'')}" style="min-height:44px;font:inherit"></label>${select('comparison',text('Compare with','Porównaj z'),comparisons.map(v=>[v,names[v]]))}</div><p data-energy-report="status" role="status">${message}</p><button id="energy-report-read" type="button" data-energy-report="read" ${enabled?'':'disabled'}>${text('Read report','Odczytaj raport')}</button>${status==='error'||status==='denied'?`<button type="button" data-energy-report="retry">${text('Check access again','Sprawdź dostęp ponownie')}</button>`:''}<div data-energy-report="output"></div></section>`;
@@ -1122,7 +1122,7 @@ function createEnergyReportV53({card, format}) {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=90286003ba75ce14e71fbf81b2109e2087d494ba1653a0b2236f3acbb7df69de
+      // HA_TARIFF_V3_START sha256=94e21085c0a4fb15bdc182f76643d97d4b042075bbe220cf1f88a895220f9118
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -2557,7 +2557,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   const weekdays = pl ? ['pon','wt','śr','czw','pt','sob','nd'] : ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   const ruleText = rule => [
     rule.weekdays ? rule.weekdays.map(day=>weekdays[(day+6)%7] || unknown()).join(', ') : t('Every day','Codziennie'),
-    ...(rule.dates || []).map(date), rule.season ? `${date('2000-'+rule.season.from,true)} – ${date('2000-'+rule.season.to,true)}` : '',
+    ...(rule.dates || []).map(value=>date(value)), rule.season ? `${date('2000-'+rule.season.from,true)} – ${date('2000-'+rule.season.to,true)}` : '',
     (rule.intervals || []).map(interval=>`${interval.from}–${interval.to}`).join(', '),
     rule.priority == null ? '' : `${t('priority','priorytet')} ${number(rule.priority)}`
   ].filter(Boolean).join(' · ');
