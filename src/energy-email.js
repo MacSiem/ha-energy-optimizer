@@ -103,7 +103,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
       if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
     }
   };
-  return {language, hourCycle, timeZone, key, clock, date, calendarDate, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
+  return {language, dateLanguage, hourCycle, timeZone, key, clock, date, calendarDate, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
 // Presentation follows the HA profile; measurement and tariff calendars remain separate.
 createFormatUi.forHass = hass => {
@@ -673,7 +673,7 @@ function createEnergyReportV53({card, format}) {
   const esc=value=>String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const preferences=()=>{
     const ui=format.forHass(card._hass);
-    return {key:ui.key,language:String(ui.language).startsWith('pl')?'pl':'en',timezone:ui.timeZone,
+    return {key:ui.key,language:String(ui.language).startsWith('pl')?'pl':'en',date_language:String(ui.dateLanguage).startsWith('pl')?'pl':'en',timezone:ui.timeZone,
       hour_cycle:['h11','h12'].includes(ui.hourCycle)?'12':'24'};
   };
   const context=()=>{
@@ -739,7 +739,7 @@ function createEnergyReportV53({card, format}) {
         const p=task.request;
         if(!capabilities?.visible||!capabilities?.read||!result||typeof result.snapshot_id!=='string'||!result.snapshot_id||
           ['html','text','csv'].some(k=>typeof result[k]!=='string')||result.context?.access_purpose!=='report_read'||
-          result.period?.kind!==p.period||result.display?.language!==p.language||result.display?.timezone!==p.timezone||result.display?.hour_cycle!==p.hour_cycle)throw Error('invalid_report');
+          result.period?.kind!==p.period||result.display?.language!==p.language||result.display?.date_language!==p.date_language||result.display?.timezone!==p.timezone||result.display?.hour_cycle!==p.hour_cycle)throw Error('invalid_report');
         report={snapshot_id:result.snapshot_id,html:result.html,text:result.text,csv:result.csv};status='ready';paint();
       }
     }).catch(error=>{
@@ -769,7 +769,7 @@ function createEnergyReportV53({card, format}) {
   function read(){
     observe();if(!mounted()||legacy||!unsubscribe||!capabilities?.visible||!capabilities?.read)return;
     intent++;purge();status='loading';
-    const p=preferences();const request={type:'ha_tools_email/energy_report',...selection,language:p.language,timezone:p.timezone,hour_cycle:p.hour_cycle};
+    const p=preferences();const request={type:'ha_tools_email/energy_report',...selection,language:p.language,date_language:p.date_language,timezone:p.timezone,hour_cycle:p.hour_cycle};
     queue('report',request);paint();
   }
   function navigate(){
