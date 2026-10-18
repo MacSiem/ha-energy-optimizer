@@ -12,7 +12,7 @@ const clone=value=>JSON.parse(JSON.stringify(value));
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 async function settled(){for(let i=0;i<8;i++)await tick();}
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};}
-function harness(response=()=>clone(fixture)) {
+function harness(response=()=>clone(fixture), subscribeError=null) {
   const dom=new JSDOM('<!doctype html><body></body>',{url:'http://localhost',runScripts:'outside-only'});
   const w=dom.window;
   const format=source('src/optimizer.js').match(/\/\/ HA_FORMAT_UI_START\n([\s\S]*?)\/\/ HA_FORMAT_UI_END/)[1];
@@ -24,8 +24,10 @@ function harness(response=()=>clone(fixture)) {
   const listeners=new Map(), calls=[];
   let unsubscribed=0, legacy=0, cleared=0;
   card._hass={user:{id:'reader',is_active:true},config:{time_zone:'UTC'},locale:{language:'en',time_zone:'server',time_format:'24'},
-    connection:{connected:true,subscribeEvents:async(callback,event)=>{
-      const entry={callback,event};listeners.set(entry,entry);return ()=>{listeners.delete(entry);unsubscribed++;};
+    connection:{connected:true,subscribeMessage:async(callback,message)=>{
+      assert.equal(message.type,'ha_tools_email/subscribe_analysis_updates');
+      if(subscribeError)throw subscribeError;
+      const entry={callback};listeners.set(entry,entry);return ()=>{listeners.delete(entry);unsubscribed++;};
     }},callWS:message=>{calls.push(clone(message));return Promise.resolve().then(()=>response(message));}};
   card._analysisIsActiveV53=()=>true;
   card._clearAnalysisLegacyV53=()=>{cleared++;card.oldPrivateRows=null;};
@@ -39,7 +41,7 @@ function harness(response=()=>clone(fixture)) {
   };
   host=createHost({card});
   return {w,card,host,calls,listeners,render:()=>card._render(),
-    emit:event=>{for(const row of [...listeners.values()])if(row.event===event)row.callback({event:{}});},
+    emit:event=>{for(const row of [...listeners.values()])row.callback({});},
     get legacy(){return legacy;},get cleared(){return cleared;},get unsubscribed(){return unsubscribed;},close:()=>{host.stop();dom.window.close();}};
 }
 test('real producer fixture renders in actual DOM; inactive host performs no I/O',async()=>{
@@ -49,7 +51,7 @@ test('real producer fixture renders in actual DOM; inactive host performs no I/O
     assert.equal(h.calls.length,1);assert.equal(h.calls[0].type,'ha_tools_email/energy_analysis');
     assert.ok(h.card.querySelector('.analysis-tiles'));assert.ok(h.card.querySelector('[data-analysis-chart]'));
     assert.match(h.card.textContent,/241/);assert.match(h.card.textContent,/Unmeasured/);
-    assert.ok(h.listeners.size>=2);
+    assert.equal(h.listeners.size,1);
   } finally{h.close();}
 });
 test('view, group, point controls persist through parent rerender without more wire requests',async()=>{
@@ -105,7 +107,7 @@ test('real update event refreshes active view and clears stale content before re
 });
 test('unmount unsubscribes and ignores late wire response; remount waits for original wire',async()=>{
   const pending=deferred();const h=harness(()=>pending.promise);try {
-    h.render();await settled();h.host.stop();h.card.remove();assert.equal(h.listeners.size,0);assert.ok(h.unsubscribed>=2);
+    h.render();await settled();h.host.stop();h.card.remove();assert.equal(h.listeners.size,0);assert.ok(h.unsubscribed>=1);
     h.emit('ha_tools_email_energy_analysis_updated');await settled();assert.equal(h.calls.length,1);
     pending.resolve(clone(fixture));await settled();assert.equal(h.host.state().snapshot,null);assert.equal(h.card.querySelector('.analysis-tiles'),null);
   } finally{h.close();}
@@ -145,4 +147,22 @@ test('three source consumers keep prototype lifecycle and lazy factory wiring',(
   }
   assert.match(source('src/optimizer.js'),/_powerMarkupV4\(\)/);assert.match(source('src/optimizer.js'),/Patterns/);
   for(const tab of ['schedule','preview','send','config','history'])assert.ok(source('src/energy-email.js').includes(`case '${tab}'`));
+});
+
+test('old subscription plus old analysis enables legacy through exactly one controller probe',async()=>{
+ const h=harness(()=>{throw {code:'unknown_command'};},{code:'unknown_command'});try{
+  h.render();await settled();assert.equal(h.calls.length,1);assert.equal(h.legacy,1);
+  assert.equal(h.host.state().snapshot,null);assert.equal(h.card.querySelector('.analysis-tiles'),null);
+ }finally{h.close();}
+});
+test('unknown subscription with ready modern data never paints or exposes private DTO',async()=>{
+ const pending=deferred();const h=harness(()=>pending.promise,{code:'unknown_command'});try{
+  h.render();await settled();assert.equal(h.calls.length,1);assert.equal(h.host.state().snapshot,null);
+  const painted=[];const observer=new h.w.MutationObserver(()=>painted.push(h.card.innerHTML));
+  observer.observe(h.card,{childList:true,subtree:true});
+  pending.resolve(clone(fixture));await settled();observer.disconnect();
+  assert.equal(h.host.state().snapshot,null);assert.equal(h.host.state().error,'analysis_subscription_unavailable');
+  assert.equal(h.legacy,0);assert.equal(h.card.querySelector('.analysis-tiles'),null);
+  assert.ok(painted.every(html=>!html.includes('analysis-tile')&&!html.includes(fixture.snapshot_id)));
+ }finally{h.close();}
 });

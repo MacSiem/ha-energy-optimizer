@@ -21,7 +21,7 @@ const settle=async()=>{for(let i=0;i<4;i++)await drainBackend();};
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});promise.catch(()=>{});return {promise,resolve,reject};}
 const history=request=>request.type==='energy/get_prefs'||request.type.startsWith('recorder/');
 
-function setup(spec,{response=()=>clone(producer),legacy=false}={}) {
+function setup(spec,{response=()=>clone(producer),legacy=false,subscribeError=null}={}) {
   const errors=[],unexpected=[],ws=[],subscriptions=[],serviceCalls=[],network=[];
   const console=new VirtualConsole();
   console.on('error',(...args)=>errors.push(args.map(value=>String(value?.message||value)).join(' ')));
@@ -48,8 +48,10 @@ function setup(spec,{response=()=>clone(producer),legacy=false}={}) {
   let currentResponse=response,raw=0,maxRaw=0,unsubscribed=0;
   function connection(){
     const conn=new w.EventTarget();conn.connected=true;
-    conn.subscribeEvents=async(callback,event)=>{
-      const entry={connection:conn,callback,event,active:true};subscriptions.push(entry);
+    conn.subscribeMessage=async(callback,message)=>{
+      assert.equal(message.type,'ha_tools_email/subscribe_analysis_updates');
+      if(subscribeError)throw subscribeError;
+      const entry={connection:conn,callback,message,active:true};subscriptions.push(entry);
       return ()=>{assert.equal(entry.active,true,'unsubscribe exactly once');entry.active=false;unsubscribed++;};
     };
     return conn;
@@ -83,9 +85,9 @@ function setup(spec,{response=()=>clone(producer),legacy=false}={}) {
     setResponse(next){currentResponse=next;},
     update(next=hass){hass=next;card.hass=hass;},
     async mount(){w.document.body.append(card);api.update();await settle();},
-    active,emit(event,conn=hass.connection){for(const entry of active(conn))if(entry.event===event)entry.callback({event:{}});},
+    active,emit(event,conn=hass.connection){for(const entry of active(conn))entry.callback({});},
     tab(id){const button=card.shadowRoot.querySelector(`.tabs [data-tab="${id}"]`);assert.ok(button,'actual tab '+id);button.click();},
-    assertSubscriptions(count=2){assert.equal(active().length,count);if(count===2)assert.deepEqual(active().map(row=>row.event).sort(),[...EVENTS].sort());},
+    assertSubscriptions(count=1){assert.equal(active().length,count);if(count===1)assert.deepEqual(active().map(row=>row.message.type),['ha_tools_email/subscribe_analysis_updates']);},
     assertQuiet(){assert.deepEqual(unexpected,[],'all WS commands have an explicit protocol fixture');assert.deepEqual(serviceCalls,[]);assert.deepEqual(network,[]);assert.deepEqual(errors,[]);},
     assertNoHistory(){assert.deepEqual(ws.filter(history),[],'schema2 must never consult legacy Recorder');},
     close(){card.remove();card._tariffConsumerUnsubscribeV3?.();card._tariffHostController?.guard.dispose();w.close();},
@@ -129,7 +131,7 @@ for(const spec of cases){
       assert.equal(typeof Object.getOwnPropertyDescriptor(C.prototype,'hass').set,'function');
       f.update();await settle();assert.equal(f.analyses.length,0);f.assertSubscriptions(0);f.assertNoHistory();
       f.w.document.body.append(f.card);await settle();ready(f);assert.equal(f.analyses.length,1);f.assertSubscriptions();
-      f.card.remove();await settle();f.assertSubscriptions(0);assert.equal(f.unsubscribed,2);
+      f.card.remove();await settle();f.assertSubscriptions(0);assert.equal(f.unsubscribed,1);
       const requests=f.ws.length;f.emit(EVENTS[0]);f.update();await settle();assert.equal(f.ws.length,requests);
       f.assertQuiet();
     }finally{f.close();}
@@ -259,3 +261,24 @@ test('bundle discovery registers all three cards, editors and Email alias withou
     await settle();assert.deepEqual(f.ws,[]);f.assertSubscriptions(0);f.assertQuiet();
   }finally{f.close();}
 });
+
+for(const spec of cases){
+ test(`${spec.type}: old subscription and old analysis support legacy through one wire`,async()=>{
+  const f=setup(spec,{legacy:true,subscribeError:{code:'unknown_command'},response:()=>Promise.reject({code:'unknown_command'})});try{
+   await f.mount();assert.equal(f.analyses.length,1);assert.equal(f.maxRaw,1);
+   assert.equal(f.card._analysisHostV53.legacyAllowed(),true);
+   assert.ok(f.ws.some(history));f.assertSubscriptions(0);f.assertQuiet();
+  }finally{f.close();}
+ });
+ test(`${spec.type}: modern ready response without subscription ACK stays invisible`,async()=>{
+  const pending=deferred();const f=setup(spec,{subscribeError:{code:'unknown_command'},response:()=>pending.promise});try{
+   await f.mount();assert.equal(f.analyses.length,1);empty(f);
+   const seen=[];const observer=new f.w.MutationObserver(()=>seen.push(f.card.shadowRoot.innerHTML));
+   observer.observe(f.card.shadowRoot,{childList:true,subtree:true});
+   pending.resolve(clone(producer));await settle();observer.disconnect();
+   empty(f);assert.equal(f.card._analysisHostV53.state().error,'analysis_subscription_unavailable');
+   assert.ok(seen.every(html=>!html.includes('analysis-tile')&&!html.includes(producer.snapshot_id)));
+   assert.equal(f.maxRaw,1);f.assertNoHistory();f.assertSubscriptions(0);f.assertQuiet();
+  }finally{f.close();}
+ });
+}
