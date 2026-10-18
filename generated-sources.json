@@ -12,7 +12,7 @@
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "e789cb47d26642e0eb4f5c73bc344bdb933a069d6291456a1f4cdb7dae5ddb61"
+      "sha256": "3b95fbbb3a2b8ae1098b2288f9e0f059be77dd711473b8b3ec54558ca56c6b31"
     },
     {
       "path": "src/chart-vendor.js",
@@ -87,5 +87,10 @@
     "path": "shared/ha-tools-energy-report.js",
     "sha256": "777b62a02a1899a645a1ec6b6ad9212d8c1248b6d629ea34e474e08fd3f05d9e",
     "inlineSha256": "945ad8a52736a6798da18ea155a0b6e9bf4493b6a53d65de28b3d78416aa1e3a"
+  },
+  "sharedFeatureAccess": {
+    "path": "shared/ha-tools-feature-access.js",
+    "sha256": "6d7fee4844668c1ef69a47fae0d449c41a8298ffb0cbe3af51f33bd8f6ffa2a6",
+    "inlineSha256": "d89de9765f88e3c2e07abb238f7ca2dd714508785c286f9d917d8d6d41767440"
   }
 }
