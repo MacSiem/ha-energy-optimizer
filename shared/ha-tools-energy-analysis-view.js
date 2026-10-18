@@ -110,7 +110,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   const weekdays = pl ? ['pon','wt','śr','czw','pt','sob','nd'] : ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   const ruleText = rule => [
     rule.weekdays ? rule.weekdays.map(day=>weekdays[(day+6)%7] || unknown()).join(', ') : t('Every day','Codziennie'),
-    ...(rule.dates || []).map(date), rule.season ? `${date('2000-'+rule.season.from,true)} – ${date('2000-'+rule.season.to,true)}` : '',
+    ...(rule.dates || []).map(value=>date(value)), rule.season ? `${date('2000-'+rule.season.from,true)} – ${date('2000-'+rule.season.to,true)}` : '',
     (rule.intervals || []).map(interval=>`${interval.from}–${interval.to}`).join(', '),
     rule.priority == null ? '' : `${t('priority','priorytet')} ${number(rule.priority)}`
   ].filter(Boolean).join(' · ');

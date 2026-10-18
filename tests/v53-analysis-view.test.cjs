@@ -201,7 +201,8 @@ test('every explicit calendar rule date keeps its year while seasonal dates omit
  dto.rates[0].profile.rules[0].season={from:'10-01',to:'11-01'};
  withView(root=>{
   const row=[...root.querySelectorAll('table')].find(table=>table.caption?.textContent==='Schedules and exceptions').querySelector('tbody tr');
-  assert.match(row.textContent,/Oct 1, 2026, Nov 1, 2026/);
+  assert.ok(row.textContent.includes('Oct 1, 2026'));
+  assert.ok(row.textContent.includes('Nov 1, 2026'));
   assert.doesNotMatch(row.textContent,/2000/);
  },dto,{section:'rates'},'en',createFormatUi('en','America/Los_Angeles'));
 });
