@@ -190,7 +190,9 @@ for(const file of ['src/energy-email.js','ha-energy-optimizer.js']) {
   const other=await openPresentation(g,'manual');assert.equal(other.style.width,'390px');assert.match(other.srcdoc,/^<html data-mail-preview-theme="light">/);
   const scheduled=await openPresentation(f,'schedule');assert.equal(scheduled.style.width,'390px');assert.match(scheduled.srcdoc,/^<html data-mail-preview-theme="light">/);
   // The report host discards old report content on unmount; presentation choices remain local.
-  await f.open('preview');if(file.startsWith('src/')){assert.equal(f.root.getElementById('manual-mail-frame'),null);f.click('mail-preview');await tick();}
+  await f.open('preview');
+  assert.equal(f.root.getElementById('manual-mail-frame'),null);
+  f.click('mail-preview');await tick();
   assert.equal(f.root.getElementById('manual-mail-frame').style.width,'680px');assert.match(f.root.getElementById('manual-mail-frame').srcdoc,/^<html data-mail-preview-theme="dark">/);
   f.card.hass={...f.hass,user:{id:'another-admin',is_admin:true}};
   const fresh=await openPresentation(f,'manual');assert.equal(fresh.style.width,'390px');assert.match(fresh.srcdoc,/^<html data-mail-preview-theme="light">/);

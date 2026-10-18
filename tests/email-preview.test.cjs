@@ -1,3 +1,4 @@
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 const { energyBackend, drainBackend, mountForPricing } = require('./helpers/energy-backend-fixture.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -56,6 +57,7 @@ for (const [scenario, expected] of [['complete', 24], ['zero', 0], ['gap', null]
       'recorder/statistics_during_period': { 'sensor.grid': points, 'sensor.unrelated': points.map(p => ({ ...p, change: 100 })) },
     })[msg.type];
     try {
+      isolateLegacyAnalysis(card);
       await card._fetchRecorderStats('day');
       output.innerHTML = card._tabLegacyPreview();
       assert.doesNotMatch(output.textContent, /9876|2400\.0|Unrelated lifetime/);
@@ -173,6 +175,7 @@ test(`Recorder tariff cost weights consumption at HA local hours (${timeZone}, $
   })[msg.type];
   try {
     card._hass.callWS = energyBackend(card, card._hass.callWS);
+    isolateLegacyAnalysis(card);
     mountForPricing(card);
     await card._fetchRecorderStats('day'); await drainBackend();
     assert.equal(card._periodCache_day[0].month, 11);

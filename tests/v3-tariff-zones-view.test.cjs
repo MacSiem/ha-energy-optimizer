@@ -1,4 +1,5 @@
 'use strict';
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 const {energyBackend,drainBackend}=require('./helpers/energy-backend-fixture.cjs');
 const {test}=require('node:test'); const assert=require('node:assert/strict');
 const {readFileSync}=require('node:fs'); const {JSDOM}=require('jsdom');
@@ -6,6 +7,7 @@ function setup() {
  const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});
  dom.window.eval(readFileSync(require('node:path').join(__dirname,'../ha-energy-optimizer.js'),'utf8'));
  const card=dom.window.document.createElement('ha-energy-optimizer');
+ isolateLegacyAnalysis(card);
  card._hass={config:{time_zone:'UTC',currency:'EUR'},states:{},user:{id:'fixture',is_admin:false},connection:{connected:true},locale:{language:'en'}};
  card._hass.callWS=energyBackend(card,async()=>({profile:null,revision:0,updated_at:null}));
  card._schedule=()=>{}; card._currentTab='recommendations';

@@ -1,3 +1,4 @@
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
@@ -200,6 +201,7 @@ test('an open Email overview refreshes Recorder windows after the refresh interv
   const dom = new JSDOM('', {runScripts:'dangerously',url:'http://localhost/'});
   dom.window.eval(readFileSync(root+'/ha-energy-optimizer.js','utf8'));
   const card = dom.window.document.createElement('ha-energy-email');
+  isolateLegacyAnalysis(card); // Unit: legacy overview refresh timer.
   card._hass={states:{},config:{},user:{is_admin:false}};
   card._discoveryDone=true;
   card._lastPeriodRefresh=Date.now()-301000;
@@ -232,6 +234,7 @@ test('background HA updates preserve an open email settings form', () => {
 
 test('Email first run identifies the missing grid source and links to Energy Dashboard', async () => {
   const { dom, card: email } = card();
+  isolateLegacyAnalysis(email); // Legacy Recorder status, not modern negotiation.
   const calls = [];
   email._hass.callWS = async msg => {
     calls.push(msg.type);
@@ -251,6 +254,7 @@ test('Email first run identifies the missing grid source and links to Energy Das
 
 test('Email distinguishes failed Recorder reads from sources with no measurements', async () => {
   const { dom, card: email } = card();
+  isolateLegacyAnalysis(email); // Legacy Recorder status, not modern negotiation.
   const id = 'sensor.grid_import';
   let fail = true;
   email._hass.callWS = async msg => {

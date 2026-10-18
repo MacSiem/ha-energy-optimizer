@@ -1,3 +1,4 @@
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 const { energyBackend, drainBackend, mountForPricing } = require('./helpers/energy-backend-fixture.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
@@ -15,6 +16,7 @@ function setup(type, series, options = {}) {
   };
   dom.window.eval(readFileSync(join(__dirname, '..', 'ha-energy-optimizer.js'), 'utf8'));
   const card = dom.window.document.createElement(type);
+  isolateLegacyAnalysis(card);
   card._updateContent = () => {};
   const ids = Object.keys(series);
   const calls = [];
@@ -128,6 +130,7 @@ for (const [date, zone, expectedHours] of [['2026-10-25T23:30Z', 'Europe/Warsaw'
         assert.equal(card._data.monthCost, 1440);
       }
       const email = dom.window.document.createElement('ha-energy-email');
+      isolateLegacyAnalysis(email);
       email._hass = { ...card._hass, callWS: async msg => {
         if (msg.type === 'recorder/statistics_during_period') return { 'sensor.a': all.filter(p => p.start >= Date.parse(msg.start_time) && p.start < Date.parse(msg.end_time)) };
         return card._hass.callWS(msg);
@@ -139,6 +142,7 @@ for (const [date, zone, expectedHours] of [['2026-10-25T23:30Z', 'Europe/Warsaw'
       assert.equal(email._periodCache_week[0].month, 168);
       assert.equal(email._periodCache_week[0].cost, 336);
       const optimizer = dom.window.document.createElement('ha-energy-optimizer');
+      isolateLegacyAnalysis(optimizer);
       optimizer._hass = card._hass;
       await optimizer._fetchEnergyStats();
       if (expectedHours > 0) assert.equal(optimizer._comparisonData.thisWeek, 168);

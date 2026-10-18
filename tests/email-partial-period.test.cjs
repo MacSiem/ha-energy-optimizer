@@ -1,3 +1,4 @@
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const {readFileSync}=require('node:fs');
@@ -9,7 +10,7 @@ function fixture(){
  const end=Date.parse('2026-10-16T06:00:00Z'),NativeDate=w.Date;
  w.Date=class extends NativeDate {constructor(...args){super(...(args.length?args:[end+1800000]));}static now(){return end+1800000;}};
  w.eval(readFileSync(join(__dirname,'..','ha-energy-optimizer.js'),'utf8'));
- const card=w.document.createElement('ha-energy-email');card._config.energy_price=2;
+ const card=w.document.createElement('ha-energy-email');isolateLegacyAnalysis(card);card._config.energy_price=2;
  const points=count=>Array.from({length:count},(_,i)=>({start:end-24*3600000+i*3600000,change:1}));
  const state={series:{'sensor.full':points(24),'sensor.gap':points(18)},fail:false,unsupported:false};
  card._hass={user:{id:'qa-cross390',is_admin:true},connection:{connected:true},config:{time_zone:'UTC'},states:{},callWS:async m=>{

@@ -1,3 +1,4 @@
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { JSDOM } = require('jsdom');
@@ -18,6 +19,8 @@ function backendFixture({ legacy = true, modern = false } = {}) {
   };
   dom.window.eval(readFileSync(join(__dirname, '..', 'ha-energy-optimizer.js'), 'utf8'));
   const card = dom.window.document.createElement('ha-energy-email');
+  // Only this fixture's old-backend Recorder path is isolated from schema2.
+  if (!modern) isolateLegacyAnalysis(card);
   card._discoveryDone = true;
   card._lang = 'en';
   card._config.recipient = 'recipient@qa.invalid';

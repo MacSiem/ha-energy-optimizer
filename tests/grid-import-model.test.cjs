@@ -1,3 +1,4 @@
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 const { energyBackend, drainBackend, mountForPricing } = require('./helpers/energy-backend-fixture.cjs');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
@@ -17,6 +18,7 @@ function cardWith(responses, options = {}) {
   }
   dom.window.eval(readFileSync(join(__dirname, '..', 'ha-energy-optimizer.js'), 'utf8'));
   const card = dom.window.document.createElement('ha-energy-optimizer');
+  isolateLegacyAnalysis(card);
   const calls = [];
   card._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { currency: 'EUR', time_zone: options.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone }, states: {}, callWS: async message => {
     calls.push(message);
@@ -160,6 +162,7 @@ test('Insights retains inspectable partial hours without inventing complete dail
   const { dom } = cardWith({}, { now: '2026-09-30T12:30:00Z', timeZone: 'UTC' });
   try {
     const insights = dom.window.document.createElement('ha-energy-insights');
+    isolateLegacyAnalysis(insights);
     insights._updateContent = () => {};
     insights._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { currency: 'EUR', time_zone: 'UTC' }, states: {}, callWS: async msg => ({
       'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
@@ -226,6 +229,7 @@ test('Insights ignores unconfigured power sensors and omits cost without a tarif
   const { dom, card: unused } = cardWith({}, { now: '2026-09-30T12:30:00Z', timeZone: 'UTC' });
   try {
     const insights = dom.window.document.createElement('ha-energy-insights');
+    isolateLegacyAnalysis(insights);
     insights._updateContent = () => {};
     insights._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { currency: 'EUR', time_zone: 'UTC' }, states: {
       'sensor.power': { state: '1500', attributes: { unit_of_measurement: 'W' } },
@@ -247,6 +251,7 @@ test('Insights shows an honest empty state when one configured grid source has n
   const { dom } = cardWith({});
   try {
     const insights = dom.window.document.createElement('ha-energy-insights');
+    isolateLegacyAnalysis(insights);
     insights._updateContent = () => {};
     insights._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { currency: 'EUR', time_zone: 'UTC' }, states: {}, callWS: async msg => ({
       'energy/get_prefs': { energy_sources: [
