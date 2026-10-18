@@ -1973,25 +1973,26 @@ this._installTariffConsumerV3();
       const format = createFormatUi.forHass(this._hass);
       return row.hour == null ? format.date(row.from) : format.pointLabel(row.from);
     }
-    _insightTechnicalDetailsV5(key, from, to, timezone, sources) {
+    _insightTechnicalDetailsV5(key, from, to, timezone, sources, exactValues = '') {
       const t = (en, pl) => this._insightTextV3(en, pl);
       const identity = JSON.stringify([key, from, to, sources]);
       const open = this._insightTechnicalOpenV5?.has(identity) ? ' open' : '';
       return `<details data-insights-source-details="${_esc(identity)}"${open}><summary>${t('Source and time details', 'Źródło i szczegóły czasu')}</summary><dl>
         <dt>${t('Sources', 'Źródła')}</dt><dd>${_esc(sources.join(', '))}</dd>
         <dt>${t('Exact interval (UTC)', 'Dokładny przedział (UTC)')}</dt><dd>${_esc(new Date(from).toISOString())} — ${_esc(new Date(to).toISOString())}</dd>
-        <dt>${t('Measurement time zone', 'Strefa czasowa pomiaru')}</dt><dd>${_esc(timezone)}</dd></dl></details>`;
+        <dt>${t('Measurement time zone', 'Strefa czasowa pomiaru')}</dt><dd>${_esc(timezone)}</dd></dl>${exactValues}</details>`;
     }
     _insightRowDetailV3(row, scope = 'point') {
       if (!row) return this._insightTextV3('No completed intervals in this window.', 'Brak zakończonych przedziałów w tym okresie.');
-      const t = (en, pl) => this._insightTextV3(en, pl), n = value => _esc(this._insightNumberV3(value));
+      const t = (en, pl) => this._insightTextV3(en, pl), n = value => _esc(scope === 'data' ? this._insightNumberV3(value) : this._insightDisplayNumberV3(value));
+      const exact = `<p data-insights-exact-values>${t('Exact measured values', 'Dokładne wartości zmierzone')}: ${_esc(this._insightNumberV3(row.kwh))} kWh · ${t('Energy cost', 'Koszt energii')}: ${_esc(this._insightNumberV3(row.energyCost))} ${_esc(row.currency || '')} · ${t('Variable fees', 'Opłaty zmienne')}: ${_esc(this._insightNumberV3(row.variableCost))} ${_esc(row.currency || '')}${row.missing && row.recordedKwh !== null ? ' · ' + t('Measured subset', 'Zmierzona część') + ': ' + _esc(this._insightNumberV3(row.recordedKwh)) + ' kWh' : ''}</p>`;
       const count = createFormatUi.forHass(this._hass).number(row.source.length);
       return `<strong>${_esc(this._insightRowLabelV3(row))}</strong><p data-insights-source-count>${t('Sources', 'Źródła')}: ${_esc(count)}</p>
         <p>${t('Consumption', 'Zużycie')}: ${n(row.kwh)} kWh · ${t('Energy cost', 'Koszt energii')}: ${n(row.energyCost)} ${_esc(row.currency || '')} · ${t('Variable fees', 'Opłaty zmienne')}: ${n(row.variableCost)} ${_esc(row.currency || '')}</p>
         <p>${row.measuredHours}/${row.hours} ${t('measured hours', 'zmierzonych godzin')} · ${row.missing ? t('Partial / missing', 'Niepełne / brak') : t('Measured', 'Zmierzone')}
           ${row.missing && row.recordedKwh !== null ? ` · ${t('Measured subset', 'Zmierzona część')}: ${n(row.recordedKwh)} kWh` : ''}
           ${row.priceMissing ? ' · ' + t('Tariff coverage unavailable', 'Brak pokrycia taryfą') : ''}</p>
-        ${this._insightTechnicalDetailsV5(`${scope}:${row.id}`, row.from, row.to, row.timezone, row.source)}`;
+        ${this._insightTechnicalDetailsV5(`${scope}:${row.id}`, row.from, row.to, row.timezone, row.source, exact)}`;
     }
     _insightSvgV3(width = 600) {
       const rows = this._insightChartRowsV3(), state = this._insightChartState;

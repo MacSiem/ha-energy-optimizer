@@ -4,11 +4,11 @@
   "sources": [
     {
       "path": "src/optimizer.js",
-      "sha256": "7eb07708a11a6b4af4f415c07976d37aca73dde09dc39aacaa7121640eee19e4"
+      "sha256": "b25973fb18cef03946c4dcb05c32b78c4945d261a8857741f76d000b70f397b2"
     },
     {
       "path": "src/energy-insights.js",
-      "sha256": "2b2a95af0637082c9d4e5f348fcc9479204d78360ee68121ef7a29c30fbb6886"
+      "sha256": "75b4db84f917fe5350585c8891dc19c0d903086cc6fe29f9b133c7ed08e91839"
     },
     {
       "path": "src/energy-email.js",
