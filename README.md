@@ -278,6 +278,8 @@ See [SECURITY.md](SECURITY.md) for safe vulnerability reporting and [NOTICE](NOT
 
 ### Energy Email report preview
 
+After loading a mail preview, use **Phone / Computer** and **Light / Dark** to inspect the same report at 390 px or 680 px. These local controls keep the report selection and cached server content; they do not fetch again or send mail. Wide previews scroll inside the card. Dark preview requires a HA Tools Email 2.4+ template; older templates explain why Dark is disabled. Manual and schedule previews keep separate temporary choices, cleared when the user or connection context changes. The embedded preview remains isolated with a sandbox and restrictive content policy.
+
 With HA Tools Email 2.1.2 or newer, Energy Email reads the server report composer
 for each cadence. Preview and sending use configured Energy Dashboard grid-import
 sources and the exact completed-hour Recorder window shown in the preview.

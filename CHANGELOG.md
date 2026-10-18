@@ -2,6 +2,8 @@
 
 ## 4.0.0 (Unreleased)
 
+- Switch manual and schedule mail previews between Phone/Computer widths and Light/Dark themes locally, retaining the cached server report and focus without another request or send. Older mail templates remain light-only with an explanation.
+
 - Support Left / Right and Home / End across visible tabs in all three cards, retaining focus after redraw and revealing the active tab horizontally.
 
 - Keep Patterns source explanations folded and point summaries readable, with exact measurements and UTC intervals available in details and Data.
