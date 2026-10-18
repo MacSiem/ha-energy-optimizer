@@ -7,7 +7,7 @@ const {JSDOM,VirtualConsole}=require('jsdom');
 const read=f=>fs.readFileSync(path.join(__dirname,'..',f),'utf8');
 const tick=async()=>{for(let i=0;i<12;i++)await new Promise(r=>setImmediate(r));};
 const defer=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};
-const report=(request,id='fixture/one')=>({snapshot_id:id,html:'<!doctype html><html><body><table><tr><td>0 kWh</td><td>Unknown</td><td>'+id+'</td></tr></table></body></html>',text:'Energy report\n'+id+'\n0 kWh\nUnknown\n123456789.123456789 EUR\n',csv:'snapshot_id,value\n'+id+',0\n',context:{access_purpose:'report_read',period_anchor:request.anchor||'2026-10-18'},period:{kind:request.period},display:{language:request.language,timezone:request.timezone,hour_cycle:request.hour_cycle}});
+const report=(request,id='fixture/one')=>({snapshot_id:id,html:'<!doctype html><html><body><table><tr><td>0 kWh</td><td>Unknown</td><td>'+id+'</td></tr></table></body></html>',text:'Energy report\n'+id+'\n0 kWh\nUnknown\n123456789.123456789 EUR\n',csv:'snapshot_id,value\n'+id+',0\n',context:{access_purpose:'report_read',period_anchor:request.anchor||'2026-10-18'},period:{kind:request.period},display:{language:request.language,date_language:request.date_language,timezone:request.timezone,hour_cycle:request.hour_cycle}});
 function fixture({admin=false,ackError=null,manualAck=false,capError=null,reportError=null}={}) {
  const errors=[],requests=[],acks=[],urls=[],revoked=[],downloads=[];
  const vc=new VirtualConsole();vc.on('jsdomError',e=>{if(e.type!=='css parsing'&&!e.message.includes('CSS stylesheet'))errors.push(e.message);});vc.on('error',(...a)=>errors.push(a.join(' ')));
