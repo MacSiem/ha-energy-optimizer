@@ -46,7 +46,7 @@ test('existing delegated point clicks remain exactly the same controls, and part
 });
 test('flow hierarchy keeps producer room/unassigned/unmeasured values, escaping and honest missing zone facts',()=>{
  const dto=literal();dto.groups.devices['sensor.test'].area_name='<img src=x onerror=boom>';
- use(dto,{},({root})=>{const groups=root.querySelector('[data-analysis-groups]');assert.ok(groups.querySelector('.analysis-flow-source'));assert.ok(groups.querySelector('.analysis-flow-destination'));
+ use(dto,{},({root})=>{const groups=root.querySelector('[data-analysis-groups]');assert.ok(groups.querySelector('.analysis-flow-heading'));assert.ok(groups.querySelector('.analysis-mobile-composition'));assert.ok(groups.querySelector('[data-analysis-ranking]'));
   assert.equal(groups.querySelectorAll('.analysis-ranking li').length,3);assert.match(groups.textContent,/<img src=x onerror=boom>/);assert.equal(root.querySelector('img'),null);assert.equal(root.querySelector('[onerror]'),null);assert.match(groups.textContent,/No room/);assert.match(groups.textContent,/Unmeasured/);assert.match(groups.textContent,/0 kWh/);
   assert.equal(root.querySelector('[data-analysis-cheap-share]'),null);assert.equal(root.querySelector('[data-analysis-peak]'),null);assert.equal(root.querySelector('[data-analysis-period-zone-total]'),null);
  });

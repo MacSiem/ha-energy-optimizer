@@ -40,7 +40,7 @@ for(const mutation of [
  d=>d.chart.bins[0].end=d.period.end,
  d=>d.chart.timezone='UTC',
  d=>d.chart.bins[0].zone_breakdown.reconciles_recorded_kwh=false
-])test('partial/mixed/unattributed/mismatched interval never receives a certain zone color: '+mutation,()=>{const d=fixture();mutation(d);use(d,r=>assert.equal(r.querySelector('.analysis-point [data-analysis-column-zone]'),null));});
+])test('partial/mixed/unattributed/mismatched interval never receives a certain zone color: '+mutation,()=>{const d=fixture();mutation(d);use(d,r=>{assert.equal(r.querySelector('.analysis-point[data-analysis-value="0"] [data-analysis-column-zone]'),null);if(d.chart.timezone===d.period.timezone)assert.ok(r.querySelector('.analysis-point[data-analysis-value="1"] [data-analysis-column-zone]'),'unaffected interval keeps its independent proof');});});
 for(const mutation of [d=>d.groups.partition_complete=false,d=>d.groups.energy_domain='site_consumption',d=>d.groups.registry_revision=999,d=>d.groups.areas.office.kwh='51',d=>d.groups.unmeasured.kwh=null,d=>d.totals.kwh=null,d=>d.groups.areas.office.kwh='-1'])test('invalid group evidence retains explicit values but no reconciled composition: '+mutation,()=>{
  const d=fixture();mutation(d);use(d,r=>{assert.equal(r.querySelector('[data-analysis-sankey]'),null);assert.equal(r.querySelector('[data-analysis-composition="destination"]'),null);assert.match(q(r,'[data-analysis-flow-note]').textContent,/unavailable|incomplete/i);assert.match(q(r,'[data-analysis-rank-id="unmeasured"]').textContent,/Unmeasured/);assert.match(q(r,'[data-analysis-rank-share]').textContent,/No data/);});
 });
@@ -58,7 +58,7 @@ test('Data retains one group table, full interval values, and 68 KPIs; details a
 
 test('long Decimal mismatch is rejected exactly even when Number would round it away',()=>{
  const d=fixture();d.groups.areas.office.kwh='50.0000000000000000000000000000000001';use(d,r=>{assert.equal(r.querySelector('[data-analysis-sankey]'),null);assert.match(q(r,'[data-analysis-flow-note]').textContent,/incomplete|unavailable/);});
- const z=fixture();z.chart.bins[0].zone_breakdown.zones[0].kwh='4.0000000000000000000000000000000001';z.chart.bins[0].zone_breakdown.zones[0].recorded_kwh=z.chart.bins[0].zone_breakdown.zones[0].kwh;use(z,r=>assert.equal(r.querySelector('.analysis-point [data-analysis-column-zone]'),null));
+ const z=fixture();z.chart.bins[0].zone_breakdown.zones[0].kwh='4.0000000000000000000000000000000001';z.chart.bins[0].zone_breakdown.zones[0].recorded_kwh=z.chart.bins[0].zone_breakdown.zones[0].kwh;use(z,r=>assert.equal(r.querySelector('.analysis-point[data-analysis-value="0"] [data-analysis-column-zone]'),null));
 });
 test('absent unmeasured evidence remains a separate unknown row; no unsupported import claim',()=>{
  const d=fixture();delete d.groups.unmeasured;use(d,r=>{assert.match(q(r,'[data-analysis-rank-id="unmeasured"]').textContent,/No data/);assert.equal(r.querySelector('[data-analysis-sankey]'),null);});
