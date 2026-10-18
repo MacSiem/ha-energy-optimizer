@@ -1333,7 +1333,7 @@ function createFeatureAccessV53({card, guard}) {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=3d90c61fb2127e4924dbc5c5ef5ccb671e77134d5d130cd283ea03a10eed6316
+      // HA_TARIFF_V3_START sha256=f3671a8acd87e611e4abd91201ba37d00214c885f619984a7a85b1a06fe49ae3
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -2531,6 +2531,8 @@ function createEnergyAnalysisV53({card, onChange = () => {}, refreshMs = 300000}
     let count = 0;
     const walk = (value, key = '', depth = 0) => {
       if (++count > 2000000 || depth > 40) return false;
+      // Producer reconciliation evidence is boolean metadata, not a kWh amount.
+      if (key === 'reconciles_recorded_kwh') return typeof value === 'boolean';
       if (value === null) return true;
       if (typeof value === 'number') return Number.isFinite(value);
       const money = /(?:^|_)(?:kwh|cost|rate|price)$/.test(key) || /^(?:energyRate|variableRate|fixedMonthly|fixed_monthly|legacy_combined_monthly)$/.test(key);
