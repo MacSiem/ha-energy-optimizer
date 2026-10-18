@@ -15,7 +15,7 @@ const EVENTS=['ha_tools_email_energy_analysis_updated','ha_tools_email_feature_a
 const cases=[
   {type:'ha-energy-optimizer',home:'dashboard',other:'patterns',key:'_currentTab'},
   {type:'ha-energy-insights',home:'overview',other:'daily',key:'_activeTab'},
-  {type:'ha-energy-email',home:'overview',other:'config',key:'_activeTab'},
+  {type:'ha-energy-email',home:'overview',other:'preview',key:'_activeTab'},
 ];
 const settle=async()=>{for(let i=0;i<4;i++)await drainBackend();};
 function deferred(){let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});promise.catch(()=>{});return {promise,resolve,reject};}
@@ -62,6 +62,7 @@ function setup(spec,{response=()=>clone(producer),legacy=false,subscribeError=nu
       raw++;maxRaw=Math.max(raw,maxRaw);
       try{return await currentResponse(request);}finally{raw--;}
     }
+    if(spec.type==='ha-energy-email'&&request.type==='ha_tools_email/feature_capabilities')return {status:'ready',revision:1,capabilities:{energy_reports:{visible:true,read:false,execute:false}}};
     if(request.type==='ha_tools_email/get_tariff')return {profile:clone(producer.rates[0].profile),revision:4,updated_at:null};
     if(legacy&&request.type==='energy/get_prefs')return {energy_sources:[{type:'grid',stat_energy_from:'sensor.fixture_grid'}],device_consumption:[]};
     if(legacy&&request.type==='recorder/get_statistics_metadata')return {'sensor.fixture_grid':{has_sum:true,unit_class:'energy',statistics_unit_of_measurement:'kWh',name:'Measured fixture grid'}};
@@ -143,7 +144,11 @@ for(const spec of cases){
       const rows=f.card.shadowRoot.querySelectorAll('tr[data-analysis-bin]');assert.equal(rows.length,24);assert.match(rows[0].textContent,/10/);
       f.tab(spec.other);await settle();assert.equal(f.card[spec.key],spec.other);
       if(spec.type==='ha-energy-email'){
-        f.assertSubscriptions(0);empty(f);const reads=f.analyses.length;f.emit(EVENTS[0]);await settle();assert.equal(f.analyses.length,reads);
+        // Preview owns one sanitized control subscription but report reads stay denied.
+        // Administrative config is intentionally absent for this household identity.
+        assert.equal(f.card.shadowRoot.querySelector('[data-tab="config"]'),null);
+        f.assertSubscriptions(1);empty(f);const reads=f.analyses.length;f.emit(EVENTS[0]);await settle();assert.equal(f.analyses.length,reads);
+        assert.equal(f.ws.filter(q=>q.type==='ha_tools_email/energy_report').length,0);
       }else{ready(f);selection(f);assert.equal(f.analyses.length,1);f.assertSubscriptions();}
       f.tab(spec.home);await settle();ready(f);selection(f);f.assertSubscriptions();
       // The measured zero is a real producer cost, checked in the rendered cost table.
