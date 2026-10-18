@@ -30,14 +30,14 @@ for(const [name,tabs] of cases){
  test(`${name}: keyboard arrows/Home/End activate only visible tabs and focus the current rendered button`,async()=>{
   const f=await mounted(name,tabs);try{
    const press=async(key,from,next)=>{const old=f.button(from);old.focus();assert.equal(f.root.activeElement,old);const event=new f.w.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true});old.dispatchEvent(event);await f.settle();assert.equal(event.defaultPrevented,true,key);assert.equal(f.selected().length,1);assert.equal(f.selected()[0].dataset.tab,next,key+' activates the next visible tab');assert.equal(f.root.activeElement,f.button(next),key+' focuses a live button after redraw');assert.equal(f.button(next).tabIndex,0);assert.ok([...f.root.querySelectorAll('.tabs [data-tab]')].filter(b=>b!==f.button(next)).every(b=>b.tabIndex===-1));};
-   await press('ArrowRight',tabs[0],tabs[1]);await press('End',tabs[1],tabs[2]);await press('ArrowRight',tabs[2],tabs[0]);await press('ArrowLeft',tabs[0],tabs[2]);await press('Home',tabs[2],tabs[0]);
+   await press('ArrowRight',tabs[0],tabs[1]);await press('End',tabs[1],tabs[2]);await press('ArrowRight',tabs[2],tabs[0]);await press('ArrowLeft',tabs[0],tabs[2]);await press('Home',tabs[2],tabs[0]);f.button(tabs[1]).disabled=true;await press('ArrowRight',tabs[0],tabs[2]);f.button(tabs[1]).disabled=false;await press('Home',tabs[2],tabs[0]);
    assert.ok(!f.requests.some(t=>/set_tariff|send|save_prefs/.test(t)),'view navigation never writes prices/preferences or sends reports');
   }finally{f.close();}
  });
  test(`${name}: redraw and repeated options application do not duplicate keyboard navigation or intercept modified/input keys`,async()=>{
   const f=await mounted(name,tabs);try{
    f.card._render();f.card._applyCardOptionsV5();f.card._applyCardOptionsV5();await f.settle();
-   const first=f.button(tabs[0]);first.focus();const modified=new f.w.KeyboardEvent('keydown',{key:'ArrowRight',ctrlKey:true,bubbles:true,cancelable:true});first.dispatchEvent(modified);assert.equal(modified.defaultPrevented,false);assert.equal(f.selected()[0].dataset.tab,tabs[0]);
+   const first=f.button(tabs[0]);first.focus();for(const modifier of ['ctrlKey','altKey','metaKey']){const modified=new f.w.KeyboardEvent('keydown',{key:'ArrowRight',[modifier]:true,bubbles:true,cancelable:true});first.dispatchEvent(modified);assert.equal(modified.defaultPrevented,false);assert.equal(f.selected()[0].dataset.tab,tabs[0]);}
    const input=f.w.document.createElement('input');f.root.append(input);input.focus();input.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true,cancelable:true}));assert.equal(f.selected()[0].dataset.tab,tabs[0]);assert.equal(f.root.activeElement,input);
    first.focus();first.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true,cancelable:true}));await f.settle();assert.equal(f.selected()[0].dataset.tab,tabs[1],'one key moves exactly one visible tab after replacement');assert.equal(f.root.activeElement,f.button(tabs[1]));
   }finally{f.close();}
