@@ -132,3 +132,66 @@ for(const file of ['src/energy-email.js','ha-energy-optimizer.js']) {
   f.open('overview');assert.doesNotMatch(f.root.textContent,/Only administrators/);assert.equal(f.previews().length,0);
  });
 }
+
+
+// MA-5: actual source/bundle DOM fixtures; run tests.patch first for actual RED.
+const presentationMail = message => mail(message.cadence, message.period_mode, {
+ html: '<!doctype html><html><head><meta name="ha-tools-mail-presentation" content="1"><style>html[data-mail-preview-theme="dark"]{background:#111;color:#fff}</style></head><body><h1>BACKEND-123</h1></body></html>'
+});
+const openPresentation = async (f, flow) => {
+ f.open(flow === 'manual' ? 'preview' : 'schedule');await tick();
+ if(flow === 'schedule') f.click('schedule-edit-0');
+ f.click(flow === 'manual' ? 'mail-preview' : 'schedule-preview');await tick();
+ return f.root.getElementById(flow + '-mail-frame');
+};
+for(const file of ['src/energy-email.js','ha-energy-optimizer.js']) {
+ for(const flow of ['manual','schedule']) test(`${file}: ${flow} local four-mode presentation preserves DOM, payload and transport`,async t=>{
+  const f=fixture(t,file,{preview:presentationMail}),frame=await openPresentation(f,flow);
+  const controls=frame.closest('[data-mail-presentation]');assert.ok(controls,'presentation controls');
+  const controller=flow==='manual'?f.card._mailPreview:f.card._serverSchedules;
+  const before=JSON.stringify(controller.model()),cached=controller.model().preview.html,calls=JSON.stringify(f.calls),services=JSON.stringify(f.services);
+  const status=f.root.querySelector('.schedule-preview').textContent;
+  assert.equal(controls.querySelectorAll('[role="group"]').length,2);
+  for(const [device,width] of [['phone',390],['desktop',680]]) for(const theme of ['light','dark']) {
+   for(const [group,value] of [['device',device],['theme',theme]]) {
+    const button=controls.querySelector(`[data-mail-preview-${group}="${value}"]`);assert.ok(button);button.focus();button.click();
+    assert.equal(f.root.activeElement,button);assert.equal(controls.querySelector(`[data-mail-preview-${group}="${value}"]`),button,'focused node survives');
+    assert.equal(button.getAttribute('aria-pressed'),'true');assert.ok(parseInt(button.style.minHeight)>=44);
+   }
+   assert.equal(f.root.getElementById(flow+'-mail-frame'),frame);assert.equal(frame.style.width,width+'px');
+   assert.ok(frame.srcdoc.startsWith(`<html data-mail-preview-theme="${theme}"><meta http-equiv="Content-Security-Policy"`));
+   assert.ok(frame.srcdoc.endsWith(cached),'original HTML remains byte-for-byte suffix');
+   for(const directive of ["default-src 'none'","script-src 'none'","connect-src 'none'","form-action 'none'","base-uri 'none'","img-src data:"]) assert.ok(frame.srcdoc.includes(directive));
+   assert.equal(frame.getAttribute('sandbox'),'');assert.equal(frame.getAttribute('referrerpolicy'),'no-referrer');
+   assert.equal(controls.querySelectorAll('[data-mail-preview-theme][aria-pressed="true"]').length,1);
+   assert.equal(controls.querySelectorAll('[data-mail-preview-device][aria-pressed="true"]').length,1);
+   assert.equal(JSON.stringify(controller.model()),before);assert.equal(JSON.stringify(f.calls),calls);assert.equal(JSON.stringify(f.services),services);
+   assert.equal(f.root.querySelector('.schedule-preview').textContent,status);
+  }
+  const scroll=frame.parentElement;assert.ok(scroll.hasAttribute('data-mail-preview-scroll'));assert.equal(scroll.style.overflowX,'auto');assert.equal(scroll.style.maxWidth,'100%');assert.equal(frame.style.maxWidth,'none');
+  assert.equal(f.sends().length,0);assert.equal(f.services.length,0);
+  f.card.hass={...f.hass};assert.equal(f.root.getElementById(flow+'-mail-frame'),frame,'ordinary hass refresh retains cached preview');
+ });
+ for(const flow of ['manual','schedule']) test(`${file}: ${flow} legacy HTML keeps safe width preview and disables dark`,async t=>{
+  const f=fixture(t,file),frame=await openPresentation(f,flow),controls=frame.closest('[data-mail-presentation]');assert.ok(controls);
+  const dark=controls.querySelector('[data-mail-preview-theme="dark"]'),light=controls.querySelector('[data-mail-preview-theme="light"]');
+  assert.equal(dark.disabled,true);assert.equal(light.getAttribute('aria-pressed'),'true');assert.match(controls.textContent,/requires HA Tools Email 2\.4\+/);
+  const before=JSON.stringify(f.calls);dark.click();controls.querySelector('[data-mail-preview-device="desktop"]').click();
+  assert.equal(frame.style.width,'680px');assert.match(frame.srcdoc,/^<html data-mail-preview-theme="light">/);assert.equal(dark.getAttribute('aria-pressed'),'false');assert.equal(JSON.stringify(f.calls),before);
+  assert.match(frame.srcdoc,/BACKEND-123/);assert.equal(frame.getAttribute('sandbox'),'');assert.equal(f.w.PWNED,undefined);
+ });
+ test(`${file}: presentation state is ephemeral per user, instance and preview flow`,async t=>{
+  const f=fixture(t,file,{preview:presentationMail}),g=fixture(t,file,{preview:presentationMail});
+  const frame=await openPresentation(f,'manual'),controls=frame.closest('[data-mail-presentation]');assert.ok(controls);
+  controls.querySelector('[data-mail-preview-device="desktop"]').click();controls.querySelector('[data-mail-preview-theme="dark"]').click();
+  const other=await openPresentation(g,'manual');assert.equal(other.style.width,'390px');assert.match(other.srcdoc,/^<html data-mail-preview-theme="light">/);
+  const scheduled=await openPresentation(f,'schedule');assert.equal(scheduled.style.width,'390px');assert.match(scheduled.srcdoc,/^<html data-mail-preview-theme="light">/);
+  f.open('preview');assert.equal(f.root.getElementById('manual-mail-frame').style.width,'680px');assert.match(f.root.getElementById('manual-mail-frame').srcdoc,/^<html data-mail-preview-theme="dark">/);
+  f.card.hass={...f.hass,user:{id:'another-admin',is_admin:true}};
+  const fresh=await openPresentation(f,'manual');assert.equal(fresh.style.width,'390px');assert.match(fresh.srcdoc,/^<html data-mail-preview-theme="light">/);
+ });
+ test(`${file}: Polish presentation labels use the existing card language`,async t=>{
+  const f=fixture(t,file,{preview:presentationMail});f.card._lang='pl';const frame=await openPresentation(f,'manual'),controls=frame.closest('[data-mail-presentation]');assert.ok(controls);
+  for(const label of ['Telefon','Komputer','Jasny','Ciemny']) assert.ok(controls.textContent.includes(label));
+ });
+}
