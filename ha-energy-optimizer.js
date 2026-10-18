@@ -544,7 +544,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=1f4f77178c8c78d33caa31ba014dc6de1f050bff38bd56fa43f62edaee15f904
+    // HA_TARIFF_V3_START sha256=95e93ee4c400f188c1ca48d538c5e91936cc4314112f7c23b218fc6ce135e51a
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1228,9 +1228,11 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     priceBasis:descriptor.profile?.priceBasis || null,timezone:descriptor.profile?.timezone || null,
     clock:descriptor.profile?.clock || {},fixedMonthly:descriptor.profile?.fixedMonthly ?? null});
   const envelope = (result, descriptor) => {
-    if (!result || result.schema !== 1 || result.profile_source !== descriptor.source) return false;
+    if (!result || result.schema !== 1 || result.profile_source !== descriptor.source ||
+      (descriptor.source === 'shared' ? !Number.isSafeInteger(result.tariff_revision) || result.tariff_revision < 0 : result.tariff_revision !== null))
+      throw Error('invalid_backend_response');
     if (descriptor.source === 'shared' && result.tariff_revision !== descriptor.revision) {
-      clear(); onRevision(); return false;
+      clear(); onRevision(result.tariff_revision); return false;
     }
     return descriptor.source === 'shared' ? Number.isSafeInteger(result.tariff_revision) : result.tariff_revision === null;
   };
@@ -1420,7 +1422,24 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       cachedKey = undefined; cachedModel = undefined;
       if (card.isConnected) card._repriceTariffV3?.();
     },
-    onRevision: () => { card._sharedTariffReadStatus = 'unconfirmed'; cachedKey = undefined; cachedModel = undefined; }
+    onRevision: revision => {
+      const token = identity(), minimumRevision = Math.max(revision, state().revision || 0);
+      card._sharedTariffExpectedV3 = true;
+      card._sharedTariffReadStatus = 'unconfirmed';
+      card._sharedTariffProfile = null; card._sharedTariffAssociation = null; card._sharedTariffLoadedAt = 0;
+      cachedKey = undefined; cachedModel = undefined;
+      // Clear derived UI immediately; automatic confirmation is a read only and
+      // must never release the editor's uncertain-write fence via onRefresh.
+      if (card.isConnected) card._repriceTariffV3?.();
+      queueMicrotask(async () => {
+        if (!card.isConnected || !guard.current(token)) return;
+        const confirmed = await load(true, minimumRevision);
+        if (guard.current(token) && card.isConnected) {
+          if (!confirmed || state().revision < minimumRevision) card._sharedTariffReadStatus = 'unconfirmed';
+          card._repriceTariffV3?.();
+        }
+      });
+    }
   });
   const model = function (proposed) {
     identity();
@@ -1450,7 +1469,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   guard.subscribe(purge);
   const reset = (...nextHass) => guard.observe(...nextHass);
-  const load = async (force = false) => {
+  const load = async (force = false, minimumRevision = 0) => {
     const token = identity();
     if (!guard.available(token)) return false;
     if (card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, token)) return true;
@@ -1461,7 +1480,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       try {
         const result = await guard.call(token, { type: 'ha_tools_email/get_tariff' });
         if (!guard.current(token)) return false;
-        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0 ||
+        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < minimumRevision ||
           !Object.hasOwn(result, 'updated_at') || (result.updated_at !== null &&
           (typeof result.updated_at !== 'string' || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(result.updated_at) || !Number.isFinite(Date.parse(result.updated_at)))))
           throw new Error('invalid_tariff_response');
@@ -3521,10 +3540,11 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   Card.prototype.getGridOptions = function() { return { columns: this._config?.compact ? 6 : 12, min_columns: 3, min_rows: this._config?.compact ? 2 : 3 }; };
   const originalSize = Card.prototype.getCardSize;
   Card.prototype.getCardSize = function() { return this._config?.compact && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
-  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
-:host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
+  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-value-green:#166534;--energy-value-red:#b91c1c;--energy-value-neutral:#475569;--energy-value-purple:#6d28d9;--energy-success-button:#166534;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
+:host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-value-green:#86efac;--energy-value-red:#fca5a5;--energy-value-neutral:#cbd5e1;--energy-value-purple:#c4b5fd;--energy-success-button:#166534;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
 .stat,.stat-card{background:var(--energy-kpi-tone)!important}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)!important}
 .btn-primary,button.btn-primary{color:var(--bento-on-primary)}
+.ht-tariff-v3 [data-status=success]{color:var(--energy-value-green)}.ht-tariff-v3 [data-status=error]{color:var(--energy-value-red)}.ht-tariff-v3 [data-status=partial],.ht-tariff-v3 [data-status=unconfirmed]{color:var(--energy-value-amber)}
  [data-energy-options-help], [data-energy-compact]{box-sizing:border-box;padding:16px;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border-radius:12px;font-size:14px;overflow-wrap:anywhere} [data-energy-options-help] summary, [data-energy-expand]{min-height:44px;box-sizing:border-box;padding:12px;cursor:pointer} [data-energy-compact] dl{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin:12px 0} [data-energy-compact] dt{font-size:13px;color:var(--secondary-text-color,#50545b)} [data-energy-compact] dd{margin:0 0 12px;font-weight:600;font-size:18px} [data-energy-expand]{color:var(--primary-text-color,#202124);background:var(--secondary-background-color,#eee);border:1px solid var(--divider-color,#888);border-radius:8px;font:inherit} [data-energy-options-help] summary:focus-visible,[data-energy-expand]:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}`;
   const render = Card.prototype._render;
   Card.prototype._render = function(...args) {
@@ -3648,7 +3668,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     let fields = root.querySelector('[data-energy-option-fields]');
     if (!fields) {
       fields = document.createElement('div'); fields.dataset.energyOptionFields = '';
-      fields.innerHTML = `<style>label[data-option-row]{display:flex;align-items:center;gap:8px;min-height:44px}select,input[type=number]{min-height:44px;box-sizing:border-box;width:100%;font:inherit;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#888);border-radius:8px;padding:8px}fieldset{margin:12px 0;border:1px solid var(--divider-color,#888)}[data-option-row] input{width:24px;height:24px;min-height:24px;margin:0}select:focus-visible,input:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}[data-config-error]{color:var(--error-color,#b42318)}</style><label data-option-label="default_tab" for="cf_default_tab"></label><select id="cf_default_tab" data-config="default_tab">${tabs.map(id=>`<option value="${id}"></option>`).join('')}</select><fieldset><legend data-option-label="tabs"></legend>${tabs.map(id=>`<label data-option-row><input type="checkbox" data-tab-option="${id}"><span data-tab-label="${id}"></span></label>`).join('')}</fieldset>${['compact','show_help','show_support'].map(id=>`<label data-option-row><input type="checkbox" data-config="${id}"><span data-option-label="${id}"></span></label>`).join('')}<label data-option-label="chart_hours" for="cf_chart_hours"></label><input id="cf_chart_hours" type="number" min="1" max="744" step="1" data-config="chart_hours"><p data-config-error role="alert"></p>`;
+      fields.innerHTML = `<style>label[data-option-row]{display:flex;align-items:center;gap:8px;min-height:44px}select,input[type=number]{min-height:44px;box-sizing:border-box;width:100%;font:inherit;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#888);border-radius:8px;padding:8px}fieldset{margin:12px 0;border:1px solid var(--divider-color,#888)}[data-option-row] input{width:24px;height:24px;min-height:24px;margin:0}select:focus-visible,input:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}[data-config-error]{color:var(--energy-value-red,#b91c1c)}</style><label data-option-label="default_tab" for="cf_default_tab"></label><select id="cf_default_tab" data-config="default_tab">${tabs.map(id=>`<option value="${id}"></option>`).join('')}</select><fieldset><legend data-option-label="tabs"></legend>${tabs.map(id=>`<label data-option-row><input type="checkbox" data-tab-option="${id}"><span data-tab-label="${id}"></span></label>`).join('')}</fieldset>${['compact','show_help','show_support'].map(id=>`<label data-option-row><input type="checkbox" data-config="${id}"><span data-option-label="${id}"></span></label>`).join('')}<label data-option-label="chart_hours" for="cf_chart_hours"></label><input id="cf_chart_hours" type="number" min="1" max="744" step="1" data-config="chart_hours"><p data-config-error role="alert"></p>`;
       root.append(fields);
       fields.addEventListener('change', event => {
         const field = event.target;
@@ -3932,7 +3952,7 @@ createFormatUi.forHass = hass => {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=1f4f77178c8c78d33caa31ba014dc6de1f050bff38bd56fa43f62edaee15f904
+      // HA_TARIFF_V3_START sha256=95e93ee4c400f188c1ca48d538c5e91936cc4314112f7c23b218fc6ce135e51a
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -4616,9 +4636,11 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     priceBasis:descriptor.profile?.priceBasis || null,timezone:descriptor.profile?.timezone || null,
     clock:descriptor.profile?.clock || {},fixedMonthly:descriptor.profile?.fixedMonthly ?? null});
   const envelope = (result, descriptor) => {
-    if (!result || result.schema !== 1 || result.profile_source !== descriptor.source) return false;
+    if (!result || result.schema !== 1 || result.profile_source !== descriptor.source ||
+      (descriptor.source === 'shared' ? !Number.isSafeInteger(result.tariff_revision) || result.tariff_revision < 0 : result.tariff_revision !== null))
+      throw Error('invalid_backend_response');
     if (descriptor.source === 'shared' && result.tariff_revision !== descriptor.revision) {
-      clear(); onRevision(); return false;
+      clear(); onRevision(result.tariff_revision); return false;
     }
     return descriptor.source === 'shared' ? Number.isSafeInteger(result.tariff_revision) : result.tariff_revision === null;
   };
@@ -4808,7 +4830,24 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       cachedKey = undefined; cachedModel = undefined;
       if (card.isConnected) card._repriceTariffV3?.();
     },
-    onRevision: () => { card._sharedTariffReadStatus = 'unconfirmed'; cachedKey = undefined; cachedModel = undefined; }
+    onRevision: revision => {
+      const token = identity(), minimumRevision = Math.max(revision, state().revision || 0);
+      card._sharedTariffExpectedV3 = true;
+      card._sharedTariffReadStatus = 'unconfirmed';
+      card._sharedTariffProfile = null; card._sharedTariffAssociation = null; card._sharedTariffLoadedAt = 0;
+      cachedKey = undefined; cachedModel = undefined;
+      // Clear derived UI immediately; automatic confirmation is a read only and
+      // must never release the editor's uncertain-write fence via onRefresh.
+      if (card.isConnected) card._repriceTariffV3?.();
+      queueMicrotask(async () => {
+        if (!card.isConnected || !guard.current(token)) return;
+        const confirmed = await load(true, minimumRevision);
+        if (guard.current(token) && card.isConnected) {
+          if (!confirmed || state().revision < minimumRevision) card._sharedTariffReadStatus = 'unconfirmed';
+          card._repriceTariffV3?.();
+        }
+      });
+    }
   });
   const model = function (proposed) {
     identity();
@@ -4838,7 +4877,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   guard.subscribe(purge);
   const reset = (...nextHass) => guard.observe(...nextHass);
-  const load = async (force = false) => {
+  const load = async (force = false, minimumRevision = 0) => {
     const token = identity();
     if (!guard.available(token)) return false;
     if (card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, token)) return true;
@@ -4849,7 +4888,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       try {
         const result = await guard.call(token, { type: 'ha_tools_email/get_tariff' });
         if (!guard.current(token)) return false;
-        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0 ||
+        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < minimumRevision ||
           !Object.hasOwn(result, 'updated_at') || (result.updated_at !== null &&
           (typeof result.updated_at !== 'string' || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(result.updated_at) || !Number.isFinite(Date.parse(result.updated_at)))))
           throw new Error('invalid_tariff_response');
@@ -5607,14 +5646,25 @@ this._installTariffConsumerV3();
       const format = createFormatUi.forHass(this._hass);
       return row.hour == null ? format.date(row.from) : format.pointLabel(row.from);
     }
-    _insightRowDetailV3(row) {
+    _insightTechnicalDetailsV5(key, from, to, timezone, sources) {
+      const t = (en, pl) => this._insightTextV3(en, pl);
+      const identity = JSON.stringify([key, from, to, sources]);
+      const open = this._insightTechnicalOpenV5?.has(identity) ? ' open' : '';
+      return `<details data-insights-source-details="${_esc(identity)}"${open}><summary>${t('Source and time details', 'Źródło i szczegóły czasu')}</summary><dl>
+        <dt>${t('Sources', 'Źródła')}</dt><dd>${_esc(sources.join(', '))}</dd>
+        <dt>${t('Exact interval (UTC)', 'Dokładny przedział (UTC)')}</dt><dd>${_esc(new Date(from).toISOString())} — ${_esc(new Date(to).toISOString())}</dd>
+        <dt>${t('Measurement time zone', 'Strefa czasowa pomiaru')}</dt><dd>${_esc(timezone)}</dd></dl></details>`;
+    }
+    _insightRowDetailV3(row, scope = 'point') {
       if (!row) return this._insightTextV3('No completed intervals in this window.', 'Brak zakończonych przedziałów w tym okresie.');
       const t = (en, pl) => this._insightTextV3(en, pl), n = value => _esc(this._insightNumberV3(value));
-      return `<strong>${_esc(this._insightRowLabelV3(row))}</strong><p>${_esc(new Date(row.from).toISOString())} — ${_esc(new Date(row.to).toISOString())} UTC<br>${_esc(row.timezone)} · ${_esc(row.source.join(', '))}</p>
+      const count = createFormatUi.forHass(this._hass).number(row.source.length);
+      return `<strong>${_esc(this._insightRowLabelV3(row))}</strong><p data-insights-source-count>${t('Sources', 'Źródła')}: ${_esc(count)}</p>
         <p>${t('Consumption', 'Zużycie')}: ${n(row.kwh)} kWh · ${t('Energy cost', 'Koszt energii')}: ${n(row.energyCost)} ${_esc(row.currency || '')} · ${t('Variable fees', 'Opłaty zmienne')}: ${n(row.variableCost)} ${_esc(row.currency || '')}</p>
         <p>${row.measuredHours}/${row.hours} ${t('measured hours', 'zmierzonych godzin')} · ${row.missing ? t('Partial / missing', 'Niepełne / brak') : t('Measured', 'Zmierzone')}
           ${row.missing && row.recordedKwh !== null ? ` · ${t('Measured subset', 'Zmierzona część')}: ${n(row.recordedKwh)} kWh` : ''}
-          ${row.priceMissing ? ' · ' + t('Tariff coverage unavailable', 'Brak pokrycia taryfą') : ''}</p>`;
+          ${row.priceMissing ? ' · ' + t('Tariff coverage unavailable', 'Brak pokrycia taryfą') : ''}</p>
+        ${this._insightTechnicalDetailsV5(`${scope}:${row.id}`, row.from, row.to, row.timezone, row.source)}`;
     }
     _insightSvgV3(width = 600) {
       const rows = this._insightChartRowsV3(), state = this._insightChartState;
@@ -5655,13 +5705,14 @@ this._installTariffConsumerV3();
       const format = createFormatUi.forHass(this._hass);
       return `<section class="insights-measured" data-insights-analysis aria-label="${this._t(period)}">
         <h3>${this._t(period)} · ${t('Recorded consumption', 'Zarejestrowane zużycie')}</h3>
-        <p>${_esc(data.source.join(', '))}</p><p data-insights-chart-range>${_esc(format.range(new Date(data.window.from).toISOString(), new Date(data.window.to).toISOString()))} · ${_esc(format.timeZone)}</p>
+        <p data-insights-source-count>${t('Sources', 'Źródła')}: ${_esc(format.number(data.source.length))}</p><p data-insights-chart-range>${_esc(format.range(new Date(data.window.from).toISOString(), new Date(data.window.to).toISOString()))}</p>
+        ${this._insightTechnicalDetailsV5(`chart:${period}`, data.window.from, data.window.to, format.timeZone, data.source)}
         <div class="insights-controls">
           ${period !== 'daily' ? `<label>${t('Intervals', 'Przedziały')}<select data-insights-control="resolution">${option('day', state.resolution, t('Local dates', 'Daty lokalne'))}${option('hour', state.resolution, t('All measured hours', 'Wszystkie godziny pomiaru'))}</select></label>` : ''}
           <label>${t('Measure', 'Miara')}<select data-insights-control="metric">${option('kwh', state.metric, 'kWh')}${option('energyCost', state.metric, t('Energy cost', 'Koszt energii'))}${option('variableCost', state.metric, t('Variable fees', 'Opłaty zmienne'))}</select></label>
           <label>${t('Chart type', 'Typ wykresu')}<select data-insights-control="type">${option('bar', state.type, t('Bars', 'Słupki'))}${option('line', state.type, t('Line', 'Linia'))}</select></label></div>
         <div class="insights-controls" role="group" aria-label="${t('Presentation', 'Prezentacja')}"><button type="button" data-insights-control="chart" aria-pressed="${state.view === 'chart'}">${t('Chart', 'Wykres')}</button><button type="button" data-insights-control="data" aria-pressed="${state.view === 'data'}">${t('Data', 'Dane')}</button></div>
-        ${state.view === 'chart' ? `<div data-insights-plot>${this._insightSvgV3()}</div>` : `<div data-insights-data>${rows.slice(state.page * 40, state.page * 40 + 40).map(row => `<article class="insights-data-row" data-insights-row="${_esc(row.id)}" data-value="${row[state.metric] == null ? 'null' : row[state.metric]}"><p>${_esc(this._insightNumberV3(row[state.metric]))} ${_esc(unit)}</p>${this._insightRowDetailV3(row)}</article>`).join('')}</div>${this._insightPagerV3(state.page, pages, 'previous-page', 'next-page')}`}
+        ${state.view === 'chart' ? `<div data-insights-plot>${this._insightSvgV3()}</div>` : `<div data-insights-data>${rows.slice(state.page * 40, state.page * 40 + 40).map(row => `<article class="insights-data-row" data-insights-row="${_esc(row.id)}" data-value="${row[state.metric] == null ? 'null' : row[state.metric]}"><p>${_esc(this._insightNumberV3(row[state.metric]))} ${_esc(unit)}</p>${this._insightRowDetailV3(row, 'data')}</article>`).join('')}</div>${this._insightPagerV3(state.page, pages, 'previous-page', 'next-page')}`}
         <label>${t('Point details (arrows, Home / End)', 'Szczegóły punktu (strzałki, Home / End)')}<select data-insights-control="point" ${!rows.length ? 'disabled' : ''}>${rows.map(row => option(row.id, state.selected, this._insightRowLabelV3(row))).join('')}</select></label>
         <div class="insights-controls"><button type="button" data-insights-control="previous-point" ${!rows.length || state.selected === rows[0]?.id ? 'disabled' : ''}>${t('Previous point', 'Poprzedni punkt')}</button><button type="button" data-insights-control="next-point" ${!rows.length || state.selected === rows.at(-1)?.id ? 'disabled' : ''}>${t('Next point', 'Następny punkt')}</button></div>
         <div class="insights-point-detail" data-insights-detail role="status" aria-live="polite">${this._insightRowDetailV3(selected)}</div>
@@ -5669,7 +5720,13 @@ this._installTariffConsumerV3();
       </section>${this._renderInsightDevicesV3()}`;
     }
     _captureInsightFocusV3() {
+      this._insightTechnicalOpenV5 ||= new Set();
+      // Capture native state before a queued toggle or a locale/point repaint.
+      this.shadowRoot.querySelectorAll('[data-insights-source-details]').forEach(el =>
+        el.open ? this._insightTechnicalOpenV5.add(el.dataset.insightsSourceDetails) : this._insightTechnicalOpenV5.delete(el.dataset.insightsSourceDetails));
       const active = this.shadowRoot.activeElement;
+      if (active?.tagName === 'SUMMARY' && active.parentElement?.hasAttribute('data-insights-source-details'))
+        return { sourceDetailKey: active.parentElement.dataset.insightsSourceDetails };
       if (active?.tagName === 'SUMMARY' && active.parentElement?.hasAttribute('data-insights-device-details'))
         return { detailKey: active.parentElement.dataset.insightsDeviceDetails };
       if (!active?.dataset.insightsControl) return null;
@@ -5677,6 +5734,11 @@ this._installTariffConsumerV3();
     }
     _restoreInsightFocusV3(focus) {
       if (!focus) return;
+      if (focus.sourceDetailKey != null) {
+        const details = [...this.shadowRoot.querySelectorAll('[data-insights-source-details]')].find(el => el.dataset.insightsSourceDetails === focus.sourceDetailKey);
+        details?.querySelector('summary')?.focus({ preventScroll: true });
+        return;
+      }
       if (focus.detailKey != null) {
         const details = [...this.shadowRoot.querySelectorAll('[data-insights-device-details]')].find(el => el.dataset.insightsDeviceDetails === focus.detailKey);
         details?.querySelector('summary')?.focus({ preventScroll: true });
@@ -5694,6 +5756,13 @@ this._installTariffConsumerV3();
         target.setSelectionRange(focus.start, focus.end, focus.direction || 'none');
     }
     _bindInsightContentV3() {
+      this._insightTechnicalOpenV5 ||= new Set();
+      this.shadowRoot.querySelectorAll('[data-insights-source-details]').forEach(el => {
+        if (el.dataset.insightsBound) return; el.dataset.insightsBound = 'true';
+        el.addEventListener('toggle', () => {
+          if (el.isConnected) el.open ? this._insightTechnicalOpenV5.add(el.dataset.insightsSourceDetails) : this._insightTechnicalOpenV5.delete(el.dataset.insightsSourceDetails);
+        });
+      });
       const redraw = focus => { this._updateContent(); this._restoreInsightFocusV3(focus); };
       this.shadowRoot.querySelectorAll('[data-insights-device-details]').forEach(el => {
         if (el.dataset.insightsBound) return; el.dataset.insightsBound = 'true';
@@ -5933,9 +6002,9 @@ this._installTariffConsumerV3();
           .recommendation { background: var(--bento-primary-light); border: 1px solid rgba(59,130,246,.2); border-radius: var(--bento-radius-sm); padding: 14px 16px; font-size: 13px; color: var(--bento-text); margin-bottom: 16px; display: flex; align-items: flex-start; gap: 10px; }
           .recommendation-icon { font-size: 18px; flex-shrink: 0; }
           .trend-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size:12px; font-weight: 600; }
-          .trend-up { background: var(--bento-error-light); color: var(--bento-error); }
-          .trend-down { background: var(--bento-success-light); color: var(--bento-success); }
-          .trend-neutral { background: rgba(158,158,158,.15); color: #9e9e9e; }
+          .trend-up { background: var(--bento-error-light); color: var(--energy-value-red,#b91c1c); }
+          .trend-down { background: var(--bento-success-light); color: var(--energy-value-green,#166534); }
+          .trend-neutral { background: rgba(158,158,158,.15); color: var(--energy-value-neutral,#475569); }
           .section-title { font-size: 13px; font-weight: 600; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .5px; margin: 16px 0 8px; }
           .device-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; }
           .device-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--bento-radius-xs); transition: background .15s; }
@@ -5953,10 +6022,10 @@ this._installTariffConsumerV3();
           .tip-card strong { color: var(--bento-primary); display: block; margin-bottom: 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
           .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 24px; gap: 16px; color: var(--bento-text-secondary); font-size: 14px; }
           .spinner { width: 32px; height: 32px; border: 3px solid var(--bento-border); border-top-color: var(--bento-primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
-          .error-msg { padding: 16px; background: var(--bento-error-light); border-left: 4px solid var(--bento-error); border-radius: var(--bento-radius-xs); font-size: 13px; color: var(--bento-error); }
+          .error-msg { padding: 16px; background: var(--bento-error-light); border-left: 4px solid var(--bento-error); border-radius: var(--bento-radius-xs); font-size: 13px; color: var(--energy-value-red,#b91c1c); }
           .no-sensors { padding: 40px 24px; text-align: center; color: var(--bento-text-secondary); font-size: 13px; }
-          button { font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500; border-radius: var(--bento-radius-xs); transition: all .2s; cursor: pointer; border: none; padding: 8px 14px; background: var(--bento-primary); color: white; }
-          button:hover { background: #2563EB; }
+          button { font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500; border-radius: var(--bento-radius-xs); transition: all .2s; cursor: pointer; border: none; padding: 8px 14px; background: var(--bento-primary); color: var(--bento-on-primary,#fff); }
+          button:hover { background: var(--bento-primary-hover); }
           .refresh-btn { background: transparent; color: var(--bento-text-secondary); padding: 4px; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; }
           .refresh-btn:hover { color: var(--bento-primary); background: var(--bento-primary-light); }
           .refresh-btn svg { width: 18px; height: 18px; }
@@ -6030,7 +6099,7 @@ this._installTariffConsumerV3();
         console.error('[ha-energy-insights] render error:', e);
         const msg = _esc(e && e.message ? e.message : String(e));
         if (this.shadowRoot) {
-          this.shadowRoot.innerHTML = `<div style="padding:16px;font-family:system-ui,sans-serif;color:#b91c1c;"><strong>Energy Insights render error.</strong><br>${msg}</div>`;
+          this.shadowRoot.innerHTML = `<div style="padding:16px;font-family:system-ui,sans-serif;color:var(--energy-value-red,#b91c1c);"><strong>Energy Insights render error.</strong><br>${msg}</div>`;
         }
         return '';
       }
@@ -6329,10 +6398,11 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   Card.prototype.getGridOptions = function() { return { columns: this._config?.compact ? 6 : 12, min_columns: 3, min_rows: this._config?.compact ? 2 : 3 }; };
   const originalSize = Card.prototype.getCardSize;
   Card.prototype.getCardSize = function() { return this._config?.compact && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
-  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
-:host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
+  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-value-green:#166534;--energy-value-red:#b91c1c;--energy-value-neutral:#475569;--energy-value-purple:#6d28d9;--energy-success-button:#166534;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
+:host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-value-green:#86efac;--energy-value-red:#fca5a5;--energy-value-neutral:#cbd5e1;--energy-value-purple:#c4b5fd;--energy-success-button:#166534;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
 .stat,.stat-card{background:var(--energy-kpi-tone)!important}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)!important}
 .btn-primary,button.btn-primary{color:var(--bento-on-primary)}
+.ht-tariff-v3 [data-status=success]{color:var(--energy-value-green)}.ht-tariff-v3 [data-status=error]{color:var(--energy-value-red)}.ht-tariff-v3 [data-status=partial],.ht-tariff-v3 [data-status=unconfirmed]{color:var(--energy-value-amber)}
  [data-energy-options-help], [data-energy-compact]{box-sizing:border-box;padding:16px;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border-radius:12px;font-size:14px;overflow-wrap:anywhere} [data-energy-options-help] summary, [data-energy-expand]{min-height:44px;box-sizing:border-box;padding:12px;cursor:pointer} [data-energy-compact] dl{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin:12px 0} [data-energy-compact] dt{font-size:13px;color:var(--secondary-text-color,#50545b)} [data-energy-compact] dd{margin:0 0 12px;font-weight:600;font-size:18px} [data-energy-expand]{color:var(--primary-text-color,#202124);background:var(--secondary-background-color,#eee);border:1px solid var(--divider-color,#888);border-radius:8px;font:inherit} [data-energy-options-help] summary:focus-visible,[data-energy-expand]:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}`;
   const render = Card.prototype._render;
   Card.prototype._render = function(...args) {
@@ -6456,7 +6526,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     let fields = root.querySelector('[data-energy-option-fields]');
     if (!fields) {
       fields = document.createElement('div'); fields.dataset.energyOptionFields = '';
-      fields.innerHTML = `<style>label[data-option-row]{display:flex;align-items:center;gap:8px;min-height:44px}select,input[type=number]{min-height:44px;box-sizing:border-box;width:100%;font:inherit;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#888);border-radius:8px;padding:8px}fieldset{margin:12px 0;border:1px solid var(--divider-color,#888)}[data-option-row] input{width:24px;height:24px;min-height:24px;margin:0}select:focus-visible,input:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}[data-config-error]{color:var(--error-color,#b42318)}</style><label data-option-label="default_tab" for="cf_default_tab"></label><select id="cf_default_tab" data-config="default_tab">${tabs.map(id=>`<option value="${id}"></option>`).join('')}</select><fieldset><legend data-option-label="tabs"></legend>${tabs.map(id=>`<label data-option-row><input type="checkbox" data-tab-option="${id}"><span data-tab-label="${id}"></span></label>`).join('')}</fieldset>${['compact','show_help','show_support'].map(id=>`<label data-option-row><input type="checkbox" data-config="${id}"><span data-option-label="${id}"></span></label>`).join('')}<label data-option-label="chart_hours" for="cf_chart_hours"></label><input id="cf_chart_hours" type="number" min="1" max="744" step="1" data-config="chart_hours"><p data-config-error role="alert"></p>`;
+      fields.innerHTML = `<style>label[data-option-row]{display:flex;align-items:center;gap:8px;min-height:44px}select,input[type=number]{min-height:44px;box-sizing:border-box;width:100%;font:inherit;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#888);border-radius:8px;padding:8px}fieldset{margin:12px 0;border:1px solid var(--divider-color,#888)}[data-option-row] input{width:24px;height:24px;min-height:24px;margin:0}select:focus-visible,input:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}[data-config-error]{color:var(--energy-value-red,#b91c1c)}</style><label data-option-label="default_tab" for="cf_default_tab"></label><select id="cf_default_tab" data-config="default_tab">${tabs.map(id=>`<option value="${id}"></option>`).join('')}</select><fieldset><legend data-option-label="tabs"></legend>${tabs.map(id=>`<label data-option-row><input type="checkbox" data-tab-option="${id}"><span data-tab-label="${id}"></span></label>`).join('')}</fieldset>${['compact','show_help','show_support'].map(id=>`<label data-option-row><input type="checkbox" data-config="${id}"><span data-option-label="${id}"></span></label>`).join('')}<label data-option-label="chart_hours" for="cf_chart_hours"></label><input id="cf_chart_hours" type="number" min="1" max="744" step="1" data-config="chart_hours"><p data-config-error role="alert"></p>`;
       root.append(fields);
       fields.addEventListener('change', event => {
         const field = event.target;
@@ -7342,7 +7412,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=1f4f77178c8c78d33caa31ba014dc6de1f050bff38bd56fa43f62edaee15f904
+      // HA_TARIFF_V3_START sha256=95e93ee4c400f188c1ca48d538c5e91936cc4314112f7c23b218fc6ce135e51a
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -8026,9 +8096,11 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     priceBasis:descriptor.profile?.priceBasis || null,timezone:descriptor.profile?.timezone || null,
     clock:descriptor.profile?.clock || {},fixedMonthly:descriptor.profile?.fixedMonthly ?? null});
   const envelope = (result, descriptor) => {
-    if (!result || result.schema !== 1 || result.profile_source !== descriptor.source) return false;
+    if (!result || result.schema !== 1 || result.profile_source !== descriptor.source ||
+      (descriptor.source === 'shared' ? !Number.isSafeInteger(result.tariff_revision) || result.tariff_revision < 0 : result.tariff_revision !== null))
+      throw Error('invalid_backend_response');
     if (descriptor.source === 'shared' && result.tariff_revision !== descriptor.revision) {
-      clear(); onRevision(); return false;
+      clear(); onRevision(result.tariff_revision); return false;
     }
     return descriptor.source === 'shared' ? Number.isSafeInteger(result.tariff_revision) : result.tariff_revision === null;
   };
@@ -8218,7 +8290,24 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       cachedKey = undefined; cachedModel = undefined;
       if (card.isConnected) card._repriceTariffV3?.();
     },
-    onRevision: () => { card._sharedTariffReadStatus = 'unconfirmed'; cachedKey = undefined; cachedModel = undefined; }
+    onRevision: revision => {
+      const token = identity(), minimumRevision = Math.max(revision, state().revision || 0);
+      card._sharedTariffExpectedV3 = true;
+      card._sharedTariffReadStatus = 'unconfirmed';
+      card._sharedTariffProfile = null; card._sharedTariffAssociation = null; card._sharedTariffLoadedAt = 0;
+      cachedKey = undefined; cachedModel = undefined;
+      // Clear derived UI immediately; automatic confirmation is a read only and
+      // must never release the editor's uncertain-write fence via onRefresh.
+      if (card.isConnected) card._repriceTariffV3?.();
+      queueMicrotask(async () => {
+        if (!card.isConnected || !guard.current(token)) return;
+        const confirmed = await load(true, minimumRevision);
+        if (guard.current(token) && card.isConnected) {
+          if (!confirmed || state().revision < minimumRevision) card._sharedTariffReadStatus = 'unconfirmed';
+          card._repriceTariffV3?.();
+        }
+      });
+    }
   });
   const model = function (proposed) {
     identity();
@@ -8248,7 +8337,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   guard.subscribe(purge);
   const reset = (...nextHass) => guard.observe(...nextHass);
-  const load = async (force = false) => {
+  const load = async (force = false, minimumRevision = 0) => {
     const token = identity();
     if (!guard.available(token)) return false;
     if (card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, token)) return true;
@@ -8259,7 +8348,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       try {
         const result = await guard.call(token, { type: 'ha_tools_email/get_tariff' });
         if (!guard.current(token)) return false;
-        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0 ||
+        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < minimumRevision ||
           !Object.hasOwn(result, 'updated_at') || (result.updated_at !== null &&
           (typeof result.updated_at !== 'string' || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(result.updated_at) || !Number.isFinite(Date.parse(result.updated_at)))))
           throw new Error('invalid_tariff_response');
@@ -9298,20 +9387,20 @@ this._installTariffConsumerV3();
           .schedule-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; overflow: hidden; }
           .schedule-name { font-size: 14px; font-weight: 600; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
           .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size:12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
-          .badge-ok { background: var(--bento-success-light); color: var(--bento-success); }
-          .badge-er { background: var(--bento-error-light); color: var(--bento-error); }
-          .badge-wa { background: var(--bento-warning-light); color: var(--bento-warning); }
+          .badge-ok { background: var(--bento-success-light); color: var(--energy-value-green,#166534); }
+          .badge-er { background: var(--bento-error-light); color: var(--energy-value-red,#b91c1c); }
+          .badge-wa { background: var(--bento-warning-light); color: var(--energy-value-amber,#92400e); }
           .badge-pr { background: var(--bento-primary-light); color: var(--bento-text); }
-          .badge-auto { background: rgba(139,92,246,.1); color: #8B5CF6; }
+          .badge-auto { background: rgba(139,92,246,.1); color: var(--energy-value-purple,#6d28d9); }
           .schedule-meta { font-size: 12px; color: var(--bento-text-secondary); }
           .schedule-meta span { margin-right: 12px; }
           .btn-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
           .btn { padding: 8px 16px; border-radius: var(--bento-radius-xs); border: 1.5px solid var(--bento-border); background: var(--bento-card); color: var(--bento-text); font-size: 13px; font-weight: 500; cursor: pointer; font-family: 'Inter', sans-serif; transition: all .2s; }
           .btn:hover { background: var(--bento-bg); }
           .btn:disabled { opacity: .45; cursor: not-allowed; }
-          .btn-primary { background: var(--bento-primary) !important; color: #fff !important; border-color: var(--bento-primary) !important; box-shadow: 0 2px 8px rgba(59,130,246,.3); }
-          .btn-primary:hover { background: #2563EB !important; }
-          .btn-ok { background: var(--bento-success) !important; color: #fff !important; border-color: var(--bento-success) !important; }
+          .btn-primary { background: var(--bento-primary) !important; color: var(--bento-on-primary,#fff) !important; border-color: var(--bento-primary) !important; box-shadow: 0 2px 8px rgba(59,130,246,.3); }
+          .btn-primary:hover { background: var(--bento-primary-hover) !important; }
+          .btn-ok { background: var(--energy-success-button,#166534) !important; color: #fff !important; border-color: var(--energy-success-button,#166534) !important; }
           .smtp-section { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
           .smtp-missing { border-color: #f59e0b40; background: #fef3c720; }
           .smtp-header { display: flex; align-items: center; gap: 12px; }
@@ -9324,7 +9413,7 @@ this._installTariffConsumerV3();
           .guide-title { font-weight: 700; font-size: 14px; margin-bottom: 12px; color: var(--bento-text); }
           .guide-steps { display: flex; flex-direction: column; gap: 16px; }
           .guide-step { display: flex; gap: 12px; }
-          .step-num { flex-shrink: 0; width: 28px; height: 28px; background: var(--bento-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+          .step-num { flex-shrink: 0; width: 28px; height: 28px; background: var(--bento-primary); color: var(--bento-on-primary,#fff); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
           .guide-step p { margin: 4px 0; font-size: 13px; color: var(--bento-text-secondary); line-height: 1.5; }
           .guide-step pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto; line-height: 1.6; white-space: pre; margin: 8px 0; max-width: 100%; box-sizing: border-box; }
           .guide-step a { color: var(--bento-primary); text-decoration: none; }
@@ -9344,8 +9433,8 @@ this._installTariffConsumerV3();
           .preview-table th { background: var(--bento-border); padding: 5px 8px; text-align: left; font-weight: 600; font-size:12px; }
           .preview-table td { padding: 5px 8px; border-bottom: 1px solid var(--bento-border); }
           .preview-table tr:last-child td { border-bottom: none; }
-          .trend-up { color: var(--bento-error); }
-          .trend-down { color: var(--bento-success); }
+          .trend-up { color: var(--energy-value-red,#b91c1c); }
+          .trend-down { color: var(--energy-value-green,#166534); }
           .pagination-row { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px 0 4px; }
           .pagination-btn { padding: 6px 14px; border: 1px solid var(--bento-border); border-radius: var(--bento-radius-xs); background: var(--bento-bg); color: var(--bento-text); font-size: 12px; cursor: pointer; transition: all .15s; }
           .pagination-btn:hover:not([disabled]) { background: var(--bento-primary-light); border-color: var(--bento-primary); color: var(--bento-primary); }
@@ -9353,9 +9442,9 @@ this._installTariffConsumerV3();
           .pagination-info { font-size: 12px; color: var(--bento-text-secondary); }
           .info-row { display: flex; gap: 6px; align-items: flex-start; padding: 10px; background: var(--bento-primary-light); border-radius: var(--bento-radius-xs); margin-bottom: 12px; font-size: 12px; color: var(--bento-text); }
           .info-warn { background: var(--bento-warning-light); }
-          .auto-on { color: var(--bento-success); }
-          .auto-off { color: var(--bento-error); }
-          .auto-unknown { color: var(--bento-warning); }
+          .auto-on { color: var(--energy-value-green,#166534); }
+          .auto-off { color: var(--energy-value-red,#b91c1c); }
+          .auto-unknown { color: var(--energy-value-amber,#92400e); }
           .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; margin-right: 6px; vertical-align: middle; }
           @keyframes spin { to { transform: rotate(360deg); } }
           .last-sent { font-size:12px; color: var(--bento-text); margin-top: 4px; }
@@ -9364,7 +9453,7 @@ this._installTariffConsumerV3();
           .empty-state .title { font-size: 15px; font-weight: 600; color: var(--bento-text); margin-bottom: 6px; }
           .empty-state .desc { font-size: 13px; color: var(--bento-text-secondary); line-height: 1.6; max-width: 400px; margin: 0 auto; }
           .source-badge { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px; border-radius: 10px; font-size:12px; font-weight: 600; margin-left: 6px; }
-          .source-auto { background: rgba(139,92,246,.1); color: #8B5CF6; }
+          .source-auto { background: rgba(139,92,246,.1); color: var(--energy-value-purple,#6d28d9); }
           .email-setup { background: var(--bento-warning-light); border: 1px solid rgba(245,158,11,.3); border-radius: var(--bento-radius-sm); padding: 14px; margin-bottom: 16px; }
           .email-setup-title { font-size: 13px; font-weight: 600; color: var(--bento-text); margin-bottom: 8px; }
           .email-input-row { display: flex; gap: 8px; align-items: center; }
@@ -9373,7 +9462,7 @@ this._installTariffConsumerV3();
           .email-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px 12px; background: var(--bento-success-light); border-radius: var(--bento-radius-xs); font-size: 12px; color: var(--bento-text); }
           .email-edit-btn { background: none; border: none; color: var(--bento-primary); cursor: pointer; font-size:12px; padding: 2px 6px; font-family: 'Inter', sans-serif; }
           .email-edit-btn:hover { text-decoration: underline; }
-          .source-manual { background: var(--bento-success-light); color: var(--bento-success); }
+          .source-manual { background: var(--bento-success-light); color: var(--energy-value-green,#166534); }
           .config-section { margin-bottom: 20px; }
           .config-section-title { font-size: 13px; font-weight: 700; color: var(--bento-text); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
           .device-toggle { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--bento-radius-xs); transition: background .15s; }
@@ -9422,8 +9511,8 @@ this._installTariffConsumerV3();
           #price-display:is(button){font:inherit;white-space:normal;overflow-wrap:anywhere;max-width:100%;padding:8px;border:1px dashed var(--bento-primary);border-radius:8px;background:var(--bento-card);color:var(--bento-primary);cursor:pointer}
           .price-inline{display:inline-flex;align-items:center;flex-wrap:wrap;gap:4px;max-width:100%}
           .price-inline input{min-height:44px;box-sizing:border-box}
-          .card .tabs{flex-wrap:wrap;overflow:visible}
-          .card .tab-btn{white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
+          .card .tabs{display:flex;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;padding-inline:12px;scroll-padding-inline:12px;mask-image:linear-gradient(to right,transparent,#000 12px,#000 calc(100% - 12px),transparent);-webkit-mask-image:linear-gradient(to right,transparent,#000 12px,#000 calc(100% - 12px),transparent)}
+          .card .tab-btn{white-space:nowrap;overflow-wrap:normal;flex:0 0 auto;min-height:44px;min-width:44px}
           .email-tab-picker{display:none}
           .history-actions{display:flex;flex-wrap:wrap;gap:8px}
           .history-actions button{padding:10px 14px;border:1px solid var(--bento-border);border-radius:10px;background:var(--bento-card);color:var(--bento-text);font:inherit;cursor:pointer}
@@ -9743,7 +9832,7 @@ this._installTariffConsumerV3();
             <div class="stat-sub">@ ${_esc(this._getTariffLabel())}</div>
           </div>
           <div class="stat">
-            <div class="stat-value" style="color:#10B981">${displayData.length > 0 ? _esc(displayData[0].name.split(' ').slice(0,2).join(' ')) : '-'}</div>
+            <div class="stat-value" data-email-largest-import style="color:var(--energy-value-green,#166534)">${displayData.length > 0 ? _esc(displayData[0].name.split(' ').slice(0,2).join(' ')) : '-'}</div>
             <div class="stat-label">${L ? 'Największy import' : 'Largest Import'}</div>
             <div class="stat-sub">${displayData.length > 0 ? this._fmt(displayData[0].month, 1) + ' kWh' : ''}</div>
           </div>
@@ -10942,10 +11031,11 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   Card.prototype.getGridOptions = function() { return { columns: this._config?.compact ? 6 : 12, min_columns: 3, min_rows: this._config?.compact ? 2 : 3 }; };
   const originalSize = Card.prototype.getCardSize;
   Card.prototype.getCardSize = function() { return this._config?.compact && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
-  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
-:host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
+  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-value-green:#166534;--energy-value-red:#b91c1c;--energy-value-neutral:#475569;--energy-value-purple:#6d28d9;--energy-success-button:#166534;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
+:host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-value-green:#86efac;--energy-value-red:#fca5a5;--energy-value-neutral:#cbd5e1;--energy-value-purple:#c4b5fd;--energy-success-button:#166534;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
 .stat,.stat-card{background:var(--energy-kpi-tone)!important}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)!important}
 .btn-primary,button.btn-primary{color:var(--bento-on-primary)}
+.ht-tariff-v3 [data-status=success]{color:var(--energy-value-green)}.ht-tariff-v3 [data-status=error]{color:var(--energy-value-red)}.ht-tariff-v3 [data-status=partial],.ht-tariff-v3 [data-status=unconfirmed]{color:var(--energy-value-amber)}
  [data-energy-options-help], [data-energy-compact]{box-sizing:border-box;padding:16px;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border-radius:12px;font-size:14px;overflow-wrap:anywhere} [data-energy-options-help] summary, [data-energy-expand]{min-height:44px;box-sizing:border-box;padding:12px;cursor:pointer} [data-energy-compact] dl{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin:12px 0} [data-energy-compact] dt{font-size:13px;color:var(--secondary-text-color,#50545b)} [data-energy-compact] dd{margin:0 0 12px;font-weight:600;font-size:18px} [data-energy-expand]{color:var(--primary-text-color,#202124);background:var(--secondary-background-color,#eee);border:1px solid var(--divider-color,#888);border-radius:8px;font:inherit} [data-energy-options-help] summary:focus-visible,[data-energy-expand]:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}`;
   const render = Card.prototype._render;
   Card.prototype._render = function(...args) {
@@ -11069,7 +11159,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     let fields = root.querySelector('[data-energy-option-fields]');
     if (!fields) {
       fields = document.createElement('div'); fields.dataset.energyOptionFields = '';
-      fields.innerHTML = `<style>label[data-option-row]{display:flex;align-items:center;gap:8px;min-height:44px}select,input[type=number]{min-height:44px;box-sizing:border-box;width:100%;font:inherit;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#888);border-radius:8px;padding:8px}fieldset{margin:12px 0;border:1px solid var(--divider-color,#888)}[data-option-row] input{width:24px;height:24px;min-height:24px;margin:0}select:focus-visible,input:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}[data-config-error]{color:var(--error-color,#b42318)}</style><label data-option-label="default_tab" for="cf_default_tab"></label><select id="cf_default_tab" data-config="default_tab">${tabs.map(id=>`<option value="${id}"></option>`).join('')}</select><fieldset><legend data-option-label="tabs"></legend>${tabs.map(id=>`<label data-option-row><input type="checkbox" data-tab-option="${id}"><span data-tab-label="${id}"></span></label>`).join('')}</fieldset>${['compact','show_help','show_support'].map(id=>`<label data-option-row><input type="checkbox" data-config="${id}"><span data-option-label="${id}"></span></label>`).join('')}<label data-option-label="chart_hours" for="cf_chart_hours"></label><input id="cf_chart_hours" type="number" min="1" max="744" step="1" data-config="chart_hours"><p data-config-error role="alert"></p>`;
+      fields.innerHTML = `<style>label[data-option-row]{display:flex;align-items:center;gap:8px;min-height:44px}select,input[type=number]{min-height:44px;box-sizing:border-box;width:100%;font:inherit;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#888);border-radius:8px;padding:8px}fieldset{margin:12px 0;border:1px solid var(--divider-color,#888)}[data-option-row] input{width:24px;height:24px;min-height:24px;margin:0}select:focus-visible,input:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}[data-config-error]{color:var(--energy-value-red,#b91c1c)}</style><label data-option-label="default_tab" for="cf_default_tab"></label><select id="cf_default_tab" data-config="default_tab">${tabs.map(id=>`<option value="${id}"></option>`).join('')}</select><fieldset><legend data-option-label="tabs"></legend>${tabs.map(id=>`<label data-option-row><input type="checkbox" data-tab-option="${id}"><span data-tab-label="${id}"></span></label>`).join('')}</fieldset>${['compact','show_help','show_support'].map(id=>`<label data-option-row><input type="checkbox" data-config="${id}"><span data-option-label="${id}"></span></label>`).join('')}<label data-option-label="chart_hours" for="cf_chart_hours"></label><input id="cf_chart_hours" type="number" min="1" max="744" step="1" data-config="chart_hours"><p data-config-error role="alert"></p>`;
       root.append(fields);
       fields.addEventListener('change', event => {
         const field = event.target;
