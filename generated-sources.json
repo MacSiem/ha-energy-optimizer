@@ -4,15 +4,15 @@
   "sources": [
     {
       "path": "src/optimizer.js",
-      "sha256": "6916e7182c3a24fcedc44746c4b55fc0721bd45a7a3c8a6a3b5851b5b2a84597"
+      "sha256": "f3f4ffdb707d1588fa36a79b7b4875f68c38cac8cbc04809cbc57bd8350341b9"
     },
     {
       "path": "src/energy-insights.js",
-      "sha256": "ba42c3310a47428251855386d6ad9542c7eff53e43d2c4ee9869f04d906c9951"
+      "sha256": "fd864b61e7242399bdd71a7ef4c4b55d15a0d51504e222cfaf2a6f7ecdea568c"
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "3b95fbbb3a2b8ae1098b2288f9e0f059be77dd711473b8b3ec54558ca56c6b31"
+      "sha256": "e055731bd5951e765d5763731d84304e4aa7447ae832465514c1a1da3f2f0546"
     },
     {
       "path": "src/chart-vendor.js",
@@ -20,7 +20,7 @@
     }
   ],
   "sharedTariff": {
-    "sha256": "c9eff34623bfa7b54fdf9cf96fbe9683322772d0da7b3c52f30411bc8d909a5b",
+    "sha256": "4cdb3837d8957e05c7864a78216a664aa5859eea04b33432eed076ca35e57ca3",
     "modules": [
       {
         "path": "shared/ha-tools-ui.js",
@@ -48,19 +48,23 @@
       },
       {
         "path": "shared/ha-tools-energy-analysis.js",
-        "sha256": "e9449f473b5364412d40a47963f90cacbd16e9621f514b090aa696604c0eee4c"
+        "sha256": "efe0419ee1a577bcfdc80678ef2b04481c6e33eb20a0b38d2f6c11970ae668ff"
       },
       {
         "path": "shared/ha-tools-energy-analysis-binding.js",
-        "sha256": "c4d74fa8f06dbd5585117f34cd6bdaecedcec193bccc23ac7f696a5ff30aaa8d"
+        "sha256": "02dbb4f88b908a91ec5fd3775edbf1033c6ed7230c062120eee2c87d097d91e5"
       },
       {
         "path": "shared/ha-tools-energy-analysis-view.js",
         "sha256": "730733361777c2201b80f2c884c03ebd28377e7253f7ca9637552071d5f71f0c"
       },
       {
+        "path": "shared/ha-tools-energy-patterns-view.js",
+        "sha256": "6a0d4d5334ff65a1a9a3cce647bd694ed672e226b01493053f6b2252f6f3780d"
+      },
+      {
         "path": "shared/ha-tools-energy-analysis-host.js",
-        "sha256": "9d34463b39a4e1270177c9afb4c62e5420f209fb55a8b349abe2f3303b498714"
+        "sha256": "10552008538d710aeabdef53570f35b510c724a1907be99eca728a3aa5d547d6"
       }
     ]
   },
