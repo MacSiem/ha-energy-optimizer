@@ -116,3 +116,72 @@ async function mountedTimeChange(type, scenario='format'){
 for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email'])test(type+' reprojects an in-place profile time change without another Recorder read',()=>mountedTimeChange(type));
 test('Optimizer handles a profile time change and live power in the same event',()=>mountedTimeChange('ha-energy-optimizer','compound'));
 test('Optimizer refetches after an in-place server calendar change',()=>mountedTimeChange('ha-energy-optimizer','calendar'));
+
+
+// Presentation regressions exercise card renderers, not copies of formatting helpers.
+function primaryText(element) {
+ const copy=element.cloneNode(true);copy.querySelectorAll('details').forEach(detail=>detail.remove());return copy.textContent;
+}
+test('Patterns source explanation starts closed; coverage warnings remain outside it',()=>{
+ const f=fixture();try{
+  f.card._energyModel.points.set(stamp+H,{kwh:null});f.card._render();
+  const root=f.card.shadowRoot,source=root.querySelector('[data-pattern-source]');
+  assert.ok(source,'source explanation has a native disclosure');assert.equal(source.open,false);
+  const summary=root.querySelector('[data-pattern-source-summary]');
+  assert.match(summary.textContent,/Energy Dashboard.*Źródła: 1.*15 paź.*1\/2/);
+  assert.doesNotMatch(summary.textContent,/sensor\.qa_grid|Only complete|Sumujemy|\d{4}-\d\d-\d\dT/);
+  assert.match(source.textContent,/sensor\.qa_grid/);assert.match(source.textContent,/Sumujemy tylko pełne dni lokalne/);
+  assert.match(source.textContent,/2026-10-15T22:00:00\.000Z/);
+  const warning=root.querySelector('[data-pattern-coverage-warning]');assert.ok(warning);assert.equal(warning.closest('details'),null);
+  assert.match(warning.textContent,/Niepełny okres.*Brak pomiaru/);
+ }finally{f.close();}
+});
+test('Patterns source and point disclosures preserve native open and summary focus through locale and local redraw',()=>{
+ const f=fixture();try{
+  const root=f.card.shadowRoot;
+  for(const selector of ['[data-pattern-source]','[data-pattern-detail] details']){
+   let detail=root.querySelector(selector);assert.ok(detail);detail.open=true;detail.querySelector('summary').focus();
+   f.card._hass={...f.card._hass,language:'en',locale:{...f.card._hass.locale,language:'en'}};f.card._render();
+   detail=root.querySelector(selector);assert.equal(detail.open,true);assert.equal(root.activeElement,detail.querySelector('summary'));
+   assert.match(detail.querySelector('summary').textContent,/Source and time details/);
+   root.querySelector('[data-pattern-control="data"]').click();
+   assert.equal(root.querySelector(selector).open,true,'Data repaint retains disclosure state');
+   assert.equal(root.activeElement.dataset.patternControl,'data');
+  }
+ }finally{f.close();}
+});
+test('Optimizer point summaries are readable and exact technical evidence survives Data and locale repaint',()=>{
+ const f=fixture();try{
+  const value=1.2345678901234567;f.card._energyModel.points.set(stamp+H,{kwh:value});f.card._render();
+  const row=f.card._dashboardRowsV3().at(-1),before=JSON.stringify(row),root=f.card.shadowRoot;
+  for(const selector of ['[data-pattern-detail]','[data-dashboard-detail]']){
+   const detail=root.querySelector(selector),technical=detail.querySelector('details');assert.ok(technical);assert.equal(technical.open,false);
+   assert.match(primaryText(detail),/15 paź.*19:00/);assert.match(primaryText(detail),/1,235 kWh/);
+   assert.doesNotMatch(primaryText(detail),/sensor\.qa_grid|2026-10-15T|234567890123/);
+   assert.match(technical.textContent,/sensor\.qa_grid.*Europe\/Warsaw/s);assert.match(technical.textContent,/2026-10-15T23:00:00\.000Z/);
+   assert.match(technical.textContent,/1\.2345678901234567 kWh/);
+  }
+  const technical=root.querySelector('[data-dashboard-detail] details');technical.open=true;technical.querySelector('summary').focus();f.card._render();
+  assert.equal(root.querySelector('[data-dashboard-detail] details').open,true);assert.equal(root.activeElement,root.querySelector('[data-dashboard-detail] summary'));
+  root.querySelector('[data-dashboard-control="data"]').click();assert.equal(root.querySelector('[data-dashboard-detail] details').open,true);
+  assert.equal(root.querySelectorAll('[data-dashboard-row]')[1].dataset.kwh,String(value));
+  root.querySelector('[data-pattern-control="data"]').click();assert.equal(root.querySelectorAll('[data-pattern-row]')[1].dataset.kwh,String(value));
+  assert.equal(JSON.stringify(f.card._dashboardRowsV3().at(-1)),before,'point identity and tariff results are unchanged');
+  for(const kwh of [0,null]){const sample={...row,kwh,missing:kwh===null};const html=f.dom.window.document.createElement('div');html.innerHTML=f.card._patternsDetail(sample);assert.match(primaryText(html),kwh===null?/Niedostępne.*Brak pomiaru/s:/0 kWh/);}
+ }finally{f.close();}
+});
+test('Insights point values use readable precision while Data and technical details retain exact values and partial subset',()=>{
+ const f=fixture(),insight=f.dom.window.document.createElement('ha-energy-insights');try{
+  insight._hass=f.card._hass;insight._lang='pl';
+  const row={...f.card._dashboardRowsV3()[0],kwh:1.2345678901234567,energyCost:-0.12345678901234567,variableCost:0,recordedKwh:1.2345678901234567,measuredHours:1,hours:2,missing:true,priceMissing:true};
+  const before=JSON.stringify(row),root=f.dom.window.document.createElement('div');root.innerHTML=insight._insightRowDetailV3(row);
+  assert.match(primaryText(root),/1,235 kWh/);assert.match(primaryText(root),/-0,123 EUR/);assert.match(primaryText(root),/0 EUR/);
+  assert.match(primaryText(root),/Niepełne \/ brak.*Zmierzona część.*1,235.*Brak pokrycia taryfą/s);
+  assert.doesNotMatch(primaryText(root),/234567890123|sensor\.qa_grid|2026-10-15T/);
+  const details=root.querySelector('details');assert.ok(details);assert.equal(details.open,false);assert.match(details.textContent,/sensor\.qa_grid/);
+  assert.match(details.textContent,/1,2345678901234567 kWh/);assert.ok(details.textContent.includes(String(row.energyCost).replace('.',',')+' EUR'));
+  const data=f.dom.window.document.createElement('div');data.innerHTML=insight._insightRowDetailV3(row,'data');assert.match(primaryText(data),/1,2345678901234567 kWh/);
+  root.innerHTML=insight._insightRowDetailV3({...row,kwh:null});assert.match(primaryText(root),/Zużycie: Niedostępne/);
+  assert.equal(JSON.stringify(row),before);
+ }finally{insight._getTariffHostV3().guard.dispose();f.close();}
+});
