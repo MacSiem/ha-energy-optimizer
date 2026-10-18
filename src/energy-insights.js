@@ -1334,6 +1334,7 @@ this._installTariffConsumerV3();
     }
 
     disconnectedCallback() {
+      this._optionsResizeV5?.disconnect();
       this._insightResize?.disconnect();
       this._insightRenderEpoch++;
       this._clearInsightDevicesV3();
@@ -2093,7 +2094,7 @@ this._installTariffConsumerV3();
         <div class="panel-header">
           <h1 class="panel-title">
             <span class="panel-title-icon">⚡</span>
-            ${this._t('energyInsights')}
+            <span data-energy-card-title>${_esc(this._config.title ?? this._t('energyInsights'))}</span>
           </h1>
         </div>
       `;
@@ -2421,7 +2422,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     if (changed || !visible(config).includes(this[key])) this[key] = config.default_tab || visible(config)[0];
     // Existing integrations own their complete configuration and backend context.
     const result = originalSet.call(this, config);
-    if (this._hass) this._render();
+    if (this._hass && name === 'ha-energy-insights') this._render();
     return result;
   };
   Card.prototype.getGridOptions = function() { return { columns: this._config?.compact ? 6 : 12, min_columns: 3, min_rows: this._config?.compact ? 2 : 3 }; };
@@ -2465,6 +2466,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   };
   Card.prototype._applyCardOptionsV5 = function() {
     const root = this.shadowRoot, config = this._config || {}, allowed = visible(config);
+    const heading = root.querySelector('[data-energy-card-title]'); if (heading) heading.textContent = config.title ?? title;
     for (const button of root.querySelectorAll('.tabs [data-tab]')) { button.hidden = !allowed.includes(button.dataset.tab); button.style.display = button.hidden ? 'none' : ''; }
     for (const option of root.querySelectorAll('.energy-tab-picker option, #email-tab-select option')) { option.hidden = !allowed.includes(option.value); option.disabled = option.hidden; }
     for (const select of root.querySelectorAll('.energy-tab-picker select, #email-tab-select')) select.value = this[key];
@@ -2538,7 +2540,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   };
 }
 // HA_ENERGY_CARD_OPTIONS_V5_END
-createEnergyCardOptionsV5({ Card: HaEnergyInsights, Editor: HaEnergyInsightsEditor, name: "ha-energy-insights", title: "Energy Insights", tabs: ["overview", "daily", "weekly", "monthly", "tips"], labels: [["Overview", "Daily", "Weekly", "Monthly", "Tips"], ["Przegląd", "Dziennie", "Tygodniowo", "Miesięcznie", "Wskazówki"]] });
+createEnergyCardOptionsV5({ Card: HAEnergyInsights, Editor: HaEnergyInsightsEditor, name: "ha-energy-insights", title: "Energy Insights", tabs: ["overview", "daily", "weekly", "monthly", "tips"], labels: [["Overview", "Daily", "Weekly", "Monthly", "Tips"], ["Przegląd", "Dziennie", "Tygodniowo", "Miesięcznie", "Wskazówki"]] });
 if (!customElements.get('ha-energy-insights-editor')) { customElements.define('ha-energy-insights-editor', HaEnergyInsightsEditor); }
 
 

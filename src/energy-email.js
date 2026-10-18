@@ -4084,6 +4084,7 @@ this._installTariffConsumerV3();
     }
 
     disconnectedCallback() {
+      this._optionsResizeV5?.disconnect();
       this._tariffHostController?.guard.suspend();
       this._clearEmailContext();
       this._serverSchedules.discard();
@@ -4227,7 +4228,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     if (changed || !visible(config).includes(this[key])) this[key] = config.default_tab || visible(config)[0];
     // Existing integrations own their complete configuration and backend context.
     const result = originalSet.call(this, config);
-    if (this._hass) this._render();
+    if (this._hass && name === 'ha-energy-insights') this._render();
     return result;
   };
   Card.prototype.getGridOptions = function() { return { columns: this._config?.compact ? 6 : 12, min_columns: 3, min_rows: this._config?.compact ? 2 : 3 }; };
@@ -4271,6 +4272,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   };
   Card.prototype._applyCardOptionsV5 = function() {
     const root = this.shadowRoot, config = this._config || {}, allowed = visible(config);
+    const heading = root.querySelector('[data-energy-card-title]'); if (heading) heading.textContent = config.title ?? title;
     for (const button of root.querySelectorAll('.tabs [data-tab]')) { button.hidden = !allowed.includes(button.dataset.tab); button.style.display = button.hidden ? 'none' : ''; }
     for (const option of root.querySelectorAll('.energy-tab-picker option, #email-tab-select option')) { option.hidden = !allowed.includes(option.value); option.disabled = option.hidden; }
     for (const select of root.querySelectorAll('.energy-tab-picker select, #email-tab-select')) select.value = this[key];
@@ -4344,7 +4346,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   };
 }
 // HA_ENERGY_CARD_OPTIONS_V5_END
-createEnergyCardOptionsV5({ Card: HaEnergyEmail, Editor: HaEnergyEmailEditor, name: "ha-energy-email", title: "Energy Email Reports", tabs: ["overview", "schedule", "preview", "send", "config", "history"], labels: [["Overview", "Schedule", "Preview", "Send now", "Config", "History"], ["Przegląd", "Harmonogram", "Podgląd", "Wyślij teraz", "Ustawienia", "Historia"]] });
+createEnergyCardOptionsV5({ Card: HAEnergyEmail, Editor: HaEnergyEmailEditor, name: "ha-energy-email", title: "Energy Email Reports", tabs: ["overview", "schedule", "preview", "send", "config", "history"], labels: [["Overview", "Schedule", "Preview", "Send now", "Config", "History"], ["Przegląd", "Harmonogram", "Podgląd", "Wyślij teraz", "Ustawienia", "Historia"]] });
 if (!customElements.get('ha-energy-email-editor')) { customElements.define('ha-energy-email-editor', HaEnergyEmailEditor); }
 
 
