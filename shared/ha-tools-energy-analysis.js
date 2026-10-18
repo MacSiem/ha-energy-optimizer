@@ -92,10 +92,10 @@ function createEnergyAnalysisV53({card, onChange = () => {}, refreshMs = 300000}
     let count = 0;
     const walk = (value, key = '', depth = 0) => {
       if (++count > 2000000 || depth > 40) return false;
-      if (value === null) return true;
-      if (typeof value === 'number') return Number.isFinite(value);
       // Producer reconciliation evidence is boolean metadata, not a kWh amount.
       if (key === 'reconciles_recorded_kwh') return typeof value === 'boolean';
+      if (value === null) return true;
+      if (typeof value === 'number') return Number.isFinite(value);
       const money = /(?:^|_)(?:kwh|cost|rate|price)$/.test(key) || /^(?:energyRate|variableRate|fixedMonthly|fixed_monthly|legacy_combined_monthly)$/.test(key);
       if (money && !object(value) && !Array.isArray(value)) return decimal(value);
       if (Array.isArray(value)) return value.every(v=>walk(v,'',depth+1));

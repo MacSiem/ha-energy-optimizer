@@ -178,3 +178,10 @@ for(const field of ['kwh','reconciles_recorded_kwh'])test(`producer rejects malf
   s.c.connect();const read=s.c.read({period:'day',comparison:'previous'});await settle(s,0,value);
   const result=await read;assert.equal(result.status,'error');assert.equal(result.error,'invalid_analysis_response');assert.equal(result.snapshot,null);
 });
+
+for (const malformed of [0,null]) test(`producer rejects non-boolean reconciliation metadata ${malformed}`,async()=>{
+ const value=clone(require('./fixtures/analysis-wholeperiod-v53.json')),s=setup();s.card._hass.config.time_zone='Europe/Warsaw';
+ value.period_summary.zone_breakdown.reconciles_recorded_kwh=malformed;s.c.connect();
+ const read=s.c.read({period:'day',comparison:'previous'});await settle(s,0,value);
+ const result=await read;assert.equal(result.status,'error');assert.equal(result.snapshot,null);
+});
