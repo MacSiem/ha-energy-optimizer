@@ -1,11 +1,14 @@
 'use strict';
 const {test}=require('node:test'); const assert=require('node:assert/strict');
 const {readFileSync}=require('node:fs'); const {JSDOM}=require('jsdom');
+const { isolateLegacyAnalysis } = require('./helpers/legacy-analysis-fixture.cjs');
 const code=['optimizer.js','energy-insights.js','energy-email.js','chart-vendor.js'].map(n=>readFileSync('src/'+n,'utf8')).join('');
 const tick=()=>new Promise(r=>setImmediate(r));
 for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email']) for(const boundary of ['user','mount']) test(`${type} quiet first load resumes after occupied ${boundary} transition`,async()=>{
  const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});dom.window.eval(code);
- const card=dom.window.document.createElement(type);card.setConfig({show_support:false});card._schedule=()=>{};
+ const card=dom.window.document.createElement(type);
+  // Already-authorized legacy unit coverage; real negotiation lives in energy-analysis-cards-v53.
+  isolateLegacyAnalysis(card);card.setConfig({show_support:false});card._schedule=()=>{};
  let release,hold=true,active=0,maxActive=0;const pending=new Promise(r=>{release=()=>{hold=false;r();};});
  const requests=[];
  const hass={user:{id:'initial',is_admin:true},connection:{connected:true},states:{},services:{},config:{time_zone:'UTC',currency:'EUR'},callWS:async req=>{

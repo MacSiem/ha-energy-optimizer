@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { JSDOM } = require('jsdom');
+const { isolateLegacyAnalysis } = require('./helpers/legacy-analysis-fixture.cjs');
 const code = ['src/optimizer.js', 'src/energy-insights.js', 'src/energy-email.js', 'src/chart-vendor.js']
   .map(path => readFileSync(join(__dirname, '..', path), 'utf8')).join('');
 const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
@@ -14,6 +15,8 @@ for (const boundary of ['tab', 'remount', 'callWS']) {
     const dom = new JSDOM('', { runScripts: 'dangerously', url: 'http://localhost/' });
     dom.window.eval(code);
     const card = dom.window.document.createElement('ha-energy-insights');
+    // Already-authorized legacy unit coverage; real negotiation lives in energy-analysis-cards-v53.
+    isolateLegacyAnalysis(card);
     card._schedule = () => {};
     const connection = new dom.window.EventTarget(); connection.connected = true;
     let resolveFirst;

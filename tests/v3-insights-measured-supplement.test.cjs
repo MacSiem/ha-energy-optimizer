@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { JSDOM } = require('jsdom');
+const { isolateLegacyAnalysis } = require('./helpers/legacy-analysis-fixture.cjs');
 const code = ['src/optimizer.js', 'src/energy-insights.js', 'src/energy-email.js', 'src/chart-vendor.js'].map(p => readFileSync(join(__dirname, '..', p), 'utf8')).join('');
 const H = 3600000;
 const flush = drainBackend;
@@ -14,7 +15,10 @@ async function setup() {
   const NativeDate = dom.window.Date, now = Date.parse('2026-10-13T12:00Z');
   dom.window.Date = class extends NativeDate { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } };
   dom.window.eval(code);
-  const card = dom.window.document.createElement('ha-energy-insights'); card._schedule = () => {};
+  const card = dom.window.document.createElement('ha-energy-insights');
+  // Already-authorized legacy unit coverage; real negotiation lives in energy-analysis-cards-v53.
+  isolateLegacyAnalysis(card);
+  try { card._schedule = () => {};
   const profile = { schema: 1, currency: 'EUR', timezone: 'UTC', clock: { mode: 'civil' }, priceBasis: 'gross', defaultZone: 'a', zones: [{ id: 'a', energyRate: 0.2, variableRate: 0 }] };
   const prefs = { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }], device_consumption: [{ stat_consumption: 'sensor.device' }] };
   const md = { 'sensor.device': { has_sum: true, unit_class: 'energy', statistics_unit_of_measurement: 'MWh', name: 'Configured machine' } };
@@ -37,6 +41,11 @@ async function setup() {
   card.setConfig({ tariff_profile: profile, show_support: false }); dom.window.document.body.append(card);
   await card._fetchData(); await flush();
   return { dom, card, calls, observers, md, setDelegate(fn) { delegate = fn; }, close() { card._tariffConsumerUnsubscribeV3?.(); card._getTariffHostV3().guard.dispose(); dom.window.close(); } };
+  } catch (error) {
+    try { card.remove(); card._tariffHostController?.guard.dispose(); }
+    finally { dom.window.close(); }
+    throw error;
+  }
 }
 test('timeout keeps raw occupation until actual settlement, drops late measurements and re-enables explicit read', async () => {
   const f = await setup(); try {

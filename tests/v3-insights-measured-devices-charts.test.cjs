@@ -7,6 +7,7 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { JSDOM } = require('jsdom');
+const { isolateLegacyAnalysis } = require('./helpers/legacy-analysis-fixture.cjs');
 const code = ['src/optimizer.js', 'src/energy-insights.js', 'src/energy-email.js', 'src/chart-vendor.js']
   .map(p => readFileSync(join(__dirname, '..', p), 'utf8')).join('');
 const H = 3600000;
@@ -21,6 +22,9 @@ async function fixture({ now = '2026-10-25T05:00:00Z', zone = 'Europe/Warsaw', d
   dom.window.Date = class extends NativeDate { constructor(...args) { super(...(args.length ? args : [end])); } static now() { return end; } };
   dom.window.eval(code);
   const card = dom.window.document.createElement('ha-energy-insights');
+  // Already-authorized legacy unit coverage; real negotiation lives in energy-analysis-cards-v53.
+  isolateLegacyAnalysis(card);
+  try {
   card._schedule = () => {};
   const calls = [], responses = [];
   const prefs = { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }], device_consumption: devices || [
@@ -58,6 +62,11 @@ async function fixture({ now = '2026-10-25T05:00:00Z', zone = 'Europe/Warsaw', d
   await card._fetchData(); await flush();
   return { dom, card, hass, calls, responses, prefs, metadata, setHandler(fn) { handler = fn; },
     close() { card._tariffConsumerUnsubscribeV3?.(); card._getTariffHostV3().guard.dispose(); dom.window.close(); } };
+  } catch (error) {
+    try { card.remove(); card._tariffHostController?.guard.dispose(); }
+    finally { dom.window.close(); }
+    throw error;
+  }
 }
 function change(f, key, value) {
   const input = f.card.shadowRoot.querySelector(`[data-insights-control="${key}"]`);

@@ -3,12 +3,15 @@ const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { join } = require('node:path');
 const { JSDOM } = require('jsdom');
+const { isolateLegacyAnalysis } = require('./helpers/legacy-analysis-fixture.cjs');
 const source = readFileSync(join(__dirname, '..', 'src', 'optimizer.js'), 'utf8');
 const H = 3600000;
 function setup() {
   const dom = new JSDOM('', { runScripts: 'dangerously', url: 'http://localhost/' });
   dom.window.eval(source + '\nwindow.patternsFactoryForTest = createEnergyPatternsV3;');
   const card = dom.window.document.createElement('ha-energy-optimizer');
+  // Already-authorized legacy unit coverage; real negotiation lives in energy-analysis-cards-v53.
+  isolateLegacyAnalysis(card);
   dom.window.document.body.append(card);
   let calls = 0;
   card._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, language: 'en', locale: { language: 'en' }, config: { time_zone: 'Europe/Warsaw' }, states: {}, callWS: () => { calls++; throw Error('Unexpected WS'); } };

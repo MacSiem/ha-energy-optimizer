@@ -3,6 +3,7 @@
 const {energyBackend,drainBackend}=require('./helpers/energy-backend-fixture.cjs');
 const { test } = require('node:test'); const assert = require('node:assert/strict');
 const { JSDOM } = require('jsdom'); const fs = require('node:fs'); const path = require('node:path');
+const { isolateLegacyAnalysis } = require('./helpers/legacy-analysis-fixture.cjs');
 const source = fs.readFileSync(path.join(__dirname, '../src/energy-email.js'), 'utf8');
 const settle = drainBackend;
 const deferred = () => { let resolve; const promise = new Promise(r=>resolve=r); return { promise, resolve }; };
@@ -11,7 +12,10 @@ const row = extra => ({ id: 'energy-existing', kind: 'energy_report', cadence: '
 function fixture(t, options={}) {
   const dom=new JSDOM('',{url:'http://localhost/',runScripts:'outside-only',pretendToBeVisual:true}); t.after(()=>dom.window.close());
   const w=dom.window; w.eval('const ENERGY_OPTIMIZER_DONATE_HTML=""; const bindEnergySupport=()=>{}; const energySupportDismissed=()=>true;\n' + source);
-  const card=w.document.createElement('ha-energy-email'); card._firstRender=true; card._discoveryDone=true; card._lastPeriodRefresh=Date.now(); card._emailBackendChecked=true;
+  const card=w.document.createElement('ha-energy-email');
+  // Already-authorized legacy unit coverage; real negotiation lives in energy-analysis-cards-v53.
+  if(options.legacyAnalysis) isolateLegacyAnalysis(card);
+  card._firstRender=true; card._discoveryDone=true; card._lastPeriodRefresh=Date.now(); card._emailBackendChecked=true;
   card._emailBackendAvailable=true; card._emailBackendConfig={smtp_configured:true}; card._schedule=()=>{}; card._config.show_support=false;
   let rows=options.rows||[row()]; const calls=[]; const services=[]; const connection=new w.EventTarget(); connection.connected=true;
   const hass={user:{id:'a',is_admin:true},connection,config:{currency:'EUR',time_zone:'Europe/Warsaw'},states:options.states||{},language:options.lang||'en',
@@ -156,8 +160,8 @@ for(const backendVersion of ['2.1.2','2.1.99','2.2.0b1']) test('actual Energy so
 
 const tariffFixtureProfile = {schema:1,name:'Fixture',currency:'CHF',timezone:'UTC',
  clock:{mode:'civil'},priceBasis:'gross',defaultZone:'a',zones:[{id:'a',energyRate:2,variableRate:0}]};
-async function confirmedTariffFixture(t, nextRead) {
- const f=fixture(t);const original=f.hass.callWS;let reads=0;
+async function confirmedTariffFixture(t, nextRead, options={}) {
+ const f=fixture(t,options);const original=f.hass.callWS;let reads=0;
  f.hass.config.currency='PLN';f.card._config.energy_price=0.7;
  f.hass.callWS=energyBackend(f.card,async msg=>{
   if(msg.type!=='ha_tools_email/get_tariff')return original(msg);
@@ -210,7 +214,7 @@ test('shared tariff confirmed before offline/online is reconfirmed on the first 
 });
 
 test('Email Overview period selection reconfirms shared tariff even when Recorder cache is fresh',async t=>{
- const f=await confirmedTariffFixture(t,()=>({profile:tariffFixtureProfile,revision:4,updated_at:null}));
+ const f=await confirmedTariffFixture(t,()=>({profile:tariffFixtureProfile,revision:4,updated_at:null}),{legacyAnalysis:true});
  f.card._periodCacheTime_week=Date.now();f.click('overview-period-week');await settle();
  assert.equal(f.card._overviewPeriod,'week');assert.match(f.root.getElementById('price-display').textContent,/CHF Fixture/);
  assert.equal(f.calls.filter(c=>c.type.endsWith('/get_tariff')).length,2);

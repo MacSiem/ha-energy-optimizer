@@ -1,5 +1,6 @@
 'use strict';
 const {test}=require('node:test');const assert=require('node:assert/strict');const {readFileSync}=require('node:fs');const {JSDOM}=require('jsdom');
+const { isolateLegacyAnalysis } = require('./helpers/legacy-analysis-fixture.cjs');
 const code=['src/optimizer.js','src/energy-insights.js','src/energy-email.js','src/chart-vendor.js'].map(p=>readFileSync(p,'utf8')).join('');
 // Normal race cases need the full navigation UI, which requires completed
 // Today hours. Dedicated clock cases below also qualify the midnight model.
@@ -8,6 +9,9 @@ async function fixture(type, clock='2026-10-16T12:30:00Z'){
  if(clock){const NativeDate=dom.window.Date;const stamp=Date.parse(clock);dom.window.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[stamp]));}static now(){return stamp;}};}
  dom.window.eval(code);
  const card=dom.window.document.createElement(type),calls=[];let release;
+  // Already-authorized legacy unit coverage; real negotiation lives in energy-analysis-cards-v53.
+  isolateLegacyAnalysis(card);
+  try {
  card._schedule=()=>{};card._loadChartJs=()=>{};card._discoverAll=async()=>{};card._loadSharedTariffProfile=async()=>{};
  const hass={user:{id:'A',is_admin:true},connection:{connected:true},language:'en',locale:{language:'en'},config:{time_zone:'UTC',currency:'EUR'},states:{},callWS:async req=>{
   calls.push(req);if(release)await release.promise;
@@ -24,6 +28,11 @@ async function fixture(type, clock='2026-10-16T12:30:00Z'){
  const value=()=>type==='ha-energy-insights'?card._data?.monthKwh:type==='ha-energy-email'?card._getAutoDataForPeriod('day')[0]?.month:card._energyModel?.summary(card._energyModel.start,card._energyModel.end).total??null;
  assert.ok(value()>0,'fixture must first accept real Recorder measurements');
  return {card,dom,hass,calls,fetch,value,hold(){let resolve;const promise=new Promise(r=>resolve=r);release={promise,resolve};return ()=>{release=null;resolve();};},close(){card._getTariffHostV3().guard.dispose();dom.window.close();}};
+  } catch (error) {
+    try { card.remove(); card._tariffHostController?.guard.dispose(); }
+    finally { dom.window.close(); }
+    throw error;
+  }
 }
 for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email'])for(const change of ['connection','user','timezone','null'])test(`${type} removes settled measurements on ${change}, including an in-place hass mutation`,async()=>{
  const f=await fixture(type);try{

@@ -3,12 +3,15 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const {readFileSync} = require('node:fs');
 const {JSDOM} = require('jsdom');
+const { isolateLegacyAnalysis } = require('./helpers/legacy-analysis-fixture.cjs');
 const code = ['optimizer.js','energy-insights.js','energy-email.js','chart-vendor.js'].map(name => readFileSync('src/'+name,'utf8')).join('');
 const tick = () => new Promise(resolve => setImmediate(resolve));
 async function fixture(partial = false) {
   const dom = new JSDOM('', {runScripts:'dangerously',url:'http://localhost/'});
   dom.window.eval(code);
   const card = dom.window.document.createElement('ha-energy-email');
+  // Already-authorized legacy unit coverage; real negotiation lives in energy-analysis-cards-v53.
+  isolateLegacyAnalysis(card);
   card.setConfig({show_support:false});
   card._schedule = () => {}; // No wall-clock timer is needed for ordinary setter updates.
   const calls = []; let release, holding = true, occupied = 0, maxOccupied = 0;

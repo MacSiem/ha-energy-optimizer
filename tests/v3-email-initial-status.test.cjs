@@ -3,6 +3,7 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
 const { JSDOM } = require('jsdom');
+const { isolateLegacyAnalysis } = require('./helpers/legacy-analysis-fixture.cjs');
 const code = ['src/optimizer.js', 'src/energy-insights.js', 'src/energy-email.js', 'src/chart-vendor.js']
   .map(path => readFileSync(path, 'utf8')).join('');
 
@@ -12,6 +13,8 @@ for (const outcome of ['partial', 'no_sources', 'error']) test(`Email first read
   const dom = new JSDOM('', { runScripts: 'dangerously', url: 'http://localhost/' });
   dom.window.eval(code);
   const card = dom.window.document.createElement('ha-energy-email');
+  // Already-authorized legacy unit coverage; real negotiation lives in energy-analysis-cards-v53.
+  isolateLegacyAnalysis(card);
   const calls = [];
   card._schedule = () => {};
   card._loadEmailBackendConfig = async () => {};
@@ -62,6 +65,8 @@ test('Email discovery completion cannot redraw the replacement household session
   const dom = new JSDOM('', { runScripts: 'dangerously', url: 'http://localhost/' });
   dom.window.eval(code);
   const card = dom.window.document.createElement('ha-energy-email');
+  // Already-authorized legacy unit coverage; real negotiation lives in energy-analysis-cards-v53.
+  isolateLegacyAnalysis(card);
   let resume;
   const pending = new Promise(resolve => { resume = resolve; });
   const calls = [];
