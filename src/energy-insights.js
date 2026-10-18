@@ -253,7 +253,7 @@ createFormatUi.forHass = hass => {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=0b0f6dd8509b11c5e1c82c15a76fed06e92fcaf4922eeb1478db0795c8af18e3
+      // HA_TARIFF_V3_START sha256=ef4b5731b9036cc655302868c2a88066690bad32f1b3a5e5cc4d8be37e160b8d
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -909,7 +909,7 @@ ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is 
 
 // Pricing stays in HA Tools Email. This controller only queues bounded reads,
 // validates replies and combines already-priced measurement partitions.
-function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRevision = () => {}}) {
+function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRevision = () => {}, refreshMs = 30000, retryMs = 300000}) {
   const canonical = value => JSON.stringify(value, (_, v) => v && typeof v === 'object' && !Array.isArray(v)
     ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v);
   const copy = value => value == null ? value : JSON.parse(JSON.stringify(value));
@@ -917,11 +917,12 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
   const number = v => v === null || finite(v);
   const stamp = v => finite(v) ? Math.trunc(v) : typeof v === 'string' && /T.*(?:Z|[+-]\d{2}:\d{2})$/.test(v) ? Date.parse(v) : NaN;
   const clock = value => value && ['civil','fixed'].includes(value.mode) && (value.mode !== 'fixed' || Number.isInteger(value.offsetMinutes) && Math.abs(value.offsetMinutes) <= 840);
-  let context, generation = 0, busy = false, scheduled = false, snapshotSlot = null, snapshotWindow = null;
+  let context, generation = 0, busy = false, scheduled = false, snapshotSlot = null, snapshotWindow = null, refreshTimer = null;
   const records = new Map(), jobs = [];
   const clear = () => {
+    clearTimeout(refreshTimer); refreshTimer = null;
     generation++; records.clear(); jobs.length = 0; context = undefined;
-    snapshotSlot = null; snapshotWindow = null; card._energySnapshotV5 = null;
+    snapshotSlot = null; snapshotWindow = null; card._energySnapshotV5 = null; card._energyPriceStatusV5 = null;
   };
   guard.subscribe(clear);
   const active = () => {
@@ -995,6 +996,8 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
   const still = (token, version, key) => guard.current(token) && version===generation && context===key && canonical(describe())===key;
   const flush = async () => {
     if(busy || guard.occupied() || !jobs.length) return;
+    for(let i=jobs.length-1;i>=0;i--) if(jobs[i].record?.failed) jobs.splice(i,1);
+    if(!jobs.length) return;
     const token=guard.snapshot();
     if(!guard.available(token)) return;
     const descriptor=active(),version=generation,key=context;
@@ -1042,7 +1045,8 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     } catch(error) {
       if(still(token,version,key)) {
         if(isSnapshot) card._energySnapshotV5=null;
-        else for(const job of batch) {job.record.failed=true;job.record.value=unknown(job.record.buckets,descriptor,error?.code==='invalid_energy_price_queries'?'backend_request_limit':'backend_unavailable');}
+        else for(const job of batch) {job.record.failed=true;job.record.retryAfter=Date.now()+retryMs;job.record.value=unknown(job.record.buckets,descriptor,error?.code==='invalid_energy_price_queries'?'backend_request_limit':'backend_unavailable');}
+        if(!isSnapshot) card._energyPriceStatusV5=error?.code==='invalid_energy_price_queries'?'backend_request_limit':'backend_unavailable';
         onPrices();
       }
     } finally {busy=false;if(jobs.length) schedule();}
@@ -1052,9 +1056,11 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     const token=guard.snapshot();
     const descriptor=active();
     const rows=Array.isArray(buckets)?buckets:[];
-    if(!guard.available(token)) return unknown(rows,descriptor,'backend_unavailable');
+    if(!guard.available(token) || descriptor.ready === false) return unknown(rows,descriptor,'backend_unavailable');
     const key=canonical([rows,coverage ?? null]);
-    if(records.has(key)) return records.get(key).value;
+    const existing=records.get(key);
+    if(existing && !(existing.failed && existing.retryAfter <= Date.now() && !guard.occupied())) return existing.value;
+    if(existing) records.delete(key);
     const record={buckets:copy(rows),coverage:copy(coverage),value:unknown(rows,descriptor),parts:[],offsets:[],remaining:0,failed:false};
     records.set(key,record);
     try {
@@ -1062,13 +1068,26 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
       record.remaining=partitions.length;
       partitions.forEach((part,i)=>{record.offsets[i]=part.offset;jobs.push({...part,record,part:i});});
       schedule();
-    } catch(_) {record.failed=true;record.value=unknown(rows,descriptor,'backend_request_limit');}
+    } catch(_) {record.failed=true;record.retryAfter=Infinity;record.value=unknown(rows,descriptor,'backend_request_limit');card._energyPriceStatusV5='backend_request_limit';}
     return record.value;
   };
+  const armRefresh = () => {
+    if(refreshTimer !== null || !card.isConnected || !guard.available(guard.snapshot())) return;
+    refreshTimer=setTimeout(()=>{
+      refreshTimer=null;
+      const token=guard.snapshot();
+      if(!card.isConnected || !guard.available(token)) return;
+      // Expired failures may be retried only after the old raw request settles.
+      if(!guard.occupied()) for(const [key,record] of records) if(record.failed && record.retryAfter<=Date.now()) records.delete(key);
+      snapshot();onPrices();
+    }, refreshMs);
+    refreshTimer?.unref?.();
+  };
   const snapshot = () => {
-    guard.snapshot();active();const window=Math.floor(Date.now()/30000);
+    guard.snapshot();const descriptor=active();
+    armRefresh();const window=Math.floor(Date.now()/refreshMs);
     if(snapshotWindow!==window) {card._energySnapshotV5=null;snapshotSlot=null;snapshotWindow=window;}
-    if(!snapshotSlot && guard.available(guard.snapshot())) {snapshotSlot={snapshot:true};jobs.unshift(snapshotSlot);schedule();}
+    if(descriptor.ready !== false && !snapshotSlot && guard.available(guard.snapshot())) {snapshotSlot={snapshot:true};jobs.unshift(snapshotSlot);schedule();}
     return card._energySnapshotV5;
   };
   return {priceBuckets,snapshot,invalidate:clear};
@@ -1096,7 +1115,8 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   const describe = () => {
     const shared = !Object.hasOwn(card._config || {}, 'tariff_profile') && card._sharedTariffProfile != null &&
       card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, identity());
-    return {profile: activeProfile() ?? null, source: shared ? 'shared' : 'override', revision: shared ? state().revision : null};
+    return {profile: activeProfile() ?? null, source: shared ? 'shared' : 'override', revision: shared ? state().revision : null,
+      ready: Object.hasOwn(card._config || {}, 'tariff_profile') || card._sharedTariffReadStatus === 'success'};
   };
   const backend = createEnergyBackendV5({card,guard,describe,
     onPrices: () => { if (card.isConnected) card._repriceTariffV3?.(); },
@@ -1192,6 +1212,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     [data-tariff-details]>summary{min-height:44px;display:flex;align-items:center;padding:10px;border:1px solid var(--divider-color,#d8dce5);border-radius:10px;cursor:pointer;overflow-wrap:anywhere}
     [data-tariff-details]>summary:focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}
     </style>${card._sharedTariffReadStatus === 'unconfirmed' ? `<p role="status">${text('Shared tariff could not be confirmed. Reload explicitly to confirm prices. No tariff cost is guessed.', 'Nie udało się potwierdzić wspólnej taryfy. Wczytaj ponownie, aby potwierdzić ceny. Koszt taryfy nie jest zgadywany.')}</p>` : ''}
+    ${card._energyPriceStatusV5 === 'backend_request_limit' ? `<p role="status">${text('This history exceeds the pricing limit. Choose a shorter period or simplify the tariff, then reload the tariff.', 'Ta historia przekracza limit wyceny. Wybierz krótszy okres lub uprość taryfę i wczytaj ją ponownie.')}</p>` : card._energyPriceStatusV5 === 'backend_unavailable' ? `<p role="status">${text('Energy pricing is unavailable. Check HA Tools Email and reload the tariff; unknown cost is not zero.', 'Wycena energii jest niedostępna. Sprawdź HA Tools Email i wczytaj taryfę ponownie; nieznany koszt nie oznacza zera.')}</p>` : ''}
     <details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
     ${Object.hasOwn(card._config || {}, 'tariff_profile') ? `<p>${text('This card uses its own configured tariff. Shared settings apply to cards using the shared profile.', 'Ta karta używa własnej skonfigurowanej taryfy. Ustawienia współdzielone dotyczą kart korzystających ze wspólnego profilu.')}</p>` : ''}
     <div data-tariff-mount></div></details>`;
@@ -2218,13 +2239,13 @@ this._installTariffConsumerV3();
           .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; }
           .stat-card { background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 16px; text-align: center; min-width: 0; overflow: hidden; box-shadow: var(--bento-shadow-sm); }
           .stat-card:hover { box-shadow: var(--bento-shadow-md); }
-          .stat-label { font-size: 11px; font-weight: 500; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .4px; margin-top: 2px; }
+          .stat-label { font-size:12px; font-weight: 500; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .4px; margin-top: 2px; }
           .stat-value { font-size: 24px; font-weight: 700; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.2; }
           .stat-value.highlight { color: var(--bento-primary); }
-          .stat-sub { font-size: 11px; color: var(--bento-text-secondary); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          .stat-sub { font-size:12px; color: var(--bento-text-secondary); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
           .recommendation { background: var(--bento-primary-light); border: 1px solid rgba(59,130,246,.2); border-radius: var(--bento-radius-sm); padding: 14px 16px; font-size: 13px; color: var(--bento-text); margin-bottom: 16px; display: flex; align-items: flex-start; gap: 10px; }
           .recommendation-icon { font-size: 18px; flex-shrink: 0; }
-          .trend-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+          .trend-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size:12px; font-weight: 600; }
           .trend-up { background: var(--bento-error-light); color: var(--bento-error); }
           .trend-down { background: var(--bento-success-light); color: var(--bento-success); }
           .trend-neutral { background: rgba(158,158,158,.15); color: #9e9e9e; }
@@ -2232,7 +2253,7 @@ this._installTariffConsumerV3();
           .device-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; }
           .device-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--bento-radius-xs); transition: background .15s; }
           .device-row:hover { background: var(--bento-primary-light); }
-          .device-rank { font-size: 11px; font-weight: 700; color: var(--bento-primary); width: 24px; flex-shrink: 0; text-align: center; }
+          .device-rank { font-size:12px; font-weight: 700; color: var(--bento-primary); width: 24px; flex-shrink: 0; text-align: center; }
           .device-name { font-size: 13px; font-weight: 500; flex: 1; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
           .device-bar-wrap { width: 70px; height: 6px; background: var(--bento-border); border-radius: 4px; overflow: hidden; flex-shrink: 0; }
           .device-bar { height: 100%; background: var(--bento-primary); border-radius: 4px; transition: width .4s; }
@@ -2266,7 +2287,7 @@ this._installTariffConsumerV3();
           }
           @media (max-width: 480px) {
             .tabs { gap: 1px; }
-            .tab-btn { padding: 5px 8px; font-size: 11px; }
+            .tab-btn { padding: 5px 8px; font-size:12px; }
             .stat-value { font-size: 18px; }
           }
           @media (max-width: 360px) {
@@ -2621,7 +2642,11 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   Card.prototype.getGridOptions = function() { return { columns: this._config?.compact ? 6 : 12, min_columns: 3, min_rows: this._config?.compact ? 2 : 3 }; };
   const originalSize = Card.prototype.getCardSize;
   Card.prototype.getCardSize = function() { return this._config?.compact && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
-  const style = `:host{display:block;min-width:0} [data-energy-options-help], [data-energy-compact]{box-sizing:border-box;padding:16px;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border-radius:12px;font-size:14px;overflow-wrap:anywhere} [data-energy-options-help] summary, [data-energy-expand]{min-height:44px;box-sizing:border-box;padding:12px;cursor:pointer} [data-energy-compact] dl{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin:12px 0} [data-energy-compact] dt{font-size:13px;color:var(--secondary-text-color,#50545b)} [data-energy-compact] dd{margin:0 0 12px;font-weight:600;font-size:18px} [data-energy-expand]{color:var(--primary-text-color,#202124);background:var(--secondary-background-color,#eee);border:1px solid var(--divider-color,#888);border-radius:8px;font:inherit} [data-energy-options-help] summary:focus-visible,[data-energy-expand]:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}`;
+  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
+:host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
+.stat,.stat-card{background:var(--energy-kpi-tone)!important}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)!important}
+.btn-primary,button.btn-primary{color:var(--bento-on-primary)}
+ [data-energy-options-help], [data-energy-compact]{box-sizing:border-box;padding:16px;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border-radius:12px;font-size:14px;overflow-wrap:anywhere} [data-energy-options-help] summary, [data-energy-expand]{min-height:44px;box-sizing:border-box;padding:12px;cursor:pointer} [data-energy-compact] dl{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin:12px 0} [data-energy-compact] dt{font-size:13px;color:var(--secondary-text-color,#50545b)} [data-energy-compact] dd{margin:0 0 12px;font-weight:600;font-size:18px} [data-energy-expand]{color:var(--primary-text-color,#202124);background:var(--secondary-background-color,#eee);border:1px solid var(--divider-color,#888);border-radius:8px;font:inherit} [data-energy-options-help] summary:focus-visible,[data-energy-expand]:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}`;
   const render = Card.prototype._render;
   Card.prototype._render = function(...args) {
     const config = this._config || {};

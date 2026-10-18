@@ -165,7 +165,7 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     return record.value;
   };
   const armRefresh = () => {
-    if(refreshTimer !== null || !card.isConnected) return;
+    if(refreshTimer !== null || !card.isConnected || !guard.available(guard.snapshot())) return;
     refreshTimer=setTimeout(()=>{
       refreshTimer=null;
       const token=guard.snapshot();
