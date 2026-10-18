@@ -75,7 +75,7 @@ test('peak hour uses one absolute bucket rather than the sum of repeated local h
     // The legacy wall-clock aggregate falsely makes 02:00 the sole maximum (2 kWh).
     assert.equal(f.card._getPeakHour(),0,'first maximum actual interval is local midnight');
     const peak=f.card.shadowRoot.querySelector('[data-dashboard-peak]');assert.ok(peak);
-    assert.match(peak.textContent,/00:00/);assert.match(peak.textContent,/GMT\+(?:02:00|2)(?!\d)/);
+    assert.match(peak.textContent,/00:00/);assert.doesNotMatch(peak.textContent,/GMT/,'summary omits offset when display timezone equals HA; exact rows retain offsets');
     assert.equal(peak.dataset.kwh,'1');
   }finally{f.close();}
 });
