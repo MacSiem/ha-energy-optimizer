@@ -2698,6 +2698,7 @@ this._installTariffConsumerV3();
   }
 
   _bindPatterns() {
+    if(!this._analysisLegacyAllowedV53())return;
     const panel = this.shadowRoot.getElementById('patterns');
     if (!panel) return;
     const state = this._patternsState;
@@ -3588,7 +3589,7 @@ canvas {
     if (picker) picker.value = String(buttons.findIndex(button => button.dataset.tab === tabName));
     if(!this._analysisLegacyAllowedV53()) {
       for(const tab of tabs)tab.replaceChildren();
-      if(tabEl)tabEl.innerHTML=`<div data-analysis-mount-v53 data-analysis-section="${tabName==='recommendations'?'rates':tabName==='compare'?'comparison':'overview'}"></div>`;
+      if(tabEl)tabEl.innerHTML=`<div data-analysis-mount-v53 data-analysis-section="${tabName==='patterns'?'patterns':tabName==='recommendations'?'rates':tabName==='compare'?'comparison':'overview'}"></div>`;
       this._syncAnalysisV53();return;
     }
     // Before legacy measurements arrive, the empty state has no tab container.

@@ -4,10 +4,10 @@ function createEnergyAnalysisBindingV53({card, controller, onInvalidate = () => 
   let generation=0, intent=0, identity=null, activation=null, enabled=false, failure=null, access='pending', probe=null;
   const subscriptions=new Set();
   const context=()=>({connection:card?._hass?.connection,user:card?._hass?.user?.id,
-    active:card?._hass?.user?.is_active,zone:card?._hass?.config?.time_zone,available:card?.isConnected!==false &&
-    card?._hass?.connection?.connected!==false && card?._hass?.user?.is_active!==false && !!card?._hass?.user?.id});
+    active:card?._hass?.user?.is_active,admin:card?._hass?.user?.is_admin,online:card?._hass?.connected,zone:card?._hass?.config?.time_zone,available:card?.isConnected!==false &&
+    card?._hass?.connected!==false && card?._hass?.connection?.connected!==false && card?._hass?.user?.is_active!==false && !!card?._hass?.user?.id});
   const same=(a,b)=>a && b && a.connection===b.connection && a.user===b.user &&
-    a.zone===b.zone && a.active===b.active && a.available===b.available;
+    a.zone===b.zone && a.active===b.active && a.admin===b.admin && a.online===b.online && a.available===b.available;
   const stop=()=>{
     generation++;intent++;enabled=false;identity=null;activation=null;failure=null;access='pending';probe=null;
     for(const unsubscribe of subscriptions) {try{unsubscribe();}catch(_){} }
@@ -42,6 +42,7 @@ function createEnergyAnalysisBindingV53({card, controller, onInvalidate = () => 
     const ready=start(), selected=++intent;
     if(await ready && enabled && selected===intent && same(identity,context())) {
       if(access==='ack')return controller.read(selection);
+      if(selection?.kind==='patterns'){stop();failure='patterns_backend_upgrade_required';return observe();}
       if(access==='legacy')return observe();
       if(access==='probe' || access==='probing') {
         // Share the single controller probe across selection changes. Observe
