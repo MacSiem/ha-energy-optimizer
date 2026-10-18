@@ -14,7 +14,7 @@ const sources = manifest.sources.map(source => {
 });
 const sharedPath = 'shared/ha-tools-email-schedules.js';
 const shared = fs.readFileSync(path.join(root, sharedPath), 'utf8');
-const inline = shared.replace(/^export function /m, 'function ').trimEnd() + '\n';
+const inline = shared.replace(/^export function /gm, 'function ').trimEnd() + '\n';
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 const provenance = { path: sharedPath, sha256: digest(shared), inlineSha256: digest(inline) };
 const matches = [...sources[2].matchAll(/\/\/ BEGIN vendored ha-tools-email-schedules factory\n([\s\S]*?)\/\/ END vendored ha-tools-email-schedules factory/g)];
