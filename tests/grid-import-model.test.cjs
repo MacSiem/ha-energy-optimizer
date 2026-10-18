@@ -248,7 +248,7 @@ test('Insights shows an honest empty state when one configured grid source has n
   try {
     const insights = dom.window.document.createElement('ha-energy-insights');
     insights._updateContent = () => {};
-    insights._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { currency: 'EUR' }, states: {}, callWS: async msg => ({
+    insights._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { currency: 'EUR', time_zone: 'UTC' }, states: {}, callWS: async msg => ({
       'energy/get_prefs': { energy_sources: [
         { type: 'grid', stat_energy_from: 'sensor.grid_a' },
         { type: 'grid', stat_energy_from: 'sensor.grid_b' },
@@ -273,7 +273,7 @@ test('Energy Email requires timestamped backend pricing and preserves an explici
   const { dom } = cardWith({});
   try {
     const email = dom.window.document.createElement('ha-energy-email');
-    email._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { currency: 'EUR' } };
+    email._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { currency: 'EUR', time_zone: 'UTC' } };
     assert.equal(email._getAvgRate(), null);
     assert.equal(email._cost(5), null);
     assert.equal(email._formatCost(email._cost(5)), 'N/A');

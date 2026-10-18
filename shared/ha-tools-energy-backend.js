@@ -109,7 +109,7 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     if(!isSnapshot) request.queries=batch.map(j=>({buckets:j.buckets}));
     try {
       const result=await guard.call(token,request);
-      if(!still(token,version,key) || !envelope(result,descriptor)) return;
+      if(!still(token,version,key) || isSnapshot && snapshotSlot !== batch[0] || !envelope(result,descriptor)) return;
       if(isSnapshot) {
         const r=result;
         if(!['ready','partial','unavailable'].includes(r.status) || !finite(stamp(r.generated_at)) || !r.current || typeof r.current.available!=='boolean' ||
@@ -179,7 +179,11 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
   const snapshot = () => {
     guard.snapshot();const descriptor=active();
     armRefresh();const window=Math.floor(Date.now()/refreshMs);
-    if(snapshotWindow!==window) {card._energySnapshotV5=null;snapshotSlot=null;snapshotWindow=window;}
+    if(snapshotWindow!==window) {
+      card._energySnapshotV5=null;snapshotSlot=null;snapshotWindow=window;
+      // The raw request keeps its slot. At most one newest snapshot waits for it.
+      for(let i=jobs.length-1;i>=0;i--) if(jobs[i].snapshot) jobs.splice(i,1);
+    }
     if(descriptor.ready !== false && !snapshotSlot && guard.available(guard.snapshot())) {snapshotSlot={snapshot:true};jobs.unshift(snapshotSlot);schedule();}
     return card._energySnapshotV5;
   };

@@ -28,7 +28,7 @@ for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email']
   const restored=root.querySelector('[data-energy-period-details]');assert.equal(restored.open,true,'same-period disclosure survives repaint');assert.equal(root.activeElement,restored.querySelector('summary'),'keyboard focus survives repaint');
 
   assert.match(root.textContent,type==='ha-energy-email'?/26,4/:/6,6/,'measured values use the HA decimal separator');
-  if(type==='ha-energy-optimizer'){card._currentTab='recommendations';card._render();assert.match(root.querySelector('#recommendations-list').textContent,/13,20/,'tariff totals use the HA decimal separator');}
+  if(type==='ha-energy-optimizer'){root.querySelector('[data-tab="recommendations"]').click();await drainBackend();card._render();assert.match(root.querySelector('#recommendations-list').textContent,/13,20/,'tariff totals use the HA decimal separator');}
   if(type==='ha-energy-email')assert.match(root.querySelector('.device-val').textContent,/26,4/,'source rows use the same HA number format');
  }finally{card._getTariffHostV3().guard.dispose();dom.window.close();}
 });
