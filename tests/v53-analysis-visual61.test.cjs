@@ -23,7 +23,7 @@ test('tiles and chart are primary; source metadata is disclosed once and all det
  for(const language of ['en','pl'])use(literal(),{},({root,w})=>{
   const tiles=root.querySelector('.analysis-tiles'),chart=root.querySelector('[data-analysis-chart]'),filters=root.querySelector('[data-analysis-filters]'),source=root.querySelector('[data-analysis-source-details]');
   assert.ok(tiles.compareDocumentPosition(filters)&w.Node.DOCUMENT_POSITION_FOLLOWING);assert.ok(chart.compareDocumentPosition(source)&w.Node.DOCUMENT_POSITION_FOLLOWING);
-  assert.equal(filters.tagName,'DIV');assert.ok(chart.compareDocumentPosition(filters)&w.Node.DOCUMENT_POSITION_FOLLOWING);assert.ok(!filters.closest('details')); 
+  assert.equal(filters.tagName,'DIV');assert.ok(chart.compareDocumentPosition(filters)&w.Node.DOCUMENT_POSITION_FOLLOWING);assert.ok(!filters.closest('details'));
   for(const name of ['anchor','comparison','level']){assert.equal(root.querySelectorAll('[data-analysis-action="'+name+'"]').length,1);assert.ok(filters.querySelector('[data-analysis-action="'+name+'"]'));}
   assert.equal(root.querySelectorAll('[data-analysis-action="period"]').length,4);assert.equal(root.querySelectorAll('[data-analysis-source-details]').length,1);
   assert.equal(source.tagName,'DETAILS');assert.match(source.textContent,/UTC/);assert.equal(root.querySelectorAll('.analysis-tile').length,4);
