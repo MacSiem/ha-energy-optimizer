@@ -5,10 +5,10 @@ function createEnergyAnalysisBindingV53({card, controller, onInvalidate = () => 
   let generation=0, intent=0, identity=null, activation=null, enabled=false, failure=null;
   const subscriptions=new Set();
   const context=()=>({connection:card?._hass?.connection,user:card?._hass?.user?.id,
-    zone:card?._hass?.config?.time_zone,available:card?.isConnected!==false &&
-    card?._hass?.connection?.connected!==false && !!card?._hass?.user?.id});
+    active:card?._hass?.user?.is_active,zone:card?._hass?.config?.time_zone,available:card?.isConnected!==false &&
+    card?._hass?.connection?.connected!==false && card?._hass?.user?.is_active!==false && !!card?._hass?.user?.id});
   const same=(a,b)=>a && b && a.connection===b.connection && a.user===b.user &&
-    a.zone===b.zone && a.available===b.available;
+    a.zone===b.zone && a.active===b.active && a.available===b.available;
   const stop=()=>{
     generation++;intent++;enabled=false;identity=null;activation=null;failure=null;
     for(const unsubscribe of subscriptions) {try{unsubscribe();}catch(_){} }

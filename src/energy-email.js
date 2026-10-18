@@ -809,6 +809,7 @@ function createHaToolsMailPresentation({ escape = value => String(value), langua
         const emailContextChanged = this._resetEmailContext(hass);
         this._resetTariffContext(hass);
         this._hass = hass;
+        this._analysisHostV53?.observe();
         this._serverSchedules.setContext(hass);
         this._mailPreview.setContext(hass);
         this._attemptHistory.setContext(hass);
@@ -2103,7 +2104,7 @@ this._installTariffConsumerV3();
       this._tariffWindowEnd = Math.floor(Date.now() / ENERGY_HOUR) * ENERGY_HOUR;
       let token = host.guard.observe();
       const current = () => host.guard.current(token);
-      const assertCurrent = () => { if (!current()) throw { code: 'energy_context_changed' }; };
+      const assertCurrent = () => { if (!current() || !this._analysisLegacyAllowedV53()) throw { code: 'energy_context_changed' }; };
       // The facade preserves readEnergyHours' complete source/unit/window behavior.
       const hass = { ...source, callWS: async request => {
         assertCurrent();
@@ -2625,6 +2626,7 @@ this._installTariffConsumerV3();
     }
 
     async _fetchRecorderStats(period) {
+      if(!this._analysisLegacyAllowedV53())return;
       const hours = { day: 24, week: 168, month: 720 }[period];
       if (!hours || !this._hass?.callWS) return;
       const cacheKey = `_periodCache_${period}`;
@@ -2696,6 +2698,7 @@ this._installTariffConsumerV3();
 
     // Coalesce refreshes and retry unavailable data without polling every HA update.
     async _fetchAllPeriodStats() {
+      if(!this._analysisLegacyAllowedV53())return;
       if (this._periodRefreshPromise) return this._periodRefreshPromise;
       let interrupted = false;
       this._lastPeriodRefresh = Date.now();
@@ -3202,10 +3205,24 @@ this._installTariffConsumerV3();
       });
     }
 
+    _clearAnalysisLegacyV53() {
+      for(const period of ['day','week','month']) {
+        for(const key of ['Cache','Raw','Window','Coverage'])this[`_period${key}_${period}`]=null;
+        this[`_periodStatus_${period}`]='no_data';this[`_periodCacheTime_${period}`]=0;
+      }
+      this._lastPeriodRefresh=0;
+    }
+    _loadAnalysisLegacyV53() {
+      this._render();void this._fetchAllPeriodStats().then(()=>{if(this.isConnected)this._renderTab();});
+    }
     _renderTab(fullRender = false) {
       if (!fullRender) this._checkActionFocus();
       const el = this.shadowRoot.getElementById('tab-content');
       if (!el) return;
+      if(this._activeTab==='overview' && !this._analysisLegacyAllowedV53()) {
+        el.innerHTML='<div data-analysis-mount-v53></div>';this._syncAnalysisV53();return;
+      }
+      if(this._activeTab!=='overview')this._analysisHostV53?.stop();
       const periodFormat = createFormatUi();
       const periodContext = this._getTariffHostV3().guard.snapshot();
       const periodUi = periodFormat.capturePeriods(this.shadowRoot, this._periodUiContextV4, periodContext);
@@ -3220,7 +3237,7 @@ this._installTariffConsumerV3();
         return;
       }
       switch (this._activeTab) {
-        case 'overview': el.innerHTML = this._tabOverview(); this._attachOverviewEvents(); break;
+        case 'overview': el.innerHTML = this._tabOverview(); this._attachOverviewEvents(); this._getAnalysisHostV53().mount(el); break;
         case 'schedule': el.innerHTML = this._tabSchedule(); this._attachScheduleEvents(); break;
         case 'preview':  el.innerHTML = this._tabPreview(); this._bindMailControls(); this._bindMailFrame('manual-mail-frame', this._mailPreview.model().preview); break;
         case 'send':     el.innerHTML = this._tabSend(); this._attachSendEvents(); break;
@@ -4396,7 +4413,18 @@ this._installTariffConsumerV3();
       this._schedule(() => toast.classList.remove('show'), 3500);
     }
 
+
+    _analysisIsActiveV53() {return this._activeTab==='overview';}
+    _getAnalysisHostV53() { return this._analysisHostV53 ||= this._getTariffHostV3().analysis(); }
+    _analysisLegacyAllowedV53() { return this._getAnalysisHostV53().legacyAllowed(); }
+    _syncAnalysisV53() {
+      const host=this._getAnalysisHostV53();
+      const mount=this.shadowRoot?.querySelector('[data-analysis-mount-v53]');
+      host.mount(mount, mount?.dataset.analysisSection || 'overview');
+    }
+
     connectedCallback() {
+      if(this._hass) {this._analysisHostV53?.observe();queueMicrotask(()=>{if(this.isConnected)this._render();});}
       if (this._tariffHostController) {
         this._tariffHostController.guard.resume();
         // Reconfirm shared prices for this mount; reuse settled measurements.
@@ -4406,6 +4434,7 @@ this._installTariffConsumerV3();
     }
 
     disconnectedCallback() {
+      this._analysisHostV53?.stop();
       this._optionsResizeV5?.disconnect();
       this._tariffHostController?.guard.suspend();
       this._clearEmailContext();

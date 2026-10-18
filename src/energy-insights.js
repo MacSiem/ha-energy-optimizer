@@ -1456,7 +1456,7 @@ this._installTariffConsumerV3();
       if (!devices) this._tariffWindowEnd = Math.floor(Date.now() / ENERGY_HOUR) * ENERGY_HOUR;
       let token = host.guard.observe();
       const current = () => host.guard.current(token);
-      const assertCurrent = () => { if (!current()) throw { code: 'energy_context_changed' }; };
+      const assertCurrent = () => { if (!current() || !this._analysisLegacyAllowedV53()) throw { code: 'energy_context_changed' }; };
       // The facade preserves readEnergyHours' complete source/unit/window behavior.
       const hass = { ...source, callWS: async request => {
         assertCurrent();
@@ -1550,6 +1550,7 @@ this._installTariffConsumerV3();
         }
         this._resetTariffContext(hass);
         this._hass = hass;
+        this._analysisHostV53?.observe();
         if (!hass) {
           this._insightResize?.disconnect();
           this.shadowRoot.replaceChildren();
@@ -1595,7 +1596,18 @@ this._installTariffConsumerV3();
       }
     }
 
+
+    _analysisIsActiveV53() {return true;}
+    _getAnalysisHostV53() { return this._analysisHostV53 ||= this._getTariffHostV3().analysis(); }
+    _analysisLegacyAllowedV53() { return this._getAnalysisHostV53().legacyAllowed(); }
+    _syncAnalysisV53() {
+      const host=this._getAnalysisHostV53();
+      const mount=this.shadowRoot?.querySelector('[data-analysis-mount-v53]') || (host.legacyAllowed() ? this.shadowRoot?.querySelector('.panel-body') : null);
+      host.mount(mount, mount?.dataset.analysisSection || 'overview', mount?.dataset.analysisPeriod);
+    }
+
     connectedCallback() {
+      if(this._hass) {this._analysisHostV53?.observe();queueMicrotask(()=>{if(this.isConnected)this._render();});}
       if (this._tariffHostController) {
         this._tariffHostController.guard.resume();
         // Reconfirm shared prices for this mount; reuse settled measurements.
@@ -1605,6 +1617,7 @@ this._installTariffConsumerV3();
     }
 
     disconnectedCallback() {
+      this._analysisHostV53?.stop();
       this._optionsResizeV5?.disconnect();
       this._insightResize?.disconnect();
       this._insightRenderEpoch++;
@@ -1634,6 +1647,7 @@ this._installTariffConsumerV3();
     _loadChartJs() { this._chartJsReady = true; } // Insights SVG needs no vendor or network load.
 
     async _fetchData() {
+      if(!this._analysisLegacyAllowedV53())return;
       if (!this._hass?.callWS || this._insightsReadPending || this._insightDevicePending || this._getTariffHostV3().guard.occupied()) return;
       const read = this._createEnergyReadV3();
       this._insightsReadPending = true;
@@ -1768,6 +1782,7 @@ this._installTariffConsumerV3();
         (row.unit_class == null || row.unit_class === 'energy') && ['Wh', 'kWh', 'MWh'].includes(unit);
     }
     _readInsightDevicesV3() {
+      if(!this._analysisLegacyAllowedV53())return;
       if (this._insightDevicePending) return this._insightDevicePending;
       const host = this._getTariffHostV3();
       const token = host.guard.observe();
@@ -2201,6 +2216,7 @@ this._installTariffConsumerV3();
       }
       this._bindTariffSettings();
       this._bindInsightContentV3();
+      this._syncAnalysisV53();
       this._restoreInsightFocusV3(focus);
       periodFormat.restorePeriods(this.shadowRoot, periodUi);
       // Update tab bar active state
@@ -2245,6 +2261,7 @@ this._installTariffConsumerV3();
       this._bindEvents();
       this._bindTariffSettings();
       this._bindInsightContentV3();
+      this._syncAnalysisV53();
       this._syncSupport();
       periodFormat.restorePeriods(this.shadowRoot, periodUi);
     }
@@ -2442,7 +2459,14 @@ this._installTariffConsumerV3();
       return `<div class="error-msg">⚠ ${_esc(this._error || this._t('error'))}</div>`;
     }
 
+    _clearAnalysisLegacyV53() {
+      this._insightsEnergyModel=null;this._data=null;this._insightProjectionCacheV3=null;
+      this._insightChartDataset=null;this._insightChartState=null;this._insightSourceCacheV3=null;
+      this._loading=false;this._error=null;this._lastDataFetch=0;this._clearInsightDevicesV3();
+    }
+    _loadAnalysisLegacyV53() {this._render();void this._fetchData();}
     _renderTabContent() {
+      if(!this._analysisLegacyAllowedV53())return `<div data-analysis-mount-v53 data-analysis-period="${({daily:'day',weekly:'week',monthly:'month'})[this._activeTab] || 'day'}"></div>`;
       if (!this._data) return this._renderInsightDevicesV3();
 
       if (this._data.noSensors) {

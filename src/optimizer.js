@@ -333,7 +333,18 @@ class HaEnergyOptimizer extends HTMLElement {
     this._generateRecommendations();
     this._generateComparisonData();
   }
+
+  _analysisIsActiveV53() {return true;}
+  _getAnalysisHostV53() { return this._analysisHostV53 ||= this._getTariffHostV3().analysis(); }
+  _analysisLegacyAllowedV53() { return this._getAnalysisHostV53().legacyAllowed(); }
+  _syncAnalysisV53() {
+    const host=this._getAnalysisHostV53();
+    const mount=this.shadowRoot?.querySelector('[data-analysis-mount-v53]');
+    host.mount(mount, mount?.dataset.analysisSection || 'overview');
+  }
+
   connectedCallback() {
+    if(this._hass) {this._analysisHostV53?.observe();queueMicrotask(()=>{if(this.isConnected)this._render();});}
     if (this._tariffHostController) {
       this._tariffHostController.guard.resume();
       // Reconfirm shared prices for this mount; reuse settled measurements.
@@ -343,6 +354,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
 
   disconnectedCallback() {
+    this._analysisHostV53?.stop();
     this._tariffHostController?.guard.suspend();
     this._timers.forEach(timer => clearTimeout(timer));
     this._timers.clear();
@@ -418,6 +430,7 @@ class HaEnergyOptimizer extends HTMLElement {
     }
     this._resetTariffContext(hass);
     this._hass = hass;
+      this._analysisHostV53?.observe();
     if (!hass) { if (previousHass) this._render(); return; }
     if (!measurementsChanged && previousHass && previousHass.connection === hass.connection && previousHass.user?.id === hass.user?.id &&
         previousHass.config?.time_zone === hass.config?.time_zone &&
@@ -478,6 +491,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
 
   async _fetchEnergyStats() {
+    if(!this._analysisLegacyAllowedV53())return;
     if (!this._hass || !this._hass.callWS) return;
     if (this._statsLoading) return;
     this._statsLoading = true;
@@ -1739,7 +1753,7 @@ this._installTariffConsumerV3();
       this._tariffWindowEnd = Math.floor(Date.now() / ENERGY_HOUR) * ENERGY_HOUR;
       let token = host.guard.observe();
       const current = () => host.guard.current(token);
-      const assertCurrent = () => { if (!current()) throw { code: 'energy_context_changed' }; };
+      const assertCurrent = () => { if (!current() || !this._analysisLegacyAllowedV53()) throw { code: 'energy_context_changed' }; };
       // The facade preserves readEnergyHours' complete source/unit/window behavior.
       const hass = { ...source, callWS: async request => {
         assertCurrent();
@@ -2725,7 +2739,22 @@ canvas {
       <pre><code tabindex="0">${_esc(selected ? 'power_entity: ' + selected : t('Select a sensor above.', 'Wybierz czujnik powyżej.'))}</code></pre></details></div>`;
   }
 
+  _clearAnalysisLegacyV53() {
+    this._energyModel=null;this._patternsDataset=null;this._patternsState=null;this._dashboardStateV3=null;
+    this._energyData=[];this._weeklyData=[];this._hasRealData=false;this._todayWindow=null;
+    this._comparisonData=null;this._recommendations=[];this._lastStatsFetch=0;
+    this._hourlyBucketCounts=[];this._energySensorIds=[];this._dayKeys=[];this._dashboardChartDatasetV3=null;
+  }
+  _loadAnalysisLegacyV53() {
+    this._render();void this._fetchEnergyStats();
+  }
   _getTemplate() {
+    if(!this._analysisLegacyAllowedV53()) {
+      const tabs=[['dashboard','Overview','Przegląd'],['patterns','Patterns','Wzorce'],['recommendations','Tariff costs','Koszty taryfy'],['compare','Compare','Porównanie']];
+      return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>${this._powerMarkupV4()}
+      <div class="tabs" role="tablist">${tabs.map(([id,en,pl])=>`<button class="tab-button" data-tab="${id}" role="tab">${this._text(en,pl)}</button>`).join('')}</div>
+      ${tabs.map(([id])=>`<div id="${id}" class="tab-content"></div>`).join('')}${this._tariffDetailsMarkup()}${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
+    }
     const format = createFormatUi.forHass(this._hass);
     const window = this._todayWindow, selected = window?.selected;
     const periodMarkup = window ? format.periodMarkup({ ...window, sourceTimeZone:this._energyModel?.zone, label: this._text('Today', 'Dziś'),
@@ -2860,6 +2889,12 @@ canvas {
     });
     const picker = this.shadowRoot.querySelector('.energy-tab-picker select');
     if (picker) picker.value = String(buttons.findIndex(button => button.dataset.tab === tabName));
+    if(!this._analysisLegacyAllowedV53()) {
+      for(const tab of tabs)tab.replaceChildren();
+      if(tabEl)tabEl.innerHTML=`<div data-analysis-mount-v53 data-analysis-section="${tabName==='recommendations'?'rates':tabName==='compare'?'comparison':'overview'}"></div>`;
+      this._syncAnalysisV53();return;
+    }
+    this._getAnalysisHostV53().mount(tabEl);
     if (tabName === 'patterns') return; // SVG observes its own size; navigation never refetches measurements.
     if (tabName === 'recommendations') this._renderRecommendations();
     // Draw charts after showing tab (needed for canvas sizing)
