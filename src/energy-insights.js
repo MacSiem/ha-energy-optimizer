@@ -253,7 +253,7 @@ createFormatUi.forHass = hass => {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=1f4f77178c8c78d33caa31ba014dc6de1f050bff38bd56fa43f62edaee15f904
+      // HA_TARIFF_V3_START sha256=95e93ee4c400f188c1ca48d538c5e91936cc4314112f7c23b218fc6ce135e51a
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -937,9 +937,11 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     priceBasis:descriptor.profile?.priceBasis || null,timezone:descriptor.profile?.timezone || null,
     clock:descriptor.profile?.clock || {},fixedMonthly:descriptor.profile?.fixedMonthly ?? null});
   const envelope = (result, descriptor) => {
-    if (!result || result.schema !== 1 || result.profile_source !== descriptor.source) return false;
+    if (!result || result.schema !== 1 || result.profile_source !== descriptor.source ||
+      (descriptor.source === 'shared' ? !Number.isSafeInteger(result.tariff_revision) || result.tariff_revision < 0 : result.tariff_revision !== null))
+      throw Error('invalid_backend_response');
     if (descriptor.source === 'shared' && result.tariff_revision !== descriptor.revision) {
-      clear(); onRevision(); return false;
+      clear(); onRevision(result.tariff_revision); return false;
     }
     return descriptor.source === 'shared' ? Number.isSafeInteger(result.tariff_revision) : result.tariff_revision === null;
   };
@@ -1129,7 +1131,24 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       cachedKey = undefined; cachedModel = undefined;
       if (card.isConnected) card._repriceTariffV3?.();
     },
-    onRevision: () => { card._sharedTariffReadStatus = 'unconfirmed'; cachedKey = undefined; cachedModel = undefined; }
+    onRevision: revision => {
+      const token = identity(), minimumRevision = Math.max(revision, state().revision || 0);
+      card._sharedTariffExpectedV3 = true;
+      card._sharedTariffReadStatus = 'unconfirmed';
+      card._sharedTariffProfile = null; card._sharedTariffAssociation = null; card._sharedTariffLoadedAt = 0;
+      cachedKey = undefined; cachedModel = undefined;
+      // Clear derived UI immediately; automatic confirmation is a read only and
+      // must never release the editor's uncertain-write fence via onRefresh.
+      if (card.isConnected) card._repriceTariffV3?.();
+      queueMicrotask(async () => {
+        if (!card.isConnected || !guard.current(token)) return;
+        const confirmed = await load(true, minimumRevision);
+        if (guard.current(token) && card.isConnected) {
+          if (!confirmed || state().revision < minimumRevision) card._sharedTariffReadStatus = 'unconfirmed';
+          card._repriceTariffV3?.();
+        }
+      });
+    }
   });
   const model = function (proposed) {
     identity();
@@ -1159,7 +1178,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   guard.subscribe(purge);
   const reset = (...nextHass) => guard.observe(...nextHass);
-  const load = async (force = false) => {
+  const load = async (force = false, minimumRevision = 0) => {
     const token = identity();
     if (!guard.available(token)) return false;
     if (card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, token)) return true;
@@ -1170,7 +1189,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       try {
         const result = await guard.call(token, { type: 'ha_tools_email/get_tariff' });
         if (!guard.current(token)) return false;
-        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0 ||
+        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < minimumRevision ||
           !Object.hasOwn(result, 'updated_at') || (result.updated_at !== null &&
           (typeof result.updated_at !== 'string' || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(result.updated_at) || !Number.isFinite(Date.parse(result.updated_at)))))
           throw new Error('invalid_tariff_response');
@@ -2680,10 +2699,11 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   Card.prototype.getGridOptions = function() { return { columns: this._config?.compact ? 6 : 12, min_columns: 3, min_rows: this._config?.compact ? 2 : 3 }; };
   const originalSize = Card.prototype.getCardSize;
   Card.prototype.getCardSize = function() { return this._config?.compact && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
-  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
-:host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
+  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-value-green:#166534;--energy-value-red:#b91c1c;--energy-value-neutral:#475569;--energy-value-purple:#6d28d9;--energy-success-button:#166534;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
+:host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-value-green:#86efac;--energy-value-red:#fca5a5;--energy-value-neutral:#cbd5e1;--energy-value-purple:#c4b5fd;--energy-success-button:#166534;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
 .stat,.stat-card{background:var(--energy-kpi-tone)!important}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)!important}
 .btn-primary,button.btn-primary{color:var(--bento-on-primary)}
+.ht-tariff-v3 [data-status=success]{color:var(--energy-value-green)}.ht-tariff-v3 [data-status=error]{color:var(--energy-value-red)}.ht-tariff-v3 [data-status=partial],.ht-tariff-v3 [data-status=unconfirmed]{color:var(--energy-value-amber)}
  [data-energy-options-help], [data-energy-compact]{box-sizing:border-box;padding:16px;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border-radius:12px;font-size:14px;overflow-wrap:anywhere} [data-energy-options-help] summary, [data-energy-expand]{min-height:44px;box-sizing:border-box;padding:12px;cursor:pointer} [data-energy-compact] dl{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin:12px 0} [data-energy-compact] dt{font-size:13px;color:var(--secondary-text-color,#50545b)} [data-energy-compact] dd{margin:0 0 12px;font-weight:600;font-size:18px} [data-energy-expand]{color:var(--primary-text-color,#202124);background:var(--secondary-background-color,#eee);border:1px solid var(--divider-color,#888);border-radius:8px;font:inherit} [data-energy-options-help] summary:focus-visible,[data-energy-expand]:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}`;
   const render = Card.prototype._render;
   Card.prototype._render = function(...args) {
@@ -2807,7 +2827,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     let fields = root.querySelector('[data-energy-option-fields]');
     if (!fields) {
       fields = document.createElement('div'); fields.dataset.energyOptionFields = '';
-      fields.innerHTML = `<style>label[data-option-row]{display:flex;align-items:center;gap:8px;min-height:44px}select,input[type=number]{min-height:44px;box-sizing:border-box;width:100%;font:inherit;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#888);border-radius:8px;padding:8px}fieldset{margin:12px 0;border:1px solid var(--divider-color,#888)}[data-option-row] input{width:24px;height:24px;min-height:24px;margin:0}select:focus-visible,input:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}[data-config-error]{color:var(--error-color,#b42318)}</style><label data-option-label="default_tab" for="cf_default_tab"></label><select id="cf_default_tab" data-config="default_tab">${tabs.map(id=>`<option value="${id}"></option>`).join('')}</select><fieldset><legend data-option-label="tabs"></legend>${tabs.map(id=>`<label data-option-row><input type="checkbox" data-tab-option="${id}"><span data-tab-label="${id}"></span></label>`).join('')}</fieldset>${['compact','show_help','show_support'].map(id=>`<label data-option-row><input type="checkbox" data-config="${id}"><span data-option-label="${id}"></span></label>`).join('')}<label data-option-label="chart_hours" for="cf_chart_hours"></label><input id="cf_chart_hours" type="number" min="1" max="744" step="1" data-config="chart_hours"><p data-config-error role="alert"></p>`;
+      fields.innerHTML = `<style>label[data-option-row]{display:flex;align-items:center;gap:8px;min-height:44px}select,input[type=number]{min-height:44px;box-sizing:border-box;width:100%;font:inherit;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#888);border-radius:8px;padding:8px}fieldset{margin:12px 0;border:1px solid var(--divider-color,#888)}[data-option-row] input{width:24px;height:24px;min-height:24px;margin:0}select:focus-visible,input:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}[data-config-error]{color:var(--energy-value-red,#b91c1c)}</style><label data-option-label="default_tab" for="cf_default_tab"></label><select id="cf_default_tab" data-config="default_tab">${tabs.map(id=>`<option value="${id}"></option>`).join('')}</select><fieldset><legend data-option-label="tabs"></legend>${tabs.map(id=>`<label data-option-row><input type="checkbox" data-tab-option="${id}"><span data-tab-label="${id}"></span></label>`).join('')}</fieldset>${['compact','show_help','show_support'].map(id=>`<label data-option-row><input type="checkbox" data-config="${id}"><span data-option-label="${id}"></span></label>`).join('')}<label data-option-label="chart_hours" for="cf_chart_hours"></label><input id="cf_chart_hours" type="number" min="1" max="744" step="1" data-config="chart_hours"><p data-config-error role="alert"></p>`;
       root.append(fields);
       fields.addEventListener('change', event => {
         const field = event.target;

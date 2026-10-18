@@ -30,9 +30,11 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     priceBasis:descriptor.profile?.priceBasis || null,timezone:descriptor.profile?.timezone || null,
     clock:descriptor.profile?.clock || {},fixedMonthly:descriptor.profile?.fixedMonthly ?? null});
   const envelope = (result, descriptor) => {
-    if (!result || result.schema !== 1 || result.profile_source !== descriptor.source) return false;
+    if (!result || result.schema !== 1 || result.profile_source !== descriptor.source ||
+      (descriptor.source === 'shared' ? !Number.isSafeInteger(result.tariff_revision) || result.tariff_revision < 0 : result.tariff_revision !== null))
+      throw Error('invalid_backend_response');
     if (descriptor.source === 'shared' && result.tariff_revision !== descriptor.revision) {
-      clear(); onRevision(); return false;
+      clear(); onRevision(result.tariff_revision); return false;
     }
     return descriptor.source === 'shared' ? Number.isSafeInteger(result.tariff_revision) : result.tariff_revision === null;
   };

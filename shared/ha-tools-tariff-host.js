@@ -32,7 +32,24 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       cachedKey = undefined; cachedModel = undefined;
       if (card.isConnected) card._repriceTariffV3?.();
     },
-    onRevision: () => { card._sharedTariffReadStatus = 'unconfirmed'; cachedKey = undefined; cachedModel = undefined; }
+    onRevision: revision => {
+      const token = identity(), minimumRevision = Math.max(revision, state().revision || 0);
+      card._sharedTariffExpectedV3 = true;
+      card._sharedTariffReadStatus = 'unconfirmed';
+      card._sharedTariffProfile = null; card._sharedTariffAssociation = null; card._sharedTariffLoadedAt = 0;
+      cachedKey = undefined; cachedModel = undefined;
+      // Clear derived UI immediately; automatic confirmation is a read only and
+      // must never release the editor's uncertain-write fence via onRefresh.
+      if (card.isConnected) card._repriceTariffV3?.();
+      queueMicrotask(async () => {
+        if (!card.isConnected || !guard.current(token)) return;
+        const confirmed = await load(true, minimumRevision);
+        if (guard.current(token) && card.isConnected) {
+          if (!confirmed || state().revision < minimumRevision) card._sharedTariffReadStatus = 'unconfirmed';
+          card._repriceTariffV3?.();
+        }
+      });
+    }
   });
   const model = function (proposed) {
     identity();
@@ -62,7 +79,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   guard.subscribe(purge);
   const reset = (...nextHass) => guard.observe(...nextHass);
-  const load = async (force = false) => {
+  const load = async (force = false, minimumRevision = 0) => {
     const token = identity();
     if (!guard.available(token)) return false;
     if (card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, token)) return true;
@@ -73,7 +90,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       try {
         const result = await guard.call(token, { type: 'ha_tools_email/get_tariff' });
         if (!guard.current(token)) return false;
-        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < 0 ||
+        if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < minimumRevision ||
           !Object.hasOwn(result, 'updated_at') || (result.updated_at !== null &&
           (typeof result.updated_at !== 'string' || !/T.*(?:Z|[+-]\d{2}:\d{2})$/.test(result.updated_at) || !Number.isFinite(Date.parse(result.updated_at)))))
           throw new Error('invalid_tariff_response');
