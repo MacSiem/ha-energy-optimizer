@@ -138,9 +138,10 @@ test('Patterns source explanation starts closed; coverage warnings remain outsid
 });
 test('Patterns source and point disclosures preserve native open and summary focus through locale and local redraw',()=>{
  const f=fixture();try{
+  f.dom.window.document.body.append(f.card);f.card._render();
   const root=f.card.shadowRoot;
   for(const selector of ['[data-pattern-source]','[data-pattern-detail] details']){
-   let detail=root.querySelector(selector);assert.ok(detail);detail.open=true;detail.querySelector('summary').focus();
+   let detail=root.querySelector(selector);assert.ok(detail);detail.open=true;detail.querySelector('summary').focus();assert.equal(root.activeElement,detail.querySelector('summary'),'real mounted summary is focused before locale repaint');
    f.card._hass={...f.card._hass,language:'en',locale:{...f.card._hass.locale,language:'en'}};f.card._render();
    detail=root.querySelector(selector);assert.equal(detail.open,true);assert.equal(root.activeElement,detail.querySelector('summary'));
    assert.match(detail.querySelector('summary').textContent,/Source and time details/);
@@ -152,6 +153,7 @@ test('Patterns source and point disclosures preserve native open and summary foc
 });
 test('Optimizer point summaries are readable and exact technical evidence survives Data and locale repaint',()=>{
  const f=fixture();try{
+  f.dom.window.document.body.append(f.card);f.card._render();
   const value=1.2345678901234567;f.card._energyModel.points.set(stamp+H,{kwh:value});f.card._render();
   const row=f.card._dashboardRowsV3().at(-1),before=JSON.stringify(row),root=f.card.shadowRoot;
   for(const selector of ['[data-pattern-detail]','[data-dashboard-detail]']){
