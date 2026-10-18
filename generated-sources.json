@@ -12,7 +12,7 @@
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "36f6254a68ea03dc19236e9e9f2f78c999d93181f298de81c3fe16563b006694"
+      "sha256": "7c927cf1376f59a4502392fa8f1dd03c3a12a31d53d4aaad57f7d7b670239861"
     },
     {
       "path": "src/chart-vendor.js",
@@ -85,7 +85,7 @@
   },
   "sharedEnergyReport": {
     "path": "shared/ha-tools-energy-report.js",
-    "sha256": "b829b6f6a9ddcaeb42db9f4fa89a8644ba01f1500a3976a1385890c88e8a9034",
-    "inlineSha256": "417f29f459358fab7c890699917fd12efd684e37478afd0d62de8b3aeaeb6983"
+    "sha256": "354419ea38ed87044f69358dc32bd8fc2d55915aacdbaf80aebb1cc5f3701df4",
+    "inlineSha256": "beba3fec508e46d66b8d1f912eac48eecbf423a74a6238872a6b7f9221166f35"
   }
 }
