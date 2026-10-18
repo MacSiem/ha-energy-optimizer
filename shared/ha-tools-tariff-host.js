@@ -22,7 +22,8 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   const describe = () => {
     const shared = !Object.hasOwn(card._config || {}, 'tariff_profile') && card._sharedTariffProfile != null &&
       card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, identity());
-    return {profile: activeProfile() ?? null, source: shared ? 'shared' : 'override', revision: shared ? state().revision : null};
+    return {profile: activeProfile() ?? null, source: shared ? 'shared' : 'override', revision: shared ? state().revision : null,
+      ready: Object.hasOwn(card._config || {}, 'tariff_profile') || card._sharedTariffReadStatus === 'success'};
   };
   const backend = createEnergyBackendV5({card,guard,describe,
     onPrices: () => { if (card.isConnected) card._repriceTariffV3?.(); },

@@ -2,7 +2,7 @@
 
 // Pricing stays in HA Tools Email. This controller only queues bounded reads,
 // validates replies and combines already-priced measurement partitions.
-function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRevision = () => {}}) {
+function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRevision = () => {}, refreshMs = 30000, retryMs = 300000}) {
   const canonical = value => JSON.stringify(value, (_, v) => v && typeof v === 'object' && !Array.isArray(v)
     ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v);
   const copy = value => value == null ? value : JSON.parse(JSON.stringify(value));
@@ -10,11 +10,12 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
   const number = v => v === null || finite(v);
   const stamp = v => finite(v) ? Math.trunc(v) : typeof v === 'string' && /T.*(?:Z|[+-]\d{2}:\d{2})$/.test(v) ? Date.parse(v) : NaN;
   const clock = value => value && ['civil','fixed'].includes(value.mode) && (value.mode !== 'fixed' || Number.isInteger(value.offsetMinutes) && Math.abs(value.offsetMinutes) <= 840);
-  let context, generation = 0, busy = false, scheduled = false, snapshotSlot = null, snapshotWindow = null;
+  let context, generation = 0, busy = false, scheduled = false, snapshotSlot = null, snapshotWindow = null, refreshTimer = null;
   const records = new Map(), jobs = [];
   const clear = () => {
+    clearTimeout(refreshTimer); refreshTimer = null;
     generation++; records.clear(); jobs.length = 0; context = undefined;
-    snapshotSlot = null; snapshotWindow = null; card._energySnapshotV5 = null;
+    snapshotSlot = null; snapshotWindow = null; card._energySnapshotV5 = null; card._energyPriceStatusV5 = null;
   };
   guard.subscribe(clear);
   const active = () => {
@@ -88,6 +89,8 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
   const still = (token, version, key) => guard.current(token) && version===generation && context===key && canonical(describe())===key;
   const flush = async () => {
     if(busy || guard.occupied() || !jobs.length) return;
+    for(let i=jobs.length-1;i>=0;i--) if(jobs[i].record?.failed) jobs.splice(i,1);
+    if(!jobs.length) return;
     const token=guard.snapshot();
     if(!guard.available(token)) return;
     const descriptor=active(),version=generation,key=context;
@@ -135,7 +138,8 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     } catch(error) {
       if(still(token,version,key)) {
         if(isSnapshot) card._energySnapshotV5=null;
-        else for(const job of batch) {job.record.failed=true;job.record.value=unknown(job.record.buckets,descriptor,error?.code==='invalid_energy_price_queries'?'backend_request_limit':'backend_unavailable');}
+        else for(const job of batch) {job.record.failed=true;job.record.retryAfter=Date.now()+retryMs;job.record.value=unknown(job.record.buckets,descriptor,error?.code==='invalid_energy_price_queries'?'backend_request_limit':'backend_unavailable');}
+        if(!isSnapshot) card._energyPriceStatusV5=error?.code==='invalid_energy_price_queries'?'backend_request_limit':'backend_unavailable';
         onPrices();
       }
     } finally {busy=false;if(jobs.length) schedule();}
@@ -145,9 +149,11 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     const token=guard.snapshot();
     const descriptor=active();
     const rows=Array.isArray(buckets)?buckets:[];
-    if(!guard.available(token)) return unknown(rows,descriptor,'backend_unavailable');
+    if(!guard.available(token) || descriptor.ready === false) return unknown(rows,descriptor,'backend_unavailable');
     const key=canonical([rows,coverage ?? null]);
-    if(records.has(key)) return records.get(key).value;
+    const existing=records.get(key);
+    if(existing && !(existing.failed && existing.retryAfter <= Date.now() && !guard.occupied())) return existing.value;
+    if(existing) records.delete(key);
     const record={buckets:copy(rows),coverage:copy(coverage),value:unknown(rows,descriptor),parts:[],offsets:[],remaining:0,failed:false};
     records.set(key,record);
     try {
@@ -155,13 +161,26 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
       record.remaining=partitions.length;
       partitions.forEach((part,i)=>{record.offsets[i]=part.offset;jobs.push({...part,record,part:i});});
       schedule();
-    } catch(_) {record.failed=true;record.value=unknown(rows,descriptor,'backend_request_limit');}
+    } catch(_) {record.failed=true;record.retryAfter=Infinity;record.value=unknown(rows,descriptor,'backend_request_limit');card._energyPriceStatusV5='backend_request_limit';}
     return record.value;
   };
+  const armRefresh = () => {
+    if(refreshTimer !== null || !card.isConnected) return;
+    refreshTimer=setTimeout(()=>{
+      refreshTimer=null;
+      const token=guard.snapshot();
+      if(!card.isConnected || !guard.available(token)) return;
+      // Expired failures may be retried only after the old raw request settles.
+      if(!guard.occupied()) for(const [key,record] of records) if(record.failed && record.retryAfter<=Date.now()) records.delete(key);
+      snapshot();onPrices();
+    }, refreshMs);
+    refreshTimer?.unref?.();
+  };
   const snapshot = () => {
-    guard.snapshot();active();const window=Math.floor(Date.now()/30000);
+    guard.snapshot();const descriptor=active();
+    armRefresh();const window=Math.floor(Date.now()/refreshMs);
     if(snapshotWindow!==window) {card._energySnapshotV5=null;snapshotSlot=null;snapshotWindow=window;}
-    if(!snapshotSlot && guard.available(guard.snapshot())) {snapshotSlot={snapshot:true};jobs.unshift(snapshotSlot);schedule();}
+    if(descriptor.ready !== false && !snapshotSlot && guard.available(guard.snapshot())) {snapshotSlot={snapshot:true};jobs.unshift(snapshotSlot);schedule();}
     return card._energySnapshotV5;
   };
   return {priceBuckets,snapshot,invalidate:clear};
