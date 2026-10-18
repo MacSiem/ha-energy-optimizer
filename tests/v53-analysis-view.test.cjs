@@ -176,3 +176,21 @@ test('numeric millisecond dynamic intervals display as user-zone instants',()=>{
     },dto,{section:'rates'},'en',format);
   }
 });
+
+
+test('calendar-only rate dates follow the chosen system date locale without timezone shifting',()=>{
+ const dto=fixture(),format=createFormatUi('en','America/Los_Angeles',{dateLanguage:'pl-PL'});
+ const expected=new Intl.DateTimeFormat('pl-PL',{timeZone:'UTC',day:'numeric',month:'short',year:'numeric'}).format(Date.parse('2026-10-01T00:00:00Z'));
+ withView(root=>{
+  assert.ok(root.querySelector('.analysis-rate-version h4').textContent.includes(expected));
+ },dto,{section:'rates'},'en',format);
+});
+test('calendar formatter validates actual dates and keeps calendar-only days in every display zone',()=>{
+ for(const zone of ['Pacific/Kiritimati','America/Los_Angeles']){
+  const format=createFormatUi('en',zone,{dateLanguage:'pl-PL'});
+  assert.equal(format.calendarDate('2026-10-01'),'1 paź 2026');
+  assert.equal(format.calendarDate('2024-02-29'),'29 lut 2024');
+  assert.equal(format.calendarDate('2000-12-31',true),'31 gru');
+  for(const value of ['2026-02-29','2026-04-31','2026-13-01','2026-00-01','2026-10-01T00:00:00Z',null])assert.equal(format.calendarDate(value),null);
+ }
+});
