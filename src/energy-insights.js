@@ -66,6 +66,10 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
   };
   const key = JSON.stringify([language, timeZone, hourCycle, dateLanguage]);
   const numbers = new Intl.NumberFormat(language);
+  // Producer Decimal strings carry exact measurement/pricing precision. Keep
+  // that precision in Data/details instead of Intl's default three places.
+  // Explicit display options and older numeric projections retain their rules.
+  const decimals = new Intl.NumberFormat(language, {maximumFractionDigits:100});
   const plurals = new Intl.PluralRules(language);
   const count = (value, forms) => `${numbers.format(value)} ${forms[plurals.select(value)] || forms.other}`;
   const dateTime = value => {
@@ -109,7 +113,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
       if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
     }
   };
-  return {language, dateLanguage, hourCycle, timeZone, key, clock, date, calendarDate, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
+  return {language, dateLanguage, hourCycle, timeZone, key, clock, date, calendarDate, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : (typeof value === 'string' ? decimals : numbers).format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
 // Presentation follows the HA profile; measurement and tariff calendars remain separate.
 createFormatUi.forHass = hass => {
@@ -284,7 +288,7 @@ createFormatUi.forHass = hass => {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=94e21085c0a4fb15bdc182f76643d97d4b042075bbe220cf1f88a895220f9118
+      // HA_TARIFF_V3_START sha256=a8774539efb40031f8cc56cddb53af402870b27692f6022a0f30762a8b66c210
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1691,24 +1695,147 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     ].map(([label,value])=>`<div class="analysis-tile"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('')}</div>`;
   };
   const baselineNote = () => `<p data-analysis-baseline="unknown">${esc(t('Point comparison: no proven local calendar match.','Porównanie punktów: brak dowodu dopasowania lokalnego kalendarza.'))}</p>`;
+  const instant = value => {
+    if(typeof value==='number')return Number.isSafeInteger(value)?value:null;
+    if(typeof value!=='string'||!/^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(value))return null;
+    const stamp=Date.parse(value);return Number.isSafeInteger(stamp)?stamp:null;
+  };
+  const bounds=(from,to)=>{const a=instant(from),b=instant(to);return a!==null&&b!==null&&b>a?{from:a,to:b,key:a+'|'+b}:null;};
+  const intervalText=value=>value?`${ui.pointLabel(new Date(value.from).toISOString())||unknown()} – ${ui.pointLabel(new Date(value.to).toISOString())||unknown()}`:unknown();
+  const seconds=value=>Number.isSafeInteger(value)&&value>=0;
+  // A producer marker is usable only with its complete projection contract.
+  // No local-calendar reconstruction, array zipping, amount arithmetic or mean.
+  const markerSeries=(snapshot,kind)=>{
+    const comparison=snapshot.comparisons?.[kind],source=comparison?.chart,main=snapshot.chart;
+    const empty={accepted:false,markers:new Map(),reconciles:false,mean:kind==='mean7',common:false};
+    if(comparison?.status!=='ready'||!['ready','partial'].includes(source?.status)||!['ready','partial'].includes(main?.status)||
+      !['hour','day','month'].includes(main.grain)||source.grain!==main.grain||source.timezone!==main.timezone||
+      typeof source.timezone!=='string'||!source.timezone||source.coverage_kind!=='selected_household_comparison_mask'||
+      source.fixed_fee_scope!=='household_period_only'||typeof source.reconciles_comparison_energy!=='boolean'||
+      !['calendar_totals','common_measurements'].includes(source.comparison_scope)||source.comparison_scope!==comparison.comparison_scope||
+      !Array.isArray(source.markers)||source.status==='ready'&&source.reason!==null)return empty;
+    const mean=kind==='mean7',common=source.comparison_scope==='common_measurements';
+    const periods=mean&&Array.isArray(source.baseline_periods)?source.baseline_periods.map(p=>bounds(p?.from,p?.to)):[];
+    if(mean&&(source.baseline_aggregation!=='mean7'||periods.length!==7||periods.some(p=>!p)||new Set(periods.map(p=>p.key)).size!==7||periods.some((p,i)=>periods.some((q,j)=>i!==j&&p.from<q.to&&q.from<p.to))))return empty;
+    const mainKeys=new Map(),currentKeys=new Map(),baselineKeys=new Map();
+    const count=(map,key)=>{if(key)map.set(key,(map.get(key)||0)+1);};
+    for(const row of main.bins||[])count(mainKeys,bounds(row.start,row.end)?.key);
+    for(const marker of source.markers){
+      if(!marker||typeof marker!=='object')continue;
+      count(currentKeys,bounds(marker.current_from,marker.current_to)?.key);
+      if(mean){for(const [i,p] of (Array.isArray(marker.baseline_ranges)?marker.baseline_ranges:[]).entries())count(baselineKeys,i+'|'+(bounds(p?.from,p?.to)?.key||''));}
+      else count(baselineKeys,bounds(marker.baseline_from,marker.baseline_to)?.key);
+    }
+    const markers=new Map();
+    for(const marker of source.markers){
+      if(!marker||typeof marker!=='object')continue;
+      const current=bounds(marker.current_from,marker.current_to);
+      if(!current||mainKeys.get(current.key)!==1||currentKeys.get(current.key)!==1||marker.status!=='ready'||marker.reason!==null||
+        !valid(marker.current_kwh)||!valid(marker.baseline_kwh)||!seconds(marker.expected_current_source_seconds)||
+        !seconds(marker.selected_current_source_seconds)||marker.selected_current_source_seconds<=0||
+        marker.selected_current_source_seconds>marker.expected_current_source_seconds)continue;
+      const mapping=mean?(common?'mean7_common_source_frame_intersection':'mean7_calendar_frames'):(common?'common_source_frame_intersection':'calendar_frame_bijection');
+      if(marker.mapping!==mapping||!common&&marker.selected_current_source_seconds!==marker.expected_current_source_seconds)continue;
+      let ranges;
+      if(mean){
+        if(marker.baseline_aggregation!=='mean7'||marker.baseline_from!==null||marker.baseline_to!==null||
+          !Array.isArray(marker.baseline_ranges)||marker.baseline_ranges.length!==7||
+          !Array.isArray(marker.expected_baseline_source_seconds)||marker.expected_baseline_source_seconds.length!==7||
+          !Array.isArray(marker.selected_baseline_source_seconds)||marker.selected_baseline_source_seconds.length!==7)continue;
+        ranges=marker.baseline_ranges.map(p=>bounds(p?.from,p?.to));
+        if(ranges.some((p,i)=>!p||p.from<periods[i].from||p.to>periods[i].to||baselineKeys.get(i+'|'+p.key)!==1)||new Set(ranges.filter(Boolean).map(p=>p.key)).size!==7||
+          marker.expected_baseline_source_seconds.some((v,i)=>!seconds(v)||!seconds(marker.selected_baseline_source_seconds[i])||
+            marker.selected_baseline_source_seconds[i]<=0||marker.selected_baseline_source_seconds[i]>v||
+            marker.selected_baseline_source_seconds[i]!==marker.selected_current_source_seconds||(!common&&marker.selected_baseline_source_seconds[i]!==v)))continue;
+      }else{
+        const baseline=bounds(marker.baseline_from,marker.baseline_to);
+        if(!baseline||baselineKeys.get(baseline.key)!==1||!seconds(marker.expected_baseline_source_seconds)||!seconds(marker.selected_baseline_source_seconds)||
+          marker.selected_baseline_source_seconds<=0||marker.selected_baseline_source_seconds>marker.expected_baseline_source_seconds||
+          marker.selected_baseline_source_seconds!==marker.selected_current_source_seconds||(!common&&marker.selected_baseline_source_seconds!==marker.expected_baseline_source_seconds))continue;
+        ranges=[baseline];
+      }
+      markers.set(current.key,{current:marker.current_kwh,baseline:marker.baseline_kwh,ranges});
+    }
+    return {accepted:true,markers,mean,common,reconciles:source.status==='ready'&&source.reconciles_comparison_energy&&markers.size===(main.bins||[]).length&&source.markers.length===markers.size&&markers.size>0};
+  };
+  const zoneProof=row=>{
+    const z=row?.zone_breakdown;
+    if(!z||!['ready','partial'].includes(z.status)||z.scope!=='complete_household_hours'||z.fixed_fee_scope!=='household_period_only'||
+      typeof z.reconciles_recorded_kwh!=='boolean'||typeof z.reconciles_known_costs!=='boolean'||
+      !Array.isArray(z.zones)||!z.unattributed||typeof z.unattributed!=='object'||z.status==='ready'&&z.reason!==null)return null;
+    const keys=new Set();
+    for(const zone of z.zones){
+      if(!zone||typeof zone.version_id!=='string'||!zone.version_id||typeof zone.zone_id!=='string'||!zone.zone_id||typeof zone.complete!=='boolean'||
+        z.status==='ready'&&!zone.complete)return null;
+      const key=JSON.stringify([zone.version_id,zone.zone_id]);if(keys.has(key))return null;keys.add(key);
+    }
+    return z;
+  };
+  // Color is an identity category; names, rates and amounts never determine it.
+  const zoneColor=(version,zone)=>{
+    let hash=0;for(const char of JSON.stringify([version,zone]))hash=(hash*31+char.charCodeAt(0))>>>0;
+    return ['#287fd1','#8754b3','#c76428','#bc447b','#238782','#92821a','#64748b','#a54444'][hash%8];
+  };
+  const zoneEntries=(snapshot,row)=>{
+    const proof=zoneProof(row);if(!proof)return null;
+    const currency=typeof proof.currency==='string'&&/^[A-Z]{3}$/.test(proof.currency)&&['gross','net'].includes(proof.price_basis)?proof.currency:null;
+    const amount=value=>currency?money(value,currency):unknown();
+    const components=known=>[
+      [t('Known energy cost','Znany koszt energii'),known?.energy_cost],
+      [t('Known distribution cost','Znany koszt dystrybucji'),known?.variable_cost],
+      [t('Known legacy usage cost','Znany dawny koszt zużycia'),known?.legacy_combined_cost]
+    ].map(([label,value])=>`${label}: ${amount(value)}`).join(' · ');
+    const entries=proof.zones.filter(zone=>zone&&typeof zone.version_id==='string'&&typeof zone.zone_id==='string').map(zone=>{
+      const rate=(snapshot.rates||[]).find(r=>r.version_id===zone.version_id);
+      const label=typeof zone.label==='string'&&zone.label&&zone.label!==zone.zone_id?zone.label:t('Unnamed tariff zone','Strefa taryfy bez nazwy');
+      const version=rate?`${t('Rates from','Stawki od')} ${date(rate.valid_from)}${rate.valid_to?' – '+date(rate.valid_to):''}`:t('Rate version unavailable','Wersja stawek niedostępna');
+      const complete=proof.status==='ready'&&zone.complete===true;
+      const value=complete?quantity(zone.kwh):`${t('Recorded','Zarejestrowano')}: ${quantity(zone.recorded_kwh)}`;
+      return {key:zone.version_id+'|'+zone.zone_id,color:zoneColor(zone.version_id,zone.zone_id),text:`${label} · ${version} · ${value} · ${t('Usage cost','Koszt zużycia')}: ${amount(complete?zone.usage_cost:null)} · ${components(zone.known_costs)} · ${t('Measured time','Czas pomiaru')}: ${quantity(zone.measured_seconds,'s')}`};
+    });
+    const u=proof.unattributed;
+    // Missing, measured-but-unattributed, and a genuine recorded zero remain distinct.
+    entries.push({key:null,color:null,text:`${t('Unattributed','Bez przypisania do strefy')} · ${t('Recorded','Zarejestrowano')}: ${quantity(u.recorded_kwh)} · ${components(u.known_costs)} · ${t('Measured time','Czas pomiaru')}: ${quantity(u.measured_seconds,'s')} · ${t('Missing time','Brakujący czas')}: ${quantity(u.missing_seconds,'s')}`});
+    return {entries,note:`${currency||t('Currency unavailable','Waluta niedostępna')} · ${basis(proof.price_basis)} · ${proof.status==='ready'&&proof.reconciles_recorded_kwh?t('Complete interval breakdown','Pełne rozbicie przedziału'):t('Partial interval; known amounts only','Niepełny przedział; tylko znane kwoty')}${proof.reconciles_recorded_kwh?'':' · '+t('Interval energy is not reconciled','Energia przedziału nie jest uzgodniona')}${proof.reconciles_known_costs?'':' · '+t('Known costs are not fully reconciled','Znane koszty nie są w pełni uzgodnione')}`};
+  };
+  const zonesMarkup=(snapshot,row)=>{
+    const result=zoneEntries(snapshot,row);
+    return result?`<div data-analysis-zone-values><p>${esc(result.note)}</p><ul>${result.entries.map(entry=>`<li${entry.key!==null?` data-analysis-zone-key="${esc(entry.key)}" style="border-inline-start:6px solid ${entry.color};padding-inline-start:8px"`:' data-analysis-zone-unattributed'}>${esc(entry.text)}</li>`).join('')}</ul></div>`:`<span data-analysis-zone-values>${esc(t('No tariff-zone breakdown for this interval','Brak rozbicia stref dla tego przedziału'))}</span>`;
+  };
   const chart = (snapshot, options) => {
     const bins=snapshot.chart?.bins || [],currency=snapshot.totals?.currency;
+    const allowed=snapshot.period?.kind==='day'?['previous','same_weekday','mean7']:['previous','year_ago'];
+    const requested=options.comparison||snapshot.context?.comparison_kind,kind=allowed.includes(requested)?requested:'previous';
+    const series=markerSeries(snapshot,kind);
     const axisLabels=new Map(ui.chartTicks(bins.map(row=>row.start),snapshot.chart?.grain === 'hour' ? 'hour' : 'day').map(tick=>[tick.index,tick.label]));
-    const points=bins.map((row,index)=>({row,index,label:ui.pointLabel(row.start) || unknown()}));
-    const max=maximum(bins.map(row=>row.kwh));
-    const rows=points.map(({row,index,label})=>[
-      button('point',index,label, String(options.selected) === String(index)),esc(quantity(row.kwh)),esc(money(row.usage_cost,currency))
+    const points=bins.map((row,index)=>{
+      const key=bounds(row.start,row.end)?.key,marker=series.markers.get(key);
+      return {row,index,marker,label:ui.pointLabel(row.start)||unknown(),current:series.common?marker?.current??null:marker?.current??row.kwh,visualCurrent:marker?.current??row.kwh};
+    });
+    const max=maximum(points.flatMap(p=>[p.visualCurrent,p.marker?.baseline]));
+    const rangeMarkup=marker=>marker?marker.ranges.map(p=>`<span data-analysis-baseline-range>${esc(intervalText(p))}</span>`).join('<br>'):esc(unknown());
+    const currentLabel=series.common?t('Current · common measurements','Bieżący · wspólne pomiary'):t('Current','Bieżący');
+    const baselineLabel=series.mean?t('Baseline · mean of 7 days','Odniesienie · średnia z 7 dni'):t('Baseline','Odniesienie');
+    const pointText=p=>`${p.label} · ${currentLabel}: ${quantity(p.current)} · ${baselineLabel}: ${quantity(p.marker?.baseline)} · ${t('Baseline interval','Przedział odniesienia')}: ${p.marker?p.marker.ranges.map(intervalText).join('; '):unknown()} · ${t('Whole household','Całe gospodarstwo')}: ${quantity(p.row.kwh)} · ${t('Household usage cost','Koszt zużycia gospodarstwa')}: ${money(p.row.usage_cost,currency)}`;
+    const hasZones=bins.some(zoneProof);
+    const rows=points.map(p=>[
+      button('point',p.index,p.label,String(options.selected)===String(p.index)),
+      `<span data-analysis-current-value>${esc(quantity(p.current))}</span>`,esc(money(p.row.usage_cost,currency)),
+      `<span data-analysis-baseline-value${p.marker?' data-analysis-marker aria-label="'+esc(pointText(p))+'"':''}>${esc(quantity(p.marker?.baseline))}</span>`,rangeMarkup(p.marker),
+      ...(series.common?[`<span data-analysis-household-value>${esc(quantity(p.row.kwh))}</span>`]:[]),...(hasZones?[zonesMarkup(snapshot,p.row)]:[])
     ]);
-    const selected=points.find(point=>String(point.index) === String(options.selected));
-    const selection=selected ? `<p role="status">${esc(selected.label)} · ${esc(quantity(selected.row.kwh))} · ${esc(money(selected.row.usage_cost,currency))}</p>` : '';
+    const selected=points.find(point=>String(point.index)===String(options.selected));
+    const selection=selected?`<div data-analysis-point-detail><p role="status">${esc(pointText(selected))}</p>${selected.marker?`<p>${rangeMarkup(selected.marker)}</p>`:''}${zonesMarkup(snapshot,selected.row)}</div>`:'';
+    const note=series.markers.size?`<p data-analysis-baseline="${series.reconciles?'ready':'partial'}">${esc(series.reconciles?t('The server confirms coverage of the comparison series.','Serwer potwierdza pokrycie serii porównania.'):t('Comparison is proven for selected intervals only; the full series is not reconciled.','Porównanie potwierdzono tylko dla wybranych przedziałów; pełna seria nie jest uzgodniona.'))}</p>`:baselineNote();
     return `<section data-analysis-chart><div class="analysis-section-title"><h3>${esc(t('Consumption over time','Zużycie w czasie'))}</h3><div class="analysis-switch">${button('view','chart',t('Chart','Wykres'),options.view !== 'data')}${button('view','data',t('Data','Dane'),options.view === 'data')}</div></div>
-      ${options.view === 'data' ? table(t('Measured intervals · usage cost without fixed fees','Przedziały pomiarowe · koszt zużycia bez opłat stałych'),[t('Period','Okres'),'kWh',t('Usage cost','Koszt zużycia')],rows,'','data-analysis-bin') : `<div class="analysis-chart-scroll"><div class="analysis-chart" role="group" aria-label="${esc(t('Consumption, select a point for values','Zużycie, wybierz punkt, aby odczytać wartości'))}">${points.map(({row,index,label})=>`<button type="button" class="analysis-point${row.kwh == null ? ' analysis-missing' : ''}" data-analysis-action="point" data-analysis-value="${index}" aria-pressed="${String(options.selected) === String(index)}" aria-label="${esc(label+' · '+quantity(row.kwh)+' · '+money(row.usage_cost,currency))}"><span class="analysis-column" style="height:${width(row.kwh,max)}%"></span><span class="analysis-point-label" aria-hidden="true">${esc(axisLabels.get(index) || '')}</span></button>`).join('')}</div></div>`}
-      ${!points.length ? `<p role="status">${esc(unknown())}</p>` : ''}${selection}${baselineNote()}<p class="analysis-note">${esc(t('Fixed fees apply once to the household period. Missing measurements are not zero.','Opłaty stałe dotyczą jednokrotnie całego okresu gospodarstwa. Brak pomiaru nie oznacza zera.'))}</p></section>`;
+      <p data-analysis-series-legend><span class="analysis-series-current">${esc(currentLabel)}</span> · <span class="analysis-series-baseline">${esc(baselineLabel)}</span>${series.common?' · '+esc(t('Selected amounts can differ from whole-household energy. Unmatched intervals retain household bars; their common comparison value is unavailable.','Wybrane ilości mogą różnić się od energii całego gospodarstwa. Bez dopasowania pozostaje słupek gospodarstwa; brak wartości wspólnego porównania.')):''}</p>
+      ${options.view === 'data'?table(t('Measured intervals · usage cost without fixed fees','Przedziały pomiarowe · koszt zużycia bez opłat stałych'),[t('Period','Okres'),currentLabel+' kWh',t('Household usage cost','Koszt zużycia gospodarstwa'),baselineLabel+' kWh',t('Real baseline intervals','Rzeczywiste przedziały odniesienia'),...(series.common?[t('Whole household kWh','Całe gospodarstwo kWh')]:[]),...(hasZones?[t('Tariff zones in this interval','Strefy taryfy w przedziale')]:[])],rows,'','data-analysis-bin'):`<div class="analysis-chart-scroll"><div class="analysis-chart" role="group" aria-label="${esc(t('Current and baseline consumption, select a point for values','Bieżące zużycie i odniesienie, wybierz punkt, aby odczytać wartości'))}">${points.map(p=>`<button type="button" class="analysis-point${p.visualCurrent==null?' analysis-missing':''}" data-analysis-action="point" data-analysis-value="${p.index}" aria-pressed="${String(options.selected)===String(p.index)}" aria-label="${esc(pointText(p))}"><span class="analysis-column analysis-series-current" aria-hidden="true" style="height:${width(p.visualCurrent,max)*1.68}px"></span>${p.marker?`<span data-analysis-marker class="analysis-baseline-line analysis-series-baseline" aria-label="${esc(pointText(p))}" style="bottom:${40+width(p.marker.baseline,max)*1.68}px"></span>`:''}<span class="analysis-point-label" aria-hidden="true">${esc(axisLabels.get(p.index)||'')}</span></button>`).join('')}</div></div>`}
+      ${!points.length?`<p role="status">${esc(unknown())}</p>`:''}${selection}${note}<p class="analysis-note">${esc(t('Fixed fees apply once to the household period. Missing measurements are not zero.','Opłaty stałe dotyczą jednokrotnie całego okresu gospodarstwa. Brak pomiaru nie oznacza zera.'))}</p></section>`;
   };
   const groupsView = (snapshot,level) => {
     const groups=snapshot.groups, rows=rowsFor(groups,level),max=maximum(rows.map(x=>x.row.kwh));
     const colors=new Map(Object.keys(groups?.[level] || {}).sort().map((id,index)=>[id,Math.min(index,4)]));
-    return `<section data-analysis-groups><h3>${esc(t('Energy flow — from and to','Przepływ energii — skąd i dokąd'))}</h3><p>${esc(t('From','Skąd'))}: ${esc(groups?.energy_domain === 'grid_import' ? t('Grid import','Import z sieci') : t('Measured energy','Zmierzona energia'))} · ${esc(quantity(snapshot.totals?.kwh))}</p><p>${esc(t('Energy by tariff zone: no server breakdown.','Energia według stref taryfy: brak rozbicia z serwera.'))}</p><h4>${esc(t('To','Dokąd'))}</h4>
+    return `<section data-analysis-groups><h3>${esc(t('Energy flow — from and to','Przepływ energii — skąd i dokąd'))}</h3><p>${esc(t('From','Skąd'))}: ${esc(groups?.energy_domain === 'grid_import' ? t('Grid import','Import z sieci') : t('Measured energy','Zmierzona energia'))} · ${esc(quantity(snapshot.totals?.kwh))}</p><p data-analysis-zone-note>${esc((snapshot.chart?.bins||[]).some(zoneProof)?t('Select a chart interval or open Data for tariff-zone details. No whole-period zone total is supplied.','Wybierz przedział na wykresie lub otwórz Dane, aby odczytać strefy taryfy. Serwer nie podał sumy stref za cały okres.'):t('Energy by tariff zone: no server breakdown.','Energia według stref taryfy: brak rozbicia z serwera.'))}</p><h4>${esc(t('To','Dokąd'))}</h4>
       <ol class="analysis-ranking">${rows.map(({id,label,row},index)=>`<li class="${id === 'unmeasured' ? 'analysis-unmeasured' : ''}"><div><strong>${esc(label)}</strong><span>${esc(quantity(row.kwh))} · ${esc(money(row.usage_cost,groups?.currency))}</span></div><div class="analysis-track" aria-hidden="true"><span class="analysis-rank rank-${colors.get(id) ?? 4}" style="width:${width(row.kwh,max)}%"></span></div></li>`).join('')}</ol>
       ${!rows.length ? `<p>${esc(unknown())}</p>` : ''}
       ${table(t('Group measurements and usage costs','Pomiary grup i koszty zużycia'),[t('Group','Grupa'),'kWh',t('Usage cost','Koszt zużycia'),t('Coverage','Pokrycie')],rows.map(({label,row})=>[esc(label),esc(quantity(row.kwh)),esc(money(row.usage_cost,groups?.currency)),esc(coverage(row.coverage))]))}
@@ -1808,7 +1935,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
 .energy-analysis-v53 .analysis-chart{display:flex;align-items:stretch;height:212px;min-width:max-content;gap:4px}
 .energy-analysis-v53 .analysis-point{position:relative;display:flex;flex:1;align-items:flex-end;justify-content:center;min-width:44px;height:212px;padding:0 4px 40px;border-radius:4px}
 .energy-analysis-v53 .analysis-column{display:block;width:100%;max-height:168px;background:var(--energy-grid-consumption-color,#287fd1);border-radius:3px 3px 0 0;min-height:1px}
-.energy-analysis-v53 .analysis-point-label{position:absolute;bottom:6px;left:0;width:100%;font-size:14px}
+.energy-analysis-v53 .analysis-baseline-line{display:block;position:absolute;inset-inline:4px;height:0;border-top:3px dashed #8754b3;pointer-events:none}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-current:before{content:"● ";color:#287fd1}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-baseline:before{content:"━ ";color:#8754b3}\n.energy-analysis-v53 [data-analysis-baseline-range]{display:inline-block}\n.energy-analysis-v53 .analysis-point-label{position:absolute;bottom:6px;left:0;width:100%;font-size:14px}
 .energy-analysis-v53 .analysis-missing{background:repeating-linear-gradient(135deg,transparent,transparent 5px,var(--divider-color) 5px,var(--divider-color) 6px)}
 .energy-analysis-v53 .analysis-ranking,.energy-analysis-v53 .analysis-deltas{list-style:none;margin:0;padding:0}
 .energy-analysis-v53 .analysis-ranking li,.energy-analysis-v53 .analysis-deltas li{padding:10px 0;border-bottom:1px solid var(--divider-color)}
