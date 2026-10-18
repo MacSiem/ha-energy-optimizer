@@ -2,6 +2,9 @@
 
 ## 4.0.0 (Unreleased)
 
+- Refresh confirmed prices after a shared tariff changes while preserving unsaved drafts and their revision conflict protection.
+- Keep the measurement time zone in source details while chart labels follow the user’s display settings.
+- Register Energy Insights once when its script loads again, preserving other custom cards.
 - Use HA Tools Email 2.4.0+ as the sole price engine for shared and card-owned tariffs, historical charts and compact summaries. Keep measurements available when pricing is unavailable; preserve unknowns, zero, negative costs and tariff currency. Existing legacy rates are ephemeral backend read inputs without settings writes.
 - Add visual title/default-tab/visible-tabs/compact/help/support/hourly-range options to all three cards, with narrow named navigation, Sections sizing, persistent help gestures and unchanged measurement/calendar semantics.
 - Show primary compact cost today, tariff classification and the next strictly future cheap period from the same backend snapshot as five Energy entities. Clear stale context, fence late replies, coalesce slow-wire updates and refresh mounted views.

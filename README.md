@@ -62,6 +62,8 @@ Wh, kWh and MWh are normalized to kWh. Unsupported units remain unavailable in a
 
 Opening Energy Email only reads data and existing settings. It never creates helpers or automations. Explicit administrator saves use existing input_text helpers when available and browser storage otherwise. Ordinary users can read energy data; email configuration, scheduling and sending are reserved for administrators. With HA Tools Email 2.2.0+, all three cards can read the same server tariff. Administrator saves require confirmed backend readback; household users may read the profile. Card YAML tariffs remain compatibility inputs and are priced by the same backend; without its pricing API, usage remains visible and costs show N/A. A shared tariff that cannot be confirmed withholds costs rather than substituting another price.
 
+When another card changes the shared tariff, confirmed prices refresh automatically. Your unsaved draft stays intact until you explicitly load the stored version. Saving a draft based on an older version reports a revision conflict instead of replacing the newer tariff.
+
 ### Measured charts and Custom tariffs
 
 Optimizer Dashboard and Patterns, and Insights Daily / Weekly / Monthly, provide **Chart / Data** views of the same measured intervals. Units, source, timezone, coverage and missing values stay explicit. Use the point selector with arrows, Home or End for exact values without a pointer. Changing presentation does not fetch another Recorder dataset. Patterns includes a day/hour selector and weekday averages from complete local days; partial days remain partial. Insights paginates long data and device lists, with search and visible parent/submeter relationships.
