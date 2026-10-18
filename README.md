@@ -76,6 +76,8 @@ The Custom tariff supports a currency, IANA timezone or an explicitly configured
 
 Use Home Assistant's visual card editor for these settings; YAML remains supported. Unknown card keys are retained.
 
+Use Left / Right to move between visible tabs, or Home / End for the first / last tab. The active tab stays in view and keeps keyboard focus when the card redraws. Hidden and disabled tabs are skipped; a narrow native picker retains its normal keyboard behavior.
+
 | Option | Behavior |
 |---|---|
 | `title` | Card heading. |

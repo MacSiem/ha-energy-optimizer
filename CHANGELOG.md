@@ -2,6 +2,8 @@
 
 ## 4.0.0 (Unreleased)
 
+- Support Left / Right and Home / End across visible tabs in all three cards, retaining focus after redraw and revealing the active tab horizontally.
+
 - Keep Patterns source explanations folded and point summaries readable, with exact measurements and UTC intervals available in details and Data.
 
 - Align compact hourly chart axes to the user display zone at three-hour clock marks; retain every measurement, full tooltip date and Data value.
