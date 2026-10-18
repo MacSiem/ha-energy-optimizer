@@ -1797,7 +1797,9 @@ this._installTariffConsumerV3();
 :focus-visible { outline: 2px solid var(--bento-primary, #6366f1); outline-offset: 2px; border-radius: 3px; }
 
 :host {
-  --bento-primary: #3B82F6;
+  color-scheme: light;
+  container-type: inline-size;
+  --bento-primary: #1d4ed8;
   --bento-primary-hover: #2563EB;
   --bento-primary-light: rgba(59, 130, 246, 0.08);
   --bento-success: #10B981;
@@ -1822,6 +1824,8 @@ this._installTariffConsumerV3();
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 :host(.bento-dark) {
+  color-scheme: dark;
+  --bento-primary: #a5b4fc;
   --bento-bg: var(--primary-background-color, #1a1a2e);
   --bento-card: var(--card-background-color, #16213e);
   --bento-text: var(--primary-text-color, #e2e8f0);
@@ -2086,14 +2090,17 @@ canvas {
 
         .grid {
           display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          grid-template-columns: repeat(5, minmax(0, 1fr));
           gap: 12px;
           margin-bottom: 20px;
         }
 
         .summary-card {
-          background: linear-gradient(135deg, var(--primary) 0%, color-mix(in srgb, var(--primary), #000 12%) 100%);
-          color: white;
+          background: var(--secondary-background-color, #f4f6f9);
+          color: var(--text-color);
+          border: 1px solid var(--divider);
+          min-width: 0;
+          overflow-wrap: anywhere;
           padding: 16px;
           border-radius: 8px;
           display: flex;
@@ -2102,23 +2109,24 @@ canvas {
         }
 
         .summary-card.alt {
-          background: linear-gradient(135deg, var(--success) 0%, color-mix(in srgb, var(--success), #000 12%) 100%);
+          background: color-mix(in srgb, var(--success) 8%, var(--bg-color));
         }
 
         .summary-card.warn {
-          background: linear-gradient(135deg, var(--warning) 0%, color-mix(in srgb, var(--warning), #000 12%) 100%);
+          background: color-mix(in srgb, var(--warning) 8%, var(--bg-color));
         }
 
         .summary-value {
-          font-size: 28px;
+          font-size: clamp(22px, 4cqi, 28px);
+          color: var(--bento-primary);
           font-weight: 700;
           margin: 8px 0;
         }
 
         .summary-label {
           font-size: 12px;
-          opacity: 0.9;
-          text-transform: uppercase;
+          color: var(--text-color);
+          text-transform: none;
           letter-spacing: 0.5px;
         }
 
@@ -2308,36 +2316,18 @@ canvas {
           border-radius: 2px;
         }
 
-        .power-setup { margin:12px 0; overflow-wrap:anywhere; }
+        .power-setup { grid-column:1 / -1; margin:0; overflow-wrap:anywhere; font-size:14px; }
         .power-setup summary, .power-setup select { min-height:44px; max-width:100%; }
         .power-setup summary { display:list-item; list-style-position:inside; box-sizing:border-box; padding:12px 0; cursor:pointer; color:var(--primary-color); }
         .power-setup label { display:flex; flex-direction:column; gap:8px; }
         .power-setup select { font:inherit; color:var(--primary-text-color); background:var(--card-background-color); border:1px solid var(--divider-color); border-radius:10px; padding:8px; }
         .power-setup pre { white-space:pre-wrap; overflow-wrap:anywhere; }
-        .power-draw {
-          background: linear-gradient(135deg, var(--primary) 0%, color-mix(in srgb, var(--primary), #000 12%) 100%);
-          color: white;
-          padding: 16px;
-          border-radius: 8px;
-          text-align: center;
-        }
-
-        .power-draw-value {
-          font-size: 36px;
-          font-weight: 700;
-          margin: 8px 0;
-        }
-
-        .power-draw-unit {
-          font-size: 14px;
-          opacity: 0.9;
-        }
-
+        .power-draw { text-align:left; }
+        .power-draw-value { font-size:clamp(22px, 4cqi, 28px); font-weight:700; margin:8px 0; color:var(--bento-primary); }
+        .power-draw-unit { font-size:12px; color:var(--text-color); }
+        @container (max-width: 760px) { .grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+        @container (max-width: 270px) { .grid { grid-template-columns:minmax(0,1fr); } }
         @media (max-width: 768px) {
-          .grid {
-            grid-template-columns: 1fr;
-          }
-
           .comparison-grid {
             grid-template-columns: 1fr;
           }
@@ -2436,7 +2426,7 @@ canvas {
 
   _powerMarkupV4() {
     const t = (en, pl) => this._text(en, pl);
-    if (this._currentPowerW !== null && this._hass?.user?.id && this._hass?.connection?.connected !== false) return `<div class="power-draw"><div class="power-draw-unit">${t('Current Power Draw', 'Moc chwilowa')}</div><div class="power-draw-value">${createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en').number(this._currentPowerW / 1000, {minimumFractionDigits:2, maximumFractionDigits:2})}</div><div class="power-draw-unit">kW</div></div>`;
+    if (this._currentPowerW !== null && this._hass?.user?.id && this._hass?.connection?.connected !== false) return `<div class="summary-card power-draw"><div class="power-draw-unit">${t('Current Power Draw', 'Moc chwilowa')}</div><div class="power-draw-value">${createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en').number(this._currentPowerW / 1000, {minimumFractionDigits:2, maximumFractionDigits:2})}</div><div class="power-draw-unit">kW</div></div>`;
     const sensors = Object.entries(this._hass?.states || {}).filter(([id, state]) => id.startsWith('sensor.') && ['W','kW'].includes(state?.attributes?.unit_of_measurement));
     const selected = sensors.some(([id]) => id === this._powerSetupEntityV4) ? this._powerSetupEntityV4 : '';
     return `<div class="power-setup"><p data-power-status>${this._config.power_entity
@@ -2494,9 +2484,8 @@ canvas {
               <div class="summary-value">${this._todayTariffCosts().rows.length}</div>
               <span class="summary-label">${this._text("Completed Recorder buckets", "Zakończone przedziały Recorder")}</span>
             </div>
+            ${this._powerMarkupV4()}
           </div>
-
-          ${this._powerMarkupV4()}
 
           ${this._dashboardChartMarkupV3()}
         </div>
@@ -2639,7 +2628,7 @@ canvas {
     return `<section class="chart-container patterns-measured" data-dashboard-chart-section>
       <h3>${t('Hourly consumption · today', 'Zużycie godzinowe · dzisiaj')}</h3>
       <div data-dashboard-tariff-legend role="list" aria-label="${t('Tariff zones', 'Strefy taryfy')}" style="display:flex;flex-wrap:wrap;gap:12px;margin:12px 0">${tariff.legend.map(item => `<span role="listitem" style="display:inline-flex;gap:6px;align-items:center;overflow-wrap:anywhere"><span aria-hidden="true" style="width:14px;height:14px;flex:0 0 14px;background:${item.color};border-radius:3px"></span>${_esc(item.label)}</span>`).join('')}</div>
-      <p>${_esc(this._energyModel?.zone || '')} · ${_esc((this._energyModel?.ids || []).join(', '))}</p>
+      <details data-dashboard-source><summary>${t('Source and time details', 'Źródło i szczegóły czasu')}</summary><p>${_esc(this._energyModel?.zone || '')} · ${_esc((this._energyModel?.ids || []).join(', '))}</p></details>
       <div class="patterns-switch" role="group" aria-label="${t('Presentation', 'Prezentacja')}">
         <button type="button" data-dashboard-control="chart" aria-pressed="${state.view === 'chart'}">${t('Chart', 'Wykres')}</button>
         <button type="button" data-dashboard-control="data" aria-pressed="${state.view === 'data'}">${t('Data', 'Dane')}</button>
@@ -3101,7 +3090,7 @@ async _drawComparisonChart() {
 
   _peakHourMarkupV3() {
     const row = this._getPeakRowV3(), format = createFormatUi.forHass(this._hass);
-    return row ? `<div data-dashboard-peak="${_esc(row.id)}" data-kwh="${row.kwh}"><div class="summary-value">${_esc(format.clock(row.from, true))}</div><span class="summary-label">${_esc(format.date(row.from))}</span></div>` : '<div class="summary-value">N/A</div>';
+    return row ? `<div data-dashboard-peak="${_esc(row.id)}" data-kwh="${row.kwh}"><div class="summary-value">${_esc(format.clock(row.from, format.timeZone !== this._hass?.config?.time_zone))}</div><span class="summary-label">${_esc(format.date(row.from))}</span></div>` : '<div class="summary-value">N/A</div>';
   }
 
   _calculateEfficiencyScore() {

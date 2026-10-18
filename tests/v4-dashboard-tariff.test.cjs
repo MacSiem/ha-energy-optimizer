@@ -134,3 +134,14 @@ test('peak summary hides an equal HA display zone but retains a different zone',
   assert.match(f.card.shadowRoot.querySelector('[data-dashboard-peak] .summary-value').textContent,/GMT\+9/);
  }finally{f.close();}
 });
+
+test('dashboard axis thins labels to three-hour spacing without dropping points or full tooltip dates',async()=>{
+ const f=fixture();try{
+  await f.card._drawDashboardChart();const cfg=f.charts.at(-1),ticks=cfg.options.scales.x.ticks;
+  assert.ok(ticks && typeof ticks.callback==='function','axis labels need an explicit cadence independent of data');
+  const context={getLabelForValue:index=>cfg.data.labels[index]};
+  assert.ok(ticks.callback.call(context,0,0));assert.equal(ticks.callback.call(context,1,1),'');assert.ok(ticks.callback.call(context,3,3));
+  assert.equal(cfg.data.datasets[0].data.length,10,'label thinning must preserve every measured point');
+  const title=cfg.options.plugins.tooltip.callbacks.title([{dataIndex:1}]);assert.match(title,/2026/);assert.match(title,/Jan|sty/);assert.match(title,/GMT|UTC/);
+ }finally{f.close();}
+});
