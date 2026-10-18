@@ -2265,10 +2265,11 @@ this._installTariffConsumerV3();
     }
 
 
-    _analysisIsActiveV53() {return true;}
+    _analysisIsActiveV53() {return this._activeTab !== 'tips';}
     _getAnalysisHostV53() { return this._analysisHostV53 ||= this._getTariffHostV3().analysis(); }
     _analysisLegacyAllowedV53() { return this._getAnalysisHostV53().legacyAllowed(); }
     _syncAnalysisV53() {
+      if(!this._analysisIsActiveV53()){this._analysisHostV53?.stop();return;}
       const host=this._getAnalysisHostV53();
       const mount=this.shadowRoot?.querySelector('[data-analysis-mount-v53]') || (host.legacyAllowed() ? this.shadowRoot?.querySelector('.panel-body') : null);
       host.mount(mount, mount?.dataset.analysisSection || 'overview', mount?.dataset.analysisPeriod);
@@ -2882,7 +2883,9 @@ this._installTariffConsumerV3();
       // Targeted DOM update — replace only panel-body content
       const body = this.shadowRoot?.querySelector('.panel-body');
       if (!body) return;
-      if (this._loading) {
+      if (this._activeTab === 'tips') {
+        body.innerHTML = this._renderTips();
+      } else if (this._loading) {
         body.innerHTML = this._renderLoading();
       } else if (this._error) {
         body.innerHTML = this._renderError();
@@ -2923,9 +2926,9 @@ this._installTariffConsumerV3();
           ${this._renderHeader()}
           ${this._renderTabBar()}
           <div class="panel-body">
-            ${this._loading ? this._renderLoading() : ''}
-            ${this._error && !this._loading ? this._renderError() : ''}
-            ${!this._loading && !this._error ? this._renderTabContent() : ''}
+            ${this._activeTab !== 'tips' && this._loading ? this._renderLoading() : ''}
+            ${this._activeTab !== 'tips' && this._error && !this._loading ? this._renderError() : ''}
+            ${this._activeTab === 'tips' || !this._loading && !this._error ? this._renderTabContent() : ''}
           </div>
           ${this._tariffDetailsMarkup()}
           ${this._renderToolsBanner()}
@@ -3046,8 +3049,8 @@ this._installTariffConsumerV3();
           canvas { max-width: 100%; display: block; }
           .chart-label { text-align: center; font-size: 12px; color: var(--bento-text-secondary); margin-top: 8px; }
           .tips-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 16px; }
-          .tip-card { background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 14px; font-size: 13px; color: var(--bento-text); box-shadow: var(--bento-shadow-md); }
-          .tip-card strong { color: var(--bento-primary); display: block; margin-bottom: 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
+          .tip-card { background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 14px; font-size: 14px; line-height: 1.5; color: var(--bento-text); box-shadow: var(--bento-shadow-md); }
+          .tip-card strong { color: var(--bento-text); display: block; margin-bottom: 4px; font-size: 14px; }
           .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 24px; gap: 16px; color: var(--bento-text-secondary); font-size: 14px; }
           .spinner { width: 32px; height: 32px; border: 3px solid var(--bento-border); border-top-color: var(--bento-primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
           .error-msg { padding: 16px; background: var(--bento-error-light); border-left: 4px solid var(--bento-error); border-radius: var(--bento-radius-xs); font-size: 13px; color: var(--energy-value-red,#b91c1c); }
@@ -3141,6 +3144,7 @@ this._installTariffConsumerV3();
     }
     _loadAnalysisLegacyV53() {this._render();void this._fetchData();}
     _renderTabContent() {
+      if(this._activeTab === 'tips')return this._renderTips();
       if(!this._analysisLegacyAllowedV53())return `<div data-analysis-mount-v53 data-analysis-period="${({daily:'day',weekly:'week',monthly:'month'})[this._activeTab] || 'day'}"></div>`;
       if (!this._data) return this._renderInsightDevicesV3();
 
@@ -3218,24 +3222,27 @@ this._installTariffConsumerV3();
     _renderChartTab(period) { return this._renderInsightChartV3(period); }
 
     _renderTips() {
+      const pl = this._lang === 'pl';
+      const text = (en, polish) => pl ? polish : en;
       const tips = [
-        { title: 'Sensor Setup', key: 'sensorSetup' },
-        { title: 'Cost Tracking', key: 'costTracking' },
-        { title: 'Peak Hours', key: 'peakHours' },
-        { title: 'Device Breakdown', key: 'deviceBreakdown' },
-        { title: 'Efficient Appliances', key: 'efficientAppliances' }
+        [text('Start with Home Assistant Energy', 'Zacznij od panelu Energia'),
+         text('Your administrator selects grid import sources in Energy Dashboard. This card uses those same recorded measurements.',
+              'Administrator wybiera import z sieci w panelu Energia Home Assistant. Karta korzysta z tych samych zapisanych pomiarów.')],
+        [text('Costs follow saved tariffs', 'Koszty według zapisanych taryf'),
+         text('Your administrator maintains tariff rates and their effective dates. Historical consumption uses the rates valid at that time; missing prices remain unavailable.',
+              'Administrator ustawia stawki taryf i daty ich obowiązywania. Zużycie historyczne korzysta z ówczesnych stawek; brak ceny pozostaje brakiem danych.')],
+        [text('Find your peak hours', 'Sprawdź godziny największego zużycia'),
+         text('Select a chart interval or open Data to read its values. Compare matching periods and check measurement coverage; a missing reading is not zero.',
+              'Wybierz przedział na wykresie lub otwórz Dane, aby odczytać wartości. Porównuj odpowiadające sobie okresy i sprawdzaj pokrycie pomiarów; brak pomiaru nie oznacza zera.')],
+        [text('See devices and rooms', 'Zobacz urządzenia i pokoje'),
+         text('Use the device and room rankings to find measured consumers. No room and unmeasured energy are separate; household fixed fees are not device costs.',
+              'Rankingi urządzeń i pokoi pokazują zmierzone zużycie. Bez pokoju i Niezmierzone są osobnymi pozycjami; opłaty stałe domu nie są kosztami urządzenia.')],
+        [text('Base improvements on measurements', 'Planuj zmiany na podstawie pomiarów'),
+         text('Review your own device measurements before deciding to replace an appliance. Tariff comparisons use the same consumption and do not promise savings or change your tariff.',
+              'Sprawdź własne pomiary urządzeń przed decyzją o wymianie sprzętu. Porównania taryf używają tego samego zużycia, nie obiecują oszczędności i nie zmieniają taryfy.')]
       ];
-
-      return `
-        <div class="tips-grid">
-          ${tips.map(tip => `
-            <div class="tip-card">
-              <strong>💡 ${this._t(tip.key).split('—')[0].trim()}</strong>
-              <span>${this._t(tip.key).split('—').pop().trim()}</span>
-            </div>
-          `).join('')}
-        </div>
-      `;
+      return `<section data-energy-tips-v53 aria-label="${_esc(text('Tips', 'Wskazówki'))}" class="tips-grid">${tips.map(([title, body])=>
+        `<article class="tip-card"><strong>${_esc(title)}</strong><p>${_esc(body)}</p></article>`).join('')}</section>`;
     }
 
     _renderToolsBanner() {
