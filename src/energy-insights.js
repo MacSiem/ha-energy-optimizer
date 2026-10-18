@@ -253,7 +253,7 @@ createFormatUi.forHass = hass => {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=95e93ee4c400f188c1ca48d538c5e91936cc4314112f7c23b218fc6ce135e51a
+      // HA_TARIFF_V3_START sha256=c5b693c69239787436a6c9577ef1274c7e27d7c9d81cd8c54af47c71b3c85ef4
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1109,7 +1109,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   guard ||= createTariffGuardV3({ getHass: () => card._hass, getContext: () => card._config, timeoutMs: readTimeoutMs });
   const identity = () => guard.snapshot();
   const same = (a, b) => a?.epoch === b?.epoch && a?.user === b?.user && a?.connection === b?.connection;
-  let pending = null, attemptedEpoch = null, cachedKey, cachedModel, editorRoot, editor, focusKey = null;
+  let confirmedRevision = null, confirmedUpdatedAt = null, pending = null, attemptedEpoch = null, cachedKey, cachedModel, editorRoot, editor, focusKey = null;
   const state = () => (card._tariffEditorState ||= { profile: null, revision: null, status: 'not_checked', busy: false });
   const effectiveConfig = () => {
     const config = card._config || {};
@@ -1121,7 +1121,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   const describe = () => {
     const shared = !Object.hasOwn(card._config || {}, 'tariff_profile') && card._sharedTariffProfile != null &&
       card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, identity());
-    return {profile: activeProfile() ?? null, source: shared ? 'shared' : 'override', revision: shared ? state().revision : null,
+    return {profile: activeProfile() ?? null, source: shared ? 'shared' : 'override', revision: shared ? confirmedRevision : null,
       ready: Object.hasOwn(card._config || {}, 'tariff_profile') || card._sharedTariffReadStatus === 'success'};
   };
   const backend = createEnergyBackendV5({card,guard,describe,
@@ -1132,7 +1132,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       if (card.isConnected) card._repriceTariffV3?.();
     },
     onRevision: revision => {
-      const token = identity(), minimumRevision = Math.max(revision, state().revision || 0);
+      const token = identity(), minimumRevision = Math.max(revision, confirmedRevision || 0);
       card._sharedTariffExpectedV3 = true;
       card._sharedTariffReadStatus = 'unconfirmed';
       card._sharedTariffProfile = null; card._sharedTariffAssociation = null; card._sharedTariffLoadedAt = 0;
@@ -1144,7 +1144,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
         if (!card.isConnected || !guard.current(token)) return;
         const confirmed = await load(true, minimumRevision);
         if (guard.current(token) && card.isConnected) {
-          if (!confirmed || state().revision < minimumRevision) card._sharedTariffReadStatus = 'unconfirmed';
+          if (!confirmed || confirmedRevision < minimumRevision) card._sharedTariffReadStatus = 'unconfirmed';
           card._repriceTariffV3?.();
         }
       });
@@ -1168,7 +1168,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   const purge = () => {
     card._sharedTariffProfile = null; card._sharedTariffAssociation = null;
-    card._sharedTariffLoadedAt = 0; card._tariffEditorState = null;
+    card._sharedTariffLoadedAt = 0; card._tariffEditorState = null; confirmedRevision = null; confirmedUpdatedAt = null;
     card._sharedTariffReadStatus = 'not_checked'; card._tariffSettingsOpen = false;
     backend.invalidate();
     cachedKey = undefined; cachedModel = undefined; editorRoot?.replaceChildren(); editor?.dispose?.(); editorRoot = null; editor = null; focusKey = null;
@@ -1181,7 +1181,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   const load = async (force = false, minimumRevision = 0) => {
     const token = identity();
     if (!guard.available(token)) return false;
-    if (card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, token)) return true;
+    if (card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, token) && confirmedRevision >= minimumRevision) return true;
     if (pending) return pending;
     if (guard.occupied() || (!force && attemptedEpoch === token.epoch)) return false;
     attemptedEpoch = token.epoch;
@@ -1196,12 +1196,16 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
         const valid = result.profile === null || createModel(result.profile).valid;
         const profile = result.profile === null ? null : valid ? clone(result.profile) : { schema: 0 };
         card._sharedTariffProfile = profile; card._sharedTariffAssociation = token; card._sharedTariffLoadedAt = Date.now();
-        card._sharedTariffReadStatus = 'success';
+        card._sharedTariffReadStatus = 'success'; confirmedRevision = result.revision; confirmedUpdatedAt = result.updated_at;
         backend.invalidate(); cachedKey = undefined; cachedModel = undefined;
         const saved = state(), pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline) || JSON.stringify(saved.draft) === JSON.stringify(saved.profile);
-        saved.profile = clone(profile); saved.revision = result.revision; saved.updated_at = result.updated_at;
         saved.backendAvailable = true;
-        if (pristine) { saved.draft = valid ? clone(profile) : undefined; saved._draftBaseline = clone(saved.draft); }
+        // Pricing can advance independently of an unsaved editor draft. Keep its
+        // original compare-and-swap baseline until the user explicitly loads.
+        if (pristine) {
+          saved.profile = clone(profile); saved.revision = result.revision; saved.updated_at = result.updated_at;
+          saved.draft = valid ? clone(profile) : undefined; saved._draftBaseline = clone(saved.draft);
+        }
         return true;
       } catch (_) {
         if (guard.current(token)) card._sharedTariffReadStatus = 'unconfirmed';
@@ -1217,7 +1221,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     if (!guard.available(token)) return { profile: null, reason: 'tariff_authority_unavailable' };
     if (own) return { profile: clone(card._config.tariff_profile), revision: null, provenance: 'card_config' };
     if (!same(card._sharedTariffAssociation, token) || card._sharedTariffReadStatus !== 'success') return { profile: null, reason: 'tariff_unconfirmed' };
-    return { profile: clone(card._sharedTariffProfile), revision: state().revision, provenance: 'shared_backend', updated_at: state().updated_at };
+    return { profile: clone(card._sharedTariffProfile), revision: confirmedRevision, provenance: 'shared_backend', updated_at: confirmedUpdatedAt };
   };
   const markup = () => {
     const active = card.shadowRoot?.activeElement;
@@ -1258,7 +1262,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
         if (!guard.current(mountToken)) return;
         card._sharedTariffProfile = clone(envelope.profile); card._sharedTariffAssociation = identity(card._hass);
         card._sharedTariffLoadedAt = Date.now();
-        card._sharedTariffReadStatus = 'success';
+        card._sharedTariffReadStatus = 'success'; confirmedRevision = envelope.revision; confirmedUpdatedAt = envelope.updated_at;
         backend.invalidate(); cachedKey = undefined; cachedModel = undefined;
         // The editor finishes its pending state before the parent replaces DOM.
         queueMicrotask(() => {
