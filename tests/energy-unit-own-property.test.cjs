@@ -1,5 +1,6 @@
 // Pure regression through all three consumers and their actual shared sources.
 'use strict';
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
@@ -15,7 +16,7 @@ for (const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email'
       const NativeDate=dom.window.Date;
       dom.window.Date=class extends NativeDate { constructor(...args){super(...(args.length?args:[now]));} static now(){return now;} };
       dom.window.eval(code);
-      const card=dom.window.document.createElement(type); card._schedule=()=>{};
+      const card=isolateLegacyAnalysis(dom.window.document.createElement(type)); card._schedule=()=>{};
       const profile={schema:1,currency:'EUR',timezone:'UTC',clock:{mode:'civil'},priceBasis:'gross',defaultZone:'a',zones:[{id:'a',energyRate:1,variableRate:0}]};
       card.setConfig({tariff_profile:profile,show_support:false});
       const calls=[];

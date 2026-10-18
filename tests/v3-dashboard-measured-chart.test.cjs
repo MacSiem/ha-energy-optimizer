@@ -1,4 +1,5 @@
 'use strict';
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
@@ -12,7 +13,7 @@ async function fixture(now='2026-10-25T05:00:00Z', zone='Europe/Warsaw') {
   const configs=[]; dom.window.captureChart=(ctx,config)=>configs.push(config);
   dom.window.HTMLCanvasElement.prototype.getContext=()=>({});
   dom.window.eval(source+'\nconst HA_ENERGY_CHART=class{constructor(ctx,config){window.captureChart(ctx,config)}destroy(){}};');
-  const card=dom.window.document.createElement('ha-energy-optimizer');card._schedule=()=>{};
+  const card=isolateLegacyAnalysis(dom.window.document.createElement('ha-energy-optimizer'));card._schedule=()=>{};
   const calls=[];
   card._hass={user:{id:'synthetic',is_admin:true},connection:{connected:true},language:'en',locale:{language:'en',time_zone:'server',time_format:'24'},config:{time_zone:zone,currency:'EUR'},states:{},callWS:async m=>{
     calls.push(m);if(m.type==='energy/get_prefs')return {energy_sources:[{type:'grid',stat_energy_from:'sensor.synthetic_grid'}]};
@@ -21,8 +22,10 @@ async function fixture(now='2026-10-25T05:00:00Z', zone='Europe/Warsaw') {
     throw Error(m.type);
   }};
   card.setConfig({show_support:false,energy_price:2,currency:'EUR'});dom.window.document.body.append(card);
-  await card._fetchEnergyStats();assert.equal(card._hasRealData,true);card._render();
-  return {dom,card,calls,configs,close(){card._getTariffHostV3().guard.dispose();dom.window.close();}};
+  try {
+    await card._fetchEnergyStats();assert.equal(card._hasRealData,true);card._render();
+    return {dom,card,calls,configs,close(){card._getTariffHostV3().guard.dispose();dom.window.close();}};
+  } catch(error) {card._getTariffHostV3().guard.dispose();dom.window.close();throw error;}
 }
 function click(f,key){const el=f.card.shadowRoot.querySelector(`[data-dashboard-control="${key}"]`);assert.ok(el,'visible '+key+' control');el.click();}
 test('Dashboard Chart/Data preserves separate repeated DST hours and exact zero values without reads',async()=>{

@@ -1,4 +1,5 @@
 'use strict';
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
@@ -10,7 +11,7 @@ function fixture() {
   // JSDOM has no layout; native visibility and dimensions are checked separately in Chrome.
   dom.window.HTMLElement.prototype.getClientRects = function () { return this.isConnected ? [{width:200,height:44}] : []; };
   dom.window.eval(code);
-  const card = dom.window.document.createElement('ha-energy-email');
+  const card = isolateLegacyAnalysis(dom.window.document.createElement('ha-energy-email'));
   card._firstRender = true; card._discoveryDone = true; card._schedule = () => {};
   card._config.show_support = false; card._config.energy_price = 0.5;
   const writes = []; let resolve, reject;
