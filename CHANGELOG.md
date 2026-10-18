@@ -2,6 +2,8 @@
 
 ## 4.0.0 (Unreleased)
 
+- Clear recovered pricing warnings after a successful retry while retaining warnings for other queries that still fail.
+
 - Refresh native light/dark phone screenshots, compact visual-editor examples and the actual Polish weekly mail preview, with capture hashes and explicit measurement windows.
 
 - Switch manual and schedule mail previews between Phone/Computer widths and Light/Dark themes locally, retaining the cached server report and focus without another request or send. Older mail templates remain light-only with an explanation.
