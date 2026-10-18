@@ -847,6 +847,10 @@ function createEnergyReportV53({card, format}) {
 }
 // HA_ENERGY_REPORT_V53_END
 
+// HA_FEATURE_ACCESS_V53_START
+// Filled from shared/ha-tools-feature-access.js by scripts/sync-tariff.cjs --write.
+// HA_FEATURE_ACCESS_V53_END
+
   class HAEnergyEmail extends HTMLElement {
     static getConfigElement() { return document.createElement('ha-energy-email-editor'); }
     constructor() {
@@ -1006,11 +1010,19 @@ function createEnergyReportV53({card, format}) {
         this._hass = hass;
         this._analysisHostV53?.observe();
         const reportObservation = this._reportHostV53?.observe();
+        const accessObservation = this._featureAccessV53?.observe();
         this._serverSchedules.setContext(hass);
         this._mailPreview.setContext(hass);
         this._attemptHistory.setContext(hass);
         if (this._activeTab === 'history') this._render();
         if (!hass) { this.shadowRoot.replaceChildren(); return; }
+        if (this._activeTab==='config') {
+          // Closed access settings never trigger legacy SMTP discovery or repaint on ordinary HA traffic.
+          const needsRender = !this._firstRender || !this._featureAccessV53 || accessObservation?.contextChanged || previousLanguage !== this._lang || presentationChanged;
+          this._firstRender = true;
+          if (needsRender) this._render();
+          return;
+        }
         if (this._activeTab==='preview' && this._firstRender) {
           // Ordinary HA state traffic must preserve the report iframe, scroll,
           // open disclosures and focused controls. Identity/format changes purge.
@@ -2972,7 +2984,7 @@ this._installTariffConsumerV3();
       // Context purge and editor/write fences remain in force for tabs and periods.
       this._sharedTariffExpectedV3 ||= this._sharedTariffProfile != null;
       this._observeTariffContextV3();
-      if (this._activeTab==='preview' || !this._sharedTariffExpectedV3 || Object.hasOwn(this._config, 'tariff_profile')) return;
+      if (['preview','config'].includes(this._activeTab) || !this._sharedTariffExpectedV3 || Object.hasOwn(this._config, 'tariff_profile')) return;
       const guard = this._getTariffHostV3().guard, token = guard.snapshot();
       void this._loadSharedTariffProfile().then(confirmed => {
         if (confirmed && guard.current(token) && this.isConnected) this._repriceTariffV3();
@@ -3131,7 +3143,7 @@ this._installTariffConsumerV3();
     // --- auto-discovery ---
 
     _ensureInitialDiscovery() {
-      if (this._activeTab === 'preview' || this._discoveryDone || this._initialDiscoveryPromise || !this.isConnected ||
+      if (['preview','config'].includes(this._activeTab) || this._discoveryDone || this._initialDiscoveryPromise || !this.isConnected ||
         !this._hass?.callWS || !this._emailIdentity(this._hass).online) return;
       // Preserve occupancy until the old discovery settles. A normal hass
       // update or mount can then resume discovery with a fresh context token.
@@ -3950,7 +3962,7 @@ this._installTariffConsumerV3();
             <div class="header-icon">\u{1F4E7}</div>
             <div>
               <div class="header-title">${_esc(this._config.title)}</div>
-              <div class="header-sub">${recipientDisplay} ${this._activeTab==='preview' ? '' : `\u00A0\u2022\u00A0 ${this._hass?.user?.is_admin === true ? `<button type="button" id="price-display" aria-label="${L ? 'Edytuj taryfę energii' : 'Edit energy tariff'}">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())} \u270E</button>` : `<span id="price-display">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())}</span>`}`}</div>
+              <div class="header-sub">${recipientDisplay} ${['preview','config'].includes(this._activeTab) ? '' : `\u00A0\u2022\u00A0 ${this._hass?.user?.is_admin === true ? `<button type="button" id="price-display" aria-label="${L ? 'Edytuj taryfę energii' : 'Edit energy tariff'}">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())} \u270E</button>` : `<span id="price-display">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())}</span>`}`}</div>
             </div>
           </div>
           <label class="email-tab-picker">${L ? 'Widok' : 'View'}<select id="email-tab-select" aria-label="${L ? 'Widok' : 'View'}">${['overview','schedule','preview','send','config','history'].map((tab,i)=>({tab,i})).filter(({tab})=>this._hass?.user?.is_admin===true||['overview','preview'].includes(tab)).map(({tab,i})=>`<option value="${tab}" ${this._activeTab===tab?'selected':''}>${(L?['Przegląd','Harmonogram','Podgląd','Wyślij teraz','Ustawienia','Historia']:['Overview','Schedule','Preview','Send Now','Config','History'])[i]}</option>`).join('')}</select></label>
@@ -3963,7 +3975,7 @@ this._installTariffConsumerV3();
             ${this._hass?.user?.is_admin===true ? `<button class="tab-btn ${this._activeTab === 'history' ? 'active' : ''}" id="email-tab-history" data-tab="history">${L ? 'Historia' : 'History'}</button>` : ''}
           </div>
           <div id="tab-content" tabindex="-1" role="region" aria-label="${(L ? {overview:'Przegląd',schedule:'Harmonogram',preview:'Podgląd',send:'Wyślij teraz',config:'Ustawienia',history:'Historia'} : {overview:'Overview',schedule:'Schedule',preview:'Preview',send:'Send Now',config:'Config',history:'History'})[this._activeTab] || 'Energy Email'}"></div>
-          ${this._activeTab==='preview' ? '' : this._tariffDetailsMarkup()}
+          ${['preview','config'].includes(this._activeTab) ? '' : this._tariffDetailsMarkup()}
           ${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-email') ? OWN_SUPPORT_FOOTER : ''}
         </div>
         <div class="toast" id="toast"></div>
@@ -3977,7 +3989,7 @@ this._installTariffConsumerV3();
       });
       this.shadowRoot.getElementById('email-tab-select')?.addEventListener('change', event => this.setActiveTab(event.target.value));
       this._renderTab(true);
-      if(this._activeTab!=='preview')this._bindTariffSettings();
+      if(!['preview','config'].includes(this._activeTab))this._bindTariffSettings();
       this._bindEmailEvents();
       this._bindPriceEdit();
       if (renderToken === this._emailContextVersion && (this._hass?.user?.is_admin === true || this._activeTab==='preview')) {
@@ -4099,6 +4111,7 @@ this._installTariffConsumerV3();
       const el = this.shadowRoot.getElementById('tab-content');
       if (!el) return;
       if(this._activeTab!=='preview')this._reportHostV53?.stop();
+      if(this._activeTab!=='config')this._featureAccessV53?.stop();
       if(this._activeTab==='preview') {
         this._analysisHostV53?.stop();
         this._reportHostV53 ||= createEnergyReportV53({card:this,format:createFormatUi});
@@ -4773,6 +4786,7 @@ this._installTariffConsumerV3();
       const currency = this._tariffCurrency();
 
       return `
+        <details data-feature-access-v53 class="config-section"><summary style="min-height:44px;cursor:pointer;font-weight:600">${L ? 'Dostęp domowników' : 'Household access'}</summary><div data-feature-access-body></div></details>
         <div class="config-section">
           <div class="config-section-title">\u{1F4E7} ${L ? 'Ustawienia email' : 'Email Settings'}</div>
           <div class="config-input-row">
@@ -4807,6 +4821,8 @@ this._installTariffConsumerV3();
     _attachConfigEvents() {
       if (this._hass?.user?.is_admin !== true) return;
       const root = this.shadowRoot;
+      this._featureAccessV53 ||= createFeatureAccessV53({card:this,guard:this._getTariffHostV3().guard});
+      this._featureAccessV53.mount(root.querySelector('[data-feature-access-v53]'));
       // Email save
       const emailSave = root.getElementById('cfg-email-save');
       if (emailSave) emailSave.addEventListener('click', async () => {
@@ -5314,7 +5330,7 @@ this._installTariffConsumerV3();
       this._analysisHostV53?.observe();
       queueMicrotask(()=>{
         if(!this.isConnected)return;
-        if(this._activeTab==='preview'){this._render();return;}
+        if(['preview','config'].includes(this._activeTab)){this._render();return;}
         if(!this._analysisIsActiveV53())return;
         if(this.shadowRoot?.querySelector('[data-analysis-mount-v53]'))this._syncAnalysisV53();
         else this._render();
@@ -5329,6 +5345,7 @@ this._installTariffConsumerV3();
     }
 
     disconnectedCallback() {
+      this._featureAccessV53?.stop();
       this._reportHostV53?.stop();
       this._analysisHostV53?.stop();
       this._optionsResizeV5?.disconnect();

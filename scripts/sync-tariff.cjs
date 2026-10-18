@@ -18,6 +18,13 @@ const reportBlock = '// HA_ENERGY_REPORT_V53_START\n' + reportInline + '\n// HA_
 const reportProvenance = {path:reportPath,sha256:digest(reportSource),inlineSha256:digest(reportInline)};
 if (!process.argv.includes('--write') && JSON.stringify(manifest.sharedEnergyReport) !== JSON.stringify(reportProvenance)) throw new Error('Report factory provenance failed');
 if (process.argv.includes('--write')) manifest.sharedEnergyReport = reportProvenance;
+const accessPath = 'shared/ha-tools-feature-access.js';
+const accessSource = fs.readFileSync(path.join(root, accessPath), 'utf8');
+const accessInline = accessSource.replace(/^if \(typeof module[^\n]*$/gm, '').trimEnd();
+const accessBlock = '// HA_FEATURE_ACCESS_V53_START\n' + accessInline + '\n// HA_FEATURE_ACCESS_V53_END';
+const accessProvenance = {path:accessPath,sha256:digest(accessSource),inlineSha256:digest(accessInline)};
+if (!process.argv.includes('--write') && JSON.stringify(manifest.sharedFeatureAccess) !== JSON.stringify(accessProvenance)) throw new Error('Feature access factory provenance failed');
+if (process.argv.includes('--write')) manifest.sharedFeatureAccess = accessProvenance;
 const formatPath = 'shared/ha-tools-format.js';
 const formatSource = fs.readFileSync(path.join(root, formatPath), 'utf8');
 const formatInline = formatSource.replace(/^if \(typeof module[^\n]*$/gm, '').trimEnd();
@@ -31,7 +38,9 @@ for (const [file, kind] of [['src/optimizer.js', 'optimizer'], ['src/energy-insi
   if (!original.includes('// HA_TARIFF_V3_START')) throw new Error(`Missing tariff consumer: ${file}`);
   const withReport = kind === 'email' ? original.replace(/\/\/ HA_ENERGY_REPORT_V53_START\n[\s\S]*?\/\/ HA_ENERGY_REPORT_V53_END/, reportBlock) : original;
   if (kind === 'email' && !original.includes('// HA_ENERGY_REPORT_V53_START')) throw new Error('Missing report consumer');
-  const formatted = withReport.replace(/\/\/ HA_FORMAT_UI_START\n[\s\S]*?\/\/ HA_FORMAT_UI_END/, formatBlock);
+  const withAccess = kind === 'email' ? withReport.replace(/\/\/ HA_FEATURE_ACCESS_V53_START\n[\s\S]*?\/\/ HA_FEATURE_ACCESS_V53_END/, accessBlock) : withReport;
+  if (kind === 'email' && !original.includes('// HA_FEATURE_ACCESS_V53_START')) throw new Error('Missing feature access consumer');
+  const formatted = withAccess.replace(/\/\/ HA_FORMAT_UI_START\n[\s\S]*?\/\/ HA_FORMAT_UI_END/, formatBlock);
   if (!original.includes('// HA_FORMAT_UI_START')) throw new Error('Missing format factory consumer: ' + file);
   const next = formatted.replace(/\/\/ HA_TARIFF_V3_START[^\n]*\n[\s\S]*?\/\/ HA_TARIFF_V3_END/, block);
   if (process.argv.includes('--write')) fs.writeFileSync(target, next);
