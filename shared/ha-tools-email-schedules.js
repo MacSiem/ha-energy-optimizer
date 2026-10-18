@@ -299,3 +299,56 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
       preview: preview ? { ...preview } : null, previewStatus: { ...previewStatus } }; }
   };
 }
+
+
+// Local presentation only: consumers supply the existing immutable backend HTML.
+// Reuse this factory for Log manual/schedule frames without sharing card/user state.
+export function createHaToolsMailPresentation({ escape = value => String(value), language = () => 'en' } = {}) {
+  let states = new Map();
+  const stateFor = id => {
+    if (!states.has(id)) states.set(id, { device: 'phone', theme: 'light' });
+    return states.get(id);
+  };
+  const supportsTheme = html => /<meta\b(?=[^>]*\sname\s*=\s*["']ha-tools-mail-presentation["'])(?=[^>]*\scontent\s*=\s*["']1["'])[^>]*>/i.test(html.replace(/<!--[\s\S]*?-->/g, ''));
+  const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'none'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'">`;
+  const text = (pl, en) => language() === 'pl' ? pl : en;
+  return {
+    clear() { states = new Map(); },
+    render(html, id, title) {
+      const state = stateFor(id), themed = supportsTheme(html);
+      if (!themed) state.theme = 'light';
+      const button = (group, value, label, disabled = false) => `<button type="button" data-mail-preview-${group}="${value}" aria-pressed="${state[group] === value}" ${disabled ? 'disabled' : ''} style="min-height:44px;min-width:44px;padding:8px 12px;font:inherit;cursor:pointer">${label}</button>`;
+      return `<div data-mail-presentation="${escape(id)}" style="min-width:0;max-width:100%">
+        <div role="group" aria-label="${text('Rozmiar podglądu', 'Preview size')}" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0"><span>${text('Rozmiar:', 'Size:')}</span>${button('device', 'phone', text('Telefon', 'Phone'))}${button('device', 'desktop', text('Komputer', 'Computer'))}</div>
+        <div role="group" aria-label="${text('Motyw podglądu', 'Preview theme')}" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0"><span>${text('Motyw:', 'Theme:')}</span>${button('theme', 'light', text('Jasny', 'Light'))}${button('theme', 'dark', text('Ciemny', 'Dark'), !themed)}</div>
+        ${!themed ? `<p role="status">${text('Ciemny podgląd wymaga HA Tools Email 2.4+.', 'Dark preview requires HA Tools Email 2.4+.')}</p>` : ''}
+        <div data-mail-preview-scroll style="max-width:100%;min-width:0;overflow-x:auto"><iframe id="${escape(id)}" title="${escape(title)}" sandbox="" referrerpolicy="no-referrer" style="display:block;box-sizing:border-box;width:${state.device === 'phone' ? 390 : 680}px;max-width:none;height:600px;border:1px solid var(--divider-color,#ddd);background:white"></iframe></div></div>`;
+    },
+    bind(root, id, html) {
+      const frame = root.getElementById(id), state = stateFor(id), themed = supportsTheme(html);
+      const controls = frame?.closest('[data-mail-presentation]');
+      if (!controls) return;
+      if (!themed) state.theme = 'light';
+      const paint = () => {
+        frame.style.width = `${state.device === 'phone' ? 390 : 680}px`;
+        // Prefix before CSP and the untouched payload: explicit light also beats OS dark.
+        const srcdoc = `<html data-mail-preview-theme="${state.theme}">` + csp + html;
+        if (frame.srcdoc !== srcdoc) frame.srcdoc = srcdoc;
+        for (const button of controls.querySelectorAll('button')) {
+          const selected = button.dataset.mailPreviewDevice ? state.device === button.dataset.mailPreviewDevice : state.theme === button.dataset.mailPreviewTheme;
+          button.setAttribute('aria-pressed', String(selected));
+          button.style.fontWeight = selected ? '700' : '400';
+          button.style.boxShadow = selected ? 'inset 0 0 0 2px var(--primary-color,#395fd1)' : '';
+        }
+      };
+      for (const button of controls.querySelectorAll('button')) button.onclick = () => {
+        if (button.disabled) return;
+        const device = button.dataset.mailPreviewDevice, theme = button.dataset.mailPreviewTheme;
+        if (device === 'phone' || device === 'desktop') state.device = device;
+        if (themed && (theme === 'light' || theme === 'dark')) state.theme = theme;
+        paint();
+      };
+      paint();
+    }
+  };
+}

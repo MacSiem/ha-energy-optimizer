@@ -7,7 +7,7 @@ const root = path.resolve(__dirname, '..');
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 const modulePath = 'shared/ha-tools-email-schedules.js';
 const moduleText = fs.readFileSync(path.join(root, modulePath), 'utf8');
-const inline = moduleText.replace(/^export function /m, 'function ').trimEnd();
+const inline = moduleText.replace(/^export function /gm, 'function ').trimEnd();
 const begin = '// BEGIN vendored ha-tools-email-schedules factory';
 const end = '// END vendored ha-tools-email-schedules factory';
 const targetPath = path.join(root, 'src/energy-email.js');

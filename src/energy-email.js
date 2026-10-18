@@ -577,6 +577,59 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
       preview: preview ? { ...preview } : null, previewStatus: { ...previewStatus } }; }
   };
 }
+
+
+// Local presentation only: consumers supply the existing immutable backend HTML.
+// Reuse this factory for Log manual/schedule frames without sharing card/user state.
+function createHaToolsMailPresentation({ escape = value => String(value), language = () => 'en' } = {}) {
+  let states = new Map();
+  const stateFor = id => {
+    if (!states.has(id)) states.set(id, { device: 'phone', theme: 'light' });
+    return states.get(id);
+  };
+  const supportsTheme = html => /<meta\b(?=[^>]*\sname\s*=\s*["']ha-tools-mail-presentation["'])(?=[^>]*\scontent\s*=\s*["']1["'])[^>]*>/i.test(html.replace(/<!--[\s\S]*?-->/g, ''));
+  const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'none'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'">`;
+  const text = (pl, en) => language() === 'pl' ? pl : en;
+  return {
+    clear() { states = new Map(); },
+    render(html, id, title) {
+      const state = stateFor(id), themed = supportsTheme(html);
+      if (!themed) state.theme = 'light';
+      const button = (group, value, label, disabled = false) => `<button type="button" data-mail-preview-${group}="${value}" aria-pressed="${state[group] === value}" ${disabled ? 'disabled' : ''} style="min-height:44px;min-width:44px;padding:8px 12px;font:inherit;cursor:pointer">${label}</button>`;
+      return `<div data-mail-presentation="${escape(id)}" style="min-width:0;max-width:100%">
+        <div role="group" aria-label="${text('Rozmiar podglądu', 'Preview size')}" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0"><span>${text('Rozmiar:', 'Size:')}</span>${button('device', 'phone', text('Telefon', 'Phone'))}${button('device', 'desktop', text('Komputer', 'Computer'))}</div>
+        <div role="group" aria-label="${text('Motyw podglądu', 'Preview theme')}" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0"><span>${text('Motyw:', 'Theme:')}</span>${button('theme', 'light', text('Jasny', 'Light'))}${button('theme', 'dark', text('Ciemny', 'Dark'), !themed)}</div>
+        ${!themed ? `<p role="status">${text('Ciemny podgląd wymaga HA Tools Email 2.4+.', 'Dark preview requires HA Tools Email 2.4+.')}</p>` : ''}
+        <div data-mail-preview-scroll style="max-width:100%;min-width:0;overflow-x:auto"><iframe id="${escape(id)}" title="${escape(title)}" sandbox="" referrerpolicy="no-referrer" style="display:block;box-sizing:border-box;width:${state.device === 'phone' ? 390 : 680}px;max-width:none;height:600px;border:1px solid var(--divider-color,#ddd);background:white"></iframe></div></div>`;
+    },
+    bind(root, id, html) {
+      const frame = root.getElementById(id), state = stateFor(id), themed = supportsTheme(html);
+      const controls = frame?.closest('[data-mail-presentation]');
+      if (!controls) return;
+      if (!themed) state.theme = 'light';
+      const paint = () => {
+        frame.style.width = `${state.device === 'phone' ? 390 : 680}px`;
+        // Prefix before CSP and the untouched payload: explicit light also beats OS dark.
+        const srcdoc = `<html data-mail-preview-theme="${state.theme}">` + csp + html;
+        if (frame.srcdoc !== srcdoc) frame.srcdoc = srcdoc;
+        for (const button of controls.querySelectorAll('button')) {
+          const selected = button.dataset.mailPreviewDevice ? state.device === button.dataset.mailPreviewDevice : state.theme === button.dataset.mailPreviewTheme;
+          button.setAttribute('aria-pressed', String(selected));
+          button.style.fontWeight = selected ? '700' : '400';
+          button.style.boxShadow = selected ? 'inset 0 0 0 2px var(--primary-color,#395fd1)' : '';
+        }
+      };
+      for (const button of controls.querySelectorAll('button')) button.onclick = () => {
+        if (button.disabled) return;
+        const device = button.dataset.mailPreviewDevice, theme = button.dataset.mailPreviewTheme;
+        if (device === 'phone' || device === 'desktop') state.device = device;
+        if (themed && (theme === 'light' || theme === 'dark')) state.theme = theme;
+        paint();
+      };
+      paint();
+    }
+  };
+}
 // END vendored ha-tools-email-schedules factory
 
   const OWN_SUPPORT_FOOTER = ENERGY_OPTIMIZER_DONATE_HTML;
@@ -633,6 +686,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
         projectPreview: (response, message) => this._projectCalendarPreview(response, message),
         contextLost: () => { this._clearEmailContext(); this._scheduleSaveFocus = null; this._render(); },
         changed: () => { if (this._activeTab === 'schedule') this._renderTab(); } });
+      this._mailPresentation = createHaToolsMailPresentation({ escape: _esc, language: () => this._lang });
       this._mailCadence = 'daily';
       this._mailPeriodMode = 'rolling';
       this._mailPreview = createHaToolsEmailSchedules({ kind: 'energy_report',
@@ -2334,6 +2388,7 @@ this._installTariffConsumerV3();
     _clearEmailContext() {
       this._clearActionFocus();
       this._mailPreview?.clearPreview();
+      this._mailPresentation?.clear();
       this._emailContextVersion++;
       this.shadowRoot?.replaceChildren();
       this._backendConfigRead = null;
@@ -3661,18 +3716,17 @@ this._installTariffConsumerV3();
       catch (_) { return pl ? 'Czas niedostępny' : 'Time unavailable'; }
     };
     const source = preview.source?.name === 'system_log' ? (pl ? 'Zachowane wpisy dziennika HA' : 'Retained HA log entries') : (pl ? 'Statystyki energii Recorder' : 'Recorder energy statistics');
-    return `<section class="schedule-preview"><h4>${_esc(preview.subject)}</h4>
+    return `<section class="schedule-preview" style="min-width:0;max-width:100%"><h4>${_esc(preview.subject)}</h4>
       <dl><dt>${pl ? 'Od (włącznie)' : 'From (inclusive)'}</dt><dd>${_esc(date(preview.period.from))}</dd>
       <dt>${pl ? 'Do (wyłącznie)' : 'To (exclusive)'}</dt><dd>${_esc(date(preview.period.to))}</dd>
       <dt>${pl ? 'Wygenerowano' : 'Generated'}</dt><dd>${_esc(date(preview.generated_at))}</dd>
       <dt>${pl ? 'Źródło' : 'Source'}</dt><dd>${_esc(source)}${preview.source?.complete === false ? (pl ? ' — częściowe dane' : ' — partial data') : ''}</dd></dl>
-      <iframe id="${id}" title="${(pl ? 'Podgląd maila energii' : 'Energy mail preview')}" sandbox="" referrerpolicy="no-referrer" style="width:100%;height:600px;border:1px solid var(--divider-color,#ddd);background:white"></iframe></section>`;
+      ${this._mailPresentation.render(preview.html, id, pl ? 'Podgląd maila energii' : 'Energy mail preview')}</section>`;
   }
 
     _bindMailFrame(id, preview) {
-      const frame = this.shadowRoot.getElementById(id);
-      if (!frame || typeof preview?.html !== 'string') return;
-      frame.srcdoc = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'none'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'">` + preview.html;
+      if (typeof preview?.html !== 'string') return;
+      this._mailPresentation.bind(this.shadowRoot, id, preview.html);
     }
 
     _tabPreview() {
