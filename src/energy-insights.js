@@ -2419,6 +2419,11 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const previous = this._optionsConfigV5;
     const changed = !previous || previous.default_tab !== config.default_tab;
     this._optionsConfigV5 = { ...config };
+    if (previous && previous.compact !== config.compact) { this._optionsExpandedV5 = false; this._domBuilt = false; }
+    if (this._config) {
+      this._config = {...this._config};
+      for (const option of ['default_tab','tabs','compact','show_help','show_support','chart_hours']) if (!(option in config)) delete this._config[option];
+    }
     if (changed || !visible(config).includes(this[key])) this[key] = config.default_tab || visible(config)[0];
     // Existing integrations own their complete configuration and backend context.
     const result = originalSet.call(this, config);
