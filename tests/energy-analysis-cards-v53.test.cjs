@@ -6,6 +6,7 @@ const fs=require('node:fs');
 const path=require('node:path');
 const {JSDOM,VirtualConsole}=require('jsdom');
 const {energyBackend,drainBackend}=require('./helpers/energy-backend-fixture.cjs');
+const {patterns}=require('./helpers/energy-patterns-fixture.cjs');
 const base=path.resolve(__dirname,'..');
 const read=file=>fs.readFileSync(path.join(base,file),'utf8');
 const producer=JSON.parse(read('tests/fixtures/analysis-partial-v53.json'));
@@ -13,8 +14,7 @@ const clone=value=>JSON.parse(JSON.stringify(value));
 const ANALYSIS='ha_tools_email/energy_analysis';
 const EVENTS=['ha_tools_email_energy_analysis_updated','ha_tools_email_feature_access_updated'];
 const cases=[
-  // Calendar selection continuity uses Compare; dedicated Patterns DTO/controls are covered by v53-patterns-ui.
-  {type:'ha-energy-optimizer',home:'dashboard',other:'compare',key:'_currentTab'},
+  {type:'ha-energy-optimizer',home:'dashboard',other:'patterns',key:'_currentTab'},
   {type:'ha-energy-insights',home:'overview',other:'daily',key:'_activeTab'},
   {type:'ha-energy-email',home:'overview',other:'preview',key:'_activeTab'},
 ];
@@ -59,6 +59,7 @@ function setup(spec,{response=()=>clone(producer),legacy=false,subscribeError=nu
   }
   // Modern mode rejects every Recorder command rather than giving all commands a success DTO.
   const backend=energyBackend(card,async request=>{
+    if(request.type==='ha_tools_email/energy_patterns')return patterns(request.days);
     if(request.type===ANALYSIS){
       raw++;maxRaw=Math.max(raw,maxRaw);
       try{return await currentResponse(request);}finally{raw--;}
@@ -150,6 +151,14 @@ for(const spec of cases){
         assert.equal(f.card.shadowRoot.querySelector('[data-tab="config"]'),null);
         f.assertSubscriptions(1);empty(f);const reads=f.analyses.length;f.emit(EVENTS[0]);await settle();assert.equal(f.analyses.length,reads);
         assert.equal(f.ws.filter(q=>q.type==='ha_tools_email/energy_report').length,0);
+      }else if(spec.type==='ha-energy-optimizer'){
+        // Patterns has its own producer DTO; calendar selections must survive returning home.
+        const patternsRoot=f.card.shadowRoot.querySelector('#patterns [data-pattern-root]');assert.ok(patternsRoot);
+        assert.equal(patternsRoot.querySelector('[data-pattern-control="period"]').value,'7');
+        assert.equal(patternsRoot.querySelector('[data-pattern-control="resolution"]').value,'day');
+        assert.equal(patternsRoot.querySelector('[data-pattern-control="point"]').value,'2026-05-05');
+        assert.equal(f.ws.filter(q=>q.type==='ha_tools_email/energy_patterns').length,1);
+        assert.equal(f.analyses.length,1);f.assertSubscriptions();
       }else{ready(f);selection(f);assert.equal(f.analyses.length,1);f.assertSubscriptions();}
       f.tab(spec.home);await settle();ready(f);selection(f);f.assertSubscriptions();
       // The measured zero is a real producer cost, checked in the rendered cost table.
