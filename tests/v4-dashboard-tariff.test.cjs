@@ -109,3 +109,28 @@ test('ordinary HA sensor updates refresh live power even when entity count and s
   assert.match(f.card.shadowRoot.querySelector('[data-power-status]').textContent,/unavailable/i);
  }finally{f.close();}
 });
+
+test('measured live power is the fifth summary tile and retains measured zero',()=>{
+ const f=fixture({power_entity:'sensor.meter'});try{
+  f.card._hass.states={'sensor.meter':{state:'0',attributes:{unit_of_measurement:'W'}}};f.card._lastStatsFetch=Date.now();f.card._updateEnergyData();f.card._render();
+  const root=f.card.shadowRoot,grid=root.querySelector('#dashboard .grid'),power=root.querySelector('.power-draw');
+  assert.ok(power);assert.equal(power.parentElement,grid,'live power belongs to the same summary grid');
+  assert.equal(grid.children.length,5);assert.equal(grid.lastElementChild,power);assert.match(power.textContent,/0[.,]00/);assert.match(power.textContent,/kW/);
+ }finally{f.close();}
+});
+test('chart source identifiers stay available inside collapsed source details',()=>{
+ const f=fixture();try{
+  const section=f.card.shadowRoot.querySelector('[data-dashboard-chart-section]');
+  const paragraph=[...section.querySelectorAll('p')].find(p=>p.textContent.includes('sensor.qa_grid'));assert.ok(paragraph,'source provenance remains inspectable');
+  const details=paragraph.closest('details');assert.ok(details,'technical source IDs must not occupy the main chart area');assert.equal(details.open,false);
+  assert.match(details.querySelector('summary').textContent,/Source.*details/i);
+ }finally{f.close();}
+});
+test('peak summary hides an equal HA display zone but retains a different zone',()=>{
+ const f=fixture();try{
+  f.card._hass.locale={language:'en',time_zone:'server',time_format:'24'};f.card._hass.config.time_zone='UTC';f.card._render();
+  assert.doesNotMatch(f.card.shadowRoot.querySelector('[data-dashboard-peak] .summary-value').textContent,/GMT|UTC/);
+  f.card._hass.locale.time_zone='local';f.dom.window.Intl.DateTimeFormat=new Proxy(f.dom.window.Intl.DateTimeFormat,{construct(target,args){if(!args[1])return{resolvedOptions:()=>({timeZone:'Asia/Tokyo'})};return Reflect.construct(target,args);}});f.card._render();
+  assert.match(f.card.shadowRoot.querySelector('[data-dashboard-peak] .summary-value').textContent,/GMT\+9/);
+ }finally{f.close();}
+});
