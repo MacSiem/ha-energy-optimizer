@@ -22,12 +22,10 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     return ui.dateTime(value) || unknown();
   };
   const range = period => ui.range(period?.start, period?.end) || unknown();
-  const months = pl ? ['sty','lut','mar','kwi','maj','cze','lip','sie','wrz','paź','lis','gru'] : ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  // Calendar-only tariff dates are not instants and must not move with the display timezone.
-  const date = value => {
+  // Calendar-only dates retain their day while following the user's date locale.
+  const date = (value, short = false) => {
     if (typeof value !== 'string') return unknown();
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-    return match && months[+match[2]-1] ? `${number(match[3], {useGrouping:false})} ${months[+match[2]-1]} ${number(match[1], {useGrouping:false})}` : ui.date(value) || unknown();
+    return (/^\d{4}-\d{2}-\d{2}$/.test(value) ? ui.calendarDate(value, short) : ui.date(value, short)) || unknown();
   };
   const basis = value => value === 'gross' ? t('gross','brutto') : value === 'net' ? t('net','netto') : unknown();
   const percentage = value => valid(value) ? ui.number(value, {style:'percent',maximumFractionDigits:1}) : unknown();
@@ -112,7 +110,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   const weekdays = pl ? ['pon','wt','śr','czw','pt','sob','nd'] : ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   const ruleText = rule => [
     rule.weekdays ? rule.weekdays.map(day=>weekdays[(day+6)%7] || unknown()).join(', ') : t('Every day','Codziennie'),
-    ...(rule.dates || []).map(date), rule.season ? `${date('2000-'+rule.season.from).replace(/ 2000$/,'')} – ${date('2000-'+rule.season.to).replace(/ 2000$/,'')}` : '',
+    ...(rule.dates || []).map(date), rule.season ? `${date('2000-'+rule.season.from,true)} – ${date('2000-'+rule.season.to,true)}` : '',
     (rule.intervals || []).map(interval=>`${interval.from}–${interval.to}`).join(', '),
     rule.priority == null ? '' : `${t('priority','priorytet')} ${number(rule.priority)}`
   ].filter(Boolean).join(' · ');
