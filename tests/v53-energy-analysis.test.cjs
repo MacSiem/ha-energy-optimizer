@@ -162,3 +162,19 @@ for(const period of ['day','year']) test(`documented 512 consumers and ${period}
   assert.equal(result.status,'ready');assert.equal(Object.keys(result.snapshot.groups.devices).length,512);
   assert.deepEqual(result.snapshot.comparisons.previous.groups,comparison);
 });
+
+// Full actual-producer fixture includes reconciliation flags ending in _kwh.
+for (const flag of [true,false]) test(`producer reconciliation flag ${flag} is metadata, never an amount`,async()=>{
+  const input=require('./fixtures/analysis-wholeperiod-v53.json');
+  const value=clone(input),s=setup();s.card._hass.config.time_zone='Europe/Warsaw';
+  value.period_summary.zone_breakdown.reconciles_recorded_kwh=flag;
+  const before=clone(value);s.c.connect();const read=s.c.read({period:'day',comparison:'previous'});
+  await settle(s,0,value);const result=await read;
+  assert.equal(result.status,'ready');assert.deepEqual(result.snapshot,before);assert.deepEqual(value,before);
+});
+for(const field of ['kwh','reconciles_recorded_kwh'])test(`producer rejects malformed ${field} without publishing`,async()=>{
+  const value=clone(require('./fixtures/analysis-wholeperiod-v53.json')),s=setup();s.card._hass.config.time_zone='Europe/Warsaw';
+  if(field==='kwh')value.totals.kwh=true;else value.period_summary.zone_breakdown.reconciles_recorded_kwh='true';
+  s.c.connect();const read=s.c.read({period:'day',comparison:'previous'});await settle(s,0,value);
+  const result=await read;assert.equal(result.status,'error');assert.equal(result.error,'invalid_analysis_response');assert.equal(result.snapshot,null);
+});
