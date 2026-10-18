@@ -36,3 +36,56 @@ test('transient failure permits a later bounded retry only when the raw slot is 
 test('the host compiles a profile once for repeated synchronous point projections',()=>{const {createTariffHostV3}=require('../shared/ha-tools-tariff-host.js');const {energyTariffProfileV3}=require('../shared/ha-tools-energy-tariff.js');let count=0;const card={_config:{tariff_profile:profile},_hass:{user:{id:'qa'},connection:{connected:true},config:{time_zone:'UTC'}}};const h=createTariffHostV3({card,kind:'optimizer',createModel:p=>{count++;return createEnergyTariffV3(p);},legacyProfile:energyTariffProfileV3,createSettings:()=>{},createUi:()=>{}});try{const first=h.model();for(let i=0;i<100;i++)assert.equal(h.model(),first);assert.equal(count,1);}finally{h.guard.dispose();}});
 test('a mounted card coalesces snapshot ticks while the raw request is occupied',async t=>{t.mock.timers.enable({apis:['setTimeout','Date'],now:1792290000000});const s=setup();try{const response=await s.card._hass.callWS({type:'ha_tools_email/energy_snapshot'});s.calls.length=0;s.card.isConnected=true;let release;s.card._hass.callWS=request=>{s.calls.push(request);return s.calls.length===1?new Promise(r=>release=()=>r(response)):Promise.resolve(response);};const b=createEnergyBackendV5({card:s.card,guard:s.guard,describe:()=>({profile,source:'override',revision:null}),refreshMs:10});b.snapshot();await tick();for(let i=0;i<4;i++){t.mock.timers.tick(10);await tick();}assert.equal(s.calls.length,1);release();await drain();s.guard.suspend();assert.ok(s.calls.length<=2,'only the newest queued snapshot may follow the unresolved raw request');}finally{s.guard.dispose();}});
 for(const name of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email'])test(`${name}: a confirmed empty shared profile is reconfirmed after tab navigation`,async()=>{const {JSDOM}=require('jsdom'),fs=require('node:fs');const {energyBackend,drainBackend}=require('./helpers/energy-backend-fixture.cjs');const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});let card;try{dom.window.eval(['optimizer','energy-insights','energy-email'].map(f=>fs.readFileSync(`src/${f}.js`,'utf8')).join('\n'));card=dom.window.document.createElement(name);let reads=0;card._hass={user:{id:'fixture',is_admin:true},connection:{connected:true},config:{time_zone:'UTC',currency:'CHF'},states:{}};card._hass.callWS=energyBackend(card,async req=>{assert.equal(req.type,'ha_tools_email/get_tariff');reads++;return {profile:null,revision:0,updated_at:null};});card.setConfig({energy_price:2,currency:'CHF'});await card._loadSharedTariffProfile();await drainBackend();if(name==='ha-energy-optimizer')card._currentTab='patterns';else card._activeTab=name==='ha-energy-insights'?'daily':'schedule';card._observeTariffNavigationV3();await drainBackend();assert.equal(reads,2);card._getTariffV3().priceBuckets([row()]);await drainBackend();assert.equal(card._getTariffV3().priceBuckets([row()]).energyCost,6);}finally{card?._getTariffHostV3().guard.dispose();dom.window.close();}});
+
+function revisionHost() {
+ const {createTariffHostV3}=require('../shared/ha-tools-tariff-host.js');
+ const {energyTariffProfileV3}=require('../shared/ha-tools-energy-tariff.js');
+ let revision=1,current=profile,readHook=null,refreshes=0;
+ const calls=[],paints=[],card={isConnected:false,_config:{},_hass:{user:{id:'one'},connection:{connected:true},config:{time_zone:'UTC'}}};
+ card._hass.callWS=async req=>{
+  calls.push(req);
+  if(req.type==='ha_tools_email/get_tariff')return readHook?readHook():{profile:current,revision,updated_at:null};
+  assert.equal(req.type,'ha_tools_email/energy_price_queries');
+  return {schema:1,profile_source:'shared',tariff_revision:revision,results:req.queries.map(q=>createEnergyTariffV3(current).priceBuckets(q.buckets))};
+ };
+ const host=createTariffHostV3({card,kind:'optimizer',createModel:createEnergyTariffV3,legacyProfile:energyTariffProfileV3,createSettings:()=>{},createUi:()=>{},onRefresh:()=>{refreshes++;card._tariffWriteUnconfirmedV3=false;}});
+ card._repriceTariffV3=()=>{paints.push(card._sharedTariffReadStatus);if(card._sharedTariffReadStatus==='success')host.backend.priceBuckets([row()]);};
+ return {card,host,calls,paints,get refreshes(){return refreshes;},change(value=2){revision=value;current={...profile,zones:[{...profile.zones[0],energyRate:4}]};},read(fn){readHook=fn;}};
+}
+test('a mounted shared consumer rechecks a newer revision once, purges immediately and reprices without writes',async()=>{
+ const s=revisionHost();try{
+  assert.equal(await s.host.load(),true);s.host.backend.priceBuckets([row()]);await drain();assert.equal(s.host.backend.priceBuckets([row()]).usageCost,7.5);
+  s.card.isConnected=true;s.card._tariffWriteUnconfirmedV3=true;s.change();s.host.backend.invalidate();s.host.backend.priceBuckets([row()]);await drain();
+  assert.equal(s.calls.filter(r=>r.type.endsWith('/get_tariff')).length,2);
+  assert.equal(s.card._sharedTariffReadStatus,'success');assert.equal(s.host.snapshot().revision,2);
+  assert.equal(s.host.backend.priceBuckets([row()]).usageCost,13.5);assert.ok(s.paints.includes('unconfirmed'));
+  assert.equal(s.card._tariffWriteUnconfirmedV3,true);assert.equal(s.refreshes,0);
+  assert.ok(s.calls.every(r=>['ha_tools_email/get_tariff','ha_tools_email/energy_price_queries'].includes(r.type)));
+ }finally{s.host.guard.dispose();}
+});
+test('automatic revision confirmation rejects a late response after account changes',async()=>{
+ const s=revisionHost();try{
+  await s.host.load();s.card.isConnected=true;s.change();let release;
+  s.read(()=>new Promise(resolve=>release=()=>resolve({profile,revision:2,updated_at:null})));
+  s.host.backend.priceBuckets([row()]);await drain();assert.equal(typeof release,'function');
+  s.card._hass={...s.card._hass,user:{id:'two'}};s.host.guard.observe();release();await drain();
+  assert.equal(s.host.snapshot().reason,'tariff_unconfirmed');assert.equal(s.card._sharedTariffProfile,null);
+ }finally{s.host.guard.dispose();}
+});
+test('an older confirmation cannot revive prices or loop after a newer revision was noticed',async()=>{
+ const s=revisionHost();try{
+  await s.host.load();s.card.isConnected=true;s.change();s.read(()=>({profile,revision:1,updated_at:null}));
+  s.host.backend.priceBuckets([row()]);await drain();
+  assert.equal(s.card._sharedTariffReadStatus,'unconfirmed');assert.equal(s.host.snapshot().reason,'tariff_unconfirmed');
+  assert.equal(s.calls.filter(r=>r.type.endsWith('/get_tariff')).length,2);
+  assert.equal(s.host.backend.priceBuckets([row()]).usageCost,null);await drain();assert.equal(s.calls.length,3);
+ }finally{s.host.guard.dispose();}
+});
+for(const revision of [undefined,-1,1.5,'2',null])test(`malformed shared revision ${revision} fails without a confirmation loop`,async()=>{
+ const s=setup({shared:true});try{
+  s.card._hass.callWS=async request=>{s.calls.push(request);return {...s.oracle(request),tariff_revision:revision};};
+  s.backend.priceBuckets([row()]);await drain();
+  assert.equal(s.mismatch,0);assert.equal(s.card._energyPriceStatusV5,'backend_unavailable');
+  assert.equal(s.backend.priceBuckets([row()]).usageCost,null);await drain();assert.equal(s.calls.length,1);
+ }finally{s.guard.dispose();}
+});
