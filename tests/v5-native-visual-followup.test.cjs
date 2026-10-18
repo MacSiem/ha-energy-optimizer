@@ -1,4 +1,5 @@
 'use strict';
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 // Source-only follow-up to native findings; owner runs after shared consumer sync.
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
@@ -31,7 +32,7 @@ test('Email Largest Import uses semantic text while preserving its measured inpu
  }finally{w.close();}
 });
 function chartFixture(language='en'){
- const dom=setup(),w=dom.window,c=w.document.createElement('ha-energy-insights');c._schedule=()=>{};w.document.body.append(c);c.setConfig({show_support:false});c._getTariffHostV3=()=>({bind(){},guard:{snapshot:()=>({}),dispose(){}}});c._hass={user:{id:'qa',is_admin:true},connection:{connected:true},language,locale:{language},config:{time_zone:'Europe/Warsaw',currency:'EUR'},states:{}};c._lang=language;
+ const dom=setup(),w=dom.window,c=w.document.createElement('ha-energy-insights');isolateLegacyAnalysis(c);c._schedule=()=>{};w.document.body.append(c);c.setConfig({show_support:false});c._getTariffHostV3=()=>({bind(){},guard:{snapshot:()=>({}),dispose(){}}});c._hass={user:{id:'qa',is_admin:true},connection:{connected:true},language,locale:{language},config:{time_zone:'Europe/Warsaw',currency:'EUR'},states:{}};c._lang=language;
  const from=Date.parse('2026-10-25T00:00:00Z'),source=['sensor.private_grid','external:import<raw>'];
  const rows=[0,1].map(i=>({id:`absolute:${from+i*3600000}`,from:from+i*3600000,to:from+(i+1)*3600000,hour:2,timezone:'Europe/Warsaw',source,kwh:i?0:90.60000056,energyCost:i?-1.25:181.20000112,variableCost:0,currency:'EUR',measuredHours:1,hours:1,missing:false,recordedKwh:null,priceMissing:false}));
  c._prepareInsightChartV3=()=>{};c._renderInsightDevicesV3=()=>'';c._insightChartDataset={source,timezone:'Europe/Warsaw',currency:'EUR',window:{from,to:from+2*3600000},hours:rows,days:rows};c._insightChartState={resolution:'hour',metric:'kwh',type:'bar',view:'chart',selected:rows[0].id,page:0};

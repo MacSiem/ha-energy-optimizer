@@ -1,4 +1,5 @@
 'use strict';
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 const {energyBackend,drainBackend}=require('./helpers/energy-backend-fixture.cjs');
 const {test}=require('node:test');
 const assert=require('node:assert/strict');
@@ -9,7 +10,7 @@ function fixture(config={}) {
  dom.window.captureChart=cfg=>charts.push(cfg);
  dom.window.HTMLCanvasElement.prototype.getContext=()=>({});
  dom.window.eval(readFileSync('src/optimizer.js','utf8')+'\nconst HA_ENERGY_CHART=class{constructor(ctx,cfg){window.captureChart(cfg)}destroy(){}};');
- const card=dom.window.document.createElement('ha-energy-optimizer');card._schedule=()=>{};
+ const card=dom.window.document.createElement('ha-energy-optimizer');isolateLegacyAnalysis(card);card._schedule=()=>{};
  card._hass={user:{id:'qa',is_admin:true},connection:{connected:true},language:'en',locale:{language:'en'},config:{time_zone:'UTC',currency:'EUR'},states:{}};
  card._hass.callWS=energyBackend(card,async()=>({profile:null,revision:0,updated_at:null}));
  card.setConfig({show_support:false,peak_rate:1,off_peak_rate:0.5,peak_hours:{start:0,end:8},...config});

@@ -1,10 +1,11 @@
 'use strict';
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 const {test}=require('node:test');const assert=require('node:assert/strict');const {readFileSync}=require('node:fs');const {JSDOM}=require('jsdom');
 const code=['src/optimizer.js','src/energy-insights.js','src/energy-email.js','src/chart-vendor.js'].map(p=>readFileSync(p,'utf8')).join('');const H=3600000;
 async function fixture(type,zone,value=1){
  const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'}),end=Date.parse('2026-10-25T05:00:00Z'),NativeDate=dom.window.Date;
  dom.window.Date=class extends NativeDate{constructor(...a){super(...(a.length?a:[end]));}static now(){return end;}};dom.window.eval(code);
- const card=dom.window.document.createElement(type);card._schedule=()=>{};const calls=[];
+ const card=dom.window.document.createElement(type);isolateLegacyAnalysis(card);card._schedule=()=>{};const calls=[];
  card._hass={user:{id:'fixture',is_admin:true,is_active:true},connection:{connected:true},language:'en',locale:{language:'en'},config:{time_zone:zone,currency:'EUR'},states:{},callWS:async req=>{
   calls.push(req);if(req.type==='energy/get_prefs')return {energy_sources:[{type:'grid',stat_energy_from:'sensor.grid'}]};
   if(req.type==='recorder/get_statistics_metadata')return {'sensor.grid':{has_sum:true,unit_class:'energy',statistics_unit_of_measurement:'kWh'}};

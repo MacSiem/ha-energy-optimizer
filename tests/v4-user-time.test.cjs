@@ -1,4 +1,5 @@
 "use strict";
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 process.env.TZ='America/New_York';
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const {readFileSync}=require('node:fs');const {JSDOM}=require('jsdom');
@@ -25,7 +26,7 @@ function fixture(){
  const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'}),charts=[];
  dom.window.captureChart=cfg=>charts.push(cfg);dom.window.HTMLCanvasElement.prototype.getContext=()=>({});
  dom.window.eval(readFileSync('src/optimizer.js','utf8')+readFileSync('src/energy-insights.js','utf8')+'\nconst HA_ENERGY_CHART=class{constructor(ctx,cfg){window.captureChart(cfg)}destroy(){}};');
- const card=dom.window.document.createElement('ha-energy-optimizer');card._schedule=()=>{};card._hass=hass();card.setConfig({show_support:false,energy_price:2,currency:'EUR'});
+ const card=dom.window.document.createElement('ha-energy-optimizer');isolateLegacyAnalysis(card);card._schedule=()=>{};card._hass=hass();card.setConfig({show_support:false,energy_price:2,currency:'EUR'});
  card._energyModel={ids:['sensor.qa_grid'],zone:'Europe/Warsaw',start:stamp,todayStart:stamp,end:stamp+2*H,summary:()=>({total:2}),points:new Map([[stamp,{kwh:1}],[stamp+H,{kwh:1}]])};
  card._todayWindow={start:new Date(stamp).toISOString(),end:new Date(stamp+2*H).toISOString(),total:2,boundaryComplete:true};card._hasRealData=true;card._loadChartJS=async()=>{};card._render();
  return {dom,card,charts,close(){card._getTariffHostV3().guard.dispose();dom.window.close();}};
@@ -85,7 +86,7 @@ async function mountedTimeChange(type, scenario='format'){
  const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'}),NativeDate=dom.window.Date,now=Date.parse('2026-10-16T12:30:00Z');
  dom.window.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
  dom.window.eval(['optimizer.js','energy-insights.js','energy-email.js','chart-vendor.js'].map(n=>readFileSync('src/'+n,'utf8')).join(''));
- const card=dom.window.document.createElement(type);card._schedule=()=>{};card.setConfig({show_support:false,energy_price:2,currency:'EUR',power_entity:'sensor.qa_power'});
+ const card=dom.window.document.createElement(type);isolateLegacyAnalysis(card);card._schedule=()=>{};card.setConfig({show_support:false,energy_price:2,currency:'EUR',power_entity:'sensor.qa_power'});
  const requests=[],context=hass(scenario==='calendar'?{time_zone:'server'}:{});context.states={'sensor.qa_power':{state:'0',attributes:{unit_of_measurement:'W'}}};context.services={};context.callWS=async req=>{
   requests.push(req.type);
   if(req.type==='ha_tools_email/get_config')return {smtp_configured:true,schedules:[]};

@@ -1,4 +1,5 @@
 'use strict';
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 // Catches ordinal/first-middle-last ticks that drift from the user's clock.
 process.env.TZ='America/New_York';
 const {test}=require('node:test'),assert=require('node:assert/strict');
@@ -8,7 +9,7 @@ function fixture(count=15){
  const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'}),charts=[];
  dom.window.captureChart=cfg=>charts.push(cfg);dom.window.HTMLCanvasElement.prototype.getContext=()=>({});
  dom.window.eval(readFileSync('src/optimizer.js','utf8')+readFileSync('src/energy-insights.js','utf8')+'\nconst HA_ENERGY_CHART=class{constructor(ctx,cfg){window.captureChart(cfg)}destroy(){}};');
- const card=dom.window.document.createElement('ha-energy-optimizer');card._schedule=()=>{};
+ const card=dom.window.document.createElement('ha-energy-optimizer');isolateLegacyAnalysis(card);card._schedule=()=>{};
  card._hass={user:{id:'qa',is_admin:true},connection:{connected:true},language:'en',locale:{language:'en',time_zone:'local',time_format:'12'},config:{time_zone:'Asia/Tokyo',currency:'EUR'},states:{}};
  card.setConfig({show_support:false,energy_price:2,currency:'EUR'});
  card._energyModel={ids:['sensor.qa'],zone:'Asia/Tokyo',start,todayStart:start,end:start+count*H,summary:()=>({total:15}),points:new Map(Array.from({length:count},(_,i)=>[start+i*H,{kwh:i===13?0:1}]))};

@@ -1,11 +1,12 @@
 'use strict';
+const {isolateLegacyAnalysis}=require('./helpers/legacy-analysis-fixture.cjs');
 const {energyBackend,drainBackend}=require('./helpers/energy-backend-fixture.cjs');
 const {test}=require('node:test');const assert=require('node:assert/strict');const {readFileSync}=require('node:fs');const {JSDOM}=require('jsdom');
 const code=['optimizer.js','energy-insights.js','energy-email.js'].map(x=>readFileSync('src/'+x,'utf8')).join('');
 for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email'])test(type+' shows local measured window with honest coverage and UTC details',async()=>{
  const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});const NativeDate=dom.window.Date,now=Date.parse('2026-03-29T05:30:00Z');
  dom.window.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
- dom.window.eval(code);const card=dom.window.document.createElement(type);card._schedule=()=>{};dom.window.document.body.append(card);
+ dom.window.eval(code);const card=dom.window.document.createElement(type);isolateLegacyAnalysis(card);card._schedule=()=>{};dom.window.document.body.append(card);
  const calls=[];const hass={user:{id:'qa',is_admin:true},connection:{connected:true},language:'pl-PL',locale:{language:'pl-PL',time_zone:'server',time_format:'24'},states:{},services:{},config:{time_zone:'Europe/Warsaw',currency:'EUR'},callWS:async req=>{
   calls.push(req.type);
   if(req.type==='energy/get_prefs')return {energy_sources:[{type:'grid',stat_energy_from:'sensor.qa_grid'}]};
@@ -36,7 +37,7 @@ for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email']
 test('Optimizer keeps local period and measured coverage when the newest completed hour is missing',async()=>{
  const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});const NativeDate=dom.window.Date,now=Date.parse('2026-03-29T05:30:00Z');
  dom.window.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
- dom.window.eval(readFileSync('src/optimizer.js','utf8'));const card=dom.window.document.createElement('ha-energy-optimizer');card._schedule=()=>{};dom.window.document.body.append(card);
+ dom.window.eval(readFileSync('src/optimizer.js','utf8'));const card=dom.window.document.createElement('ha-energy-optimizer');isolateLegacyAnalysis(card);card._schedule=()=>{};dom.window.document.body.append(card);
  card._hass={user:{id:'qa',is_admin:true},connection:{connected:true},language:'pl-PL',locale:{language:'pl-PL',time_zone:'server',time_format:'24'},states:{},config:{time_zone:'Europe/Warsaw',currency:'EUR'},callWS:async req=>{
   if(req.type==='energy/get_prefs')return {energy_sources:[{type:'grid',stat_energy_from:'sensor.qa_grid'}]};
   if(req.type==='recorder/get_statistics_metadata')return {'sensor.qa_grid':{has_sum:true,unit_class:'energy',statistics_unit_of_measurement:'kWh'}};
