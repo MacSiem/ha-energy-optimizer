@@ -1,0 +1,13 @@
+"use strict";
+const {test}=require('node:test'),assert=require('node:assert/strict');
+const {readFileSync}=require('node:fs'),{JSDOM}=require('jsdom');
+const {createFormatUi}=require('../shared/ha-tools-format.js');
+const {createEnergyAnalysisViewV53}=require('../shared/ha-tools-energy-analysis-view.js');
+const actual=JSON.parse(readFileSync('tests/fixtures/analysis-wholeperiod78-v53.json','utf8'));
+function use(options,fn,mutate=()=>{}){const dto=structuredClone(actual);mutate(dto);const view=createEnergyAnalysisViewV53({card:{_hass:{locale:{language:'en'}}},format:createFormatUi('en','Europe/Warsaw')});const dom=new JSDOM(view.markup(dto,options));try{fn(dom.window.document.body);}finally{dom.window.close();}}
+for(const section of ['rates','comparison'])test(section+' starts with its own content without duplicate global KPI tiles',()=>use({section},r=>{assert.equal(r.querySelector('.analysis-tiles'),null);assert.ok(r.querySelector('table, [data-analysis-rate76]'));}));
+test('Overview keeps four KPIs and grouping directly available; calendar options remain discoverable',()=>use({},r=>{assert.equal(r.querySelectorAll('.analysis-tile').length,4);const level=r.querySelector('[data-analysis-action="level"]');assert.ok(level);assert.equal(level.closest('details'),null);const anchor=r.querySelector('[data-analysis-action="anchor"]');const options=anchor.closest('details');assert.ok(options);assert.equal(options.open,false);assert.match(options.querySelector('summary').textContent,/Date.*comparison/i);assert.ok(options.querySelector('[data-analysis-action="comparison"]'));}));
+test('complete chart evidence does not warn about nonexistent unknown bars',()=>use({},r=>{assert.equal(r.querySelectorAll('[data-analysis-column-zone]').length,24);assert.doesNotMatch(r.querySelector('[data-analysis-chart-zones]').textContent,/Other bars/);}));
+test('a partly proven chart still explains neutral bars',()=>use({},r=>assert.match(r.querySelector('[data-analysis-chart-zones]').textContent,/Other bars/),d=>{d.chart.bins[0].zone_breakdown.status='partial';}));
+test('ready-flow explanation and unmeasured calculation remain in named closed details',()=>use({},r=>{for(const key of ['flow-note','unmeasured-explanation']){const n=r.querySelector('[data-analysis-'+key+']');assert.ok(n);const details=n.closest('details');assert.ok(details);assert.equal(details.open,false);assert.match(details.querySelector('summary').textContent,/flow|Unmeasured/i);}}));
+test('incomplete flow warning stays visible without opening details',()=>use({},r=>{const n=r.querySelector('[data-analysis-flow-note]');assert.ok(n);assert.equal(n.closest('details'),null);assert.match(n.textContent,/incomplete|unavailable/);},d=>{d.groups.partition_complete=false;}));
