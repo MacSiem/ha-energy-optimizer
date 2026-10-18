@@ -4,15 +4,15 @@
   "sources": [
     {
       "path": "src/optimizer.js",
-      "sha256": "7bc9a5f52e3f7e90242e599899f221df4509aa1812910465e62fd76f8fdd9e1f"
+      "sha256": "af4d36cee9c29c9f73a6fcd406edad131fe488a66b24cc88b2df16a484aaf9ad"
     },
     {
       "path": "src/energy-insights.js",
-      "sha256": "73fc2d553f0dfe599c1d7651997ed20a4fb95445cebd9fefff3eb66723806da1"
+      "sha256": "ca4f5bfa55c3ff414188fba6f28701b0740982540564260644687b79ae334ea9"
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "8e0d9c3d8825262ac5f3409db6ef8d184b6caf5f615fdef9d28c08053e78b92c"
+      "sha256": "9391de97fd16e32e36de14675fc75e15009816d732ec47cc9d815953a2c1989a"
     },
     {
       "path": "src/chart-vendor.js",
@@ -20,7 +20,7 @@
     }
   ],
   "sharedTariff": {
-    "sha256": "11749fac3889cdbba5bd9302a07d22e87fa03ccdc99db64d2a4fe495fd59191d",
+    "sha256": "90286003ba75ce14e71fbf81b2109e2087d494ba1653a0b2236f3acbb7df69de",
     "modules": [
       {
         "path": "shared/ha-tools-ui.js",
@@ -56,7 +56,7 @@
       },
       {
         "path": "shared/ha-tools-energy-analysis-view.js",
-        "sha256": "fa2b9077f095f1fd843ab5ac4715584fb2cafb539c52e1feaf392f45a4c823cb"
+        "sha256": "425f4ff22459d1323eb53ac504e1843ba6704c24e8c14d36f1cb3542f93b50b0"
       },
       {
         "path": "shared/ha-tools-energy-analysis-host.js",
@@ -76,11 +76,16 @@
   },
   "sharedFormat": {
     "path": "shared/ha-tools-format.js",
-    "sha256": "ef77462a2ccf988d6075c42ade6e8c3fd0cc0f90c90f0381b4bd2648fbfd5164",
-    "inlineSha256": "255c765343e675c6ce830ff5ebe88eb41c0a5b27c02fb1f6bc715bdb78f9891e"
+    "sha256": "04489a911f37ef2c0065934695d6906d569041e05d24a96fc82a35b5fe54be33",
+    "inlineSha256": "c0d80692d8afdad7c0cf0d6ab9469c8aa815779d381d8a7890155c2bbdfea85f"
   },
   "sharedCardOptions": {
     "path": "shared/ha-tools-energy-card-options.js",
     "sha256": "51649f3c2ce7d0ef53c40a9cdfbd1c9fe1ff5dd1fc97044e1e4b68add931b6e7"
+  },
+  "sharedEnergyReport": {
+    "path": "shared/ha-tools-energy-report.js",
+    "sha256": "c2f1fd5f599dbb5baa5cd0a6924c4cd44e2662192e499f475e938838ca67971a",
+    "inlineSha256": "5f34db2d18792833b390ce23e7393643e2f8d3154d46fe0b45527fcae9ef6053"
   }
 }

@@ -15,6 +15,15 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
   };
   const clock = (value, withOffset = false) => localized(value, {hour:'2-digit', minute:'2-digit', hourCycle, ...(withOffset ? {timeZoneName:'shortOffset'} : {})});
   const date = (value, short = false) => localized(value, {day:'numeric', month:'short', ...(short ? {} : {year:'numeric'})}, dateLanguage);
+  // A calendar date has no instant or display zone. Use the selected date
+  // locale but preserve its literal day, including historical tariff validity.
+  const calendarDate = (value, short = false) => {
+    if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+    const instant = new Date(value + 'T00:00:00Z');
+    if (!Number.isFinite(instant.getTime()) || instant.toISOString().slice(0, 10) !== value) return null;
+    try { return new Intl.DateTimeFormat(dateLanguage, {timeZone:'UTC', day:'numeric', month:'short', ...(short ? {} : {year:'numeric'})}).format(instant); }
+    catch (_) { return null; }
+  };
   const pointLabel = value => localized(value, {year:'numeric', month:'short', day:'numeric', hour:'2-digit', minute:'2-digit', hourCycle, timeZoneName:'shortOffset'}, dateLanguage);
   const chartLabels = (values, resolution = 'hour') => {
     const showDate = resolution === 'day' || values.length > 1 && stamp(values.at(-1)) - stamp(values[0]) >= 86400000;
@@ -91,7 +100,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
       if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
     }
   };
-  return {timeZone, key, clock, date, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
+  return {language, hourCycle, timeZone, key, clock, date, calendarDate, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
 // Presentation follows the HA profile; measurement and tariff calendars remain separate.
 createFormatUi.forHass = hass => {
@@ -587,7 +596,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=11749fac3889cdbba5bd9302a07d22e87fa03ccdc99db64d2a4fe495fd59191d
+    // HA_TARIFF_V3_START sha256=90286003ba75ce14e71fbf81b2109e2087d494ba1653a0b2236f3acbb7df69de
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1934,12 +1943,10 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     return ui.dateTime(value) || unknown();
   };
   const range = period => ui.range(period?.start, period?.end) || unknown();
-  const months = pl ? ['sty','lut','mar','kwi','maj','cze','lip','sie','wrz','paź','lis','gru'] : ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  // Calendar-only tariff dates are not instants and must not move with the display timezone.
-  const date = value => {
+  // Calendar-only dates retain their day while following the user's date locale.
+  const date = (value, short = false) => {
     if (typeof value !== 'string') return unknown();
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-    return match && months[+match[2]-1] ? `${number(match[3], {useGrouping:false})} ${months[+match[2]-1]} ${number(match[1], {useGrouping:false})}` : ui.date(value) || unknown();
+    return (/^\d{4}-\d{2}-\d{2}$/.test(value) ? ui.calendarDate(value, short) : ui.date(value, short)) || unknown();
   };
   const basis = value => value === 'gross' ? t('gross','brutto') : value === 'net' ? t('net','netto') : unknown();
   const percentage = value => valid(value) ? ui.number(value, {style:'percent',maximumFractionDigits:1}) : unknown();
@@ -2024,7 +2031,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   const weekdays = pl ? ['pon','wt','śr','czw','pt','sob','nd'] : ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   const ruleText = rule => [
     rule.weekdays ? rule.weekdays.map(day=>weekdays[(day+6)%7] || unknown()).join(', ') : t('Every day','Codziennie'),
-    ...(rule.dates || []).map(date), rule.season ? `${date('2000-'+rule.season.from).replace(/ 2000$/,'')} – ${date('2000-'+rule.season.to).replace(/ 2000$/,'')}` : '',
+    ...(rule.dates || []).map(date), rule.season ? `${date('2000-'+rule.season.from,true)} – ${date('2000-'+rule.season.to,true)}` : '',
     (rule.intervals || []).map(interval=>`${interval.from}–${interval.to}`).join(', '),
     rule.priority == null ? '' : `${t('priority','priorytet')} ${number(rule.priority)}`
   ].filter(Boolean).join(' · ');
