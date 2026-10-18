@@ -140,7 +140,7 @@ test('three source consumers keep prototype lifecycle and lazy factory wiring',(
   assert.match(source('shared/ha-tools-tariff-host.js'),/analysis: \(\) => createEnergyAnalysisHostV53\(\{card\}\)/);
   for(const file of ['src/optimizer.js','src/energy-insights.js','src/energy-email.js']) {
     const text=source(file);assert.match(text,/_getAnalysisHostV53\(\) \{ return this\._analysisHostV53 \|\|= this\._getTariffHostV3\(\)\.analysis\(\)/);
-    assert.match(text,/disconnectedCallback\(\) \{\s*(?:this\._reportHostV53\?\.stop\(\);\s*)?this\._analysisHostV53\?\.stop\(\)/);
+    assert.match(text,/disconnectedCallback\(\) \{\s*(?:this\._featureAccessV53\?\.stop\(\);\s*)?(?:this\._reportHostV53\?\.stop\(\);\s*)?this\._analysisHostV53\?\.stop\(\)/);
     assert.match(text,/this\._hass = hass;\s*this\._analysisHostV53\?\.observe\(\)/);
     assert.match(text,/data-analysis-mount-v53/);assert.match(text,/if\(!this\._analysisLegacyAllowedV53\(\)\)return;/);
     assert.match(text,/!current\(\) \|\| !this\._analysisLegacyAllowedV53\(\)/);

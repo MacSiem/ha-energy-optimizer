@@ -13,7 +13,8 @@ const clone=value=>JSON.parse(JSON.stringify(value));
 const ANALYSIS='ha_tools_email/energy_analysis';
 const EVENTS=['ha_tools_email_energy_analysis_updated','ha_tools_email_feature_access_updated'];
 const cases=[
-  {type:'ha-energy-optimizer',home:'dashboard',other:'patterns',key:'_currentTab'},
+  // Calendar selection continuity uses Compare; dedicated Patterns DTO/controls are covered by v53-patterns-ui.
+  {type:'ha-energy-optimizer',home:'dashboard',other:'compare',key:'_currentTab'},
   {type:'ha-energy-insights',home:'overview',other:'daily',key:'_activeTab'},
   {type:'ha-energy-email',home:'overview',other:'preview',key:'_activeTab'},
 ];
