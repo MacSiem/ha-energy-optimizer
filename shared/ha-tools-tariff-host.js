@@ -26,19 +26,23 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       ready: Object.hasOwn(card._config || {}, 'tariff_profile') || card._sharedTariffReadStatus === 'success'};
   };
   const backend = createEnergyBackendV5({card,guard,describe,
-    onPrices: () => { if (card.isConnected) card._repriceTariffV3?.(); },
+    onPrices: () => {
+      // Consumers key derived projections by tariff-model identity. A newly
+      // accepted backend result must invalidate pending-price projections too.
+      cachedKey = undefined; cachedModel = undefined;
+      if (card.isConnected) card._repriceTariffV3?.();
+    },
     onRevision: () => { card._sharedTariffReadStatus = 'unconfirmed'; cachedKey = undefined; cachedModel = undefined; }
   });
   const model = function (proposed) {
     identity();
     const profile = arguments.length ? proposed : activeProfile(), key = JSON.stringify(profile);
+    if (!arguments.length) { backend.snapshot(); if (cachedModel && key === cachedKey) return cachedModel; }
     const validated = createModel(profile);
     const unavailable = rows => ({complete:false,issues:[{reason:'invalid_profile'}],rows:(rows || []).map((row,index)=>({index,from:row.from,to:row.to,available:false})),
       kwh:null,energyCost:null,variableCost:null,usageCost:null,currency:null,priceBasis:null,timezone:null,clock:{},fixedMonthly:null});
     if (!validated.valid) return {valid:false,errors:validated.errors,rateAt:()=>({available:false,reason:'invalid_profile'}),priceBuckets:unavailable};
     if (arguments.length) return {valid:true,errors:[],rateAt:()=>({available:false,reason:'backend_required'}),priceBuckets:unavailable};
-    backend.snapshot();
-    if (cachedModel && key === cachedKey) return cachedModel;
     cachedKey = key; cachedModel = {valid:true,errors:[],rateAt:()=>({available:false,reason:'backend_required'}),priceBuckets:backend.priceBuckets};
     return cachedModel;
   };
