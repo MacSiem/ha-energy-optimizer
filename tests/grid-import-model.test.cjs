@@ -1,3 +1,4 @@
+const { energyBackend, drainBackend, mountForPricing } = require('./helpers/energy-backend-fixture.cjs');
 const assert = require('node:assert/strict');
 const { test } = require('node:test');
 const { readFileSync } = require('node:fs');
@@ -268,7 +269,7 @@ test('Insights shows an honest empty state when one configured grid source has n
   } finally { dom.window.close(); }
 });
 
-test('Energy Email has no assumed price or currency and preserves an explicit zero tariff', () => {
+test('Energy Email requires timestamped backend pricing and preserves an explicit zero tariff', async () => {
   const { dom } = cardWith({});
   try {
     const email = dom.window.document.createElement('ha-energy-email');
@@ -279,7 +280,13 @@ test('Energy Email has no assumed price or currency and preserves an explicit ze
     assert.match(email._getTariffLabel(), /not configured/);
     email.setConfig({ energy_price: 0 });
     assert.equal(email._getAvgRate(), 0);
-    assert.equal(email._cost(5), 0);
+    assert.equal(email._cost(5), null, 'an aggregate is not a timestamped measurement');
+    email._hass.callWS = energyBackend(email, async request => { throw Error(request.type); });
+    mountForPricing(email);
+    const buckets = [{ from: '2026-09-30T11:00Z', to: '2026-09-30T12:00Z', kwh: 5 }];
+    assert.equal(email._getTariffV3().priceBuckets(buckets).energyCost, null);
+    await drainBackend();
+    assert.equal(email._getTariffV3().priceBuckets(buckets).energyCost, 0);
     assert.match(email._getTariffLabel(), /EUR/);
   } finally { dom.window.close(); }
 });

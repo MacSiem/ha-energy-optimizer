@@ -1,5 +1,7 @@
 // Source-only W3/W5 packet: written before runtime. Owner executes after integration.
 'use strict';
+const { energyBackend, drainBackend } = require('./helpers/energy-backend-fixture.cjs');
+
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
@@ -8,7 +10,7 @@ const { JSDOM } = require('jsdom');
 const code = ['src/optimizer.js', 'src/energy-insights.js', 'src/energy-email.js', 'src/chart-vendor.js']
   .map(p => readFileSync(join(__dirname, '..', p), 'utf8')).join('');
 const H = 3600000;
-const flush = async () => { for (let i = 0; i < 30; i++) await Promise.resolve(); };
+const flush = drainBackend;
 const plain = value => JSON.parse(JSON.stringify(value));
 const profile = { schema: 1, currency: 'EUR', timezone: 'UTC', clock: { mode: 'civil' },
   priceBasis: 'gross', defaultZone: 'a', zones: [{ id: 'a', energyRate: 2, variableRate: 0.1 }] };
@@ -47,7 +49,9 @@ async function fixture({ now = '2026-10-25T05:00:00Z', zone = 'Europe/Warsaw', d
   const hass = { user: { id: 'fixture', is_admin: true, is_active: true }, connection,
     language: 'en', locale: { language: 'en' }, config: { currency: 'EUR', time_zone: zone },
     states: { 'sensor.hvac': { state: '9000000', attributes: { unit_of_measurement: 'W' } } },
-    callWS: req => { calls.push(plain(req)); return handler(req); } };
+    // Measurement/tariff reads are counted here; protocol pricing reads are
+    // retained separately by the fake backend's energyCalls.
+    callWS: energyBackend(card, req => { calls.push(plain(req)); return handler(req); }) };
   card._hass = hass; card.setConfig({ ...(ownTariff ? { tariff_profile: profile } : {}), show_support: false });
   card._firstHassRender = true; card._lastDataFetch = end;
   dom.window.document.body.append(card);
@@ -64,7 +68,7 @@ test('configured device measurements are opt in, retain zero and never add subme
     const grid = f.card._data.monthKwh, initial = f.calls.length;
     assert.match(f.card.shadowRoot.querySelector('[data-insights-devices]').textContent, /Not read/);
     assert.equal(f.calls.filter(c => c.statistic_ids?.includes('sensor.hvac')).length, 0);
-    await f.card._readInsightDevicesV3();
+    await f.card._readInsightDevicesV3(); await flush();
     const rows = f.card._insightDeviceRowsV3();
     assert.equal(rows.length, 4); assert.equal(rows[0].kwh, 0); assert.equal(rows[0].status, 'complete');
     assert.equal(rows[0].energyCost, 0); assert.equal(rows[0].sourceUnit, 'Wh');
@@ -83,7 +87,7 @@ test('empty configuration is explicit and no invented topDevices input can popul
   const f = await fixture({ devices: [] }); try {
     const count = f.calls.length;
     f.card._data.topDevices = [{ name: 'Fake', kwh: 200 }];
-    await f.card._readInsightDevicesV3();
+    await f.card._readInsightDevicesV3(); await flush();
     assert.equal(f.card._insightDeviceRowsV3().length, 0);
     assert.match(f.card.shadowRoot.textContent, /No configured devices/);
     assert.doesNotMatch(f.card.shadowRoot.textContent, /Fake/);
@@ -94,7 +98,7 @@ test('invalid metadata source identity, duplicate bucket, unknown changes and mi
   const f = await fixture({ metadata: { 'sensor.hvac': { statistic_id: 'sensor.other', has_sum: true, unit_of_measurement: 'kWh' } },
     transform: (rows, id) => id === 'sensor.hvac_child' ? rows.filter((_, i) => i !== 1).map((r, i) => i === 2 ? { ...r, change: null } : r) : rows });
   try {
-    await f.card._readInsightDevicesV3();
+    await f.card._readInsightDevicesV3(); await flush();
     const rows = f.card._insightDeviceRowsV3();
     assert.equal(rows[0].status, 'unsupported');
     assert.equal(rows[1].status, 'partial'); assert.equal(rows[1].kwh, null);
@@ -102,7 +106,7 @@ test('invalid metadata source identity, duplicate bucket, unknown changes and mi
     assert.equal(rows[1].energyCost, null);
   } finally { f.close(); }
   const d = await fixture({ transform: (rows, id) => id === 'sensor.hvac' ? [...rows, rows[0]] : rows });
-  try { await d.card._readInsightDevicesV3(); assert.equal(d.card._insightDeviceRowsV3()[0].status, 'invalid'); } finally { d.close(); }
+  try { await d.card._readInsightDevicesV3(); await flush(); assert.equal(d.card._insightDeviceRowsV3()[0].status, 'invalid'); } finally { d.close(); }
 });
 test('concurrent explicit reads coalesce and tariff raw occupation prevents device dispatch', async () => {
   const f = await fixture(); try {
@@ -115,7 +119,7 @@ test('concurrent explicit reads coalesce and tariff raw occupation prevents devi
     f.card.connectedCallback();
     const guard = f.card._getTariffHostV3().guard;
     const raw = guard.call(guard.observe(), { type: 'ha_tools_email/get_tariff' }); await flush();
-    const count = f.calls.length; await f.card._readInsightDevicesV3();
+    const count = f.calls.length; await f.card._readInsightDevicesV3(); await flush();
     assert.equal(f.calls.length, count); assert.equal(guard.occupied(), true);
     resolve({}); await raw;
   } finally { f.close(); }
@@ -123,7 +127,7 @@ test('concurrent explicit reads coalesce and tariff raw occupation prevents devi
 for (const edge of ['user', 'role', 'source', 'config', 'zone', 'range', 'connection', 'offline', 'detach']) {
   test(`device source snapshot and late response are fenced on ${edge}`, async () => {
     const f = await fixture(); try {
-      await f.card._readInsightDevicesV3();
+      await f.card._readInsightDevicesV3(); await flush();
       let release; f.setHandler(() => new Promise(r => { release = r; }));
       const pending = f.card._readInsightDevicesV3(); await flush();
       if (edge === 'offline') f.dom.window.dispatchEvent(new f.dom.window.Event('offline'));
@@ -187,8 +191,8 @@ test('non-hour local midnight never splits UTC buckets; monthly Data pagination 
 });
 test('metric and point selection stay local; tariff change reprices settled device buckets without requery', async () => {
   const f = await fixture({ ownTariff: false }); try {
-    await f.card._readInsightDevicesV3();
-    const measured = f.calls.length, raw = f.card._insightDeviceState.raw;
+    await f.card._readInsightDevicesV3(); await flush();
+    const measured = f.calls.filter(c => c.type.startsWith('recorder/')).length, raw = f.card._insightDeviceState.raw;
     f.setHandler(async req => { assert.equal(req.type, 'ha_tools_email/get_tariff'); return { profile: { ...profile, zones: [{ id: 'a', energyRate: 3, variableRate: 0.1 }] }, revision: 2, updated_at: null }; });
     const details = f.card.shadowRoot.querySelector('[data-tariff-details]');
     details.open = true; details.dispatchEvent(new f.dom.window.Event('toggle'));
@@ -196,7 +200,7 @@ test('metric and point selection stay local; tariff change reprices settled devi
     assert.equal(f.card._insightDeviceState.raw, raw);
     assert.equal(f.card._insightDeviceRowsV3()[1].energyCost, 63);
     f.card.setActiveTab('weekly'); await flush();
-    const afterNavigation=f.calls.length;assert.equal(afterNavigation,measured+2);
+    const afterNavigation=f.calls.length;assert.equal(f.calls.filter(c => c.type.startsWith('recorder/')).length,measured);
     change(f, 'metric', 'energyCost');
     assert.equal(f.card.shadowRoot.querySelector('[data-insights-chart]').dataset.unit, 'EUR');
     const point = f.card.shadowRoot.querySelector('[data-insights-control="point"]');
@@ -209,7 +213,7 @@ test('metric and point selection stay local; tariff change reprices settled devi
 test('device search preserves caret and exposes every configured source through paging without reads', async () => {
   const devices = Array.from({ length: 37 }, (_, i) => ({ stat_consumption: 'sensor.device_' + i, name: 'Device ' + i }));
   const f = await fixture({ devices }); try {
-    await f.card._readInsightDevicesV3(); const count = f.calls.length;
+    await f.card._readInsightDevicesV3(); await flush(); const count = f.calls.length;
     const ids = new Set();
     for (let i = 0; i < 5; i++) {
       for (const row of f.card.shadowRoot.querySelectorAll('[data-insights-device]')) ids.add(row.dataset.insightsDevice);
@@ -230,7 +234,7 @@ test('device search preserves caret and exposes every configured source through 
 // Owner review regressions: actual native summary focus loss and wrong metric name.
 test('device disclosure retains keyboard focus/open state across locale without new reads', async () => {
   const f = await fixture(); try {
-    await f.card._readInsightDevicesV3(); const count = f.calls.length;
+    await f.card._readInsightDevicesV3(); await flush(); const count = f.calls.length;
     const disclosure = f.card.shadowRoot.querySelectorAll('[data-insights-device-details]')[1];
     // Native toggle is queued; an immediate locale repaint must read actual open state.
     disclosure.open = true;
@@ -253,7 +257,7 @@ test('chart accessible name describes the selected measure and its unit', async 
 });
 test('primary device consumption is readable while details retain the exact measured value', async () => {
   const f = await fixture({ transform: (rows, id) => id === 'sensor.hvac_child' ? rows.map(r => ({ ...r, change: 0.15 })) : rows }); try {
-    await f.card._readInsightDevicesV3(); const row = f.card._insightDeviceRowsV3()[1];
+    await f.card._readInsightDevicesV3(); await flush(); const row = f.card._insightDeviceRowsV3()[1];
     const article = f.card.shadowRoot.querySelectorAll('[data-insights-device]')[1];
     assert.equal(article.querySelector('.insights-device-heading span').textContent, '25.2 kWh');
     const full = [...article.querySelectorAll('dt')].find(el => el.textContent === 'Consumption').nextElementSibling;
@@ -265,7 +269,7 @@ test('partial device summary formats measured consumption without exposing float
   const f = await fixture({ transform: (rows, id) => id === 'sensor.hvac_child'
     ? rows.filter((_, i) => i !== 1).map(r => ({ ...r, change: 0.15 })) : rows });
   try {
-    await f.card._readInsightDevicesV3();
+    await f.card._readInsightDevicesV3(); await flush();
     const row = f.card._insightDeviceRowsV3()[1];
     const article = f.card.shadowRoot.querySelectorAll('[data-insights-device]')[1];
     assert.equal(row.status, 'partial');

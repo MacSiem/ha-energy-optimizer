@@ -1,3 +1,4 @@
+const { energyBackend, drainBackend, mountForPricing } = require('./helpers/energy-backend-fixture.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
@@ -24,6 +25,8 @@ function setup(type, series, options = {}) {
     if (msg.type === 'recorder/statistics_during_period') return series;
     throw new Error(msg.type);
   } };
+  card._hass.callWS = energyBackend(card, card._hass.callWS);
+  mountForPricing(card);
   return { dom, card, calls };
 }
 const hours = (start, count, change = 1) => Array.from({ length: count }, (_, i) => ({ start: Date.parse(start) + i * 3600000, change }));
@@ -31,7 +34,7 @@ const hours = (start, count, change = 1) => Array.from({ length: count }, (_, i)
 test('Insights does not treat a source missing today as measured zero', async () => {
   const { dom, card } = setup('ha-energy-insights', { 'sensor.a': hours('2026-09-30T00:00Z', 12), 'sensor.b': hours('2026-09-29T00:00Z', 24) });
   try {
-    await card._fetchData();
+    await card._fetchData(); await drainBackend();
     assert.equal(card._data?.todayKwh ?? null, null);
   } finally { dom.window.close(); }
 });
@@ -40,7 +43,7 @@ test('Insights rejects duplicate absolute buckets instead of doubling usage', as
   const points = hours('2026-09-30T00:00Z', 12);
   const { dom, card } = setup('ha-energy-insights', { 'sensor.a': [...points, points[0]] });
   try {
-    await card._fetchData();
+    await card._fetchData(); await drainBackend();
     assert.equal(card._data?.todayKwh ?? null, null);
   } finally { dom.window.close(); }
 });
@@ -48,7 +51,7 @@ test('Insights rejects duplicate absolute buckets instead of doubling usage', as
 test('Insights with only today available keeps week/month unavailable and missing hours as gaps', async () => {
   const { dom, card } = setup('ha-energy-insights', { 'sensor.a': hours('2026-09-30T00:00Z', 12) });
   try {
-    await card._fetchData();
+    await card._fetchData(); await drainBackend();
     assert.equal(card._data.todayKwh, 12);
     assert.equal(card._data.thisWeekKwh, null);
     assert.equal(card._data.monthKwh, null);
@@ -107,7 +110,7 @@ for (const [date, zone, expectedHours] of [['2026-10-25T23:30Z', 'Europe/Warsaw'
     const { dom, card } = setup('ha-energy-insights', { 'sensor.a': all }, { now: date, zone });
     try {
       card._config.energy_price = 2;
-      await card._fetchData();
+      await card._fetchData(); await drainBackend();
       // At local midnight there are no completed hours today yet.
       if (expectedHours === 0) {
         assert.equal(card._data.todayKwh, null);
@@ -129,7 +132,9 @@ for (const [date, zone, expectedHours] of [['2026-10-25T23:30Z', 'Europe/Warsaw'
         return card._hass.callWS(msg);
       } };
       email._config.energy_price = 2;
-      await email._fetchRecorderStats('week');
+      email._hass.callWS = energyBackend(email, email._hass.callWS);
+      mountForPricing(email);
+      await email._fetchRecorderStats('week'); await drainBackend();
       assert.equal(email._periodCache_week[0].month, 168);
       assert.equal(email._periodCache_week[0].cost, 336);
       const optimizer = dom.window.document.createElement('ha-energy-optimizer');

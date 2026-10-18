@@ -1,3 +1,4 @@
+const { energyBackend, drainBackend, mountForPricing } = require('./helpers/energy-backend-fixture.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
@@ -170,7 +171,9 @@ test(`Recorder tariff cost weights consumption at HA local hours (${timeZone}, $
     'recorder/statistics_during_period': { 'sensor.grid': points },
   })[msg.type];
   try {
-    await card._fetchRecorderStats('day');
+    card._hass.callWS = energyBackend(card, card._hass.callWS);
+    mountForPricing(card);
+    await card._fetchRecorderStats('day'); await drainBackend();
     assert.equal(card._periodCache_day[0].month, 11);
     assert.equal(card._periodCache_day[0].cost, 21);
     assert.equal(card._cost(11), null, 'aggregate usage cannot price time tariffs without hourly consumption');

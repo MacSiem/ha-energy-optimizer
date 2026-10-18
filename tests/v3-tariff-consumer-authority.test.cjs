@@ -1,20 +1,74 @@
 // Breaks caught: missing consumer lifecycle/context fences, stale Recorder callbacks,
 // unnecessary Recorder refetch on tariff readback, and lost local configured rates.
 'use strict';
+const { energyBackend, drainBackend, mountForPricing } = require('./helpers/energy-backend-fixture.cjs');
+
 const {test}=require('node:test');const assert=require('node:assert/strict');
 const {readFileSync}=require('node:fs');const {join}=require('node:path');const {JSDOM}=require('jsdom');
 const types=['ha-energy-optimizer','ha-energy-insights','ha-energy-email'];
 const profile={schema:1,name:'Fixture',currency:'EUR',timezone:'UTC',clock:{mode:'civil'},priceBasis:'gross',defaultZone:'a',zones:[{id:'a',energyRate:2,variableRate:0}]};
-const flush=async()=>{for(let i=0;i<20;i++)await Promise.resolve();};
+const flush=drainBackend;
 function setup(type){const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});dom.window.eval(readFileSync(join(__dirname,'..','ha-energy-optimizer.js'),'utf8'));const card=dom.window.document.createElement(type);const connection=new dom.window.EventTarget();connection.connected=true;card._hass={user:{id:'u',is_admin:true,is_owner:false,is_active:true,groups:[],group_ids:[]},connection,config:{time_zone:'UTC',currency:'EUR'},states:{},callWS:async()=>({profile,revision:4,updated_at:null})};card._config={...card._config,tariff_profile:profile};card._schedule=()=>{};const host=card._getTariffHostV3();return{dom,card,connection,host,close(){card._tariffConsumerUnsubscribeV3?.();host.guard.dispose();dom.window.close();}};}
 for(const type of types){
  test(`${type} observes typed connection and browser edges before mount`,()=>{const f=setup(type);try{for(const [target,event] of [[f.connection,'disconnected'],[f.connection,'ready'],[f.connection,'reconnect-error'],[f.dom.window,'offline'],[f.dom.window,'online']]){f.card._tariffEditorState={draft:{name:'PRIVATE'}};f.card._sharedTariffProfile=profile;const old=f.host.guard.snapshot();target.dispatchEvent(new f.dom.window.Event(event));assert.equal(f.card._tariffEditorState,null);assert.equal(f.card._sharedTariffProfile,null);assert.equal(f.host.guard.current(old),false);}}finally{f.close();}});
  test(`${type} config/range/source changes erase a mounted editor before stale Save`,async()=>{const f=setup(type);try{f.card._render();const details=f.card.shadowRoot.querySelector('[data-tariff-details]');details.open=true;details.dispatchEvent(new f.dom.window.Event('toggle'));let calls=0;f.card._hass.callWS=async()=>{calls++;return null;};f.host.reset();for(const change of [()=>f.card.setConfig({...f.card._config,title:'changed'}),()=>{if(type==='ha-energy-optimizer')f.card._patternsState={period:30};else if(type==='ha-energy-insights')f.card._activeTab='weekly';else f.card._overviewPeriod='month';f.card._observeTariffContextV3();},()=>{f.card._tariffSourceIds=['sensor.other'];f.card._observeTariffContextV3();}]){f.card._tariffEditorState={draft:{name:'PRIVATE'}};change();assert.equal(f.card._tariffEditorState,null);}await flush();assert.equal(calls,0);}finally{f.close();}});
  test(`${type} same-user permission/config/callWS changes purge old drafts`,()=>{const f=setup(type);try{for(const apply of [h=>h.user.is_admin=false,h=>h.user.is_owner=true,h=>h.user.groups=['x'],h=>h.user.group_ids=['x'],h=>h.user.is_active=false,h=>h.config.currency='PLN',h=>h.callWS=async()=>null]){f.card._tariffEditorState={draft:{name:'PRIVATE'}};apply(f.card._hass);f.card._resetTariffContext(f.card._hass);assert.equal(f.card._tariffEditorState,null);}}finally{f.close();}});
- test(`${type} local configured tariff remains usable without backend/connection`,()=>{const f=setup(type);try{f.card._hass.callWS=undefined;f.card._hass.connection=undefined;f.card._resetTariffContext(f.card._hass);assert.equal(f.card._getTariffV3().rateAt('2026-01-01T12:00Z').energyRate,2);delete f.card._config.tariff_profile;f.card._config.energy_price=0.25;f.card._observeTariffContextV3();assert.equal(f.card._getTariffV3().rateAt('2026-01-01T12:00Z').energyRate,0.25);}finally{f.close();}});
+ test(`${type} local configuration validates offline but no backend price is fabricated`,async()=>{
+  const f=setup(type);try{
+    f.card._hass.callWS=undefined;f.card._hass.connection=undefined;f.card._resetTariffContext(f.card._hass);
+    const buckets=[{from:'2026-01-01T12:00Z',to:'2026-01-01T13:00Z',kwh:1}];
+    assert.equal(f.card._getTariffV3().valid,true);
+    assert.equal(f.card._getTariffV3().rateAt('2026-01-01T12:00Z').available,false);
+    assert.equal(f.card._getTariffV3().priceBuckets(buckets).energyCost,null);
+    delete f.card._config.tariff_profile;f.card._config.energy_price=0.25;f.card._observeTariffContextV3();
+    assert.equal(f.card._getTariffV3().valid,true);
+    assert.equal(f.card._getTariffV3().priceBuckets(buckets).energyCost,null);
+    f.card._hass.connection={connected:true};
+    f.card._hass.callWS=energyBackend(f.card,async req=>{throw Error(req.type);});
+    f.card._resetTariffContext(f.card._hass);
+    f.card._getTariffV3().priceBuckets(buckets);await flush();
+    assert.equal(f.card._getTariffV3().priceBuckets(buckets).energyCost,0.25);
+  }finally{f.close();}
+ });
  test(`${type} disconnect fences pending Recorder without clearing measured snapshots`,async()=>{const f=setup(type);try{let resolve;f.card._hass.callWS=()=>new Promise(r=>resolve=r);const read=f.card._createEnergyReadV3();const pending=read.hass.callWS({type:'energy/get_prefs'});f.card._energyData=[7];f.card.disconnectedCallback();resolve({energy_sources:[{type:'grid',stat_energy_from:'sensor.old'}]});await assert.rejects(pending,e=>e.code==='energy_context_changed');assert.equal(f.card._energyData[0],7);assert.equal(read.current(),false);f.card.connectedCallback();assert.equal(read.current(),false);}finally{f.close();}});
 }
-for(const type of types)test(`${type} explicit tariff Load reprices settled measurements without Recorder calls`,async()=>{const f=setup(type);try{const NativeDate=f.dom.window.Date;const end=Date.parse('2026-10-12T12:00:00Z');f.dom.window.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[end]));}static now(){return end;}};let rate=2;const api=[];f.card._hass.callWS=async req=>{api.push(req.type);if(req.type==='ha_tools_email/get_tariff')return{profile:{...profile,zones:[{id:'a',energyRate:rate,variableRate:0}]},revision:8,updated_at:'2026-10-12T00:00:00Z'};if(req.type==='energy/get_prefs')return{energy_sources:[{type:'grid',stat_energy_from:'sensor.grid'}]};if(req.type==='recorder/get_statistics_metadata')return{'sensor.grid':{has_sum:true,statistics_unit_of_measurement:'kWh',unit_class:'energy'}};if(req.type==='recorder/statistics_during_period'){const start=Date.parse(req.start_time),finish=Date.parse(req.end_time);return{'sensor.grid':Array.from({length:(finish-start)/3600000},(_,i)=>({start:start+i*3600000,change:1}))};}throw Error(req.type);};delete f.card._config.tariff_profile;f.host.reset();if(type==='ha-energy-optimizer')await f.card._fetchEnergyStats();else if(type==='ha-energy-insights')await f.card._fetchData();else await f.card._fetchAllPeriodStats();const rows=type==='ha-energy-email'?JSON.stringify(f.card._periodCache_day.map(r=>[r.entity_id,r.month])):JSON.stringify((f.card._energyModel||f.card._insightsEnergyModel).hourlyToday);const measured=api.filter(x=>x.startsWith('recorder/')).length;if(type==='ha-energy-email')assert.equal(f.card._periodCache_day[0].cost,48);else if(type==='ha-energy-insights')assert.equal(f.card._data.monthCost,1440);else assert.equal(f.card._calculateTodayCost(),24);rate=3;f.card._render();const details=f.card.shadowRoot.querySelector('[data-tariff-details]');details.open=true;details.dispatchEvent(new f.dom.window.Event('toggle'));f.card.shadowRoot.querySelector('[data-action="load"]').click();await flush();assert.equal(api.filter(x=>x.startsWith('recorder/')).length,measured);const after=type==='ha-energy-email'?JSON.stringify(f.card._periodCache_day.map(r=>[r.entity_id,r.month])):JSON.stringify((f.card._energyModel||f.card._insightsEnergyModel).hourlyToday);assert.equal(after,rows);if(type==='ha-energy-email')assert.equal(f.card._periodCache_day[0].cost,72);else if(type==='ha-energy-insights')assert.equal(f.card._data.monthCost,2160);else assert.equal(f.card._calculateTodayCost(),36);f.dom.window.dispatchEvent(new f.dom.window.Event('offline'));await flush();assert.equal(api.filter(x=>x.startsWith('recorder/')).length,measured);if(type==='ha-energy-email')assert.equal(f.card._periodCache_day[0].cost,null);else if(type==='ha-energy-insights')assert.equal(f.card._data.monthCost,null);else assert.equal(f.card._calculateTodayCost(),null);}finally{f.close();}});
+for(const type of types)test(`${type} explicit tariff Load reprices settled measurements without Recorder calls`,async()=>{
+ const f=setup(type);try{
+  const NativeDate=f.dom.window.Date,end=Date.parse('2026-10-12T12:00:00Z');
+  f.dom.window.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[end]));}static now(){return end;}};
+  let rate=2;const api=[];
+  f.card._hass.callWS=energyBackend(f.card,async req=>{
+   api.push(req.type);
+   if(req.type==='ha_tools_email/get_tariff')return{profile:{...profile,zones:[{id:'a',energyRate:rate,variableRate:0}]},revision:8,updated_at:'2026-10-12T00:00:00Z'};
+   if(req.type==='energy/get_prefs')return{energy_sources:[{type:'grid',stat_energy_from:'sensor.grid'}]};
+   if(req.type==='recorder/get_statistics_metadata')return{'sensor.grid':{has_sum:true,statistics_unit_of_measurement:'kWh',unit_class:'energy'}};
+   if(req.type==='recorder/statistics_during_period'){
+    const start=Date.parse(req.start_time),finish=Date.parse(req.end_time);
+    return{'sensor.grid':Array.from({length:(finish-start)/3600000},(_,i)=>({start:start+i*3600000,change:1}))};
+   }
+   throw Error(req.type);
+  });
+  delete f.card._config.tariff_profile;f.host.reset();mountForPricing(f.card);
+  if(type==='ha-energy-optimizer')await f.card._fetchEnergyStats();
+  else if(type==='ha-energy-insights')await f.card._fetchData();
+  else await f.card._fetchAllPeriodStats();
+  await flush();
+  const measurements=()=>type==='ha-energy-email'?JSON.stringify(f.card._periodCache_day.map(r=>[r.entity_id,r.month])):JSON.stringify((f.card._energyModel||f.card._insightsEnergyModel).hourlyToday);
+  const cost=()=>type==='ha-energy-email'?f.card._periodCache_day[0].cost:type==='ha-energy-insights'?f.card._data.monthCost:f.card._calculateTodayCost();
+  const rows=measurements(),measured=api.filter(x=>x.startsWith('recorder/')).length;
+  assert.equal(cost(),type==='ha-energy-email'?48:type==='ha-energy-insights'?1440:24);
+  rate=3;f.card._render();
+  const details=f.card.shadowRoot.querySelector('[data-tariff-details]');details.open=true;details.dispatchEvent(new f.dom.window.Event('toggle'));
+  const beforeLoads=api.filter(x=>x==='ha_tools_email/get_tariff').length;
+  f.card.shadowRoot.querySelector('[data-action="load"]').click();await flush();
+  assert.equal(api.filter(x=>x==='ha_tools_email/get_tariff').length,beforeLoads+1,'explicit Load receives a fresh backend acknowledgement');
+  assert.equal(api.filter(x=>x.startsWith('recorder/')).length,measured);
+  assert.equal(measurements(),rows);
+  assert.equal(cost(),type==='ha-energy-email'?72:type==='ha-energy-insights'?2160:36);
+  f.dom.window.dispatchEvent(new f.dom.window.Event('offline'));await flush();
+  assert.equal(api.filter(x=>x.startsWith('recorder/')).length,measured);assert.equal(cost(),null);
+ }finally{f.close();}
+});
 
 for(const type of types)test(`${type} unknown mutation survives detach/context reset and automatic host read`,async()=>{const f=setup(type);try{f.card._render();let release,writes=0;f.card._hass.callWS=msg=>msg.type==='ha_tools_email/set_tariff'?(writes++,new Promise(r=>release=r)):Promise.resolve({profile,revision:4,updated_at:'2026-10-12T00:00:00Z'});f.host.reset();await f.host.load(true);f.card._render();let details=f.card.shadowRoot.querySelector('[data-tariff-details]');details.open=true;details.dispatchEvent(new f.dom.window.Event('toggle'));f.card.shadowRoot.querySelector('[data-action="save"]').click();assert.equal(writes,1);f.card.disconnectedCallback();f.card.connectedCallback();release({revision:5});await flush();await f.host.load(true);f.card._render();details=f.card.shadowRoot.querySelector('[data-tariff-details]');details.open=true;details.dispatchEvent(new f.dom.window.Event('toggle'));assert.equal(f.card.shadowRoot.querySelector('[data-action="save"]').disabled,true);f.card.shadowRoot.querySelector('[data-action="save"]').click();await flush();assert.equal(writes,1);f.card.shadowRoot.querySelector('[data-action="load"]').click();await flush();assert.equal(f.card.shadowRoot.querySelector('[data-action="save"]').disabled,false);}finally{f.close();}});
 for(const type of types)test(`${type} source/window context mutation fences the next Recorder dispatch`,async()=>{const f=setup(type);try{let resolve;const calls=[];f.card._hass.callWS=req=>{calls.push(req.type);return new Promise(r=>resolve=r);};const read=f.card._createEnergyReadV3();const pending=read.hass.callWS({type:'energy/get_prefs'});f.card.setConfig({...f.card._config,power_entity:'sensor.other'});resolve({energy_sources:[{type:'grid',stat_energy_from:'sensor.stale'}]});await assert.rejects(pending,e=>e.code==='energy_context_changed');await assert.rejects(read.hass.callWS({type:'recorder/get_statistics_metadata',statistic_ids:['sensor.stale']}),e=>e.code==='energy_context_changed');assert.deepEqual(calls,['energy/get_prefs']);assert.notDeepEqual(f.card._tariffSourceIds,['sensor.stale']);}finally{f.close();}});
@@ -39,11 +93,13 @@ for (const type of types) test(`${type} same-instance reattach reconfirms a shar
       }
       throw Error('Unexpected operation: ' + req.type);
     };
+    f.card._hass.callWS = energyBackend(f.card, f.card._hass.callWS);
     delete f.card._config.tariff_profile; f.host.reset();
     f.dom.window.document.body.append(f.card);
     if (type === 'ha-energy-optimizer') await f.card._fetchEnergyStats();
     else if (type === 'ha-energy-insights') await f.card._fetchData();
     else await f.card._fetchAllPeriodStats();
+    await flush();
     f.card._lastStatsFetch = f.card._lastDataFetch = end;
     const measured = calls.filter(x => x.startsWith('recorder/')).length;
     const before = calls.filter(x => x === 'ha_tools_email/get_tariff').length;
