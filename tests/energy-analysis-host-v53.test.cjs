@@ -16,8 +16,10 @@ function harness(response=()=>clone(fixture)) {
   const dom=new JSDOM('<!doctype html><body></body>',{url:'http://localhost',runScripts:'outside-only'});
   const w=dom.window;
   const format=source('src/optimizer.js').match(/\/\/ HA_FORMAT_UI_START\n([\s\S]*?)\/\/ HA_FORMAT_UI_END/)[1];
-  w.eval(format);
-  for(const name of ['analysis','analysis-binding','analysis-view','analysis-host'])w.eval(source(`shared/ha-tools-energy-${name}.js`));
+  // Reproduce the consumer's private lazy closure, including strict semantics.
+  // Separate strict evals deliberately do not expose factories on window.
+  const modules=['analysis','analysis-binding','analysis-view','analysis-host'].map(name=>source(`shared/ha-tools-energy-${name}.js`));
+  const createHost=w.eval('\"use strict\";(function(){\n'+[format,...modules].join('\n')+'\nreturn createEnergyAnalysisHostV53;})()');
   const card=w.document.createElement('section');w.document.body.append(card);
   const listeners=new Map(), calls=[];
   let unsubscribed=0, legacy=0, cleared=0;
@@ -35,7 +37,7 @@ function harness(response=()=>clone(fixture)) {
   card._loadAnalysisLegacyV53=()=>{
     legacy++;card.oldPrivateRows=['old'];card.textContent='legacy measured rows';host.mount(card);
   };
-  host=w.createEnergyAnalysisHostV53({card});
+  host=createHost({card});
   return {w,card,host,calls,listeners,render:()=>card._render(),
     emit:event=>{for(const row of [...listeners.values()])if(row.event===event)row.callback({event:{}});},
     get legacy(){return legacy;},get cleared(){return cleared;},get unsubscribed(){return unsubscribed;},close:()=>{host.stop();dom.window.close();}};
