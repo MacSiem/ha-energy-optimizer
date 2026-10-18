@@ -2011,7 +2011,7 @@ this._installTariffConsumerV3();
       return `<section class="insights-measured" data-insights-analysis aria-label="${this._t(period)}">
         <h3>${this._t(period)} · ${t('Recorded consumption', 'Zarejestrowane zużycie')}</h3>
         <p data-insights-source-count>${t('Sources', 'Źródła')}: ${_esc(format.number(data.source.length))}</p><p data-insights-chart-range>${_esc(format.range(new Date(data.window.from).toISOString(), new Date(data.window.to).toISOString()))}</p>
-        ${this._insightTechnicalDetailsV5(`chart:${period}`, data.window.from, data.window.to, format.timeZone, data.source)}
+        ${this._insightTechnicalDetailsV5(`chart:${period}`, data.window.from, data.window.to, data.timezone, data.source)}
         <div class="insights-controls">
           ${period !== 'daily' ? `<label>${t('Intervals', 'Przedziały')}<select data-insights-control="resolution">${option('day', state.resolution, t('Local dates', 'Daty lokalne'))}${option('hour', state.resolution, t('All measured hours', 'Wszystkie godziny pomiaru'))}</select></label>` : ''}
           <label>${t('Measure', 'Miara')}<select data-insights-control="metric">${option('kwh', state.metric, 'kWh')}${option('energyCost', state.metric, t('Energy cost', 'Koszt energii'))}${option('variableCost', state.metric, t('Variable fees', 'Opłaty zmienne'))}</select></label>
@@ -2859,6 +2859,6 @@ if (!customElements.get('ha-energy-insights-editor')) { customElements.define('h
 
 
   window.customCards = window.customCards || [];
-  window.customCards.push({ type: 'ha-energy-insights', name: 'Energy Insights', description: 'Recorded grid import, costs and period trends', preview: false });
+  if (!window.customCards.some(card => card.type === 'ha-energy-insights')) window.customCards.push({ type: 'ha-energy-insights', name: 'Energy Insights', description: 'Recorded grid import, costs and period trends', preview: false });
 })();
 

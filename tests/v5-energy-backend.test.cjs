@@ -101,6 +101,7 @@ test('automatic price refresh preserves a dirty editor baseline and its save sti
   assert.equal(s.host.snapshot().revision,2);assert.equal(s.host.backend.priceBuckets([row()]).usageCost,13.5);
   assert.equal(state.revision,1);assert.equal(state.profile.zones[0].energyRate,2);assert.equal(state.draft.zones[0].energyRate,3);
   editor=createTariffSettingsV3({root:dom.window.document.querySelector('#editor'),getHass:()=>s.card._hass,language:()=> 'en',state,validate:createEnergyTariffV3,guard:s.host.guard});
+  editor.render();
   dom.window.document.querySelector('[data-action="save"]').click();await drain();
   const writes=s.calls.filter(req=>req.type==='ha_tools_email/set_tariff');assert.equal(writes.length,1);assert.equal(writes[0].expected_revision,1);
   assert.equal(state.writeUnconfirmed,true);assert.match(state.message,/conflict/i);assert.equal(state.draft.zones[0].energyRate,3);
