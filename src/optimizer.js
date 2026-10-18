@@ -3413,7 +3413,9 @@ canvas {
       if(tabEl)tabEl.innerHTML=`<div data-analysis-mount-v53 data-analysis-section="${tabName==='recommendations'?'rates':tabName==='compare'?'comparison':'overview'}"></div>`;
       this._syncAnalysisV53();return;
     }
-    this._getAnalysisHostV53().mount(tabEl);
+    // Before legacy measurements arrive, the empty state has no tab container.
+    // Keep the negotiated compatibility view mounted while its first read settles.
+    this._getAnalysisHostV53().mount(tabEl || this.shadowRoot.querySelector('.card-container'));
     if (tabName === 'patterns') return; // SVG observes its own size; navigation never refetches measurements.
     if (tabName === 'recommendations') this._renderRecommendations();
     // Draw charts after showing tab (needed for canvas sizing)

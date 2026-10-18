@@ -105,7 +105,7 @@ function ready(f){
   if(control(f,'level').value==='areas'){
     const zero=[...root.querySelectorAll('[data-analysis-groups] tbody tr')].find(row=>row.querySelector('th')?.textContent==='No room');
     assert.ok(zero,'producer unassigned zero remains separate from unmeasured');
-    assert.match(zero.children[1].textContent,/^0 kWh$/);assert.match(zero.children[2].textContent,/0[.,]00/);
+    assert.match(zero.children[1].textContent,/^0 kWh$/);assert.match(zero.children[2].textContent,/^0(?:[.,]0+)? EUR$/);
     assert.doesNotMatch(zero.textContent,/Unavailable/);
   }
 }
@@ -149,7 +149,7 @@ for(const spec of cases){
         f.tab('recommendations');await settle();
         const table=f.card.shadowRoot.querySelector('[data-analysis-cost-components]');assert.ok(table);
         const row=[...table.querySelectorAll('tbody tr')].find(el=>el.textContent.includes('Variable distribution'));
-        assert.ok(row);assert.match(row.querySelector('td').textContent,/0[.,]00/);assert.doesNotMatch(row.textContent,/Unavailable/);
+        assert.ok(row);assert.match(row.querySelector('td').textContent,/^0(?:[.,]0+)? EUR$/);assert.doesNotMatch(row.textContent,/Unavailable/);
         f.tab(spec.home);await settle();selection(f);
       }
       const before=f.analyses.length;control(f,'retry').click();await settle();assert.equal(f.analyses.length,before+1);ready(f);selection(f);
