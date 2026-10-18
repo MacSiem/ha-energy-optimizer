@@ -1,4 +1,4 @@
-// HA Energy Optimizer Bundle v3.7.1
+// HA Energy Optimizer Bundle v4.0.0
 // HTML escape helper — wrap any user-derived string before interpolation into innerHTML.
 const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -544,7 +544,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=040500900bbb8b980df63be1f020a83b88f7c2f59caa5d772053b7b0a8752df9
+    // HA_TARIFF_V3_START sha256=1f4f77178c8c78d33caa31ba014dc6de1f050bff38bd56fa43f62edaee15f904
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1307,7 +1307,7 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     if(!isSnapshot) request.queries=batch.map(j=>({buckets:j.buckets}));
     try {
       const result=await guard.call(token,request);
-      if(!still(token,version,key) || !envelope(result,descriptor)) return;
+      if(!still(token,version,key) || isSnapshot && snapshotSlot !== batch[0] || !envelope(result,descriptor)) return;
       if(isSnapshot) {
         const r=result;
         if(!['ready','partial','unavailable'].includes(r.status) || !finite(stamp(r.generated_at)) || !r.current || typeof r.current.available!=='boolean' ||
@@ -1377,7 +1377,11 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
   const snapshot = () => {
     guard.snapshot();const descriptor=active();
     armRefresh();const window=Math.floor(Date.now()/refreshMs);
-    if(snapshotWindow!==window) {card._energySnapshotV5=null;snapshotSlot=null;snapshotWindow=window;}
+    if(snapshotWindow!==window) {
+      card._energySnapshotV5=null;snapshotSlot=null;snapshotWindow=window;
+      // The raw request keeps its slot. At most one newest snapshot waits for it.
+      for(let i=jobs.length-1;i>=0;i--) if(jobs[i].snapshot) jobs.splice(i,1);
+    }
     if(descriptor.ready !== false && !snapshotSlot && guard.available(guard.snapshot())) {snapshotSlot={snapshot:true};jobs.unshift(snapshotSlot);schedule();}
     return card._energySnapshotV5;
   };
@@ -1618,7 +1622,7 @@ this._installTariffConsumerV3();
   _tariffCurrency() { return this._sharedTariffNeedsConfirmationV3() ? '' : this._getTariffHostV3().currency(); }
   async _loadSharedTariffProfile() {
       const confirmed = await this._getTariffHostV3().load();
-      if (confirmed && this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
+      if (confirmed) this._sharedTariffExpectedV3 = true;
       return confirmed;
     }
     _sharedTariffNeedsConfirmationV3() {
@@ -3928,7 +3932,7 @@ createFormatUi.forHass = hass => {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=040500900bbb8b980df63be1f020a83b88f7c2f59caa5d772053b7b0a8752df9
+      // HA_TARIFF_V3_START sha256=1f4f77178c8c78d33caa31ba014dc6de1f050bff38bd56fa43f62edaee15f904
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -4691,7 +4695,7 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     if(!isSnapshot) request.queries=batch.map(j=>({buckets:j.buckets}));
     try {
       const result=await guard.call(token,request);
-      if(!still(token,version,key) || !envelope(result,descriptor)) return;
+      if(!still(token,version,key) || isSnapshot && snapshotSlot !== batch[0] || !envelope(result,descriptor)) return;
       if(isSnapshot) {
         const r=result;
         if(!['ready','partial','unavailable'].includes(r.status) || !finite(stamp(r.generated_at)) || !r.current || typeof r.current.available!=='boolean' ||
@@ -4761,7 +4765,11 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
   const snapshot = () => {
     guard.snapshot();const descriptor=active();
     armRefresh();const window=Math.floor(Date.now()/refreshMs);
-    if(snapshotWindow!==window) {card._energySnapshotV5=null;snapshotSlot=null;snapshotWindow=window;}
+    if(snapshotWindow!==window) {
+      card._energySnapshotV5=null;snapshotSlot=null;snapshotWindow=window;
+      // The raw request keeps its slot. At most one newest snapshot waits for it.
+      for(let i=jobs.length-1;i>=0;i--) if(jobs[i].snapshot) jobs.splice(i,1);
+    }
     if(descriptor.ready !== false && !snapshotSlot && guard.available(guard.snapshot())) {snapshotSlot={snapshot:true};jobs.unshift(snapshotSlot);schedule();}
     return card._energySnapshotV5;
   };
@@ -5002,7 +5010,7 @@ this._installTariffConsumerV3();
     _tariffCurrency() { return this._sharedTariffNeedsConfirmationV3() ? '' : this._getTariffHostV3().currency(); }
     async _loadSharedTariffProfile() {
       const confirmed = await this._getTariffHostV3().load();
-      if (confirmed && this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
+      if (confirmed) this._sharedTariffExpectedV3 = true;
       return confirmed;
     }
     _sharedTariffNeedsConfirmationV3() {
@@ -7334,7 +7342,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=040500900bbb8b980df63be1f020a83b88f7c2f59caa5d772053b7b0a8752df9
+      // HA_TARIFF_V3_START sha256=1f4f77178c8c78d33caa31ba014dc6de1f050bff38bd56fa43f62edaee15f904
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -8097,7 +8105,7 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     if(!isSnapshot) request.queries=batch.map(j=>({buckets:j.buckets}));
     try {
       const result=await guard.call(token,request);
-      if(!still(token,version,key) || !envelope(result,descriptor)) return;
+      if(!still(token,version,key) || isSnapshot && snapshotSlot !== batch[0] || !envelope(result,descriptor)) return;
       if(isSnapshot) {
         const r=result;
         if(!['ready','partial','unavailable'].includes(r.status) || !finite(stamp(r.generated_at)) || !r.current || typeof r.current.available!=='boolean' ||
@@ -8167,7 +8175,11 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
   const snapshot = () => {
     guard.snapshot();const descriptor=active();
     armRefresh();const window=Math.floor(Date.now()/refreshMs);
-    if(snapshotWindow!==window) {card._energySnapshotV5=null;snapshotSlot=null;snapshotWindow=window;}
+    if(snapshotWindow!==window) {
+      card._energySnapshotV5=null;snapshotSlot=null;snapshotWindow=window;
+      // The raw request keeps its slot. At most one newest snapshot waits for it.
+      for(let i=jobs.length-1;i>=0;i--) if(jobs[i].snapshot) jobs.splice(i,1);
+    }
     if(descriptor.ready !== false && !snapshotSlot && guard.available(guard.snapshot())) {snapshotSlot={snapshot:true};jobs.unshift(snapshotSlot);schedule();}
     return card._energySnapshotV5;
   };
@@ -8408,7 +8420,7 @@ this._installTariffConsumerV3();
     _tariffCurrency() { return this._sharedTariffNeedsConfirmationV3() ? '' : this._getTariffHostV3().currency(); }
     async _loadSharedTariffProfile() {
       const confirmed = await this._getTariffHostV3().load();
-      if (confirmed && this._sharedTariffProfile != null) this._sharedTariffExpectedV3 = true;
+      if (confirmed) this._sharedTariffExpectedV3 = true;
       return confirmed;
     }
     _tariffDetailsMarkup() { return this._getTariffHostV3().markup(); }
