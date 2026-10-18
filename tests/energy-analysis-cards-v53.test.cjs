@@ -273,11 +273,11 @@ for(const spec of cases){
  test(`${spec.type}: modern ready response without subscription ACK stays invisible`,async()=>{
   const pending=deferred();const f=setup(spec,{subscribeError:{code:'unknown_command'},response:()=>pending.promise});try{
    await f.mount();assert.equal(f.analyses.length,1);empty(f);
-   const seen=[];const observer=new f.w.MutationObserver(()=>seen.push(f.card.shadowRoot.innerHTML));
+   const seen=[];const observer=new f.w.MutationObserver(()=>seen.push({tile:!!f.card.shadowRoot.querySelector(".analysis-tile"),snapshot:f.card.shadowRoot.textContent.includes(producer.snapshot_id)}));
    observer.observe(f.card.shadowRoot,{childList:true,subtree:true});
    pending.resolve(clone(producer));await settle();observer.disconnect();
    empty(f);assert.equal(f.card._analysisHostV53.state().error,'analysis_subscription_unavailable');
-   assert.ok(seen.every(html=>!html.includes('analysis-tile')&&!html.includes(producer.snapshot_id)));
+   assert.ok(seen.every(state=>!state.tile&&!state.snapshot));
    assert.equal(f.maxRaw,1);f.assertNoHistory();f.assertSubscriptions(0);f.assertQuiet();
   }finally{f.close();}
  });

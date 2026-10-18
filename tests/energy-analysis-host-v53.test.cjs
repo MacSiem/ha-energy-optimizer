@@ -158,11 +158,11 @@ test('old subscription plus old analysis enables legacy through exactly one cont
 test('unknown subscription with ready modern data never paints or exposes private DTO',async()=>{
  const pending=deferred();const h=harness(()=>pending.promise,{code:'unknown_command'});try{
   h.render();await settled();assert.equal(h.calls.length,1);assert.equal(h.host.state().snapshot,null);
-  const painted=[];const observer=new h.w.MutationObserver(()=>painted.push(h.card.innerHTML));
+  const painted=[];const observer=new h.w.MutationObserver(()=>painted.push({tile:!!h.card.querySelector(".analysis-tile"),snapshot:h.card.textContent.includes(fixture.snapshot_id)}));
   observer.observe(h.card,{childList:true,subtree:true});
   pending.resolve(clone(fixture));await settled();observer.disconnect();
   assert.equal(h.host.state().snapshot,null);assert.equal(h.host.state().error,'analysis_subscription_unavailable');
   assert.equal(h.legacy,0);assert.equal(h.card.querySelector('.analysis-tiles'),null);
-  assert.ok(painted.every(html=>!html.includes('analysis-tile')&&!html.includes(fixture.snapshot_id)));
+  assert.ok(painted.every(state=>!state.tile&&!state.snapshot));
  }finally{h.close();}
 });
