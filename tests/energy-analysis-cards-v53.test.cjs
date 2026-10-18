@@ -315,8 +315,8 @@ for(const language of ['en','pl'])test('Insights useful Tips are available witho
 });
 
 // Actual producer/service/pricing fixture with synthetic provider IO; no native HA claim.
-for(const spec of cases)test(`${spec.type}: proven whole-period facts reach the actual card and survive presentation changes`,async()=>{
- const snapshot=JSON.parse(read('tests/fixtures/analysis-wholeperiod-v53.json'));
+for(const fixtureFile of ['analysis-wholeperiod-v53.json','analysis-wholeperiod78-v53.json'])for(const spec of cases)test(`${spec.type}: proven whole-period facts reach the actual card and survive presentation changes (${fixtureFile})`,async()=>{
+ const snapshot=JSON.parse(read('tests/fixtures/'+fixtureFile));
  const f=setup(spec,{response:()=>clone(snapshot)});
  try{
   f.update({...f.hass,config:{...f.hass.config,time_zone:'Europe/Warsaw'}});
@@ -328,7 +328,17 @@ for(const spec of cases)test(`${spec.type}: proven whole-period facts reach the 
   const zones=root.querySelector('[data-analysis-period-zone-total]');assert.ok(zones);assert.equal(zones.querySelectorAll('[data-analysis-period-zone]').length,2);
   assert.match(zones.textContent,/58 kWh/);assert.match(zones.textContent,/192 kWh/);assert.match(zones.textContent,/211.2 EUR/);
   assert.equal(f.card._analysisHostV53.state().snapshot.snapshot_id,snapshot.snapshot_id);
-  const reads=f.analyses.length;control(f,'view','data').click();assert.equal(f.card.shadowRoot.querySelectorAll('[data-analysis-bin]').length,24);
+  assert.ok(root.querySelector('[data-analysis-sankey]'),'proven flow reaches the actual custom element');
+  const reads=f.analyses.length;
+  if(fixtureFile==='analysis-wholeperiod78-v53.json'&&spec.type==='ha-energy-optimizer'){
+   f.tab('recommendations');await settle();const rates=analysisRoot(f).querySelector('[data-analysis-rates]');assert.ok(rates);
+   assert.equal(rates.querySelector('[data-analysis-rate76-total="low"]').textContent,'0.6 EUR');
+   assert.equal(rates.querySelector('[data-analysis-rate76-total="high"]').textContent,'1.1 EUR');
+   assert.match(rates.querySelector('[data-analysis-rate76-cost]').textContent,/247 EUR/);
+   assert.equal(f.analyses.length,reads,'tab presentation reuses the same authorized snapshot');
+   f.tab(spec.home);await settle();assert.equal(f.analyses.length,reads);
+  }
+  control(f,'view','data').click();assert.equal(f.card.shadowRoot.querySelectorAll('[data-analysis-bin]').length,24);
   f.update({...f.hass,locale:{...f.hass.locale,language:'pl'}});await settle();
   assert.match(f.card.shadowRoot.querySelector('[data-analysis-cheap-share]').textContent,/taniej/);
   assert.equal(f.analyses.length,reads);assert.equal(f.card._analysisHostV53.state().snapshot.snapshot_id,snapshot.snapshot_id);

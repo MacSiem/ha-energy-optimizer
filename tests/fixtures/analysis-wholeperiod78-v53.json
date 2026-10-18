@@ -1,0 +1,4854 @@
+{
+  "schema": 2,
+  "generated_at": "2026-10-11T12:34:00+00:00",
+  "context": {
+    "entry_id": "synthetic",
+    "tariff_revision": 4,
+    "registry_revision": 2,
+    "measurement_timezone": "Europe/Warsaw",
+    "source_signature": "e462f67b5a8145fd7bfd257d15b128d2ae7658c81aa4e35e29f004e17f2afe53",
+    "calculator_version": "energy_analysis_v2_1",
+    "grid_source_signature": "fd7e5b5c6dd9a48ee247c576dee464e0dd1015b6fae5eee8cfb378ea80a8ba20",
+    "access_purpose": "analysis",
+    "service_generation": "ff72606e58444bafb0612cb384bfe0fa",
+    "feature_access_revision": 0,
+    "period_kind": "day",
+    "period_signature": "e5fc4fa5dd869867ffd6f3a840e5e31586800965fdb35d2514a4fec5f61b408b",
+    "period_anchor": "2026-10-10",
+    "comparison_kind": "previous",
+    "comparison_signature": "a47e50c09949b3c9775b758c6a67ffc9055689324dadd216088e4d37a2c12b73",
+    "normalization_signature": "f2b91cf24c8bc4c1de2da6376e1ebbd02bfba20628da05749c9774f65d476784"
+  },
+  "active_tariff_id": "active",
+  "period": {
+    "status": "ready",
+    "reason": null,
+    "kind": "day",
+    "start": "2026-10-09T22:00:00+00:00",
+    "end": "2026-10-10T22:00:00+00:00",
+    "local_start": "2026-10-10T00:00:00+02:00",
+    "local_end": "2026-10-11T00:00:00+02:00",
+    "start_fold": 0,
+    "end_fold": 0,
+    "timezone": "Europe/Warsaw",
+    "hours": 24.0,
+    "partial": false,
+    "calendar_end": "2026-10-10T22:00:00+00:00",
+    "calendar_local_end": "2026-10-11T00:00:00+02:00",
+    "calendar_hours": 24.0,
+    "recorder_hour_aligned": true,
+    "calendar_clamped": false,
+    "clamps": []
+  },
+  "coverage": {
+    "complete": true,
+    "ratio": 1.0,
+    "expected_source_seconds": 86400,
+    "measured_source_seconds": 86400
+  },
+  "status": "ready",
+  "pricing_status": "ready",
+  "totals": {
+    "energy_cost": "221.00",
+    "variable_cost": "25.00",
+    "legacy_combined_cost": "0.00",
+    "usage_cost": "246.00",
+    "fixed_cost": "1.00",
+    "total_cost": "247.00",
+    "effective_price": "0.99",
+    "currency": "EUR",
+    "price_basis": "gross",
+    "kwh": "250.0",
+    "recorded_household_kwh": "250.0",
+    "measurement_complete": true,
+    "pricing_complete": true,
+    "components_complete": true,
+    "known_costs": {
+      "energy_cost": "221.00",
+      "variable_cost": "25.00",
+      "legacy_combined_cost": "0.00"
+    }
+  },
+  "measurement_fingerprint": "47a3ca5fc09380f02ca16e9a28da0ff448de9fd65c175377715580fb698260c8",
+  "buckets": [
+    {
+      "from": 1791583200000,
+      "to": 1791586800000,
+      "kwh": 4.0
+    },
+    {
+      "from": 1791586800000,
+      "to": 1791590400000,
+      "kwh": 3.0
+    },
+    {
+      "from": 1791590400000,
+      "to": 1791594000000,
+      "kwh": 3.0
+    },
+    {
+      "from": 1791594000000,
+      "to": 1791597600000,
+      "kwh": 3.0
+    },
+    {
+      "from": 1791597600000,
+      "to": 1791601200000,
+      "kwh": 4.0
+    },
+    {
+      "from": 1791601200000,
+      "to": 1791604800000,
+      "kwh": 6.0
+    },
+    {
+      "from": 1791604800000,
+      "to": 1791608400000,
+      "kwh": 10.0
+    },
+    {
+      "from": 1791608400000,
+      "to": 1791612000000,
+      "kwh": 14.0
+    },
+    {
+      "from": 1791612000000,
+      "to": 1791615600000,
+      "kwh": 18.0
+    },
+    {
+      "from": 1791615600000,
+      "to": 1791619200000,
+      "kwh": 16.0
+    },
+    {
+      "from": 1791619200000,
+      "to": 1791622800000,
+      "kwh": 12.0
+    },
+    {
+      "from": 1791622800000,
+      "to": 1791626400000,
+      "kwh": 10.0
+    },
+    {
+      "from": 1791626400000,
+      "to": 1791630000000,
+      "kwh": 9.0
+    },
+    {
+      "from": 1791630000000,
+      "to": 1791633600000,
+      "kwh": 8.0
+    },
+    {
+      "from": 1791633600000,
+      "to": 1791637200000,
+      "kwh": 8.0
+    },
+    {
+      "from": 1791637200000,
+      "to": 1791640800000,
+      "kwh": 11.0
+    },
+    {
+      "from": 1791640800000,
+      "to": 1791644400000,
+      "kwh": 16.0
+    },
+    {
+      "from": 1791644400000,
+      "to": 1791648000000,
+      "kwh": 20.0
+    },
+    {
+      "from": 1791648000000,
+      "to": 1791651600000,
+      "kwh": 22.0
+    },
+    {
+      "from": 1791651600000,
+      "to": 1791655200000,
+      "kwh": 18.0
+    },
+    {
+      "from": 1791655200000,
+      "to": 1791658800000,
+      "kwh": 13.0
+    },
+    {
+      "from": 1791658800000,
+      "to": 1791662400000,
+      "kwh": 10.0
+    },
+    {
+      "from": 1791662400000,
+      "to": 1791666000000,
+      "kwh": 7.0
+    },
+    {
+      "from": 1791666000000,
+      "to": 1791669600000,
+      "kwh": 5.0
+    }
+  ],
+  "alternatives": [
+    {
+      "tariff_id": "active",
+      "tariff_name": "active",
+      "origin": {
+        "kind": "user",
+        "reference": null
+      },
+      "measurement_fingerprint": "47a3ca5fc09380f02ca16e9a28da0ff448de9fd65c175377715580fb698260c8",
+      "currency": "EUR",
+      "price_basis": "gross",
+      "timezone": "Europe/Warsaw",
+      "measurement_complete": true,
+      "pricing_complete": true,
+      "components_complete": true,
+      "compatible": true,
+      "kwh": "250.0",
+      "energy_cost": "221.00",
+      "variable_cost": "25.00",
+      "legacy_combined_cost": "0.00",
+      "usage_cost": "246.00",
+      "fixed_cost": "1.00",
+      "total_cost": "247.00",
+      "effective_price": "0.99",
+      "known_costs": {
+        "energy_cost": "221.00",
+        "variable_cost": "25.00",
+        "legacy_combined_cost": "0.00"
+      },
+      "issues": [],
+      "comparable": true,
+      "delta_cost": "0.00",
+      "comparison_reason": null
+    }
+  ],
+  "rates": [
+    {
+      "version_id": "a",
+      "valid_from": "2026-01-01",
+      "valid_to": null,
+      "validity_clock": "civil",
+      "rate_semantics": "components",
+      "currency": "EUR",
+      "price_basis": "gross",
+      "fixed_monthly": {
+        "subscription": 31,
+        "capacity": 0,
+        "distribution": 0,
+        "other": 0
+      },
+      "legacy_combined_monthly": null,
+      "clock": {
+        "mode": "civil"
+      },
+      "profile": {
+        "schema": 1,
+        "currency": "EUR",
+        "timezone": "Europe/Warsaw",
+        "priceBasis": "gross",
+        "defaultZone": "low",
+        "clock": {
+          "mode": "civil"
+        },
+        "zones": [
+          {
+            "id": "low",
+            "energyRate": 0.5,
+            "variableRate": 0.1,
+            "classification": "cheap",
+            "label": "Noc"
+          },
+          {
+            "id": "high",
+            "energyRate": 1,
+            "variableRate": 0.1,
+            "classification": "expensive",
+            "label": "Dzień"
+          }
+        ],
+        "rules": [
+          {
+            "zone": "high",
+            "intervals": [
+              {
+                "from": "06:00",
+                "to": "20:00"
+              }
+            ]
+          }
+        ]
+      },
+      "zone_usage_rates": [
+        {
+          "zone_id": "low",
+          "usage_rate": "0.6"
+        },
+        {
+          "zone_id": "high",
+          "usage_rate": "1.1"
+        }
+      ],
+      "provenance": "configured_valid_from"
+    }
+  ],
+  "fees": {
+    "components": {
+      "subscription": "1.00",
+      "capacity": "0.00",
+      "distribution": "0.00",
+      "other": "0.00",
+      "legacy_combined": "0.00"
+    },
+    "known_components": {
+      "subscription": "1.00",
+      "capacity": "0.00",
+      "distribution": "0.00",
+      "other": "0.00",
+      "legacy_combined": "0.00"
+    },
+    "complete": true,
+    "days": [
+      {
+        "day": "2026-10-10",
+        "version_id": "a",
+        "day_fraction": "1"
+      }
+    ]
+  },
+  "rounding": {
+    "quantum": "0.01",
+    "mode": "ROUND_HALF_UP",
+    "stage": "component_period_totals_then_sum",
+    "row_costs": "unrounded_decimal",
+    "partial_day": "overlap_seconds/actual_local_day_seconds"
+  },
+  "issues": [],
+  "chart": {
+    "status": "ready",
+    "reason": null,
+    "timezone": "Europe/Warsaw",
+    "grain": "hour",
+    "fixed_fee_scope": "household_period_only",
+    "coverage_kind": "complete_household_hours",
+    "bins": [
+      {
+        "from": 1791583200000,
+        "to": 1791586800000,
+        "start": "2026-10-09T22:00:00+00:00",
+        "end": "2026-10-09T23:00:00+00:00",
+        "local_start": "2026-10-10T00:00:00+02:00",
+        "local_end": "2026-10-10T01:00:00+02:00",
+        "fold": 0,
+        "kwh": "4.0",
+        "recorded_kwh": "4.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "2.00",
+        "variable_cost": "0.40",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "2.00",
+          "variable_cost": "0.40",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "2.40",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "low",
+              "label": "Noc",
+              "kwh": "4.0",
+              "recorded_kwh": "4.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "2.00",
+              "variable_cost": "0.40",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "2.00",
+                "variable_cost": "0.40",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "2.40"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791586800000,
+        "to": 1791590400000,
+        "start": "2026-10-09T23:00:00+00:00",
+        "end": "2026-10-10T00:00:00+00:00",
+        "local_start": "2026-10-10T01:00:00+02:00",
+        "local_end": "2026-10-10T02:00:00+02:00",
+        "fold": 0,
+        "kwh": "3.0",
+        "recorded_kwh": "3.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "1.50",
+        "variable_cost": "0.30",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "1.50",
+          "variable_cost": "0.30",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "1.80",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "low",
+              "label": "Noc",
+              "kwh": "3.0",
+              "recorded_kwh": "3.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "1.50",
+              "variable_cost": "0.30",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "1.50",
+                "variable_cost": "0.30",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "1.80"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791590400000,
+        "to": 1791594000000,
+        "start": "2026-10-10T00:00:00+00:00",
+        "end": "2026-10-10T01:00:00+00:00",
+        "local_start": "2026-10-10T02:00:00+02:00",
+        "local_end": "2026-10-10T03:00:00+02:00",
+        "fold": 0,
+        "kwh": "3.0",
+        "recorded_kwh": "3.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "1.50",
+        "variable_cost": "0.30",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "1.50",
+          "variable_cost": "0.30",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "1.80",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "low",
+              "label": "Noc",
+              "kwh": "3.0",
+              "recorded_kwh": "3.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "1.50",
+              "variable_cost": "0.30",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "1.50",
+                "variable_cost": "0.30",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "1.80"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791594000000,
+        "to": 1791597600000,
+        "start": "2026-10-10T01:00:00+00:00",
+        "end": "2026-10-10T02:00:00+00:00",
+        "local_start": "2026-10-10T03:00:00+02:00",
+        "local_end": "2026-10-10T04:00:00+02:00",
+        "fold": 0,
+        "kwh": "3.0",
+        "recorded_kwh": "3.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "1.50",
+        "variable_cost": "0.30",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "1.50",
+          "variable_cost": "0.30",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "1.80",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "low",
+              "label": "Noc",
+              "kwh": "3.0",
+              "recorded_kwh": "3.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "1.50",
+              "variable_cost": "0.30",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "1.50",
+                "variable_cost": "0.30",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "1.80"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791597600000,
+        "to": 1791601200000,
+        "start": "2026-10-10T02:00:00+00:00",
+        "end": "2026-10-10T03:00:00+00:00",
+        "local_start": "2026-10-10T04:00:00+02:00",
+        "local_end": "2026-10-10T05:00:00+02:00",
+        "fold": 0,
+        "kwh": "4.0",
+        "recorded_kwh": "4.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "2.00",
+        "variable_cost": "0.40",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "2.00",
+          "variable_cost": "0.40",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "2.40",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "low",
+              "label": "Noc",
+              "kwh": "4.0",
+              "recorded_kwh": "4.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "2.00",
+              "variable_cost": "0.40",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "2.00",
+                "variable_cost": "0.40",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "2.40"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791601200000,
+        "to": 1791604800000,
+        "start": "2026-10-10T03:00:00+00:00",
+        "end": "2026-10-10T04:00:00+00:00",
+        "local_start": "2026-10-10T05:00:00+02:00",
+        "local_end": "2026-10-10T06:00:00+02:00",
+        "fold": 0,
+        "kwh": "6.0",
+        "recorded_kwh": "6.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "3.00",
+        "variable_cost": "0.60",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "3.00",
+          "variable_cost": "0.60",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "3.60",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "low",
+              "label": "Noc",
+              "kwh": "6.0",
+              "recorded_kwh": "6.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "3.00",
+              "variable_cost": "0.60",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "3.00",
+                "variable_cost": "0.60",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "3.60"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791604800000,
+        "to": 1791608400000,
+        "start": "2026-10-10T04:00:00+00:00",
+        "end": "2026-10-10T05:00:00+00:00",
+        "local_start": "2026-10-10T06:00:00+02:00",
+        "local_end": "2026-10-10T07:00:00+02:00",
+        "fold": 0,
+        "kwh": "10.0",
+        "recorded_kwh": "10.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "10.00",
+        "variable_cost": "1.00",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "10.00",
+          "variable_cost": "1.00",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "11.00",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "high",
+              "label": "Dzień",
+              "kwh": "10.0",
+              "recorded_kwh": "10.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "10.00",
+              "variable_cost": "1.00",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "10.00",
+                "variable_cost": "1.00",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "11.00"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791608400000,
+        "to": 1791612000000,
+        "start": "2026-10-10T05:00:00+00:00",
+        "end": "2026-10-10T06:00:00+00:00",
+        "local_start": "2026-10-10T07:00:00+02:00",
+        "local_end": "2026-10-10T08:00:00+02:00",
+        "fold": 0,
+        "kwh": "14.0",
+        "recorded_kwh": "14.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "14.00",
+        "variable_cost": "1.40",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "14.00",
+          "variable_cost": "1.40",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "15.40",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "high",
+              "label": "Dzień",
+              "kwh": "14.0",
+              "recorded_kwh": "14.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "14.00",
+              "variable_cost": "1.40",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "14.00",
+                "variable_cost": "1.40",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "15.40"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791612000000,
+        "to": 1791615600000,
+        "start": "2026-10-10T06:00:00+00:00",
+        "end": "2026-10-10T07:00:00+00:00",
+        "local_start": "2026-10-10T08:00:00+02:00",
+        "local_end": "2026-10-10T09:00:00+02:00",
+        "fold": 0,
+        "kwh": "18.0",
+        "recorded_kwh": "18.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "18.00",
+        "variable_cost": "1.80",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "18.00",
+          "variable_cost": "1.80",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "19.80",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "high",
+              "label": "Dzień",
+              "kwh": "18.0",
+              "recorded_kwh": "18.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "18.00",
+              "variable_cost": "1.80",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "18.00",
+                "variable_cost": "1.80",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "19.80"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791615600000,
+        "to": 1791619200000,
+        "start": "2026-10-10T07:00:00+00:00",
+        "end": "2026-10-10T08:00:00+00:00",
+        "local_start": "2026-10-10T09:00:00+02:00",
+        "local_end": "2026-10-10T10:00:00+02:00",
+        "fold": 0,
+        "kwh": "16.0",
+        "recorded_kwh": "16.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "16.00",
+        "variable_cost": "1.60",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "16.00",
+          "variable_cost": "1.60",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "17.60",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "high",
+              "label": "Dzień",
+              "kwh": "16.0",
+              "recorded_kwh": "16.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "16.00",
+              "variable_cost": "1.60",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "16.00",
+                "variable_cost": "1.60",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "17.60"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791619200000,
+        "to": 1791622800000,
+        "start": "2026-10-10T08:00:00+00:00",
+        "end": "2026-10-10T09:00:00+00:00",
+        "local_start": "2026-10-10T10:00:00+02:00",
+        "local_end": "2026-10-10T11:00:00+02:00",
+        "fold": 0,
+        "kwh": "12.0",
+        "recorded_kwh": "12.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "12.00",
+        "variable_cost": "1.20",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "12.00",
+          "variable_cost": "1.20",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "13.20",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "high",
+              "label": "Dzień",
+              "kwh": "12.0",
+              "recorded_kwh": "12.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "12.00",
+              "variable_cost": "1.20",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "12.00",
+                "variable_cost": "1.20",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "13.20"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791622800000,
+        "to": 1791626400000,
+        "start": "2026-10-10T09:00:00+00:00",
+        "end": "2026-10-10T10:00:00+00:00",
+        "local_start": "2026-10-10T11:00:00+02:00",
+        "local_end": "2026-10-10T12:00:00+02:00",
+        "fold": 0,
+        "kwh": "10.0",
+        "recorded_kwh": "10.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "10.00",
+        "variable_cost": "1.00",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "10.00",
+          "variable_cost": "1.00",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "11.00",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "high",
+              "label": "Dzień",
+              "kwh": "10.0",
+              "recorded_kwh": "10.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "10.00",
+              "variable_cost": "1.00",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "10.00",
+                "variable_cost": "1.00",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "11.00"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791626400000,
+        "to": 1791630000000,
+        "start": "2026-10-10T10:00:00+00:00",
+        "end": "2026-10-10T11:00:00+00:00",
+        "local_start": "2026-10-10T12:00:00+02:00",
+        "local_end": "2026-10-10T13:00:00+02:00",
+        "fold": 0,
+        "kwh": "9.0",
+        "recorded_kwh": "9.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "9.00",
+        "variable_cost": "0.90",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "9.00",
+          "variable_cost": "0.90",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "9.90",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "high",
+              "label": "Dzień",
+              "kwh": "9.0",
+              "recorded_kwh": "9.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "9.00",
+              "variable_cost": "0.90",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "9.00",
+                "variable_cost": "0.90",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "9.90"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791630000000,
+        "to": 1791633600000,
+        "start": "2026-10-10T11:00:00+00:00",
+        "end": "2026-10-10T12:00:00+00:00",
+        "local_start": "2026-10-10T13:00:00+02:00",
+        "local_end": "2026-10-10T14:00:00+02:00",
+        "fold": 0,
+        "kwh": "8.0",
+        "recorded_kwh": "8.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "8.00",
+        "variable_cost": "0.80",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "8.00",
+          "variable_cost": "0.80",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "8.80",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "high",
+              "label": "Dzień",
+              "kwh": "8.0",
+              "recorded_kwh": "8.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "8.00",
+              "variable_cost": "0.80",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "8.00",
+                "variable_cost": "0.80",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "8.80"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791633600000,
+        "to": 1791637200000,
+        "start": "2026-10-10T12:00:00+00:00",
+        "end": "2026-10-10T13:00:00+00:00",
+        "local_start": "2026-10-10T14:00:00+02:00",
+        "local_end": "2026-10-10T15:00:00+02:00",
+        "fold": 0,
+        "kwh": "8.0",
+        "recorded_kwh": "8.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "8.00",
+        "variable_cost": "0.80",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "8.00",
+          "variable_cost": "0.80",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "8.80",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "high",
+              "label": "Dzień",
+              "kwh": "8.0",
+              "recorded_kwh": "8.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "8.00",
+              "variable_cost": "0.80",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "8.00",
+                "variable_cost": "0.80",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "8.80"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791637200000,
+        "to": 1791640800000,
+        "start": "2026-10-10T13:00:00+00:00",
+        "end": "2026-10-10T14:00:00+00:00",
+        "local_start": "2026-10-10T15:00:00+02:00",
+        "local_end": "2026-10-10T16:00:00+02:00",
+        "fold": 0,
+        "kwh": "11.0",
+        "recorded_kwh": "11.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "11.00",
+        "variable_cost": "1.10",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "11.00",
+          "variable_cost": "1.10",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "12.10",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "high",
+              "label": "Dzień",
+              "kwh": "11.0",
+              "recorded_kwh": "11.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "11.00",
+              "variable_cost": "1.10",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "11.00",
+                "variable_cost": "1.10",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "12.10"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791640800000,
+        "to": 1791644400000,
+        "start": "2026-10-10T14:00:00+00:00",
+        "end": "2026-10-10T15:00:00+00:00",
+        "local_start": "2026-10-10T16:00:00+02:00",
+        "local_end": "2026-10-10T17:00:00+02:00",
+        "fold": 0,
+        "kwh": "16.0",
+        "recorded_kwh": "16.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "16.00",
+        "variable_cost": "1.60",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "16.00",
+          "variable_cost": "1.60",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "17.60",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "high",
+              "label": "Dzień",
+              "kwh": "16.0",
+              "recorded_kwh": "16.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "16.00",
+              "variable_cost": "1.60",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "16.00",
+                "variable_cost": "1.60",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "17.60"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791644400000,
+        "to": 1791648000000,
+        "start": "2026-10-10T15:00:00+00:00",
+        "end": "2026-10-10T16:00:00+00:00",
+        "local_start": "2026-10-10T17:00:00+02:00",
+        "local_end": "2026-10-10T18:00:00+02:00",
+        "fold": 0,
+        "kwh": "20.0",
+        "recorded_kwh": "20.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "20.00",
+        "variable_cost": "2.00",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "20.00",
+          "variable_cost": "2.00",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "22.00",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "high",
+              "label": "Dzień",
+              "kwh": "20.0",
+              "recorded_kwh": "20.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "20.00",
+              "variable_cost": "2.00",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "20.00",
+                "variable_cost": "2.00",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "22.00"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791648000000,
+        "to": 1791651600000,
+        "start": "2026-10-10T16:00:00+00:00",
+        "end": "2026-10-10T17:00:00+00:00",
+        "local_start": "2026-10-10T18:00:00+02:00",
+        "local_end": "2026-10-10T19:00:00+02:00",
+        "fold": 0,
+        "kwh": "22.0",
+        "recorded_kwh": "22.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "22.00",
+        "variable_cost": "2.20",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "22.00",
+          "variable_cost": "2.20",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "24.20",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "high",
+              "label": "Dzień",
+              "kwh": "22.0",
+              "recorded_kwh": "22.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "22.00",
+              "variable_cost": "2.20",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "22.00",
+                "variable_cost": "2.20",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "24.20"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791651600000,
+        "to": 1791655200000,
+        "start": "2026-10-10T17:00:00+00:00",
+        "end": "2026-10-10T18:00:00+00:00",
+        "local_start": "2026-10-10T19:00:00+02:00",
+        "local_end": "2026-10-10T20:00:00+02:00",
+        "fold": 0,
+        "kwh": "18.0",
+        "recorded_kwh": "18.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "18.00",
+        "variable_cost": "1.80",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "18.00",
+          "variable_cost": "1.80",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "19.80",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "high",
+              "label": "Dzień",
+              "kwh": "18.0",
+              "recorded_kwh": "18.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "18.00",
+              "variable_cost": "1.80",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "18.00",
+                "variable_cost": "1.80",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "19.80"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791655200000,
+        "to": 1791658800000,
+        "start": "2026-10-10T18:00:00+00:00",
+        "end": "2026-10-10T19:00:00+00:00",
+        "local_start": "2026-10-10T20:00:00+02:00",
+        "local_end": "2026-10-10T21:00:00+02:00",
+        "fold": 0,
+        "kwh": "13.0",
+        "recorded_kwh": "13.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "6.50",
+        "variable_cost": "1.30",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "6.50",
+          "variable_cost": "1.30",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "7.80",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "low",
+              "label": "Noc",
+              "kwh": "13.0",
+              "recorded_kwh": "13.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "6.50",
+              "variable_cost": "1.30",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "6.50",
+                "variable_cost": "1.30",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "7.80"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791658800000,
+        "to": 1791662400000,
+        "start": "2026-10-10T19:00:00+00:00",
+        "end": "2026-10-10T20:00:00+00:00",
+        "local_start": "2026-10-10T21:00:00+02:00",
+        "local_end": "2026-10-10T22:00:00+02:00",
+        "fold": 0,
+        "kwh": "10.0",
+        "recorded_kwh": "10.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "5.00",
+        "variable_cost": "1.00",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "5.00",
+          "variable_cost": "1.00",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "6.00",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "low",
+              "label": "Noc",
+              "kwh": "10.0",
+              "recorded_kwh": "10.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "5.00",
+              "variable_cost": "1.00",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "5.00",
+                "variable_cost": "1.00",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "6.00"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791662400000,
+        "to": 1791666000000,
+        "start": "2026-10-10T20:00:00+00:00",
+        "end": "2026-10-10T21:00:00+00:00",
+        "local_start": "2026-10-10T22:00:00+02:00",
+        "local_end": "2026-10-10T23:00:00+02:00",
+        "fold": 0,
+        "kwh": "7.0",
+        "recorded_kwh": "7.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "3.50",
+        "variable_cost": "0.70",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "3.50",
+          "variable_cost": "0.70",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "4.20",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "low",
+              "label": "Noc",
+              "kwh": "7.0",
+              "recorded_kwh": "7.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "3.50",
+              "variable_cost": "0.70",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "3.50",
+                "variable_cost": "0.70",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "4.20"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      },
+      {
+        "from": 1791666000000,
+        "to": 1791669600000,
+        "start": "2026-10-10T21:00:00+00:00",
+        "end": "2026-10-10T22:00:00+00:00",
+        "local_start": "2026-10-10T23:00:00+02:00",
+        "local_end": "2026-10-11T00:00:00+02:00",
+        "fold": 0,
+        "kwh": "5.0",
+        "recorded_kwh": "5.0",
+        "complete": true,
+        "expected_seconds": 3600.0,
+        "measured_seconds": 3600.0,
+        "energy_cost": "2.50",
+        "variable_cost": "0.50",
+        "legacy_combined_cost": "0.00",
+        "known_costs": {
+          "energy_cost": "2.50",
+          "variable_cost": "0.50",
+          "legacy_combined_cost": "0.00"
+        },
+        "usage_cost": "3.00",
+        "fixed_cost": null,
+        "total_cost": null,
+        "currency": "EUR",
+        "price_basis": "gross",
+        "zone_breakdown": {
+          "status": "ready",
+          "reason": null,
+          "scope": "complete_household_hours",
+          "fixed_fee_scope": "household_period_only",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "zones": [
+            {
+              "tariff_id": "active",
+              "version_id": "a",
+              "zone_id": "low",
+              "label": "Noc",
+              "kwh": "5.0",
+              "recorded_kwh": "5.0",
+              "complete": true,
+              "measured_seconds": 3600.0,
+              "energy_cost": "2.50",
+              "variable_cost": "0.50",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "2.50",
+                "variable_cost": "0.50",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "3.00"
+            }
+          ],
+          "unattributed": {
+            "recorded_kwh": null,
+            "measured_seconds": 0,
+            "missing_seconds": 0,
+            "known_costs": {
+              "energy_cost": null,
+              "variable_cost": null,
+              "legacy_combined_cost": null
+            },
+            "reasons": []
+          },
+          "reconciles_recorded_kwh": true,
+          "reconciles_known_costs": true
+        }
+      }
+    ]
+  },
+  "period_summary": {
+    "window": {
+      "start": "2026-10-09T22:00:00+00:00",
+      "end": "2026-10-10T22:00:00+00:00",
+      "timezone": "Europe/Warsaw"
+    },
+    "zone_breakdown": {
+      "status": "ready",
+      "reason": null,
+      "scope": "complete_household_hours",
+      "fixed_fee_scope": "household_period_only",
+      "currency": "EUR",
+      "price_basis": "gross",
+      "zones": [
+        {
+          "tariff_id": "active",
+          "version_id": "a",
+          "zone_id": "high",
+          "label": "Dzień",
+          "kwh": "192.0",
+          "recorded_kwh": "192.0",
+          "complete": true,
+          "measured_seconds": 50400.0,
+          "energy_cost": "192.00",
+          "variable_cost": "19.20",
+          "legacy_combined_cost": "0.00",
+          "known_costs": {
+            "energy_cost": "192.00",
+            "variable_cost": "19.20",
+            "legacy_combined_cost": "0.00"
+          },
+          "usage_cost": "211.20"
+        },
+        {
+          "tariff_id": "active",
+          "version_id": "a",
+          "zone_id": "low",
+          "label": "Noc",
+          "kwh": "58.0",
+          "recorded_kwh": "58.0",
+          "complete": true,
+          "measured_seconds": 36000.0,
+          "energy_cost": "29.00",
+          "variable_cost": "5.80",
+          "legacy_combined_cost": "0.00",
+          "known_costs": {
+            "energy_cost": "29.00",
+            "variable_cost": "5.80",
+            "legacy_combined_cost": "0.00"
+          },
+          "usage_cost": "34.80"
+        }
+      ],
+      "unattributed": {
+        "recorded_kwh": null,
+        "measured_seconds": 0,
+        "missing_seconds": 0,
+        "known_costs": {
+          "energy_cost": null,
+          "variable_cost": null,
+          "legacy_combined_cost": null
+        },
+        "reasons": []
+      },
+      "reconciles_recorded_kwh": true,
+      "reconciles_known_costs": true
+    },
+    "cheap_zone_share": {
+      "status": "ready",
+      "reason": null,
+      "scope": "complete_household_hours",
+      "classification_source": "explicit_tariff_classification",
+      "known_cheap_kwh": "58.0",
+      "classified_kwh": "250.0",
+      "total_kwh": "250.0",
+      "ratio": "0.232"
+    },
+    "peak_hour": {
+      "status": "ready",
+      "reason": null,
+      "scope": "complete_household_hours",
+      "id": "1791648000000:1791651600000",
+      "from": 1791648000000,
+      "to": 1791651600000,
+      "start": "2026-10-10T16:00:00+00:00",
+      "end": "2026-10-10T17:00:00+00:00",
+      "local_start": "2026-10-10T18:00:00+02:00",
+      "local_end": "2026-10-10T19:00:00+02:00",
+      "fold": 0,
+      "end_fold": 0,
+      "kwh": "22.0",
+      "tied_count": 1
+    }
+  },
+  "groups": {
+    "revision": 2,
+    "captured_at": "2026-10-11T12:34:00+00:00",
+    "membership_mode": "current_snapshot",
+    "floor_supported": true,
+    "registry_revision": 2,
+    "energy_domain": "grid_import",
+    "partition_complete": true,
+    "devices": {
+      "sensor.device": {
+        "kwh": "50.0",
+        "recorded_kwh": "50.0",
+        "measurement_complete": true,
+        "coverage": {
+          "observed_hours": 24,
+          "expected_hours": 24
+        },
+        "known_costs": {
+          "energy_cost": "44.20",
+          "variable_cost": "5.00",
+          "legacy_combined_cost": "0.00",
+          "usage_cost": "49.20"
+        },
+        "energy_cost": "44.20",
+        "variable_cost": "5.00",
+        "legacy_combined_cost": "0.00",
+        "usage_cost": "49.20",
+        "name": "Desk",
+        "area_id": "office",
+        "area_name": "Office",
+        "floor_id": "upstairs",
+        "floor_name": "Upstairs",
+        "parent_id": null,
+        "attribution": "measured",
+        "measured_kwh": "50.0"
+      }
+    },
+    "areas": {
+      "office": {
+        "kwh": "50.0",
+        "recorded_kwh": "50.0",
+        "measurement_complete": true,
+        "known_costs": {
+          "energy_cost": "44.20",
+          "variable_cost": "5.00",
+          "legacy_combined_cost": "0.00",
+          "usage_cost": "49.20"
+        },
+        "coverage": {
+          "observed_hours": 24,
+          "expected_hours": 24
+        },
+        "energy_cost": "44.20",
+        "variable_cost": "5.00",
+        "legacy_combined_cost": "0.00",
+        "usage_cost": "49.20"
+      }
+    },
+    "floors": {
+      "upstairs": {
+        "kwh": "50.0",
+        "recorded_kwh": "50.0",
+        "measurement_complete": true,
+        "known_costs": {
+          "energy_cost": "44.20",
+          "variable_cost": "5.00",
+          "legacy_combined_cost": "0.00",
+          "usage_cost": "49.20"
+        },
+        "coverage": {
+          "observed_hours": 24,
+          "expected_hours": 24
+        },
+        "energy_cost": "44.20",
+        "variable_cost": "5.00",
+        "legacy_combined_cost": "0.00",
+        "usage_cost": "49.20"
+      }
+    },
+    "unassigned": {
+      "kwh": "0",
+      "recorded_kwh": "0",
+      "measurement_complete": true,
+      "known_costs": {
+        "energy_cost": "0.00",
+        "variable_cost": "0.00",
+        "legacy_combined_cost": "0.00",
+        "usage_cost": "0.00"
+      },
+      "coverage": {
+        "observed_hours": 0,
+        "expected_hours": 0
+      },
+      "energy_cost": "0.00",
+      "variable_cost": "0.00",
+      "legacy_combined_cost": "0.00",
+      "usage_cost": "0.00"
+    },
+    "unmeasured": {
+      "kwh": "200.0",
+      "recorded_kwh": "200.0",
+      "measurement_complete": true,
+      "coverage": {
+        "observed_hours": 24,
+        "expected_hours": 24
+      },
+      "known_costs": {
+        "energy_cost": "176.80",
+        "variable_cost": "20.00",
+        "legacy_combined_cost": "0.00",
+        "usage_cost": "196.80"
+      },
+      "energy_cost": "176.80",
+      "variable_cost": "20.00",
+      "legacy_combined_cost": "0.00",
+      "usage_cost": "196.80"
+    },
+    "currency": "EUR",
+    "price_basis": "gross",
+    "issues": [],
+    "rounding": {
+      "quantum": "0.01",
+      "mode": "partition_components_largest_remainder"
+    },
+    "domain_provenance": "ha_energy_grid_only_configuration"
+  },
+  "comparisons": {
+    "previous": {
+      "status": "ready",
+      "reason": null,
+      "current_kwh": 250.0,
+      "baseline_kwh": 200.0,
+      "delta_kwh": 50.0,
+      "percent": 25.0,
+      "full_current_kwh": 250.0,
+      "full_baseline_kwh": 200.0,
+      "coverage": {
+        "current": 1.0,
+        "baseline": 1.0,
+        "common_current": 1.0,
+        "common_baseline": 1.0,
+        "expected_current_seconds": 86400,
+        "expected_baseline_seconds": 86400,
+        "measured_current_seconds": 86400,
+        "measured_baseline_seconds": 86400,
+        "common_source_seconds": 86400
+      },
+      "comparison_scope": "calendar_totals",
+      "costs": {
+        "comparison_scope": "calendar_totals",
+        "metric": "usage_cost",
+        "current": {
+          "energy_cost": "221.00",
+          "variable_cost": "25.00",
+          "legacy_combined_cost": "0.00",
+          "usage_cost": "246.00",
+          "known_costs": {
+            "energy_cost": "221.00",
+            "variable_cost": "25.00",
+            "legacy_combined_cost": "0.00"
+          },
+          "mask_source_seconds": 86400,
+          "priced_source_seconds": {
+            "energy_cost": 86400,
+            "variable_cost": 86400,
+            "legacy_combined_cost": 86400,
+            "usage_cost": 86400
+          },
+          "pricing_complete": true,
+          "compatible": true,
+          "currency": "EUR",
+          "price_basis": "gross",
+          "rate_semantics": [
+            "components"
+          ],
+          "issues": [],
+          "fixed_scope": "household_period",
+          "fixed_cost": "1.00",
+          "fees": {
+            "components": {
+              "subscription": "1.00",
+              "capacity": "0.00",
+              "distribution": "0.00",
+              "other": "0.00",
+              "legacy_combined": "0.00"
+            },
+            "known_components": {
+              "subscription": "1.00",
+              "capacity": "0.00",
+              "distribution": "0.00",
+              "other": "0.00",
+              "legacy_combined": "0.00"
+            },
+            "complete": true,
+            "days": [
+              {
+                "day": "2026-10-10",
+                "version_id": "a",
+                "day_fraction": "1"
+              }
+            ]
+          },
+          "total_cost": "247.00",
+          "effective_price": "0.99"
+        },
+        "baseline": {
+          "energy_cost": "176.80",
+          "variable_cost": "20.00",
+          "legacy_combined_cost": "0.00",
+          "usage_cost": "196.80",
+          "known_costs": {
+            "energy_cost": "176.80",
+            "variable_cost": "20.00",
+            "legacy_combined_cost": "0.00"
+          },
+          "mask_source_seconds": 86400,
+          "priced_source_seconds": {
+            "energy_cost": 86400,
+            "variable_cost": 86400,
+            "legacy_combined_cost": 86400,
+            "usage_cost": 86400
+          },
+          "pricing_complete": true,
+          "compatible": true,
+          "currency": "EUR",
+          "price_basis": "gross",
+          "rate_semantics": [
+            "components"
+          ],
+          "issues": [],
+          "fixed_scope": "household_period",
+          "fixed_cost": "1.00",
+          "fees": {
+            "components": {
+              "subscription": "1.00",
+              "capacity": "0.00",
+              "distribution": "0.00",
+              "other": "0.00",
+              "legacy_combined": "0.00"
+            },
+            "known_components": {
+              "subscription": "1.00",
+              "capacity": "0.00",
+              "distribution": "0.00",
+              "other": "0.00",
+              "legacy_combined": "0.00"
+            },
+            "complete": true,
+            "days": [
+              {
+                "day": "2026-10-09",
+                "version_id": "a",
+                "day_fraction": "1"
+              }
+            ]
+          },
+          "total_cost": "197.80",
+          "effective_price": "0.99"
+        },
+        "status": "ready",
+        "reason": null,
+        "delta_cost": "49.20",
+        "percent": "25.00",
+        "delta_total_cost": "49.20",
+        "rounding": {
+          "quantum": "0.01",
+          "mode": "ROUND_HALF_UP",
+          "stage": "component_period_totals_then_sum",
+          "row_costs": "unrounded_decimal",
+          "partial_day": "overlap_seconds/actual_local_day_seconds"
+        }
+      },
+      "chart": {
+        "status": "ready",
+        "reason": null,
+        "timezone": "Europe/Warsaw",
+        "grain": "hour",
+        "comparison_scope": "calendar_totals",
+        "coverage_kind": "selected_household_comparison_mask",
+        "fixed_fee_scope": "household_period_only",
+        "reconciles_comparison_energy": true,
+        "markers": [
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791583200000,
+            "current_to": 1791586800000,
+            "baseline_from": 1791496800000,
+            "baseline_to": 1791500400000,
+            "current_kwh": "4",
+            "baseline_kwh": "3.2",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791586800000,
+            "current_to": 1791590400000,
+            "baseline_from": 1791500400000,
+            "baseline_to": 1791504000000,
+            "current_kwh": "3",
+            "baseline_kwh": "2.4",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791590400000,
+            "current_to": 1791594000000,
+            "baseline_from": 1791504000000,
+            "baseline_to": 1791507600000,
+            "current_kwh": "3",
+            "baseline_kwh": "2.4",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791594000000,
+            "current_to": 1791597600000,
+            "baseline_from": 1791507600000,
+            "baseline_to": 1791511200000,
+            "current_kwh": "3",
+            "baseline_kwh": "2.4",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791597600000,
+            "current_to": 1791601200000,
+            "baseline_from": 1791511200000,
+            "baseline_to": 1791514800000,
+            "current_kwh": "4",
+            "baseline_kwh": "3.2",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791601200000,
+            "current_to": 1791604800000,
+            "baseline_from": 1791514800000,
+            "baseline_to": 1791518400000,
+            "current_kwh": "6",
+            "baseline_kwh": "4.8",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791604800000,
+            "current_to": 1791608400000,
+            "baseline_from": 1791518400000,
+            "baseline_to": 1791522000000,
+            "current_kwh": "10",
+            "baseline_kwh": "8",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791608400000,
+            "current_to": 1791612000000,
+            "baseline_from": 1791522000000,
+            "baseline_to": 1791525600000,
+            "current_kwh": "14",
+            "baseline_kwh": "11.2",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791612000000,
+            "current_to": 1791615600000,
+            "baseline_from": 1791525600000,
+            "baseline_to": 1791529200000,
+            "current_kwh": "18",
+            "baseline_kwh": "14.4",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791615600000,
+            "current_to": 1791619200000,
+            "baseline_from": 1791529200000,
+            "baseline_to": 1791532800000,
+            "current_kwh": "16",
+            "baseline_kwh": "12.8",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791619200000,
+            "current_to": 1791622800000,
+            "baseline_from": 1791532800000,
+            "baseline_to": 1791536400000,
+            "current_kwh": "12",
+            "baseline_kwh": "9.6",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791622800000,
+            "current_to": 1791626400000,
+            "baseline_from": 1791536400000,
+            "baseline_to": 1791540000000,
+            "current_kwh": "10",
+            "baseline_kwh": "8",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791626400000,
+            "current_to": 1791630000000,
+            "baseline_from": 1791540000000,
+            "baseline_to": 1791543600000,
+            "current_kwh": "9",
+            "baseline_kwh": "7.2",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791630000000,
+            "current_to": 1791633600000,
+            "baseline_from": 1791543600000,
+            "baseline_to": 1791547200000,
+            "current_kwh": "8",
+            "baseline_kwh": "6.4",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791633600000,
+            "current_to": 1791637200000,
+            "baseline_from": 1791547200000,
+            "baseline_to": 1791550800000,
+            "current_kwh": "8",
+            "baseline_kwh": "6.4",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791637200000,
+            "current_to": 1791640800000,
+            "baseline_from": 1791550800000,
+            "baseline_to": 1791554400000,
+            "current_kwh": "11",
+            "baseline_kwh": "8.8",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791640800000,
+            "current_to": 1791644400000,
+            "baseline_from": 1791554400000,
+            "baseline_to": 1791558000000,
+            "current_kwh": "16",
+            "baseline_kwh": "12.8",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791644400000,
+            "current_to": 1791648000000,
+            "baseline_from": 1791558000000,
+            "baseline_to": 1791561600000,
+            "current_kwh": "20",
+            "baseline_kwh": "16",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791648000000,
+            "current_to": 1791651600000,
+            "baseline_from": 1791561600000,
+            "baseline_to": 1791565200000,
+            "current_kwh": "22",
+            "baseline_kwh": "17.6",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791651600000,
+            "current_to": 1791655200000,
+            "baseline_from": 1791565200000,
+            "baseline_to": 1791568800000,
+            "current_kwh": "18",
+            "baseline_kwh": "14.4",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791655200000,
+            "current_to": 1791658800000,
+            "baseline_from": 1791568800000,
+            "baseline_to": 1791572400000,
+            "current_kwh": "13",
+            "baseline_kwh": "10.4",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791658800000,
+            "current_to": 1791662400000,
+            "baseline_from": 1791572400000,
+            "baseline_to": 1791576000000,
+            "current_kwh": "10",
+            "baseline_kwh": "8",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791662400000,
+            "current_to": 1791666000000,
+            "baseline_from": 1791576000000,
+            "baseline_to": 1791579600000,
+            "current_kwh": "7",
+            "baseline_kwh": "5.6",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          },
+          {
+            "status": "ready",
+            "reason": null,
+            "current_from": 1791666000000,
+            "current_to": 1791669600000,
+            "baseline_from": 1791579600000,
+            "baseline_to": 1791583200000,
+            "current_kwh": "5",
+            "baseline_kwh": "4",
+            "mapping": "calendar_frame_bijection",
+            "expected_current_source_seconds": 3600,
+            "expected_baseline_source_seconds": 3600,
+            "selected_current_source_seconds": 3600,
+            "selected_baseline_source_seconds": 3600
+          }
+        ]
+      },
+      "baseline_kind": "previous",
+      "baseline_periods": [
+        {
+          "status": "ready",
+          "reason": null,
+          "start": "2026-10-08T22:00:00+00:00",
+          "end": "2026-10-09T22:00:00+00:00",
+          "local_start": "2026-10-09T00:00:00+02:00",
+          "local_end": "2026-10-10T00:00:00+02:00",
+          "start_fold": 0,
+          "end_fold": 0,
+          "timezone": "Europe/Warsaw",
+          "hours": 24.0,
+          "partial": false,
+          "calendar_end": "2026-10-09T22:00:00+00:00",
+          "calendar_local_end": "2026-10-10T00:00:00+02:00",
+          "calendar_hours": 24.0,
+          "recorder_hour_aligned": true,
+          "calendar_clamped": false,
+          "clamps": []
+        }
+      ],
+      "baseline_analysis": {
+        "schema": 2,
+        "generated_at": "2026-10-11T12:34:00+00:00",
+        "context": {
+          "entry_id": "synthetic",
+          "tariff_revision": 4,
+          "registry_revision": 2,
+          "measurement_timezone": "Europe/Warsaw",
+          "source_signature": "e462f67b5a8145fd7bfd257d15b128d2ae7658c81aa4e35e29f004e17f2afe53",
+          "calculator_version": "energy_analysis_v2_1",
+          "grid_source_signature": "fd7e5b5c6dd9a48ee247c576dee464e0dd1015b6fae5eee8cfb378ea80a8ba20"
+        },
+        "period": {
+          "status": "ready",
+          "reason": null,
+          "kind": "day",
+          "start": "2026-10-08T22:00:00+00:00",
+          "end": "2026-10-09T22:00:00+00:00",
+          "local_start": "2026-10-09T00:00:00+02:00",
+          "local_end": "2026-10-10T00:00:00+02:00",
+          "start_fold": 0,
+          "end_fold": 0,
+          "timezone": "Europe/Warsaw",
+          "hours": 24.0,
+          "partial": false,
+          "calendar_end": "2026-10-09T22:00:00+00:00",
+          "calendar_local_end": "2026-10-10T00:00:00+02:00",
+          "calendar_hours": 24.0,
+          "recorder_hour_aligned": true,
+          "calendar_clamped": false,
+          "clamps": []
+        },
+        "coverage": {
+          "complete": true,
+          "ratio": 1.0,
+          "expected_source_seconds": 86400,
+          "measured_source_seconds": 86400
+        },
+        "status": "ready",
+        "pricing_status": "ready",
+        "totals": {
+          "energy_cost": "176.80",
+          "variable_cost": "20.00",
+          "legacy_combined_cost": "0.00",
+          "usage_cost": "196.80",
+          "fixed_cost": "1.00",
+          "total_cost": "197.80",
+          "effective_price": "0.99",
+          "currency": "EUR",
+          "price_basis": "gross",
+          "kwh": "200.0",
+          "recorded_household_kwh": "200.0",
+          "measurement_complete": true,
+          "pricing_complete": true,
+          "components_complete": true,
+          "known_costs": {
+            "energy_cost": "176.80",
+            "variable_cost": "20.00",
+            "legacy_combined_cost": "0.00"
+          }
+        },
+        "groups": {
+          "revision": 2,
+          "captured_at": "2026-10-11T12:34:00+00:00",
+          "membership_mode": "current_snapshot",
+          "floor_supported": true,
+          "registry_revision": 2,
+          "energy_domain": "grid_import",
+          "partition_complete": true,
+          "devices": {
+            "sensor.device": {
+              "kwh": "40.00",
+              "recorded_kwh": "40.00",
+              "measurement_complete": true,
+              "coverage": {
+                "observed_hours": 24,
+                "expected_hours": 24
+              },
+              "known_costs": {
+                "energy_cost": "35.36",
+                "variable_cost": "4.00",
+                "legacy_combined_cost": "0.00",
+                "usage_cost": "39.36"
+              },
+              "energy_cost": "35.36",
+              "variable_cost": "4.00",
+              "legacy_combined_cost": "0.00",
+              "usage_cost": "39.36",
+              "name": "Desk",
+              "area_id": "office",
+              "area_name": "Office",
+              "floor_id": "upstairs",
+              "floor_name": "Upstairs",
+              "parent_id": null,
+              "attribution": "measured",
+              "measured_kwh": "40.00"
+            }
+          },
+          "areas": {
+            "office": {
+              "kwh": "40.00",
+              "recorded_kwh": "40.00",
+              "measurement_complete": true,
+              "known_costs": {
+                "energy_cost": "35.36",
+                "variable_cost": "4.00",
+                "legacy_combined_cost": "0.00",
+                "usage_cost": "39.36"
+              },
+              "coverage": {
+                "observed_hours": 24,
+                "expected_hours": 24
+              },
+              "energy_cost": "35.36",
+              "variable_cost": "4.00",
+              "legacy_combined_cost": "0.00",
+              "usage_cost": "39.36"
+            }
+          },
+          "floors": {
+            "upstairs": {
+              "kwh": "40.00",
+              "recorded_kwh": "40.00",
+              "measurement_complete": true,
+              "known_costs": {
+                "energy_cost": "35.36",
+                "variable_cost": "4.00",
+                "legacy_combined_cost": "0.00",
+                "usage_cost": "39.36"
+              },
+              "coverage": {
+                "observed_hours": 24,
+                "expected_hours": 24
+              },
+              "energy_cost": "35.36",
+              "variable_cost": "4.00",
+              "legacy_combined_cost": "0.00",
+              "usage_cost": "39.36"
+            }
+          },
+          "unassigned": {
+            "kwh": "0",
+            "recorded_kwh": "0",
+            "measurement_complete": true,
+            "known_costs": {
+              "energy_cost": "0.00",
+              "variable_cost": "0.00",
+              "legacy_combined_cost": "0.00",
+              "usage_cost": "0.00"
+            },
+            "coverage": {
+              "observed_hours": 0,
+              "expected_hours": 0
+            },
+            "energy_cost": "0.00",
+            "variable_cost": "0.00",
+            "legacy_combined_cost": "0.00",
+            "usage_cost": "0.00"
+          },
+          "unmeasured": {
+            "kwh": "160.00",
+            "recorded_kwh": "160.00",
+            "measurement_complete": true,
+            "coverage": {
+              "observed_hours": 24,
+              "expected_hours": 24
+            },
+            "known_costs": {
+              "energy_cost": "141.44",
+              "variable_cost": "16.00",
+              "legacy_combined_cost": "0.00",
+              "usage_cost": "157.44"
+            },
+            "energy_cost": "141.44",
+            "variable_cost": "16.00",
+            "legacy_combined_cost": "0.00",
+            "usage_cost": "157.44"
+          },
+          "currency": "EUR",
+          "price_basis": "gross",
+          "issues": [],
+          "rounding": {
+            "quantum": "0.01",
+            "mode": "partition_components_largest_remainder"
+          },
+          "domain_provenance": "ha_energy_grid_only_configuration"
+        },
+        "chart": {
+          "status": "ready",
+          "reason": null,
+          "timezone": "Europe/Warsaw",
+          "grain": "hour",
+          "fixed_fee_scope": "household_period_only",
+          "coverage_kind": "complete_household_hours",
+          "bins": [
+            {
+              "from": 1791496800000,
+              "to": 1791500400000,
+              "start": "2026-10-08T22:00:00+00:00",
+              "end": "2026-10-08T23:00:00+00:00",
+              "local_start": "2026-10-09T00:00:00+02:00",
+              "local_end": "2026-10-09T01:00:00+02:00",
+              "fold": 0,
+              "kwh": "3.2",
+              "recorded_kwh": "3.2",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "1.60",
+              "variable_cost": "0.32",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "1.60",
+                "variable_cost": "0.32",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "1.92",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "low",
+                    "label": "Noc",
+                    "kwh": "3.2",
+                    "recorded_kwh": "3.2",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "1.60",
+                    "variable_cost": "0.32",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "1.60",
+                      "variable_cost": "0.32",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "1.92"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791500400000,
+              "to": 1791504000000,
+              "start": "2026-10-08T23:00:00+00:00",
+              "end": "2026-10-09T00:00:00+00:00",
+              "local_start": "2026-10-09T01:00:00+02:00",
+              "local_end": "2026-10-09T02:00:00+02:00",
+              "fold": 0,
+              "kwh": "2.4",
+              "recorded_kwh": "2.4",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "1.20",
+              "variable_cost": "0.24",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "1.20",
+                "variable_cost": "0.24",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "1.44",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "low",
+                    "label": "Noc",
+                    "kwh": "2.4",
+                    "recorded_kwh": "2.4",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "1.20",
+                    "variable_cost": "0.24",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "1.20",
+                      "variable_cost": "0.24",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "1.44"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791504000000,
+              "to": 1791507600000,
+              "start": "2026-10-09T00:00:00+00:00",
+              "end": "2026-10-09T01:00:00+00:00",
+              "local_start": "2026-10-09T02:00:00+02:00",
+              "local_end": "2026-10-09T03:00:00+02:00",
+              "fold": 0,
+              "kwh": "2.4",
+              "recorded_kwh": "2.4",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "1.20",
+              "variable_cost": "0.24",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "1.20",
+                "variable_cost": "0.24",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "1.44",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "low",
+                    "label": "Noc",
+                    "kwh": "2.4",
+                    "recorded_kwh": "2.4",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "1.20",
+                    "variable_cost": "0.24",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "1.20",
+                      "variable_cost": "0.24",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "1.44"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791507600000,
+              "to": 1791511200000,
+              "start": "2026-10-09T01:00:00+00:00",
+              "end": "2026-10-09T02:00:00+00:00",
+              "local_start": "2026-10-09T03:00:00+02:00",
+              "local_end": "2026-10-09T04:00:00+02:00",
+              "fold": 0,
+              "kwh": "2.4",
+              "recorded_kwh": "2.4",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "1.20",
+              "variable_cost": "0.24",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "1.20",
+                "variable_cost": "0.24",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "1.44",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "low",
+                    "label": "Noc",
+                    "kwh": "2.4",
+                    "recorded_kwh": "2.4",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "1.20",
+                    "variable_cost": "0.24",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "1.20",
+                      "variable_cost": "0.24",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "1.44"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791511200000,
+              "to": 1791514800000,
+              "start": "2026-10-09T02:00:00+00:00",
+              "end": "2026-10-09T03:00:00+00:00",
+              "local_start": "2026-10-09T04:00:00+02:00",
+              "local_end": "2026-10-09T05:00:00+02:00",
+              "fold": 0,
+              "kwh": "3.2",
+              "recorded_kwh": "3.2",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "1.60",
+              "variable_cost": "0.32",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "1.60",
+                "variable_cost": "0.32",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "1.92",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "low",
+                    "label": "Noc",
+                    "kwh": "3.2",
+                    "recorded_kwh": "3.2",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "1.60",
+                    "variable_cost": "0.32",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "1.60",
+                      "variable_cost": "0.32",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "1.92"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791514800000,
+              "to": 1791518400000,
+              "start": "2026-10-09T03:00:00+00:00",
+              "end": "2026-10-09T04:00:00+00:00",
+              "local_start": "2026-10-09T05:00:00+02:00",
+              "local_end": "2026-10-09T06:00:00+02:00",
+              "fold": 0,
+              "kwh": "4.8",
+              "recorded_kwh": "4.8",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "2.40",
+              "variable_cost": "0.48",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "2.40",
+                "variable_cost": "0.48",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "2.88",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "low",
+                    "label": "Noc",
+                    "kwh": "4.8",
+                    "recorded_kwh": "4.8",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "2.40",
+                    "variable_cost": "0.48",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "2.40",
+                      "variable_cost": "0.48",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "2.88"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791518400000,
+              "to": 1791522000000,
+              "start": "2026-10-09T04:00:00+00:00",
+              "end": "2026-10-09T05:00:00+00:00",
+              "local_start": "2026-10-09T06:00:00+02:00",
+              "local_end": "2026-10-09T07:00:00+02:00",
+              "fold": 0,
+              "kwh": "8.0",
+              "recorded_kwh": "8.0",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "8.00",
+              "variable_cost": "0.80",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "8.00",
+                "variable_cost": "0.80",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "8.80",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "high",
+                    "label": "Dzień",
+                    "kwh": "8.0",
+                    "recorded_kwh": "8.0",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "8.00",
+                    "variable_cost": "0.80",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "8.00",
+                      "variable_cost": "0.80",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "8.80"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791522000000,
+              "to": 1791525600000,
+              "start": "2026-10-09T05:00:00+00:00",
+              "end": "2026-10-09T06:00:00+00:00",
+              "local_start": "2026-10-09T07:00:00+02:00",
+              "local_end": "2026-10-09T08:00:00+02:00",
+              "fold": 0,
+              "kwh": "11.2",
+              "recorded_kwh": "11.2",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "11.20",
+              "variable_cost": "1.12",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "11.20",
+                "variable_cost": "1.12",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "12.32",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "high",
+                    "label": "Dzień",
+                    "kwh": "11.2",
+                    "recorded_kwh": "11.2",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "11.20",
+                    "variable_cost": "1.12",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "11.20",
+                      "variable_cost": "1.12",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "12.32"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791525600000,
+              "to": 1791529200000,
+              "start": "2026-10-09T06:00:00+00:00",
+              "end": "2026-10-09T07:00:00+00:00",
+              "local_start": "2026-10-09T08:00:00+02:00",
+              "local_end": "2026-10-09T09:00:00+02:00",
+              "fold": 0,
+              "kwh": "14.4",
+              "recorded_kwh": "14.4",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "14.40",
+              "variable_cost": "1.44",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "14.40",
+                "variable_cost": "1.44",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "15.84",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "high",
+                    "label": "Dzień",
+                    "kwh": "14.4",
+                    "recorded_kwh": "14.4",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "14.40",
+                    "variable_cost": "1.44",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "14.40",
+                      "variable_cost": "1.44",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "15.84"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791529200000,
+              "to": 1791532800000,
+              "start": "2026-10-09T07:00:00+00:00",
+              "end": "2026-10-09T08:00:00+00:00",
+              "local_start": "2026-10-09T09:00:00+02:00",
+              "local_end": "2026-10-09T10:00:00+02:00",
+              "fold": 0,
+              "kwh": "12.8",
+              "recorded_kwh": "12.8",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "12.80",
+              "variable_cost": "1.28",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "12.80",
+                "variable_cost": "1.28",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "14.08",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "high",
+                    "label": "Dzień",
+                    "kwh": "12.8",
+                    "recorded_kwh": "12.8",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "12.80",
+                    "variable_cost": "1.28",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "12.80",
+                      "variable_cost": "1.28",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "14.08"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791532800000,
+              "to": 1791536400000,
+              "start": "2026-10-09T08:00:00+00:00",
+              "end": "2026-10-09T09:00:00+00:00",
+              "local_start": "2026-10-09T10:00:00+02:00",
+              "local_end": "2026-10-09T11:00:00+02:00",
+              "fold": 0,
+              "kwh": "9.6",
+              "recorded_kwh": "9.6",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "9.60",
+              "variable_cost": "0.96",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "9.60",
+                "variable_cost": "0.96",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "10.56",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "high",
+                    "label": "Dzień",
+                    "kwh": "9.6",
+                    "recorded_kwh": "9.6",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "9.60",
+                    "variable_cost": "0.96",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "9.60",
+                      "variable_cost": "0.96",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "10.56"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791536400000,
+              "to": 1791540000000,
+              "start": "2026-10-09T09:00:00+00:00",
+              "end": "2026-10-09T10:00:00+00:00",
+              "local_start": "2026-10-09T11:00:00+02:00",
+              "local_end": "2026-10-09T12:00:00+02:00",
+              "fold": 0,
+              "kwh": "8.0",
+              "recorded_kwh": "8.0",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "8.00",
+              "variable_cost": "0.80",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "8.00",
+                "variable_cost": "0.80",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "8.80",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "high",
+                    "label": "Dzień",
+                    "kwh": "8.0",
+                    "recorded_kwh": "8.0",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "8.00",
+                    "variable_cost": "0.80",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "8.00",
+                      "variable_cost": "0.80",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "8.80"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791540000000,
+              "to": 1791543600000,
+              "start": "2026-10-09T10:00:00+00:00",
+              "end": "2026-10-09T11:00:00+00:00",
+              "local_start": "2026-10-09T12:00:00+02:00",
+              "local_end": "2026-10-09T13:00:00+02:00",
+              "fold": 0,
+              "kwh": "7.2",
+              "recorded_kwh": "7.2",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "7.20",
+              "variable_cost": "0.72",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "7.20",
+                "variable_cost": "0.72",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "7.92",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "high",
+                    "label": "Dzień",
+                    "kwh": "7.2",
+                    "recorded_kwh": "7.2",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "7.20",
+                    "variable_cost": "0.72",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "7.20",
+                      "variable_cost": "0.72",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "7.92"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791543600000,
+              "to": 1791547200000,
+              "start": "2026-10-09T11:00:00+00:00",
+              "end": "2026-10-09T12:00:00+00:00",
+              "local_start": "2026-10-09T13:00:00+02:00",
+              "local_end": "2026-10-09T14:00:00+02:00",
+              "fold": 0,
+              "kwh": "6.4",
+              "recorded_kwh": "6.4",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "6.40",
+              "variable_cost": "0.64",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "6.40",
+                "variable_cost": "0.64",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "7.04",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "high",
+                    "label": "Dzień",
+                    "kwh": "6.4",
+                    "recorded_kwh": "6.4",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "6.40",
+                    "variable_cost": "0.64",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "6.40",
+                      "variable_cost": "0.64",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "7.04"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791547200000,
+              "to": 1791550800000,
+              "start": "2026-10-09T12:00:00+00:00",
+              "end": "2026-10-09T13:00:00+00:00",
+              "local_start": "2026-10-09T14:00:00+02:00",
+              "local_end": "2026-10-09T15:00:00+02:00",
+              "fold": 0,
+              "kwh": "6.4",
+              "recorded_kwh": "6.4",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "6.40",
+              "variable_cost": "0.64",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "6.40",
+                "variable_cost": "0.64",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "7.04",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "high",
+                    "label": "Dzień",
+                    "kwh": "6.4",
+                    "recorded_kwh": "6.4",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "6.40",
+                    "variable_cost": "0.64",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "6.40",
+                      "variable_cost": "0.64",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "7.04"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791550800000,
+              "to": 1791554400000,
+              "start": "2026-10-09T13:00:00+00:00",
+              "end": "2026-10-09T14:00:00+00:00",
+              "local_start": "2026-10-09T15:00:00+02:00",
+              "local_end": "2026-10-09T16:00:00+02:00",
+              "fold": 0,
+              "kwh": "8.8",
+              "recorded_kwh": "8.8",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "8.80",
+              "variable_cost": "0.88",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "8.80",
+                "variable_cost": "0.88",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "9.68",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "high",
+                    "label": "Dzień",
+                    "kwh": "8.8",
+                    "recorded_kwh": "8.8",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "8.80",
+                    "variable_cost": "0.88",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "8.80",
+                      "variable_cost": "0.88",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "9.68"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791554400000,
+              "to": 1791558000000,
+              "start": "2026-10-09T14:00:00+00:00",
+              "end": "2026-10-09T15:00:00+00:00",
+              "local_start": "2026-10-09T16:00:00+02:00",
+              "local_end": "2026-10-09T17:00:00+02:00",
+              "fold": 0,
+              "kwh": "12.8",
+              "recorded_kwh": "12.8",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "12.80",
+              "variable_cost": "1.28",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "12.80",
+                "variable_cost": "1.28",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "14.08",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "high",
+                    "label": "Dzień",
+                    "kwh": "12.8",
+                    "recorded_kwh": "12.8",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "12.80",
+                    "variable_cost": "1.28",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "12.80",
+                      "variable_cost": "1.28",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "14.08"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791558000000,
+              "to": 1791561600000,
+              "start": "2026-10-09T15:00:00+00:00",
+              "end": "2026-10-09T16:00:00+00:00",
+              "local_start": "2026-10-09T17:00:00+02:00",
+              "local_end": "2026-10-09T18:00:00+02:00",
+              "fold": 0,
+              "kwh": "16.0",
+              "recorded_kwh": "16.0",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "16.00",
+              "variable_cost": "1.60",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "16.00",
+                "variable_cost": "1.60",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "17.60",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "high",
+                    "label": "Dzień",
+                    "kwh": "16.0",
+                    "recorded_kwh": "16.0",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "16.00",
+                    "variable_cost": "1.60",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "16.00",
+                      "variable_cost": "1.60",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "17.60"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791561600000,
+              "to": 1791565200000,
+              "start": "2026-10-09T16:00:00+00:00",
+              "end": "2026-10-09T17:00:00+00:00",
+              "local_start": "2026-10-09T18:00:00+02:00",
+              "local_end": "2026-10-09T19:00:00+02:00",
+              "fold": 0,
+              "kwh": "17.6",
+              "recorded_kwh": "17.6",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "17.60",
+              "variable_cost": "1.76",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "17.60",
+                "variable_cost": "1.76",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "19.36",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "high",
+                    "label": "Dzień",
+                    "kwh": "17.6",
+                    "recorded_kwh": "17.6",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "17.60",
+                    "variable_cost": "1.76",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "17.60",
+                      "variable_cost": "1.76",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "19.36"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791565200000,
+              "to": 1791568800000,
+              "start": "2026-10-09T17:00:00+00:00",
+              "end": "2026-10-09T18:00:00+00:00",
+              "local_start": "2026-10-09T19:00:00+02:00",
+              "local_end": "2026-10-09T20:00:00+02:00",
+              "fold": 0,
+              "kwh": "14.4",
+              "recorded_kwh": "14.4",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "14.40",
+              "variable_cost": "1.44",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "14.40",
+                "variable_cost": "1.44",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "15.84",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "high",
+                    "label": "Dzień",
+                    "kwh": "14.4",
+                    "recorded_kwh": "14.4",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "14.40",
+                    "variable_cost": "1.44",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "14.40",
+                      "variable_cost": "1.44",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "15.84"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791568800000,
+              "to": 1791572400000,
+              "start": "2026-10-09T18:00:00+00:00",
+              "end": "2026-10-09T19:00:00+00:00",
+              "local_start": "2026-10-09T20:00:00+02:00",
+              "local_end": "2026-10-09T21:00:00+02:00",
+              "fold": 0,
+              "kwh": "10.4",
+              "recorded_kwh": "10.4",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "5.20",
+              "variable_cost": "1.04",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "5.20",
+                "variable_cost": "1.04",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "6.24",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "low",
+                    "label": "Noc",
+                    "kwh": "10.4",
+                    "recorded_kwh": "10.4",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "5.20",
+                    "variable_cost": "1.04",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "5.20",
+                      "variable_cost": "1.04",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "6.24"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791572400000,
+              "to": 1791576000000,
+              "start": "2026-10-09T19:00:00+00:00",
+              "end": "2026-10-09T20:00:00+00:00",
+              "local_start": "2026-10-09T21:00:00+02:00",
+              "local_end": "2026-10-09T22:00:00+02:00",
+              "fold": 0,
+              "kwh": "8.0",
+              "recorded_kwh": "8.0",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "4.00",
+              "variable_cost": "0.80",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "4.00",
+                "variable_cost": "0.80",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "4.80",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "low",
+                    "label": "Noc",
+                    "kwh": "8.0",
+                    "recorded_kwh": "8.0",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "4.00",
+                    "variable_cost": "0.80",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "4.00",
+                      "variable_cost": "0.80",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "4.80"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791576000000,
+              "to": 1791579600000,
+              "start": "2026-10-09T20:00:00+00:00",
+              "end": "2026-10-09T21:00:00+00:00",
+              "local_start": "2026-10-09T22:00:00+02:00",
+              "local_end": "2026-10-09T23:00:00+02:00",
+              "fold": 0,
+              "kwh": "5.6",
+              "recorded_kwh": "5.6",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "2.80",
+              "variable_cost": "0.56",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "2.80",
+                "variable_cost": "0.56",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "3.36",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "low",
+                    "label": "Noc",
+                    "kwh": "5.6",
+                    "recorded_kwh": "5.6",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "2.80",
+                    "variable_cost": "0.56",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "2.80",
+                      "variable_cost": "0.56",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "3.36"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            },
+            {
+              "from": 1791579600000,
+              "to": 1791583200000,
+              "start": "2026-10-09T21:00:00+00:00",
+              "end": "2026-10-09T22:00:00+00:00",
+              "local_start": "2026-10-09T23:00:00+02:00",
+              "local_end": "2026-10-10T00:00:00+02:00",
+              "fold": 0,
+              "kwh": "4.0",
+              "recorded_kwh": "4.0",
+              "complete": true,
+              "expected_seconds": 3600.0,
+              "measured_seconds": 3600.0,
+              "energy_cost": "2.00",
+              "variable_cost": "0.40",
+              "legacy_combined_cost": "0.00",
+              "known_costs": {
+                "energy_cost": "2.00",
+                "variable_cost": "0.40",
+                "legacy_combined_cost": "0.00"
+              },
+              "usage_cost": "2.40",
+              "fixed_cost": null,
+              "total_cost": null,
+              "currency": "EUR",
+              "price_basis": "gross",
+              "zone_breakdown": {
+                "status": "ready",
+                "reason": null,
+                "scope": "complete_household_hours",
+                "fixed_fee_scope": "household_period_only",
+                "currency": "EUR",
+                "price_basis": "gross",
+                "zones": [
+                  {
+                    "tariff_id": "active",
+                    "version_id": "a",
+                    "zone_id": "low",
+                    "label": "Noc",
+                    "kwh": "4.0",
+                    "recorded_kwh": "4.0",
+                    "complete": true,
+                    "measured_seconds": 3600.0,
+                    "energy_cost": "2.00",
+                    "variable_cost": "0.40",
+                    "legacy_combined_cost": "0.00",
+                    "known_costs": {
+                      "energy_cost": "2.00",
+                      "variable_cost": "0.40",
+                      "legacy_combined_cost": "0.00"
+                    },
+                    "usage_cost": "2.40"
+                  }
+                ],
+                "unattributed": {
+                  "recorded_kwh": null,
+                  "measured_seconds": 0,
+                  "missing_seconds": 0,
+                  "known_costs": {
+                    "energy_cost": null,
+                    "variable_cost": null,
+                    "legacy_combined_cost": null
+                  },
+                  "reasons": []
+                },
+                "reconciles_recorded_kwh": true,
+                "reconciles_known_costs": true
+              }
+            }
+          ]
+        },
+        "rates": [
+          {
+            "version_id": "a",
+            "valid_from": "2026-01-01",
+            "valid_to": null,
+            "validity_clock": "civil",
+            "rate_semantics": "components",
+            "currency": "EUR",
+            "price_basis": "gross",
+            "fixed_monthly": {
+              "subscription": 31,
+              "capacity": 0,
+              "distribution": 0,
+              "other": 0
+            },
+            "legacy_combined_monthly": null,
+            "clock": {
+              "mode": "civil"
+            },
+            "profile": {
+              "schema": 1,
+              "currency": "EUR",
+              "timezone": "Europe/Warsaw",
+              "priceBasis": "gross",
+              "defaultZone": "low",
+              "clock": {
+                "mode": "civil"
+              },
+              "zones": [
+                {
+                  "id": "low",
+                  "energyRate": 0.5,
+                  "variableRate": 0.1,
+                  "classification": "cheap",
+                  "label": "Noc"
+                },
+                {
+                  "id": "high",
+                  "energyRate": 1,
+                  "variableRate": 0.1,
+                  "classification": "expensive",
+                  "label": "Dzień"
+                }
+              ],
+              "rules": [
+                {
+                  "zone": "high",
+                  "intervals": [
+                    {
+                      "from": "06:00",
+                      "to": "20:00"
+                    }
+                  ]
+                }
+              ]
+            },
+            "zone_usage_rates": [
+              {
+                "zone_id": "low",
+                "usage_rate": "0.6"
+              },
+              {
+                "zone_id": "high",
+                "usage_rate": "1.1"
+              }
+            ],
+            "provenance": "configured_valid_from"
+          }
+        ],
+        "fees": {
+          "components": {
+            "subscription": "1.00",
+            "capacity": "0.00",
+            "distribution": "0.00",
+            "other": "0.00",
+            "legacy_combined": "0.00"
+          },
+          "known_components": {
+            "subscription": "1.00",
+            "capacity": "0.00",
+            "distribution": "0.00",
+            "other": "0.00",
+            "legacy_combined": "0.00"
+          },
+          "complete": true,
+          "days": [
+            {
+              "day": "2026-10-09",
+              "version_id": "a",
+              "day_fraction": "1"
+            }
+          ]
+        },
+        "rounding": {
+          "quantum": "0.01",
+          "mode": "ROUND_HALF_UP",
+          "stage": "component_period_totals_then_sum",
+          "row_costs": "unrounded_decimal",
+          "partial_day": "overlap_seconds/actual_local_day_seconds"
+        },
+        "active_tariff_id": "active",
+        "measurement_fingerprint": "2ebbf7e7d8c4570dd504473a3c388d80b6adf032e120055b035866f57a2ed530",
+        "snapshot_id": "9ce2b65264bd5de083770a43575f36355aee58de57fd593305e211867b9cbd1c"
+      },
+      "groups": {
+        "membership_mode": "current_snapshot",
+        "membership_as_of": "2026-10-11T12:34:00+00:00",
+        "registry_revision": 2,
+        "energy_domain": "grid_import",
+        "reconciles_household_delta": true,
+        "attribution_label": "current_registry_assignments",
+        "currency": "EUR",
+        "price_basis": "gross",
+        "devices": {
+          "sensor.device": {
+            "status": "ready",
+            "reason": null,
+            "comparison_scope": "per_group_calendar_totals",
+            "current_kwh": "50.0",
+            "baseline_kwh": "40.00",
+            "delta_kwh": "10.00",
+            "percent": 25.0,
+            "coverage": {
+              "current": {
+                "observed_hours": 24,
+                "expected_hours": 24
+              },
+              "baseline": {
+                "observed_hours": 24,
+                "expected_hours": 24
+              }
+            },
+            "delta_energy_cost": "8.84",
+            "delta_variable_cost": "1.00",
+            "delta_legacy_combined_cost": "0.00",
+            "delta_usage_cost": "9.84",
+            "delta_fixed_cost": null
+          }
+        },
+        "areas": {
+          "office": {
+            "status": "ready",
+            "reason": null,
+            "comparison_scope": "per_group_calendar_totals",
+            "current_kwh": "50.0",
+            "baseline_kwh": "40.00",
+            "delta_kwh": "10.00",
+            "percent": 25.0,
+            "coverage": {
+              "current": {
+                "observed_hours": 24,
+                "expected_hours": 24
+              },
+              "baseline": {
+                "observed_hours": 24,
+                "expected_hours": 24
+              }
+            },
+            "delta_energy_cost": "8.84",
+            "delta_variable_cost": "1.00",
+            "delta_legacy_combined_cost": "0.00",
+            "delta_usage_cost": "9.84",
+            "delta_fixed_cost": null
+          }
+        },
+        "floors": {
+          "upstairs": {
+            "status": "ready",
+            "reason": null,
+            "comparison_scope": "per_group_calendar_totals",
+            "current_kwh": "50.0",
+            "baseline_kwh": "40.00",
+            "delta_kwh": "10.00",
+            "percent": 25.0,
+            "coverage": {
+              "current": {
+                "observed_hours": 24,
+                "expected_hours": 24
+              },
+              "baseline": {
+                "observed_hours": 24,
+                "expected_hours": 24
+              }
+            },
+            "delta_energy_cost": "8.84",
+            "delta_variable_cost": "1.00",
+            "delta_legacy_combined_cost": "0.00",
+            "delta_usage_cost": "9.84",
+            "delta_fixed_cost": null
+          }
+        },
+        "unassigned": {
+          "status": "ready",
+          "reason": null,
+          "comparison_scope": "per_group_calendar_totals",
+          "current_kwh": "0",
+          "baseline_kwh": "0",
+          "delta_kwh": "0",
+          "percent": null,
+          "coverage": {
+            "current": {
+              "observed_hours": 0,
+              "expected_hours": 0
+            },
+            "baseline": {
+              "observed_hours": 0,
+              "expected_hours": 0
+            }
+          },
+          "delta_energy_cost": "0.00",
+          "delta_variable_cost": "0.00",
+          "delta_legacy_combined_cost": "0.00",
+          "delta_usage_cost": "0.00",
+          "delta_fixed_cost": null
+        },
+        "unmeasured": {
+          "status": "ready",
+          "reason": null,
+          "comparison_scope": "per_group_calendar_totals",
+          "current_kwh": "200.0",
+          "baseline_kwh": "160.00",
+          "delta_kwh": "40.00",
+          "percent": 25.0,
+          "coverage": {
+            "current": {
+              "observed_hours": 24,
+              "expected_hours": 24
+            },
+            "baseline": {
+              "observed_hours": 24,
+              "expected_hours": 24
+            }
+          },
+          "delta_energy_cost": "35.36",
+          "delta_variable_cost": "4.00",
+          "delta_legacy_combined_cost": "0.00",
+          "delta_usage_cost": "39.36",
+          "delta_fixed_cost": null
+        },
+        "reconciles_household_cost_delta": false
+      }
+    }
+  },
+  "snapshot_id": "b9a19c92472503c0b814d8f0d4d863c4634e79c2e7098deccb97c4aa9028bdb4"
+}
