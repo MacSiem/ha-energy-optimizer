@@ -12,7 +12,7 @@ Part of the [HA Tools](https://github.com/MacSiem/ha-tools-panel) collection for
 
 1. All three cards read the **grid import statistics selected in your Energy Dashboard** using `energy/get_prefs`. They validate Recorder metadata and use the hourly `change` series. Solar production, grid export, power sensors in watts, and unrelated statistics are excluded.
 2. Complete usage totals require every configured source and completed hourly bucket in the selected window. Insights and the Email overview retain available measured rows and clearly label partial coverage; recorded subsets never become complete totals or prices. Missing or invalid measurements remain gaps. No demo numbers are shown.
-3. Costs use measured hourly import and an explicitly configured tariff. Energy, variable charges and fixed monthly charges are separate; this is not a complete utility bill. The tariff supplies its own currency, clock and gross/net basis. There is no load-shifting slider or hypothetical saving.
+3. Costs require **HA Tools Email 2.4.0+** and use its shared tariff engine over measured hourly import and an explicitly configured tariff. Energy, variable charges and fixed monthly charges are separate; this is not a complete utility bill. The tariff supplies its own currency, clock and gross/net basis. There is no load-shifting slider or hypothetical saving.
 4. Live power is shown only if you set `power_entity`; the card does not sum overlapping power sensors.
 5. Chart.js is bundled in the single HACS JavaScript file. There is no CDN request or extra Lovelace resource.
 
@@ -45,8 +45,8 @@ once, use any of them:
 |---|---|
 | Grid import discovery from Energy Dashboard | Configure a grid import source in Energy Dashboard |
 | Measured hourly charts when Recorder data is available | Review a shared tariff in Settings, or provide an explicit `tariff_profile` / legacy card rate |
-| Home Assistant theme and currency | Set `power_entity` for live power; add Insights or Email cards if wanted |
-| Bundled charts | Configure the optional HA Tools Email integration and SMTP before sending mail |
+| Home Assistant theme and device date/time preferences | Set `power_entity` for live power; add Insights or Email cards if wanted |
+| Bundled charts | Install HA Tools Email 2.4.0+ for prices; configure SMTP only when sending mail |
 
 ### Windows and first run
 
@@ -60,13 +60,38 @@ The Email overview keeps valid sources when another source is missing or has inc
 
 Wh, kWh and MWh are normalized to kWh. Unsupported units remain unavailable in all three cards. Missing sources, hours, duplicate timestamps, negative changes and unsupported metadata cannot produce a complete total. Future hours remain blank. Cost requires a configured tariff; there is no assumed electricity price.
 
-Opening Energy Email only reads data and existing settings. It never creates helpers or automations. Explicit administrator saves use existing input_text helpers when available and browser storage otherwise. Ordinary users can read energy data; email configuration, scheduling and sending are reserved for administrators. With HA Tools Email 2.2.0+, all three cards can read the same server tariff. Administrator saves require confirmed backend readback; household users may read the profile. Card YAML tariffs remain available without the backend. A shared tariff that cannot be confirmed withholds costs rather than substituting another price.
+Opening Energy Email only reads data and existing settings. It never creates helpers or automations. Explicit administrator saves use existing input_text helpers when available and browser storage otherwise. Ordinary users can read energy data; email configuration, scheduling and sending are reserved for administrators. With HA Tools Email 2.2.0+, all three cards can read the same server tariff. Administrator saves require confirmed backend readback; household users may read the profile. Card YAML tariffs remain compatibility inputs and are priced by the same backend; without its pricing API, usage remains visible and costs show N/A. A shared tariff that cannot be confirmed withholds costs rather than substituting another price.
 
 ### Measured charts and Custom tariffs
 
 Optimizer Dashboard and Patterns, and Insights Daily / Weekly / Monthly, provide **Chart / Data** views of the same measured intervals. Units, source, timezone, coverage and missing values stay explicit. Use the point selector with arrows, Home or End for exact values without a pointer. Changing presentation does not fetch another Recorder dataset. Patterns includes a day/hour selector and weekday averages from complete local days; partial days remain partial. Insights paginates long data and device lists, with search and visible parent/submeter relationships.
 
 The Custom tariff supports a currency, IANA timezone or an explicitly configured fixed meter clock, gross/net basis, multiple zones and minute/overnight intervals. Rules may select weekdays, seasons and dated exceptions; no country-specific weekend or holiday is assumed. An hourly measurement crossing different prices is unavailable instead of being divided by a guessed load shape. Energy cost and variable per-kWh charges are calculated separately; a fixed monthly charge is shown separately and never spread over the hourly chart. A missing variable charge does not turn into a zero charge.
+
+### Card options and compact view
+
+Use Home Assistant's visual card editor for these settings; YAML remains supported. Unknown card keys are retained.
+
+| Option | Behavior |
+|---|---|
+| `title` | Card heading. |
+| `default_tab` | Initial visible tab; defaults to the first visible tab. |
+| `tabs` | Nonempty list of visible tab IDs; the default must stay visible. |
+| `compact` | Cost today, current tariff class and next future cheap period, with **Open full view**. Default false. |
+| `show_help` | Optional help; default true. Narrow cards start collapsed. A manual choice is remembered in this browser per user and instance. |
+| `show_support` | Optional administrator support link; default true. Permissions and error messages stay visible. |
+| `chart_hours` | 1–744 completed hours shown in hourly charts; empty keeps the full range. Daily/calendar periods, measured totals and prices are unchanged. Email has no hourly chart. |
+
+Optimizer tab IDs: `dashboard`, `patterns`, `recommendations`, `compare`. Insights: `overview`, `daily`, `weekly`, `monthly`, `tips`. Email: `overview`, `schedule`, `preview`, `send`, `config`, `history`. Sections support 3-column minimum, normal 12-column and compact 6-column sizing; Masonry and Panel remain available. Small layouts use a named tab picker.
+
+### Enable the five Energy entities
+
+1. Install **HA Tools Email 2.4.0+** in HACS and add **HA Tools Email** under **Settings → Devices & services → Add integration**. SMTP is unnecessary for energy values.
+2. Configure your grid-import source in **Energy Dashboard** and review a shared tariff in the card's **Tariff settings**. An administrator saves it with confirmed readback.
+3. For zone and next-cheap values, choose each zone's optional **Zone type**: Cheap, Expensive or Mixed. Missing classification means unknown; names or low prices never imply Cheap. Dynamic intervals accept the same optional `classification` field.
+4. Open the Energy device under the HA Tools Email integration to find tariff zone, current usage price, cheap-zone binary state, next cheap start and cost today.
+
+The entities and all compact cards show the persisted shared tariff. A card-owned tariff can differ and is used only by that card's view. The primary current price and today cost include energy plus variable fees, in the tariff's currency. Missing variable fees leave that combined amount unavailable; known energy-only cost stays separate in Tariff costs. Fixed monthly fees are never spread over a day. Today covers HA-local midnight to the last completed Recorder hour. Unknown values are unavailable, never measured zero. These entities do not enable notifications by themselves.
 
 ### Server calendars and send history
 
@@ -263,6 +288,8 @@ The legacy direct-send path also requires complete hourly Recorder data for the 
 
 ### Updating an existing installation
 
+**4.0 migration:** install HA Tools Email 2.4.0+ before updating this card if you need prices. All measurements and existing card configurations remain supported. Prices no longer fall back to a separate browser calculation. No SMTP setup is needed for pricing or Energy entities.
+
 Keep the existing dashboard card configuration and back up the current resource and settings before updating. Energy Optimizer, Insights and Energy Email are provided by one Energy Optimizer JavaScript resource; installing another maintained copy of the Email custom element is unnecessary.
 
 Use HACS to update Energy Optimizer, then reload the browser. Keep the resource type `module` and ensure it points to the installed Energy Optimizer file. If an older version remains visible, inspect the installed resource and refresh its cache; do not add duplicate resources or erase settings as a troubleshooting shortcut. For a manual installation, replace the JavaScript at the existing resource path. If serving a precompressed `.gz` file, replace it together with the JavaScript so both contain the same version.
@@ -271,7 +298,7 @@ All three cards now report only the grid-import sources configured in Home Assis
 
 Optimizer and Insights Today cover completed hourly buckets since local midnight in the Home Assistant timezone. Email daily reports use the last 24 completed hours. Weekly and monthly report windows are 168 and 720 completed hours. Compare the displayed start and end timestamps when checking values: Today and a daily email can cover different windows.
 
-Review the tariff explicitly if costs are wanted. Missing tariff, currency, measurement or rate coverage means unavailable cost; zero prices and zero measurements remain valid. The shared tariff supplies its currency and clock. Legacy `energy_price` / peak-hour card settings remain local compatibility inputs. Configure the shared tariff through the optional backend when the same profile is needed in reports and across devices.
+Review the tariff explicitly if costs are wanted. Missing tariff, currency, measurement or rate coverage means unavailable cost; zero prices and zero measurements remain valid. The shared tariff supplies its currency and clock. Legacy `energy_price` / peak-hour settings remain compatibility inputs. They are sent to the same backend as an ephemeral read and never replace the stored shared tariff or global entities. HA Tools Email 2.4.0+ is required for all prices, including card-owned tariffs; older backends leave usage visible and prices unavailable. Update the backend before this card when upgrading from 3.x.
 
 ### Email installation and report modes
 

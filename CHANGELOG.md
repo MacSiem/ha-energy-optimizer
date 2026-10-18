@@ -1,5 +1,12 @@
 # Changelog — Energy Optimizer
 
+## 4.0.0 (Unreleased)
+
+- Use HA Tools Email 2.4.0+ as the sole price engine for shared and card-owned tariffs, historical charts and compact summaries. Keep measurements available when pricing is unavailable; preserve unknowns, zero, negative costs and tariff currency. Existing legacy rates are ephemeral backend read inputs without settings writes.
+- Add visual title/default-tab/visible-tabs/compact/help/support/hourly-range options to all three cards, with narrow named navigation, Sections sizing, persistent help gestures and unchanged measurement/calendar semantics.
+- Show primary compact cost today, tariff classification and the next strictly future cheap period from the same backend snapshot as five Energy entities. Clear stale context, fence late replies, coalesce slow-wire updates and refresh mounted views.
+- Use tonal KPI surfaces, accessible action text and labels of at least 12px. Keep live measured power in the summary grid, source details collapsed, friendly hourly axes and full date/offset detail without changing data or pricing.
+
 ## 3.7.1 (2026-10-17)
 
 - Respect the system date format in full chart point labels, tooltips and Data when it differs from the Home Assistant interface language. Keep measured point identities and costs unchanged.
