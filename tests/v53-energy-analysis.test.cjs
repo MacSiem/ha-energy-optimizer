@@ -132,7 +132,7 @@ test('actual qualified backend partial-group DTO passes without changing one ser
   await settle(s,0,clone(producerDto));const result=await p;
   assert.equal(result.status,'ready');assert.deepEqual(result.snapshot,producerDto);
 });
-test('documented 512 consumers with distinct room/floor partitions and comparison rows fit the DTO validator',async()=>{
+for(const period of ['day','year']) test(`documented 512 consumers and ${period} comparison fit the DTO validator`,async()=>{
   const value=clone(producerDto), current=value.groups, comparison=value.comparisons.previous.groups;
   const baseline=value.comparisons.previous.baseline_analysis.groups;
   for(const [groups,isComparison] of [[current,false],[baseline,false],[comparison,true]]) {
@@ -146,7 +146,18 @@ test('documented 512 consumers with distinct room/floor partitions and compariso
       groups.areas['area_'+id]=clone(area);groups.floors['floor_'+id]=clone(floor);
     }
   }
-  const s=setup();s.c.connect();const p=s.c.read({period:'day',anchor:'2026-10-10',comparison:'previous'});
+  if(period==='year') {
+    value.context.period_kind='year';value.context.period_anchor='2025-01-01';
+    Object.assign(value.period,{kind:'year',start:'2025-01-01T00:00:00+00:00',end:'2026-01-01T00:00:00+00:00',
+      local_start:'2025-01-01T00:00:00+00:00',calendar_local_end:'2026-01-01T00:00:00+00:00'});
+    const start=Date.parse(value.period.start),hour=3600000;
+    value.buckets=Array.from({length:8760},(_,i)=>({...clone(producerDto.buckets[0]),from:start+i*hour,to:start+(i+1)*hour}));
+    value.chart.grain='month';value.chart.bins=Array.from({length:12},(_,m)=>{
+      const from=Date.UTC(2025,m,1),to=Date.UTC(2025,m+1,1);
+      return {...clone(producerDto.chart.bins[0]),from,to,start:new Date(from).toISOString(),end:new Date(to).toISOString()};
+    });
+  }
+  const s=setup();s.c.connect();const p=s.c.read({period,anchor:period==='year'?'2025-01-01':'2026-10-10',comparison:'previous'});
   await settle(s,0,value);const result=await p;
   assert.equal(result.status,'ready');assert.equal(Object.keys(result.snapshot.groups.devices).length,512);
   assert.deepEqual(result.snapshot.comparisons.previous.groups,comparison);
