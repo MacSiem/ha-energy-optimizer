@@ -3567,6 +3567,23 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     for (const option of ['compact', 'show_help', 'show_support']) if (config[option] !== undefined && typeof config[option] !== 'boolean') throw new Error(`${option}: expected true or false`);
     if (config.chart_hours !== undefined && (!Number.isInteger(config.chart_hours) || config.chart_hours < 1 || config.chart_hours > 744)) throw new Error('chart_hours: 1–744 whole hours / pełnych godzin');
   };
+  const navigationButtons = host => [...host.shadowRoot.querySelectorAll('.tabs [data-tab]')]
+    .filter(button => !button.hidden && !button.disabled && visible(host._config || {}).includes(button.dataset.tab));
+  const syncNavigation = host => {
+    const buttons = navigationButtons(host);
+    for (const button of host.shadowRoot.querySelectorAll('.tabs [data-tab]')) {
+      const active = buttons.includes(button) && button.dataset.tab === host[key];
+      button.tabIndex = active ? 0 : -1;
+      button.setAttribute('aria-selected', String(active));
+    }
+    const active = buttons.find(button => button.dataset.tab === host[key]);
+    const track = active?.closest('.tabs');
+    if (!track?.clientWidth) return;
+    // Reveal horizontally without moving the page during ordinary hass updates.
+    const point = active.getBoundingClientRect(), bounds = track.getBoundingClientRect();
+    if (point.left < bounds.left) track.scrollLeft -= bounds.left - point.left;
+    else if (point.right > bounds.right) track.scrollLeft += point.right - bounds.right;
+  };
   const originalSet = Card.prototype.setConfig;
   Card.prototype.setConfig = function(config = {}) {
     validate(config);
@@ -3635,6 +3652,27 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     for (const button of root.querySelectorAll('.tabs [data-tab]')) { button.hidden = !allowed.includes(button.dataset.tab); button.style.display = button.hidden ? 'none' : ''; }
     for (const option of root.querySelectorAll('.energy-tab-picker option, #email-tab-select option')) { option.hidden = !allowed.includes(option.value); option.disabled = option.hidden; }
     for (const select of root.querySelectorAll('.energy-tab-picker select, #email-tab-select')) select.value = this[key];
+    syncNavigation(this);
+    if (!this._optionsNavigationBoundV5) {
+      this._optionsNavigationBoundV5 = true;
+      // The ShadowRoot survives content redraws. Bind once and resolve live buttons.
+      root.addEventListener('click', event => {
+        if (event.target.closest?.('.tabs [data-tab]')) syncNavigation(this);
+      });
+      root.addEventListener('keydown', event => {
+        if (event.altKey || event.ctrlKey || event.metaKey || !['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+        const current = event.target.closest?.('.tabs [data-tab]');
+        const buttons = navigationButtons(this), index = buttons.indexOf(current);
+        if (index < 0) return;
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+          : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+        event.preventDefault();
+        const id = buttons[next].dataset.tab;
+        buttons[next].click(); // Preserve each card's existing navigation and request guards.
+        syncNavigation(this);
+        navigationButtons(this).find(button => button.dataset.tab === id)?.focus({preventScroll:true});
+      });
+    }
     // Only optional guidance is affected. Warnings, unknowns and setup errors stay visible.
     const helpKey = [name, 'options-help', config.instance_id || 'default', this._hass?.user?.id || 'anonymous'].join(':');
     if (this._helpStorageContextV5 !== helpKey) {
@@ -6451,6 +6489,23 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     for (const option of ['compact', 'show_help', 'show_support']) if (config[option] !== undefined && typeof config[option] !== 'boolean') throw new Error(`${option}: expected true or false`);
     if (config.chart_hours !== undefined && (!Number.isInteger(config.chart_hours) || config.chart_hours < 1 || config.chart_hours > 744)) throw new Error('chart_hours: 1–744 whole hours / pełnych godzin');
   };
+  const navigationButtons = host => [...host.shadowRoot.querySelectorAll('.tabs [data-tab]')]
+    .filter(button => !button.hidden && !button.disabled && visible(host._config || {}).includes(button.dataset.tab));
+  const syncNavigation = host => {
+    const buttons = navigationButtons(host);
+    for (const button of host.shadowRoot.querySelectorAll('.tabs [data-tab]')) {
+      const active = buttons.includes(button) && button.dataset.tab === host[key];
+      button.tabIndex = active ? 0 : -1;
+      button.setAttribute('aria-selected', String(active));
+    }
+    const active = buttons.find(button => button.dataset.tab === host[key]);
+    const track = active?.closest('.tabs');
+    if (!track?.clientWidth) return;
+    // Reveal horizontally without moving the page during ordinary hass updates.
+    const point = active.getBoundingClientRect(), bounds = track.getBoundingClientRect();
+    if (point.left < bounds.left) track.scrollLeft -= bounds.left - point.left;
+    else if (point.right > bounds.right) track.scrollLeft += point.right - bounds.right;
+  };
   const originalSet = Card.prototype.setConfig;
   Card.prototype.setConfig = function(config = {}) {
     validate(config);
@@ -6519,6 +6574,27 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     for (const button of root.querySelectorAll('.tabs [data-tab]')) { button.hidden = !allowed.includes(button.dataset.tab); button.style.display = button.hidden ? 'none' : ''; }
     for (const option of root.querySelectorAll('.energy-tab-picker option, #email-tab-select option')) { option.hidden = !allowed.includes(option.value); option.disabled = option.hidden; }
     for (const select of root.querySelectorAll('.energy-tab-picker select, #email-tab-select')) select.value = this[key];
+    syncNavigation(this);
+    if (!this._optionsNavigationBoundV5) {
+      this._optionsNavigationBoundV5 = true;
+      // The ShadowRoot survives content redraws. Bind once and resolve live buttons.
+      root.addEventListener('click', event => {
+        if (event.target.closest?.('.tabs [data-tab]')) syncNavigation(this);
+      });
+      root.addEventListener('keydown', event => {
+        if (event.altKey || event.ctrlKey || event.metaKey || !['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+        const current = event.target.closest?.('.tabs [data-tab]');
+        const buttons = navigationButtons(this), index = buttons.indexOf(current);
+        if (index < 0) return;
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+          : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+        event.preventDefault();
+        const id = buttons[next].dataset.tab;
+        buttons[next].click(); // Preserve each card's existing navigation and request guards.
+        syncNavigation(this);
+        navigationButtons(this).find(button => button.dataset.tab === id)?.focus({preventScroll:true});
+      });
+    }
     // Only optional guidance is affected. Warnings, unknowns and setup errors stay visible.
     const helpKey = [name, 'options-help', config.instance_id || 'default', this._hass?.user?.id || 'anonymous'].join(':');
     if (this._helpStorageContextV5 !== helpKey) {
@@ -11110,6 +11186,23 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     for (const option of ['compact', 'show_help', 'show_support']) if (config[option] !== undefined && typeof config[option] !== 'boolean') throw new Error(`${option}: expected true or false`);
     if (config.chart_hours !== undefined && (!Number.isInteger(config.chart_hours) || config.chart_hours < 1 || config.chart_hours > 744)) throw new Error('chart_hours: 1–744 whole hours / pełnych godzin');
   };
+  const navigationButtons = host => [...host.shadowRoot.querySelectorAll('.tabs [data-tab]')]
+    .filter(button => !button.hidden && !button.disabled && visible(host._config || {}).includes(button.dataset.tab));
+  const syncNavigation = host => {
+    const buttons = navigationButtons(host);
+    for (const button of host.shadowRoot.querySelectorAll('.tabs [data-tab]')) {
+      const active = buttons.includes(button) && button.dataset.tab === host[key];
+      button.tabIndex = active ? 0 : -1;
+      button.setAttribute('aria-selected', String(active));
+    }
+    const active = buttons.find(button => button.dataset.tab === host[key]);
+    const track = active?.closest('.tabs');
+    if (!track?.clientWidth) return;
+    // Reveal horizontally without moving the page during ordinary hass updates.
+    const point = active.getBoundingClientRect(), bounds = track.getBoundingClientRect();
+    if (point.left < bounds.left) track.scrollLeft -= bounds.left - point.left;
+    else if (point.right > bounds.right) track.scrollLeft += point.right - bounds.right;
+  };
   const originalSet = Card.prototype.setConfig;
   Card.prototype.setConfig = function(config = {}) {
     validate(config);
@@ -11178,6 +11271,27 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     for (const button of root.querySelectorAll('.tabs [data-tab]')) { button.hidden = !allowed.includes(button.dataset.tab); button.style.display = button.hidden ? 'none' : ''; }
     for (const option of root.querySelectorAll('.energy-tab-picker option, #email-tab-select option')) { option.hidden = !allowed.includes(option.value); option.disabled = option.hidden; }
     for (const select of root.querySelectorAll('.energy-tab-picker select, #email-tab-select')) select.value = this[key];
+    syncNavigation(this);
+    if (!this._optionsNavigationBoundV5) {
+      this._optionsNavigationBoundV5 = true;
+      // The ShadowRoot survives content redraws. Bind once and resolve live buttons.
+      root.addEventListener('click', event => {
+        if (event.target.closest?.('.tabs [data-tab]')) syncNavigation(this);
+      });
+      root.addEventListener('keydown', event => {
+        if (event.altKey || event.ctrlKey || event.metaKey || !['ArrowLeft','ArrowRight','Home','End'].includes(event.key)) return;
+        const current = event.target.closest?.('.tabs [data-tab]');
+        const buttons = navigationButtons(this), index = buttons.indexOf(current);
+        if (index < 0) return;
+        const next = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1
+          : (index + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length;
+        event.preventDefault();
+        const id = buttons[next].dataset.tab;
+        buttons[next].click(); // Preserve each card's existing navigation and request guards.
+        syncNavigation(this);
+        navigationButtons(this).find(button => button.dataset.tab === id)?.focus({preventScroll:true});
+      });
+    }
     // Only optional guidance is affected. Warnings, unknowns and setup errors stay visible.
     const helpKey = [name, 'options-help', config.instance_id || 'default', this._hass?.user?.id || 'anonymous'].join(':');
     if (this._helpStorageContextV5 !== helpKey) {
