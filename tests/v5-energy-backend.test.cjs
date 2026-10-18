@@ -45,6 +45,7 @@ function revisionHost() {
  card._hass.callWS=async req=>{
   calls.push(req);
   if(req.type==='ha_tools_email/get_tariff')return readHook?readHook():{profile:current,revision,updated_at:null};
+  if(req.type==='ha_tools_email/set_tariff'){assert.notEqual(req.expected_revision,revision);throw {code:'tariff_revision_conflict'};}
   assert.equal(req.type,'ha_tools_email/energy_price_queries');
   return {schema:1,profile_source:'shared',tariff_revision:revision,results:req.queries.map(q=>createEnergyTariffV3(current).priceBuckets(q.buckets))};
  };
@@ -88,4 +89,20 @@ for(const revision of [undefined,-1,1.5,'2',null])test(`malformed shared revisio
   assert.equal(s.mismatch,0);assert.equal(s.card._energyPriceStatusV5,'backend_unavailable');
   assert.equal(s.backend.priceBuckets([row()]).usageCost,null);await drain();assert.equal(s.calls.length,1);
  }finally{s.guard.dispose();}
+});
+
+test('automatic price refresh preserves a dirty editor baseline and its save still conflicts',async()=>{
+ const {JSDOM}=require('jsdom'),{createTariffSettingsV3}=require('../shared/ha-tools-tariff-settings.js');
+ const dom=new JSDOM('<div id="editor"></div>'),s=revisionHost();let editor;
+ try{
+  s.card._hass.user.is_admin=true;s.host.guard.observe();await s.host.load();
+  const state=s.card._tariffEditorState;state.draft.zones[0].energyRate=3;
+  s.card.isConnected=true;s.change();s.host.backend.priceBuckets([row()]);await drain();
+  assert.equal(s.host.snapshot().revision,2);assert.equal(s.host.backend.priceBuckets([row()]).usageCost,13.5);
+  assert.equal(state.revision,1);assert.equal(state.profile.zones[0].energyRate,2);assert.equal(state.draft.zones[0].energyRate,3);
+  editor=createTariffSettingsV3({root:dom.window.document.querySelector('#editor'),getHass:()=>s.card._hass,language:()=> 'en',state,validate:createEnergyTariffV3,guard:s.host.guard});
+  dom.window.document.querySelector('[data-action="save"]').click();await drain();
+  const writes=s.calls.filter(req=>req.type==='ha_tools_email/set_tariff');assert.equal(writes.length,1);assert.equal(writes[0].expected_revision,1);
+  assert.equal(state.writeUnconfirmed,true);assert.match(state.message,/conflict/i);assert.equal(state.draft.zones[0].energyRate,3);
+ }finally{editor?.dispose();s.host.guard.dispose();dom.window.close();}
 });
