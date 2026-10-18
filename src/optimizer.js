@@ -3578,10 +3578,11 @@ canvas {
           gap: 8px;
           border-bottom: 1px solid var(--divider);
           margin-bottom: 20px;
-          overflow-x: auto;
+          flex-wrap: wrap;
         }
 
         .tab-button {
+          min-height: 44px;
           padding: 8px 16px;
           border: none;
           background: none;
@@ -3866,8 +3867,12 @@ canvas {
 
           .tab-button {
             padding: 8px 12px;
-            font-size: 12px;
+            font-size: 14px;
           }
+        }
+        @container (max-width: 500px) {
+          .tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; }
+          .tab-button { min-width:0; white-space:normal; font-size:14px; padding:8px; }
         }
       
 /* ===== MOBILE RESPONSIVE TABLE STYLES ===== */
@@ -3952,10 +3957,8 @@ canvas {
     if (this._currentPowerW !== null && this._hass?.user?.id && this._hass?.connection?.connected !== false) return `<div class="summary-card power-draw"><div class="power-draw-unit">${t('Current Power Draw', 'Moc chwilowa')}</div><div class="power-draw-value">${createFormatUi(this._hass?.locale?.language || this._hass?.language || 'en').number(this._currentPowerW / 1000, {minimumFractionDigits:2, maximumFractionDigits:2})}</div><div class="power-draw-unit">kW</div></div>`;
     const sensors = Object.entries(this._hass?.states || {}).filter(([id, state]) => id.startsWith('sensor.') && ['W','kW'].includes(state?.attributes?.unit_of_measurement));
     const selected = sensors.some(([id]) => id === this._powerSetupEntityV4) ? this._powerSetupEntityV4 : '';
-    return `<div class="power-setup"><p data-power-status>${this._config.power_entity
-      ? t('Current power: configured sensor unavailable or has an unsupported unit. Check the sensor (W or kW).', 'Moc chwilowa: pomiar skonfigurowanego czujnika jest niedostępny lub ma nieobsługiwaną jednostkę. Sprawdź czujnik (W lub kW).')
-      : t('Current power: no sensor selected.', 'Moc chwilowa: nie wybrano czujnika.')}</p>
-      <details data-power-setup${this._powerSetupOpenV4 ? ' open' : ''}><summary>${t('Choose sensor', 'Wybierz czujnik')}</summary>
+    return `<div class="power-setup">${this._config.power_entity ? `<p data-power-status>${t('Current power: configured sensor unavailable or has an unsupported unit. Check the sensor (W or kW).', 'Moc chwilowa: pomiar skonfigurowanego czujnika jest niedostępny lub ma nieobsługiwaną jednostkę. Sprawdź czujnik (W lub kW).')}</p>` : ''}
+      <details data-power-setup${this._powerSetupOpenV4 ? ' open' : ''}><summary>${this._config.power_entity ? t('Choose sensor', 'Wybierz czujnik') : t('Instant power (optional) · Choose sensor', 'Moc chwilowa (opcjonalnie) · Wybierz czujnik')}</summary>
       <p>${t('Choose a power sensor below. Edit this card, open the code editor and add the selected setting, then save the card. This guide does not save card settings.', 'Wybierz czujnik mocy poniżej. Edytuj tę kartę, otwórz edytor kodu, dodaj wybrane ustawienie i zapisz kartę. Ten poradnik nie zapisuje ustawień karty.')}</p>
       <label>${t('Power sensor (W or kW)', 'Czujnik mocy (W lub kW)')}<select id="power-sensor-guide"><option value="">${t('Choose…', 'Wybierz…')}</option>${sensors.map(([id,state]) => `<option value="${_esc(id)}"${id === selected ? ' selected' : ''}>${_esc(state.attributes?.friendly_name || id)} (${_esc(id)})</option>`).join('')}</select></label>
       ${!sensors.length ? `<p>${t('No power sensors in W or kW were found in Home Assistant.', 'Nie znaleziono czujników mocy w W lub kW w Home Assistant.')}</p>` : ''}
