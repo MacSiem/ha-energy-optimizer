@@ -194,3 +194,14 @@ test('calendar formatter validates actual dates and keeps calendar-only days in 
   for(const value of ['2026-02-29','2026-04-31','2026-13-01','2026-00-01','2026-10-01T00:00:00Z',null])assert.equal(format.calendarDate(value),null);
  }
 });
+
+
+test('every explicit calendar rule date keeps its year while seasonal dates omit their artificial year',()=>{
+ const dto=fixture();dto.rates[0].profile.rules[0].dates=['2026-10-01','2026-11-01'];
+ dto.rates[0].profile.rules[0].season={from:'10-01',to:'11-01'};
+ withView(root=>{
+  const row=[...root.querySelectorAll('table')].find(table=>table.caption?.textContent==='Schedules and exceptions').querySelector('tbody tr');
+  assert.match(row.textContent,/Oct 1, 2026, Nov 1, 2026/);
+  assert.doesNotMatch(row.textContent,/2000/);
+ },dto,{section:'rates'},'en',createFormatUi('en','America/Los_Angeles'));
+});
