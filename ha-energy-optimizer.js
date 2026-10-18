@@ -1851,6 +1851,21 @@ this._installTariffConsumerV3();
         { maximumSignificantDigits: 12, useGrouping: false }).format(value === 0 ? 0 : value);
   }
 
+  _patternsDisplayNumberV5(value) {
+    return typeof value === 'number' && Number.isFinite(value)
+      ? createFormatUi.forHass(this._hass).number(value === 0 ? 0 : value, { maximumFractionDigits: 3 }) : this._patternsNumber(value);
+  }
+
+  _pointTechnicalDetailsV5(scope, row) {
+    const t = (en, pl) => this._text(en, pl);
+    const key = JSON.stringify([scope, row.id, row.from, row.to, row.source]);
+    const exact = value => typeof value === 'number' && Number.isFinite(value) ? String(value === 0 ? 0 : value) : t('Unavailable', 'Niedostępne');
+    return `<details data-energy-point-technical data-energy-period-key="${_esc(key)}"><summary>${t('Source and time details', 'Źródło i szczegóły czasu')}</summary>
+      <p>${_esc(row.source.join(', '))} · ${_esc(row.timezone)}</p>
+      <p>UTC: ${_esc(new Date(row.from).toISOString())} — ${_esc(new Date(row.to).toISOString())}</p>
+      <p data-energy-exact-values>${t('Exact measured values', 'Dokładne wartości zmierzone')}: ${_esc(exact(row.kwh))} kWh · ${t('Energy cost', 'Koszt energii')}: ${_esc(exact(row.energyCost))} ${_esc(row.currency || '')} · ${t('Variable fees', 'Opłaty zmienne')}: ${_esc(exact(row.variableCost))} ${_esc(row.currency || '')}</p>${row.priceMissing ? `<p>${_esc(row.priceMissing)}</p>` : ''}</details>`;
+  }
+
   _patternsRowLabel(row) {
     const format = createFormatUi.forHass(this._hass);
     return this._patternsState.resolution === 'day' ? format.date(row.from) : format.pointLabel(row.from);
@@ -1858,15 +1873,14 @@ this._installTariffConsumerV3();
 
   _patternsDetail(row) {
     if (!row) return this._text('No measured rows in this window.', 'Brak pomiarów w tym okresie.');
-    const cost = field => `${this._patternsNumber(row[field])} ${_esc(row.currency || '')}`;
-    return `<strong>${_esc(this._patternsRowLabel(row))}</strong><br>${_esc(new Date(row.from).toISOString())} — ${_esc(new Date(row.to).toISOString())}<br>
-      ${_esc(row.timezone)} · ${_esc(row.source.join(', '))}<br>
-      ${this._text('Consumption', 'Zużycie')}: ${_esc(this._patternsNumber(row.kwh))} kWh ·
+    const cost = field => `${this._patternsDisplayNumberV5(row[field])} ${_esc(row.currency || '')}`;
+    return `<strong>${_esc(this._patternsRowLabel(row))}</strong><br>
+      ${this._text('Consumption', 'Zużycie')}: ${_esc(this._patternsDisplayNumberV5(row.kwh))} kWh ·
       ${this._text('Energy cost', 'Koszt energii')}: ${cost('energyCost')} ·
       ${this._text('Variable fees', 'Opłaty zmienne')}: ${cost('variableCost')}<br>
       ${row.missing ? this._text('Missing measurement or partial day', 'Brak pomiaru lub niepełny dzień') : this._text('Measured', 'Zmierzone')}
       ${row.priceMissing ? ' · ' + this._text('Price unavailable', 'Cena niedostępna') + ': ' + _esc(this._patternsPriceReason(row.priceMissing)) : ''}
-      ${row.variableMissing && !row.priceMissing ? ' · ' + this._text('Variable fee unavailable', 'Opłata zmienna niedostępna') : ''}`;
+      ${row.variableMissing && !row.priceMissing ? ' · ' + this._text('Variable fee unavailable', 'Opłata zmienna niedostępna') : ''}${this._pointTechnicalDetailsV5('patterns', row)}`;
   }
 
   _patternsPriceReason(reason) {
@@ -1928,11 +1942,13 @@ this._installTariffConsumerV3();
     const selected = rows.find(r => r.id === state.selected);
     return `<section class="patterns-measured" aria-label="${t('Measured patterns', 'Zmierzone wzorce')}">
       <h3>${t('Your measured consumption', 'Twoje zmierzone zużycie')}</h3>
+      <p data-pattern-range data-pattern-source-summary>Energy Dashboard · ${t('Sources', 'Źródła')}: ${_esc(format.number(data.source.length))} · ${data.from === null ? t('No data', 'Brak danych') : `${_esc(format.range(new Date(data.from).toISOString(), new Date(data.to).toISOString()))} · ${_esc(format.timeZone)}`} · ${data.hours.filter(r => !r.missing).length}/${data.hours.length} ${t('measured hours', 'zmierzonych godzin')}</p>
+      ${!data.source.length || data.partialWindow || data.hours.some(r => r.missing) ? `<p data-pattern-coverage-warning role="status">${!data.source.length ? t('No Energy Dashboard grid source', 'Brak źródła sieciowego Energy Dashboard') + ' · ' : ''}${data.partialWindow ? t('Partial window', 'Niepełny okres') + ' · ' : ''}${data.hours.some(r => r.missing) ? t('Missing measurement or partial day', 'Brak pomiaru lub niepełny dzień') : ''}</p>` : ''}
+      <details data-pattern-source data-energy-period-key="${_esc(JSON.stringify(['patterns-source', data.source, data.from, data.to]))}"><summary>${t('Source and time details', 'Źródło i szczegóły czasu')}</summary>
       <p>${_esc(data.source.join(', ') || t('No Energy Dashboard grid source', 'Brak źródła sieciowego Energy Dashboard'))} · ${_esc(data.timezone)}</p>
-      <p data-pattern-range>${data.from === null ? t('No data', 'Brak danych') : `${_esc(format.range(new Date(data.from).toISOString(), new Date(data.to).toISOString()))} · ${_esc(format.timeZone)}`}</p>
-      <p>${data.availableDays}/${data.requestedDays} ${t('loaded local dates', 'wczytanych dat lokalnych')}${data.partialWindow ? ' · ' + t('Partial window', 'Niepełny okres') : ''}.
-      ${data.hours.filter(r => !r.missing).length}/${data.hours.length} ${t('measured hours', 'zmierzonych godzin')}.
-      ${t('Only complete local days are totalled. Measured hours remain available on partial dates. DST clock gaps have no bucket; repeated hours retain UTC offsets.', 'Sumujemy tylko pełne dni lokalne. Zmierzone godziny niepełnych dat pozostają dostępne. Luki po zmianie czasu nie mają przedziału; powtórzone godziny zachowują przesunięcie UTC.')}</p>
+      ${data.from === null ? '' : `<p>UTC: ${_esc(new Date(data.from).toISOString())} — ${_esc(new Date(data.to).toISOString())}</p>`}
+      <p>${data.availableDays}/${data.requestedDays} ${t('loaded local dates', 'wczytanych dat lokalnych')}.
+      ${t('Only complete local days are totalled. Measured hours remain available on partial dates. DST clock gaps have no bucket; repeated hours retain UTC offsets.', 'Sumujemy tylko pełne dni lokalne. Zmierzone godziny niepełnych dat pozostają dostępne. Luki po zmianie czasu nie mają przedziału; powtórzone godziny zachowują przesunięcie UTC.')}</p></details>
       <div class="patterns-controls">
         <label>${t('Period', 'Okres')}<select data-pattern-control="period">${option(7, state.period, t('7 days', '7 dni'))}${option(30, state.period, t('30 days (loaded data)', '30 dni (wczytane dane)'))}</select></label>
         <label>${t('Resolution', 'Przedziały')}<select data-pattern-control="resolution">${option('day', state.resolution, t('Daily trend', 'Trend dzienny'))}${option('hour', state.resolution, t('Hours of selected date', 'Godziny wybranej daty'))}</select></label>
@@ -1968,10 +1984,13 @@ this._installTariffConsumerV3();
     const weekdayDetails = panel.querySelector('[data-pattern-weekdays]');
     weekdayDetails?.addEventListener('toggle', () => { state.weekdaysOpen = weekdayDetails.open; });
     const redraw = (focus, reuseProjection = true) => {
+      const format = createFormatUi(), context = this._getTariffHostV3().guard.snapshot();
+      const details = format.capturePeriods(panel, context, context);
       this._patternsResize?.disconnect();
       panel.innerHTML = this._patternsMarkup(reuseProjection);
       this._bindPatterns();
       panel.querySelector(`[data-pattern-control="${focus}"]`)?.focus();
+      format.restorePeriods(this.shadowRoot, details);
     };
     panel.querySelectorAll('select[data-pattern-control]').forEach(el => el.addEventListener('change', () => {
       const field = el.dataset.patternControl;
@@ -2897,7 +2916,7 @@ canvas {
         <tbody>${rows.map((row, index) => `<tr data-dashboard-row="${_esc(row.id)}" data-kwh="${row.kwh === null ? 'null' : row.kwh}"><th scope="row">${_esc(this._dashboardLabelV3(row))}<br><small>${_esc(new Date(row.from).toISOString())} — ${_esc(new Date(row.to).toISOString())}</small></th><td>${_esc(number(row))}</td><td data-tariff-zone>${_esc(tariff.items[index].label)}</td></tr>`).join('')}</tbody>
       </table></div>`}
       <div class="patterns-controls"><label>${t('Point details (arrows, Home / End)', 'Szczegóły punktu (strzałki, Home / End)')}<select data-dashboard-control="point" ${rows.length ? '' : 'disabled'}>${rows.map(row => `<option value="${_esc(row.id)}" ${row.id === state.selected ? 'selected' : ''}>${_esc(this._dashboardLabelV3(row))}</option>`).join('')}</select></label></div>
-      <p data-dashboard-detail role="status" aria-live="polite">${selected ? `${_esc(this._dashboardLabelV3(selected))}<br>${_esc(new Date(selected.from).toISOString())} — ${_esc(new Date(selected.to).toISOString())}<br>${_esc(number(selected))}<br>${_esc(this._dashboardTariffV4([selected]).items[0].label)}${selected.priceMissing ? '<br>' + _esc(selected.priceMissing) : ''}` : t('No completed intervals.', 'Brak zakończonych przedziałów.')}</p>
+      <div data-dashboard-detail role="status" aria-live="polite">${selected ? `${_esc(this._dashboardLabelV3(selected))}<br>${_esc(selected.kwh === null ? t('No measurement', 'Brak pomiaru') : this._patternsDisplayNumberV5(selected.kwh) + ' kWh')}<br>${_esc(this._dashboardTariffV4([selected]).items[0].label)}${selected.priceMissing ? '<br>' + _esc(this._patternsPriceReason(selected.priceMissing)) : ''}${this._pointTechnicalDetailsV5('dashboard', selected)}` : t('No completed intervals.', 'Brak zakończonych przedziałów.')}</div>
     </section>`;
   }
 
@@ -2905,10 +2924,13 @@ canvas {
     const section = this.shadowRoot.querySelector('[data-dashboard-chart-section]');
     if (!section) return;
     const redraw = key => {
+      const format = createFormatUi(), context = this._getTariffHostV3().guard.snapshot();
+      const details = format.capturePeriods(section, context, context);
       this._destroyChart('dashboard');
       section.outerHTML = this._dashboardChartMarkupV3();
       this._bindDashboardChartV3();
       this.shadowRoot.querySelector(`[data-dashboard-control="${key}"]`)?.focus({ preventScroll: true });
+      format.restorePeriods(this.shadowRoot, details);
       if (this._dashboardStateV3.view === 'chart') this._drawDashboardChart();
     };
     section.querySelectorAll('button[data-dashboard-control]').forEach(button => button.addEventListener('click', () => {
@@ -5697,25 +5719,26 @@ this._installTariffConsumerV3();
       const format = createFormatUi.forHass(this._hass);
       return row.hour == null ? format.date(row.from) : format.pointLabel(row.from);
     }
-    _insightTechnicalDetailsV5(key, from, to, timezone, sources) {
+    _insightTechnicalDetailsV5(key, from, to, timezone, sources, exactValues = '') {
       const t = (en, pl) => this._insightTextV3(en, pl);
       const identity = JSON.stringify([key, from, to, sources]);
       const open = this._insightTechnicalOpenV5?.has(identity) ? ' open' : '';
       return `<details data-insights-source-details="${_esc(identity)}"${open}><summary>${t('Source and time details', 'Źródło i szczegóły czasu')}</summary><dl>
         <dt>${t('Sources', 'Źródła')}</dt><dd>${_esc(sources.join(', '))}</dd>
         <dt>${t('Exact interval (UTC)', 'Dokładny przedział (UTC)')}</dt><dd>${_esc(new Date(from).toISOString())} — ${_esc(new Date(to).toISOString())}</dd>
-        <dt>${t('Measurement time zone', 'Strefa czasowa pomiaru')}</dt><dd>${_esc(timezone)}</dd></dl></details>`;
+        <dt>${t('Measurement time zone', 'Strefa czasowa pomiaru')}</dt><dd>${_esc(timezone)}</dd></dl>${exactValues}</details>`;
     }
     _insightRowDetailV3(row, scope = 'point') {
       if (!row) return this._insightTextV3('No completed intervals in this window.', 'Brak zakończonych przedziałów w tym okresie.');
-      const t = (en, pl) => this._insightTextV3(en, pl), n = value => _esc(this._insightNumberV3(value));
+      const t = (en, pl) => this._insightTextV3(en, pl), n = value => _esc(scope === 'data' ? this._insightNumberV3(value) : this._insightDisplayNumberV3(value));
+      const exact = `<p data-insights-exact-values>${t('Exact measured values', 'Dokładne wartości zmierzone')}: ${_esc(this._insightNumberV3(row.kwh))} kWh · ${t('Energy cost', 'Koszt energii')}: ${_esc(this._insightNumberV3(row.energyCost))} ${_esc(row.currency || '')} · ${t('Variable fees', 'Opłaty zmienne')}: ${_esc(this._insightNumberV3(row.variableCost))} ${_esc(row.currency || '')}${row.missing && row.recordedKwh !== null ? ' · ' + t('Measured subset', 'Zmierzona część') + ': ' + _esc(this._insightNumberV3(row.recordedKwh)) + ' kWh' : ''}</p>`;
       const count = createFormatUi.forHass(this._hass).number(row.source.length);
       return `<strong>${_esc(this._insightRowLabelV3(row))}</strong><p data-insights-source-count>${t('Sources', 'Źródła')}: ${_esc(count)}</p>
         <p>${t('Consumption', 'Zużycie')}: ${n(row.kwh)} kWh · ${t('Energy cost', 'Koszt energii')}: ${n(row.energyCost)} ${_esc(row.currency || '')} · ${t('Variable fees', 'Opłaty zmienne')}: ${n(row.variableCost)} ${_esc(row.currency || '')}</p>
         <p>${row.measuredHours}/${row.hours} ${t('measured hours', 'zmierzonych godzin')} · ${row.missing ? t('Partial / missing', 'Niepełne / brak') : t('Measured', 'Zmierzone')}
           ${row.missing && row.recordedKwh !== null ? ` · ${t('Measured subset', 'Zmierzona część')}: ${n(row.recordedKwh)} kWh` : ''}
           ${row.priceMissing ? ' · ' + t('Tariff coverage unavailable', 'Brak pokrycia taryfą') : ''}</p>
-        ${this._insightTechnicalDetailsV5(`${scope}:${row.id}`, row.from, row.to, row.timezone, row.source)}`;
+        ${this._insightTechnicalDetailsV5(`${scope}:${row.id}`, row.from, row.to, row.timezone, row.source, exact)}`;
     }
     _insightSvgV3(width = 600) {
       const rows = this._insightChartRowsV3(), state = this._insightChartState;
