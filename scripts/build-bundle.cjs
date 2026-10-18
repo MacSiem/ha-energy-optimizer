@@ -20,6 +20,14 @@ const provenance = { path: sharedPath, sha256: digest(shared), inlineSha256: dig
 const matches = [...sources[2].matchAll(/\/\/ BEGIN vendored ha-tools-email-schedules factory\n([\s\S]*?)\/\/ END vendored ha-tools-email-schedules factory/g)];
 if (matches.length !== 1 || matches[0][1] !== inline || JSON.stringify(manifest.sharedEmailSchedules) !== JSON.stringify(provenance))
   throw new Error('Schedules factory source/provenance mismatch; run scripts/sync-email-schedules.cjs --write');
+const optionsPath = 'shared/ha-tools-energy-card-options.js';
+const optionsSource = fs.readFileSync(path.join(root, optionsPath), 'utf8');
+const optionsProvenance = { path: optionsPath, sha256: digest(optionsSource) };
+if (JSON.stringify(manifest.sharedCardOptions) !== JSON.stringify(optionsProvenance)) throw new Error('Card options provenance mismatch; run scripts/sync-card-options.cjs --write');
+for (const source of sources.slice(0, 3)) {
+  const embedded = source.match(/\/\/ HA_ENERGY_CARD_OPTIONS_V5_START\n([\s\S]*?)\/\/ HA_ENERGY_CARD_OPTIONS_V5_END/);
+  if (!embedded || embedded[1] !== optionsSource) throw new Error('Card options source parity mismatch');
+}
 const bundle = sources.join('');
 const artifact = path.join(root, 'ha-energy-optimizer.js');
 if (process.argv.includes('--write')) fs.writeFileSync(artifact, bundle);

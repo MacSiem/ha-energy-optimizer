@@ -1291,7 +1291,7 @@ this._installTariffConsumerV3();
         const now = Date.now();
         if (!this._firstHassRender) {
           this._firstHassRender = true;
-          if (!this._optionsConfigV5) this._activeTab = localStorage.getItem('ha-tools-energy-insights-active-tab') || 'overview';
+          if (!this._optionsConfigV5?.default_tab) this._activeTab = localStorage.getItem('ha-tools-energy-insights-active-tab') || 'overview';
           this._loadChartJs();
           this._fetchData();
           this._render();
@@ -2417,7 +2417,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   Card.prototype.setConfig = function(config = {}) {
     validate(config);
     const previous = this._optionsConfigV5;
-    const changed = !previous || previous.default_tab !== config.default_tab;
+    const changed = previous ? previous.default_tab !== config.default_tab : config.default_tab !== undefined;
     this._optionsConfigV5 = { ...config };
     if (previous && previous.compact !== config.compact) { this._optionsExpandedV5 = false; this._domBuilt = false; }
     if (this._config) {
@@ -2505,7 +2505,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     Card.prototype[method] = function(...args) {
       const rows = original.apply(this,args);
       const hour = method === '_dashboardRowsV3' || (method === '_patternsRows' ? this._patternsState?.resolution === 'hour' : this._insightChartState?.resolution === 'hour');
-      return hour ? this._limitChartRowsV5(rows) : rows;
+      return hour && args[0] !== false ? this._limitChartRowsV5(rows) : rows;
     };
   }
   for (const method of ['_updateContent','_renderTab','_renderCurrentTab']) {
