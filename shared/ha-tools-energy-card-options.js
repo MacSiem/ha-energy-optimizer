@@ -1,4 +1,4 @@
-// Presentation-only card options. No pricing, storage, backend writes or requests.
+// Presentation-only card options. Only UI preferences are stored locally; no pricing, backend writes or requests.
 function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) {
   const key = name === 'ha-energy-optimizer' ? '_currentTab' : '_activeTab';
   const pl = host => String(host._hass?.locale?.language || host._hass?.language || navigator.language || '').startsWith('pl');
@@ -73,22 +73,55 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     for (const option of root.querySelectorAll('.energy-tab-picker option, #email-tab-select option')) { option.hidden = !allowed.includes(option.value); option.disabled = option.hidden; }
     for (const select of root.querySelectorAll('.energy-tab-picker select, #email-tab-select')) select.value = this[key];
     // Only optional guidance is affected. Warnings, unknowns and setup errors stay visible.
+    const helpKey = [name, 'options-help', config.instance_id || 'default', this._hass?.user?.id || 'anonymous'].join(':');
+    if (this._helpStorageContextV5 !== helpKey) {
+      this._helpStorageContextV5 = helpKey;
+      this._helpManualOpenV5 = null; // null = responsive default; booleans = explicit gestures.
+      try {
+        const saved = localStorage.getItem(helpKey);
+        if (saved === 'closed' || saved === 'open') this._helpManualOpenV5 = saved === 'open';
+      } catch (_) { /* In-memory manual choice still works when storage is unavailable. */ }
+    }
     let help = root.querySelector('[data-energy-options-help]');
     if (!help && root.children.length) {
       const css = document.createElement('style'); css.textContent = style; root.append(css);
       help = document.createElement('details'); help.dataset.energyOptionsHelp = '';
-      help.innerHTML = '<summary></summary><p></p>'; root.append(help);
-      help.addEventListener('toggle', event => { if (event.isTrusted && help.open !== this._helpDefaultOpenV5) this._helpManualOpenV5 = help.open; });
-      help.querySelector('summary').addEventListener('click', () => { this._helpManualOpenV5 = !help.open; });
+      help.innerHTML = '<summary></summary><p></p>';
+      // Native keyboard activation also produces a summary click. Record intent before
+      // the browser changes `open`; programmatic/queued toggle events never save state.
+      help.querySelector('summary').addEventListener('click', () => {
+        if (root.querySelector('[data-energy-options-help]') !== help) return;
+        this._helpManualOpenV5 = !help.open;
+        try { localStorage.setItem(this._helpStorageContextV5, this._helpManualOpenV5 ? 'open' : 'closed'); }
+        catch (_) { /* Preserve the explicit choice for this element. */ }
+      });
     }
     if (!help) return;
+    // Keep this disclosure immediately after the header, before both the narrow
+    // picker and the normal tabs. Move an existing node only when its anchor changes.
+    const header = root.querySelector('.panel-header, .header, .card-title');
+    const navigation = root.querySelector('.energy-tab-picker, .email-tab-picker, .tabs');
+    if (header) {
+      if (header.nextElementSibling !== help) header.after(help);
+    } else if (navigation) {
+      if (help.nextElementSibling !== navigation) navigation.before(help);
+    } else if (help.parentNode !== root) root.append(help);
     help.hidden = config.show_help === false;
     help.querySelector('summary').textContent = t(this, 'Help', 'Pomoc');
     help.querySelector('p').textContent = t(this, 'Card options change the view only. N/A means unavailable data. Hour limits apply to hourly charts, without changing calendar periods, measurements or tariff prices.', 'Opcje karty zmieniają tylko widok. N/A oznacza brak danych. Limit godzin dotyczy wykresów godzinowych, bez zmiany okresów kalendarza, pomiarów ani cen taryfy.');
-    const resize = width => { this._helpDefaultOpenV5 = width >= 600; help.open = this._helpManualOpenV5 ?? this._helpDefaultOpenV5; };
-    resize(this.getBoundingClientRect().width);
-    this._optionsResizeV5?.disconnect();
-    if (typeof ResizeObserver === 'function') { this._optionsResizeV5 = new ResizeObserver(entries => resize(entries[0].contentRect.width)); this._optionsResizeV5.observe(this); }
+    this._helpResizeV5 = width => {
+      // A queued callback from a discarded render cannot update its detached disclosure.
+      if (root.querySelector('[data-energy-options-help]') !== help) return;
+      this._helpDefaultOpenV5 = width >= 600;
+      help.open = this._helpManualOpenV5 ?? this._helpDefaultOpenV5;
+    };
+    this._helpResizeV5(this.getBoundingClientRect().width);
+    if (typeof ResizeObserver === 'function') {
+      if (!this._optionsResizeV5) this._optionsResizeV5 = new ResizeObserver(entries => {
+        if (entries[0]) this._helpResizeV5?.(entries[0].contentRect.width);
+      });
+      this._optionsResizeV5.observe(this); // Idempotent; resumes observation after reconnect.
+    }
   };
   // Hour limits slice the presentation array, retaining source records and stable IDs.
   Card.prototype._limitChartRowsV5 = function(rows) {
