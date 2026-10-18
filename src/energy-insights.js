@@ -33,6 +33,28 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     return labels.map((label, index) => counts.get(label) < 2 ? label : resolution === 'day' ? pointLabel(values[index])
       : `${showDate ? date(values[index], true) + ' ' : ''}${clock(values[index], true)}`);
   };
+  // Compact 24-hour axis notation follows the display zone; full point labels
+  // keep the user's clock/date preferences. Never move or discard measurements.
+  const chartTicks = (values, resolution = 'hour') => {
+    const labels = chartLabels(values, resolution);
+    const shortHourly = resolution === 'hour' && values.length > 1 && stamp(values.at(-1)) - stamp(values[0]) <= 26 * 3600000;
+    if (!shortHourly) return [...new Set([0, Math.floor((values.length-1)/2), values.length-1])]
+      .filter(index => index >= 0 && index < values.length).map(index => ({index, label:labels[index]}));
+    const parts = new Intl.DateTimeFormat('en-GB-u-nu-latn', {timeZone, hour:'2-digit', minute:'2-digit', hourCycle:'h23'});
+    const ticks = [];
+    values.forEach((value, index) => {
+      const time = stamp(value);
+      if (!Number.isFinite(time)) return;
+      const fields = Object.fromEntries(parts.formatToParts(time).map(part => [part.type, part.value]));
+      if (Number(fields.hour) % 3 !== 0) return;
+      const label = localized(value, {hour:'2-digit', ...(fields.minute === '00' ? {} : {minute:'2-digit'}), hourCycle:'h23'});
+      ticks.push({index, label});
+    });
+    if (!ticks.length) return values.length ? [{index:0, label:labels[0]}] : [];
+    const counts = new Map();
+    for (const tick of ticks) counts.set(tick.label, (counts.get(tick.label) || 0) + 1);
+    return ticks.map(tick => counts.get(tick.label) === 1 ? tick : {...tick, label:clock(values[tick.index], true)});
+  };
   const key = JSON.stringify([language, timeZone, hourCycle, dateLanguage]);
   const numbers = new Intl.NumberFormat(language);
   const plurals = new Intl.PluralRules(language);
@@ -78,7 +100,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
       if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
     }
   };
-  return {timeZone, key, clock, date, pointLabel, chartLabels, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
+  return {timeZone, key, clock, date, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
 // Presentation follows the HA profile; measurement and tariff calendars remain separate.
 createFormatUi.forHass = hass => {
@@ -1996,8 +2018,7 @@ this._installTariffConsumerV3();
       });
       flush();
       const grid = [low, (low + upper) / 2, upper].map(value => `<line x1="${left}" x2="${right}" y1="${y(value)}" y2="${y(value)}" stroke="var(--bento-border)"/><text x="${left-6}" y="${y(value)+4}" text-anchor="end">${_esc(new Intl.NumberFormat(this._lang, { maximumSignificantDigits: 3 }).format(value))}</text>`).join('');
-      const labels = createFormatUi.forHass(this._hass).chartLabels(rows.map(row => row.from), state.resolution);
-      const axes = [0, Math.floor((rows.length-1)/2), rows.length-1].filter((i, index, all) => i >= 0 && all.indexOf(i) === index).map(i => `<text x="${x(i)}" y="242" text-anchor="middle">${_esc(labels[i])}</text>`).join('');
+      const axes = createFormatUi.forHass(this._hass).chartTicks(rows.map(row => row.from), state.resolution).map(tick => `<text x="${x(tick.index)}" y="242" text-anchor="middle">${_esc(tick.label)}</text>`).join('');
       return `<svg data-insights-chart data-unit="${_esc(unit)}" viewBox="0 0 ${w} 262" width="100%" height="262" role="img" aria-label="${_esc(metricLabel)} · ${_esc(unit)}; ${this._insightTextV3('use point controls below for exact values', 'dokładne wartości w wyborze punktu poniżej')}"><text x="${left}" y="18">${_esc(unit)}</text>${grid}${marks}${axes}</svg>`;
     }
     _renderInsightChartV3(period) {

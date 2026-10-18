@@ -2,6 +2,8 @@
 
 ## 4.0.0 (Unreleased)
 
+- Align compact hourly chart axes to the user display zone at three-hour clock marks; retain every measurement, full tooltip date and Data value.
+
 - Refresh confirmed prices after a shared tariff changes while preserving unsaved drafts and their revision conflict protection.
 - Keep the measurement time zone in source details while chart labels follow the user’s display settings.
 - Register Energy Insights once when its script loads again, preserving other custom cards.

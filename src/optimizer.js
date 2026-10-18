@@ -24,6 +24,28 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     return labels.map((label, index) => counts.get(label) < 2 ? label : resolution === 'day' ? pointLabel(values[index])
       : `${showDate ? date(values[index], true) + ' ' : ''}${clock(values[index], true)}`);
   };
+  // Compact 24-hour axis notation follows the display zone; full point labels
+  // keep the user's clock/date preferences. Never move or discard measurements.
+  const chartTicks = (values, resolution = 'hour') => {
+    const labels = chartLabels(values, resolution);
+    const shortHourly = resolution === 'hour' && values.length > 1 && stamp(values.at(-1)) - stamp(values[0]) <= 26 * 3600000;
+    if (!shortHourly) return [...new Set([0, Math.floor((values.length-1)/2), values.length-1])]
+      .filter(index => index >= 0 && index < values.length).map(index => ({index, label:labels[index]}));
+    const parts = new Intl.DateTimeFormat('en-GB-u-nu-latn', {timeZone, hour:'2-digit', minute:'2-digit', hourCycle:'h23'});
+    const ticks = [];
+    values.forEach((value, index) => {
+      const time = stamp(value);
+      if (!Number.isFinite(time)) return;
+      const fields = Object.fromEntries(parts.formatToParts(time).map(part => [part.type, part.value]));
+      if (Number(fields.hour) % 3 !== 0) return;
+      const label = localized(value, {hour:'2-digit', ...(fields.minute === '00' ? {} : {minute:'2-digit'}), hourCycle:'h23'});
+      ticks.push({index, label});
+    });
+    if (!ticks.length) return values.length ? [{index:0, label:labels[0]}] : [];
+    const counts = new Map();
+    for (const tick of ticks) counts.set(tick.label, (counts.get(tick.label) || 0) + 1);
+    return ticks.map(tick => counts.get(tick.label) === 1 ? tick : {...tick, label:clock(values[tick.index], true)});
+  };
   const key = JSON.stringify([language, timeZone, hourCycle, dateLanguage]);
   const numbers = new Intl.NumberFormat(language);
   const plurals = new Intl.PluralRules(language);
@@ -69,7 +91,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
       if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
     }
   };
-  return {timeZone, key, clock, date, pointLabel, chartLabels, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
+  return {timeZone, key, clock, date, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : numbers.format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
 // Presentation follows the HA profile; measurement and tariff calendars remain separate.
 createFormatUi.forHass = hass => {
@@ -1886,9 +1908,7 @@ this._installTariffConsumerV3();
     const ticks = [low, (low + upper) / 2, upper];
     const grid = ticks.map(v => `<line x1="${left}" x2="${right}" y1="${y(v)}" y2="${y(v)}" stroke="var(--bento-border)"/><text x="${left-8}" y="${y(v)+5}" text-anchor="end">${_esc(Number(v.toPrecision(4)))}</text>`).join('');
     const format = createFormatUi.forHass(this._hass);
-    const labels = format.chartLabels(rows.map(row => row.from), state.resolution);
-    const label = i => labels[i];
-    const axis = rows.length ? [0, Math.floor((rows.length-1)/2), rows.length-1].filter((v,i,a) => a.indexOf(v) === i).map(i => `<text x="${x(i)}" y="220" text-anchor="middle">${_esc(label(i))}</text>`).join('') : '';
+    const axis = format.chartTicks(rows.map(row => row.from), state.resolution).map(tick => `<text x="${x(tick.index)}" y="220" text-anchor="middle">${_esc(tick.label)}</text>`).join('');
     return `<svg data-pattern-chart data-unit="${_esc(unit)}" viewBox="0 0 ${w} ${h}" width="100%" height="250" role="img" aria-label="${_esc(this._text('Measured series; choose a row below for details', 'Seria pomiarowa; wybierz poniżej wiersz ze szczegółami'))}">
       <text x="${left}" y="17">${_esc(unit)}</text>${grid}${marks}${axis}${!known.length ? `<text x="${(left+right)/2}" y="110" text-anchor="middle">${this._text('No data', 'Brak danych')}</text>` : ''}</svg>`;
   }
@@ -2919,6 +2939,7 @@ canvas {
       const rows = this._dashboardRowsV3();
       const format = createFormatUi.forHass(this._hass);
       const labels = format.chartLabels(rows.map(row => row.from));
+      const axisTicks = new Map(format.chartTicks(rows.map(row => row.from)).map(tick => [tick.index, tick.label]));
       const data = rows.map(row => row.kwh);
 
       const chartConfig = {
@@ -2965,7 +2986,7 @@ canvas {
             x: {
               ticks: {
                 autoSkip: false, minRotation: 0, maxRotation: 0,
-                callback(value) { return Number(value) % 3 === 0 ? this.getLabelForValue(value) : ''; }
+                callback(value) { return axisTicks.get(Number(value)) || ''; }
               },
               title: {
                 display: true,
