@@ -4936,7 +4936,14 @@ this._installTariffConsumerV3();
     }
 
     connectedCallback() {
-      if(this._hass) {this._analysisHostV53?.observe();queueMicrotask(()=>{if(this.isConnected)this._render();});}
+      if(this._hass) {
+      this._analysisHostV53?.observe();
+      queueMicrotask(()=>{
+        if(!this.isConnected || !this._analysisIsActiveV53())return;
+        if(this.shadowRoot?.querySelector('[data-analysis-mount-v53]'))this._syncAnalysisV53();
+        else this._render();
+      });
+    }
       if (this._tariffHostController) {
         this._tariffHostController.guard.resume();
         // Reconfirm shared prices for this mount; reuse settled measurements.
