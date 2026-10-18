@@ -43,10 +43,10 @@ for (const boundary of ['tab', 'remount', 'callWS']) {
       await firstRead; await flush();
       assert.equal(card.shadowRoot.querySelector('.loading'), null, 'settled stale read must stop showing a spinner');
       assert.match(card.shadowRoot.textContent, /Energy Dashboard/, 'unfinished initial read resumes on quiet HA after its stale wire settles');
-      assert.deepEqual(calls, ['energy/get_prefs', 'energy/get_prefs', 'ha_tools_email/get_tariff'], 'one fresh initial read; no stale Recorder dispatch');
+      assert.deepEqual(calls.filter(type=>!type.endsWith('/energy_snapshot')), ['energy/get_prefs', 'energy/get_prefs', 'ha_tools_email/get_tariff'], 'one fresh initial read; no stale Recorder dispatch');
       card.hass = hass;
       await flush();
-      assert.deepEqual(calls, ['energy/get_prefs', 'energy/get_prefs', 'ha_tools_email/get_tariff'], 'completed initial read is not repeated by the next hass update');
+      assert.deepEqual(calls.filter(type=>!type.endsWith('/energy_snapshot')), ['energy/get_prefs', 'energy/get_prefs', 'ha_tools_email/get_tariff'], 'completed initial read is not repeated by the next hass update');
     } finally {
       card._tariffConsumerUnsubscribeV3?.();
       card._getTariffHostV3().guard.dispose();

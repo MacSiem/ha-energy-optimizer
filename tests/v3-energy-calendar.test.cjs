@@ -1,9 +1,10 @@
 // Tests first against maintained source. Owner runs through run_build_receipt.py; zero live HA/SMTP.
 'use strict';
+const {energyBackend,drainBackend}=require('./helpers/energy-backend-fixture.cjs');
 const { test } = require('node:test'); const assert = require('node:assert/strict');
 const { JSDOM } = require('jsdom'); const fs = require('node:fs'); const path = require('node:path');
 const source = fs.readFileSync(path.join(__dirname, '../src/energy-email.js'), 'utf8');
-const settle = async () => { for (let i=0;i<30;i++) await Promise.resolve(); };
+const settle = drainBackend;
 const deferred = () => { let resolve; const promise = new Promise(r=>resolve=r); return { promise, resolve }; };
 const row = extra => ({ id: 'energy-existing', kind: 'energy_report', cadence: 'weekly', weekday: 0, enabled: false,
   time: '08:30', recipients: ['old@example.invalid'], effective_timezone: 'Europe/Warsaw', next_fire: null, ...extra });
@@ -158,12 +159,12 @@ const tariffFixtureProfile = {schema:1,name:'Fixture',currency:'CHF',timezone:'U
 async function confirmedTariffFixture(t, nextRead) {
  const f=fixture(t);const original=f.hass.callWS;let reads=0;
  f.hass.config.currency='PLN';f.card._config.energy_price=0.7;
- f.hass.callWS=async msg=>{
+ f.hass.callWS=energyBackend(f.card,async msg=>{
   if(msg.type!=='ha_tools_email/get_tariff')return original(msg);
   f.calls.push(msg);reads++;
   return reads===1?{profile:tariffFixtureProfile,revision:4,updated_at:null}:nextRead();
- };
- await f.card._loadSharedTariffProfile();f.card._render();
+ });
+ await f.card._loadSharedTariffProfile();f.card._render();await settle();
  assert.match(f.root.getElementById('price-display').textContent,/CHF Fixture/);
  return f;
 }

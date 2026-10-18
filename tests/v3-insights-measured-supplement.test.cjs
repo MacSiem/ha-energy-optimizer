@@ -1,5 +1,6 @@
 // Post-runtime source-only supplement. Not part of tests-first evidence; NOT executed.
 'use strict';
+const {energyBackend,drainBackend}=require('./helpers/energy-backend-fixture.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
@@ -7,7 +8,7 @@ const { join } = require('node:path');
 const { JSDOM } = require('jsdom');
 const code = ['src/optimizer.js', 'src/energy-insights.js', 'src/energy-email.js', 'src/chart-vendor.js'].map(p => readFileSync(join(__dirname, '..', p), 'utf8')).join('');
 const H = 3600000;
-const flush = async () => { for (let i = 0; i < 40; i++) await Promise.resolve(); };
+const flush = drainBackend;
 async function setup() {
   const dom = new JSDOM('', { runScripts: 'dangerously', url: 'http://localhost/' });
   const NativeDate = dom.window.Date, now = Date.parse('2026-10-13T12:00Z');
@@ -31,7 +32,7 @@ async function setup() {
   // Lifecycle observer only; no invented geometry, dimensions or layout acceptance.
   dom.window.ResizeObserver = class { constructor(callback) { this.callback = callback; observers.push(this); } observe(target) { this.target = target; } disconnect() { this.disconnected = true; } };
   const connection = new dom.window.EventTarget(); connection.connected = true;
-  card._hass = { user: { id: 'u', is_admin: true }, connection, language: 'en', locale: { language: 'en' }, config: { time_zone: 'UTC', currency: 'EUR' }, states: {}, callWS: req => { calls.push(req); return delegate(req); } };
+  card._hass = { user: { id: 'u', is_admin: true }, connection, language: 'en', locale: { language: 'en' }, config: { time_zone: 'UTC', currency: 'EUR' }, states: {}, callWS: energyBackend(card,req => { calls.push(req); return delegate(req); }) };
   card._firstHassRender = true; card._lastDataFetch = now;
   card.setConfig({ tariff_profile: profile, show_support: false }); dom.window.document.body.append(card);
   await card._fetchData(); await flush();
@@ -55,7 +56,7 @@ test('timeout keeps raw occupation until actual settlement, drops late measureme
 });
 test('MWh conversion uses measured change only and cached metadata avoids a redundant metadata dispatch', async () => {
   const f = await setup(); try {
-    const count = f.calls.length; await f.card._readInsightDevicesV3();
+    const count = f.calls.length; await f.card._readInsightDevicesV3(); await flush();
     const row = f.card._insightDeviceRowsV3()[0];
     assert.equal(row.kwh, 168000); assert.equal(row.sourceUnit, 'MWh');
     assert.equal(f.calls.length, count + 1); assert.equal(f.calls.at(-1).type, 'recorder/statistics_during_period');
@@ -95,7 +96,7 @@ test('changed configured-device preferences invalidate the settled snapshot even
 });
 test('locale refresh with an overdue grid timer preserves input selection and dispatches no reads', async () => {
   const f = await setup(); try {
-    await f.card._readInsightDevicesV3();
+    await f.card._readInsightDevicesV3(); await flush();
     const input = f.card.shadowRoot.querySelector('[data-insights-control="device-search"]');
     input.focus(); input.value = 'Configured'; input.setSelectionRange(2, 5); input.dispatchEvent(new f.dom.window.Event('input'));
     f.card._lastDataFetch = 1; const count = f.calls.length;

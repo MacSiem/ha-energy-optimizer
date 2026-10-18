@@ -1,4 +1,5 @@
 'use strict';
+const {energyBackend,drainBackend}=require('./helpers/energy-backend-fixture.cjs');
 const {test}=require('node:test');const assert=require('node:assert/strict');const {readFileSync}=require('node:fs');const {JSDOM}=require('jsdom');
 const code=['optimizer.js','energy-insights.js','energy-email.js'].map(x=>readFileSync('src/'+x,'utf8')).join('');
 for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email'])test(type+' shows local measured window with honest coverage and UTC details',async()=>{
@@ -12,10 +13,11 @@ for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email']
   if(req.type==='recorder/statistics_during_period'){const from=Date.parse(req.start_time),to=Date.parse(req.end_time);return {'sensor.qa_grid':Array.from({length:(to-from)/3600000},(_,i)=>({start:from+i*3600000,change:1.1}))};}
   throw Error(req.type);
  }};
+ const original=hass.callWS;hass.callWS=energyBackend(card,request=>request.type==='ha_tools_email/get_tariff'?{profile:null,revision:0,updated_at:null}:original(request));
  card._hass=hass;card._lang='pl';card.setConfig({show_support:false,energy_price:2,currency:'EUR'});
  try{
   if(type==='ha-energy-optimizer')await card._fetchEnergyStats();else if(type==='ha-energy-insights')await card._fetchData();else await card._fetchAllPeriodStats();
-  card._render();const root=card.shadowRoot,summary=root.querySelector('[data-energy-period-summary]');assert.ok(summary,'visible local period summary');
+  card._render();await drainBackend();card._render();const root=card.shadowRoot,summary=root.querySelector('[data-energy-period-summary]');assert.ok(summary,'visible local period summary');
   assert.match(summary.textContent,/29 mar/);assert.match(summary.textContent,/07:00/);assert.match(summary.textContent,/Europe\/Warsaw/);assert.doesNotMatch(summary.textContent,/T\d\d:\d\d|\.000Z/);
   assert.match(summary.textContent,type==='ha-energy-email'?/24\/24.*źródłogodzin/:/6\/6.*zakończonych/);
   assert.match(summary.textContent,type==='ha-energy-email'?/24/:/(dziś|dzisiaj)/i);
