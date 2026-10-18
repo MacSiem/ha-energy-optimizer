@@ -11,7 +11,7 @@ async function drain(){for(let i=0;i<30;i++)await tick();}
 function setup({timeoutMs=1000,shared=false,tariff=profile}={}){
  const calls=[],card={_hass:{user:{id:'one'},connection:{connected:true},config:{time_zone:'UTC'}},_config:{}};
  let descriptor={profile:tariff,source:shared?'shared':'override',revision:shared?4:null};
- const oracle=request=>({schema:1,profile_source:shared?'shared':'override',tariff_revision:shared?4:null,results:request.queries.map(q=>createEnergyTariffV3(tariff).priceBuckets(q.buckets,q.coverage))});
+ const oracle=request=>({schema:1,profile_source:shared?'shared':'override',tariff_revision:shared?4:null,results:request.queries.map(q=>createEnergyTariffV3(profile).priceBuckets(q.buckets,q.coverage))});
  card._hass.callWS=async request=>{calls.push(request);if(request.type.endsWith('energy_snapshot'))return {schema:1,generated_at:new Date().toISOString(),profile_source:descriptor.source,tariff_revision:descriptor.revision,status:'partial',currency:'CHF',measurement_timezone:'UTC',tariff_timezone:'UTC',tariff_clock:{mode:'civil'},current:{at:new Date().toISOString(),available:true,zone_class:'cheap',cheap:true,energy_rate:2,variable_rate:0.5,usage_rate:2.5},next_cheap:{status:'unknown',start:null},today:{usage_cost:7.5,energy_cost:6,variable_cost:1.5}};return oracle(request);};
  const guard=createTariffGuardV3({getHass:()=>card._hass,getContext:()=>card._config,browser:null,timeoutMs});
  let refreshed=0,mismatch=0;

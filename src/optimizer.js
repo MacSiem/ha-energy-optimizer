@@ -544,7 +544,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=f7925257f3e8d97e307b5d1eb6002ce2440f1c651968dc62c7c61a008c25ee2b
+    // HA_TARIFF_V3_START sha256=0b0f6dd8509b11c5e1c82c15a76fed06e92fcaf4922eeb1478db0795c8af18e3
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -640,6 +640,7 @@ function createEnergyTariffV3(input) {
     if (!finite(value) || value < 0) fail(path, 'invalid_fee');
     return value;
   };
+  const classification = (value, path) => { if (value != null && !['cheap','expensive','mixed'].includes(value)) fail(path, 'invalid_classification'); return value ?? null; };
   const zones = new Map();
   if (!Array.isArray(p.zones) || !p.zones.length || p.zones.length > 32) fail('zones', 'invalid_zones');
   for (const [i, z] of (Array.isArray(p.zones) ? p.zones : []).entries()) {
@@ -648,7 +649,7 @@ function createEnergyTariffV3(input) {
       fail(path, 'invalid_zone'); continue;
     }
     zones.set(z.id, { zone: z.id, label: typeof z.label === 'string' ? z.label : z.id,
-      energyRate: energyRate(z.energyRate, path + '.energyRate'), variableRate: variableRate(z.variableRate, path + '.variableRate') });
+      energyRate: energyRate(z.energyRate, path + '.energyRate'), variableRate: variableRate(z.variableRate, path + '.variableRate'), classification: classification(z.classification, path + '.classification') });
   }
   const defaultZone = p.defaultZone == null ? null : p.defaultZone;
   if (defaultZone !== null && !zones.has(defaultZone)) fail('defaultZone', 'unknown_zone');
@@ -694,7 +695,7 @@ function createEnergyTariffV3(input) {
         if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) fail(`dynamic.intervals.${i}`, 'invalid_interval');
         return { from, to, zone: 'dynamic', label: 'Dynamic',
           energyRate: energyRate(r?.energyRate, `dynamic.intervals.${i}.energyRate`),
-          variableRate: variableRate(r?.variableRate, `dynamic.intervals.${i}.variableRate`) };
+          variableRate: variableRate(r?.variableRate, `dynamic.intervals.${i}.variableRate`), classification: classification(r?.classification, `dynamic.intervals.${i}.classification`) };
       }).sort((a, b) => a.from - b.from);
       for (let i = 1; i < dynamic.length; i++) if (dynamic[i].from < dynamic[i - 1].to) fail('dynamic', 'overlapping_prices');
     }
@@ -1119,9 +1120,9 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
 ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is invalid. Create and save a valid replacement. No rates were guessed.', 'Zapisana taryfa jest niepoprawna. Utwórz i zapisz poprawny profil. Nie przyjęto domyślnych stawek.'))}</p>` : ''}
 <div class="ht-tariff-grid">${field('type', t('Tariff name type', 'Typ nazwy taryfy'), 'text', ['Custom', 'G11', 'G12', 'G12w', 'G12n'].map(v => [v, v]))}${field('name', t('Tariff name (optional)', 'Nazwa taryfy (opcjonalna)'))}${field('currency', t('Currency ISO 4217', 'Waluta ISO 4217'))}${field('timezone', t('IANA timezone', 'Strefa czasowa IANA'))}${field('clock.mode', t('Tariff clock', 'Zegar taryfy'), 'text', [['civil', t('Civil time (DST)', 'Czas lokalny (zmiana czasu)')], ['fixed', t('Fixed UTC offset', 'Stałe przesunięcie UTC')]])}${field('clock.offsetMinutes', t('Fixed offset minutes', 'Stałe przesunięcie w minutach'), 'number')}${field('priceBasis', t('Price basis', 'Podstawa ceny'), 'text', [['gross', t('Gross', 'Brutto')], ['net', t('Net', 'Netto')]])}${field('validFrom', t('Valid from (optional)', 'Ważna od (opcjonalnie)'), 'date')}${field('validTo', t('Valid to (optional)', 'Ważna do (opcjonalnie)'), 'date')}${field('fixedMonthly', t('Fixed monthly fee (separate)', 'Opłata stała miesięczna (osobno)'), 'number')}</div>
 <h3>${esc(t('Energy and variable fees per kWh', 'Energia i opłaty zmienne za kWh'))}</h3><p>${esc(t('Empty = unknown; zero is a known zero. Fixed monthly fees are shown separately, never prorated.', 'Puste = nieznane; zero jest znaną wartością zero. Opłata stała jest osobna, bez proporcjonalnego naliczania.'))}</p>${
-(p.zones || []).map((_, i) => `<fieldset><legend>${esc(t('Zone', 'Strefa'))} ${i + 1}</legend><div class="ht-tariff-grid">${field(`zones.${i}.id`, t('Zone ID', 'ID strefy'))}${field(`zones.${i}.label`, t('Zone label', 'Etykieta strefy'))}${field(`zones.${i}.energyRate`, t('Energy / kWh', 'Energia / kWh'), 'number')}${field(`zones.${i}.variableRate`, t('Variable fees / kWh (optional)', 'Opłaty zmienne / kWh (opcjonalne)'), 'number')}</div>${mutable() ? button(`remove-zone:${i}`, t('Remove zone', 'Usuń strefę')) : ''}</fieldset>`).join('')}${mutable() ? button('add-zone', t('Add zone', 'Dodaj strefę')) : ''}${field('defaultZone', t('Default zone (optional)', 'Strefa domyślna (opcjonalna)'), 'text', zoneChoices())}
+(p.zones || []).map((_, i) => `<fieldset><legend>${esc(t('Zone', 'Strefa'))} ${i + 1}</legend><div class="ht-tariff-grid">${field(`zones.${i}.id`, t('Zone ID', 'ID strefy'))}${field(`zones.${i}.label`, t('Zone label', 'Etykieta strefy'))}${field(`zones.${i}.energyRate`, t('Energy / kWh', 'Energia / kWh'), 'number')}${field(`zones.${i}.variableRate`, t('Variable fees / kWh (optional)', 'Opłaty zmienne / kWh (opcjonalne)'), 'number')}${field(`zones.${i}.classification`, t('Zone type (optional)', 'Rodzaj strefy (opcjonalnie)'), 'text', [['', t('Unknown', 'Nieznana')], ['cheap', t('Cheap', 'Tania')], ['expensive', t('Expensive', 'Droga')], ['mixed', t('Mixed', 'Mieszana')]])}</div>${mutable() ? button(`remove-zone:${i}`, t('Remove zone', 'Usuń strefę')) : ''}</fieldset>`).join('')}${mutable() ? button('add-zone', t('Add zone', 'Dodaj strefę')) : ''}${field('defaultZone', t('Default zone (optional)', 'Strefa domyślna (opcjonalna)'), 'text', zoneChoices())}
 <h3>${esc(t('Schedule rules', 'Reguły harmonogramu'))}</h3>${rows('rules')}${mutable() ? button('add-rule', t('Add rule', 'Dodaj regułę')) : ''}<h3>${esc(t('Date exceptions', 'Wyjątki dat'))}</h3>${rows('exceptions')}${mutable() ? button('add-exception', t('Add date exception', 'Dodaj wyjątek daty')) : ''}
-<details><summary>${esc(t('Advanced: absolute dynamic price feed', 'Zaawansowane: bezwzględne przedziały cen dynamicznych'))}</summary><p>${esc(t('Optional dynamic feed overrides schedule prices. Use explicit UTC/offset timestamps. Only this feed uses JSON.', 'Opcjonalny feed dynamiczny zastępuje ceny harmonogramu. Użyj znaczników UTC lub z przesunięciem. JSON służy wyłącznie temu feedowi.'))}</p><label class="ht-tariff-field"><span>${esc(t('Dynamic feed JSON (empty = off)', 'Feed dynamiczny JSON (pusty = wyłączony)'))}</span><textarea data-feed="true"${mutable() ? '' : ' disabled'}>${esc(state.feedText ?? (p.dynamic == null ? '' : JSON.stringify(p.dynamic, null, 2)))}</textarea></label>${field('allowNegativeEnergy', t('Negative energy prices', 'Ujemne ceny energii'), 'text', [['false', t('Disabled', 'Wyłączone')], ['true', t('Explicitly allowed', 'Jawnie dozwolone')]])}</details>
+<details><summary>${esc(t('Advanced: absolute dynamic price feed', 'Zaawansowane: bezwzględne przedziały cen dynamicznych'))}</summary><p>${esc(t('Optional dynamic feed overrides schedule prices. Use explicit UTC/offset timestamps. Only this feed uses JSON. Each interval may include classification: cheap, expensive or mixed; omission means unknown.', 'Opcjonalny feed dynamiczny zastępuje ceny harmonogramu. Użyj znaczników UTC lub z przesunięciem. JSON służy wyłącznie temu feedowi. Przedział może mieć classification: cheap, expensive lub mixed; brak oznacza nieznaną strefę.'))}</p><label class="ht-tariff-field"><span>${esc(t('Dynamic feed JSON (empty = off)', 'Feed dynamiczny JSON (pusty = wyłączony)'))}</span><textarea data-feed="true"${mutable() ? '' : ' disabled'}>${esc(state.feedText ?? (p.dynamic == null ? '' : JSON.stringify(p.dynamic, null, 2)))}</textarea></label>${field('allowNegativeEnergy', t('Negative energy prices', 'Ujemne ceny energii'), 'text', [['false', t('Disabled', 'Wyłączone')], ['true', t('Explicitly allowed', 'Jawnie dozwolone')]])}</details>
 <div role="status" aria-live="polite" data-status="${esc(state.status)}">${statusHtml()}${state.message ? ': ' + esc(localMessage()) : ''}</div><div class="ht-tariff-actions"><button type="button" data-action="load"${state.busy || guard.occupied() || !available(a) ? ' disabled' : ''}>${esc(t('Load stored tariff', 'Wczytaj zapisaną taryfę'))}</button>${a.admin ? `<button type="button" data-action="save"${state.busy || guard.occupied() || !available(a) || state.writeUnconfirmed || state.backendAvailable === false || !Number.isSafeInteger(state.revision) ? ' disabled' : ''}>${esc(t('Save tariff', 'Zapisz taryfę'))}</button><button type="button" data-action="cancel"${state.busy || guard.occupied() ? ' disabled' : ''}>${esc(t('Cancel', 'Anuluj'))}</button>` : ''}</div></section>`;
     root.querySelectorAll('[data-path]').forEach(el => el.addEventListener('input', () => {
       if (!mutable()) { render(); return; }
@@ -1130,7 +1131,7 @@ ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is 
       if (el.type === 'number') value = value.trim() === '' ? null : Number(value);
       else if (path.endsWith('.dates')) value = value.split(/[\s,]+/).filter(Boolean);
       else if (path === 'allowNegativeEnergy') value = value === 'true';
-      else if (['validFrom', 'validTo', 'defaultZone'].includes(path)) value = value || null;
+      else if ((['validFrom', 'validTo', 'defaultZone'].includes(path) || path.endsWith('.classification'))) value = value || null;
       write(path, value);
       if (path.includes('.season.')) {
         const base = path.split('.').slice(0, 2).join('.'), season = read(base + '.season');
@@ -1196,6 +1197,173 @@ ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is 
   }
   return { render, load, cancel, dispose: () => { disposed = true; operation++; unsubscribe(); unsubscribeWire(); } };
 }
+
+// Pricing stays in HA Tools Email. This controller only queues bounded reads,
+// validates replies and combines already-priced measurement partitions.
+function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRevision = () => {}}) {
+  const canonical = value => JSON.stringify(value, (_, v) => v && typeof v === 'object' && !Array.isArray(v)
+    ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v);
+  const copy = value => value == null ? value : JSON.parse(JSON.stringify(value));
+  const finite = v => typeof v === 'number' && Number.isFinite(v);
+  const number = v => v === null || finite(v);
+  const stamp = v => finite(v) ? Math.trunc(v) : typeof v === 'string' && /T.*(?:Z|[+-]\d{2}:\d{2})$/.test(v) ? Date.parse(v) : NaN;
+  const clock = value => value && ['civil','fixed'].includes(value.mode) && (value.mode !== 'fixed' || Number.isInteger(value.offsetMinutes) && Math.abs(value.offsetMinutes) <= 840);
+  let context, generation = 0, busy = false, scheduled = false, snapshotSlot = null, snapshotWindow = null;
+  const records = new Map(), jobs = [];
+  const clear = () => {
+    generation++; records.clear(); jobs.length = 0; context = undefined;
+    snapshotSlot = null; snapshotWindow = null; card._energySnapshotV5 = null;
+  };
+  guard.subscribe(clear);
+  const active = () => {
+    const descriptor = describe();
+    const key = canonical(descriptor);
+    if (key !== context) { clear(); context = key; }
+    return descriptor;
+  };
+  const unknown = (buckets, descriptor, reason = 'backend_pending') => ({complete:false,issues:[{reason}],
+    rows:buckets.map((r,index)=>({index,from:stamp(r?.from),to:stamp(r?.to),available:false,reason})),
+    kwh:null,energyCost:null,variableCost:null,usageCost:null,currency:descriptor.profile?.currency || null,
+    priceBasis:descriptor.profile?.priceBasis || null,timezone:descriptor.profile?.timezone || null,
+    clock:descriptor.profile?.clock || {},fixedMonthly:descriptor.profile?.fixedMonthly ?? null});
+  const envelope = (result, descriptor) => {
+    if (!result || result.schema !== 1 || result.profile_source !== descriptor.source) return false;
+    if (descriptor.source === 'shared' && result.tariff_revision !== descriptor.revision) {
+      clear(); onRevision(); return false;
+    }
+    return descriptor.source === 'shared' ? Number.isSafeInteger(result.tariff_revision) : result.tariff_revision === null;
+  };
+  const validatePrice = (r, buckets, profile) => {
+    if (!r || typeof r.complete !== 'boolean' || !Array.isArray(r.rows) || r.rows.length !== buckets.length || !Array.isArray(r.issues) ||
+      !['kwh','energyCost','variableCost','usageCost','fixedMonthly'].every(k=>number(r[k])) ||
+      r.currency !== (profile?.currency ?? null) || r.priceBasis !== (profile?.priceBasis ?? null) || r.timezone !== (profile?.timezone ?? null) || !clock(r.clock)) return false;
+    return r.rows.every((row,i) => row && row.index === i && row.from === stamp(buckets[i]?.from) && row.to === stamp(buckets[i]?.to) &&
+      typeof row.available === 'boolean' && (!row.available || ['kwh','energyRate','variableRate','energyCost','variableCost','usageCost'].every(k=>number(row[k])) &&
+        finite(row.kwh) && finite(row.energyRate) && finite(row.energyCost) && row.kwh === buckets[i].kwh &&
+        Array.isArray(row.zones) && row.zones.every(v=>typeof v === 'string') && ['single','multiple'].includes(row.zoneAttribution)));
+  };
+  const combine = record => {
+    const parts = record.parts, first = parts[0];
+    const rows = parts.flatMap((part,i) => part.rows.map(row=>({...row,index:row.index+record.offsets[i]})));
+    const issues = parts.flatMap((part,i)=>part.issues.map(issue=>({reason:issue.reason,...(Number.isInteger(issue.index)?{index:issue.index+record.offsets[i]}:{})})));
+    const ordered = [...rows].sort((a,b)=>a.from-b.from);
+    for(let i=1;i<ordered.length;i++) if(ordered[i].from<ordered[i-1].to) issues.push({reason:'overlapping_measurement',index:ordered[i].index});
+    const coverage = record.coverage;
+    if(coverage) {
+      const from=stamp(coverage.from),to=stamp(coverage.to);
+      if(!finite(from)||!finite(to)||to<=from) issues.push({reason:'invalid_coverage'});
+      else if(!ordered.length || ordered[0].from!==from || ordered.at(-1).to!==to || ordered.some((r,i)=>i && r.from!==ordered[i-1].to)) issues.push({reason:'missing_measurement'});
+    }
+    let complete=parts.every(p=>p.complete)&&issues.length===0;
+    const sum=key=>complete && parts.every(p=>p[key]!==null) ? parts.reduce((n,p)=>n+p[key],0):null;
+    let kwh=sum('kwh'),energyCost=sum('energyCost'),variableCost=sum('variableCost'),usageCost=sum('usageCost');
+    if(![kwh,energyCost,variableCost,usageCost].every(number)) {complete=false;kwh=energyCost=variableCost=usageCost=null;issues.push({reason:'nonfinite_total'});}
+    return {...first,complete,rows,issues,kwh,energyCost,variableCost,usageCost};
+  };
+  // Match the server's conservative workload bound; split large/complex histories
+  // before dispatch. This examines interval counts, never tariff rules or prices.
+  const partition = (buckets, profile) => {
+    const rules=[...(profile?.rules || []),...(profile?.exceptions || [])];
+    const weight=1+rules.reduce((n,r)=>n+Math.max(1,r.intervals?.length || 0),0);
+    const boundaries=(profile?.dynamic?.intervals || []).flatMap(r=>[stamp(r.from),stamp(r.to)]).filter(finite).sort((a,b)=>a-b);
+    const lower = value => {let a=0,b=boundaries.length;while(a<b){const m=(a+b)>>>1;if(boundaries[m]<value)a=m+1;else b=m;}return a;};
+    const result=[];let rows=[],work=0,minutes=0,bytes=0,offset=0;
+    const push=()=>{result.push({buckets:rows,work,minutes,bytes,offset});offset+=rows.length;rows=[];work=minutes=bytes=0;};
+    const profileBytes=JSON.stringify(profile).length*4;
+    for(const row of buckets) {
+      const from=stamp(row.from),to=stamp(row.to),span=finite(from)&&finite(to)&&to>from&&to-from<=86400000?Math.ceil((to-from)/60000):0;
+      const cost=(span?span+2+lower(to)-lower(from+1):1)*weight, size=JSON.stringify(row).length*4+16;
+      if(cost>1900000 || size+profileBytes>500000) throw Error('backend_request_limit');
+      if(rows.length && (work+cost>1900000 || minutes+span>122000 || rows.length>=2000 || bytes+size+profileBytes>500000)) push();
+      rows.push(row);work+=cost;minutes+=span;bytes+=size;
+    }
+    push();return result;
+  };
+  const schedule = () => {
+    if(scheduled) return;
+    scheduled=true;queueMicrotask(()=>{scheduled=false;void flush();});
+  };
+  const still = (token, version, key) => guard.current(token) && version===generation && context===key && canonical(describe())===key;
+  const flush = async () => {
+    if(busy || guard.occupied() || !jobs.length) return;
+    const token=guard.snapshot();
+    if(!guard.available(token)) return;
+    const descriptor=active(),version=generation,key=context;
+    if(!jobs.length) return;
+    const batch=[];let work=0,minutes=0,bytes=JSON.stringify(descriptor.profile).length*4;
+    const isSnapshot=jobs[0].snapshot;
+    while(jobs.length && batch.length<64 && !!jobs[0].snapshot===!!isSnapshot) {
+      const job=jobs[0];
+      if(batch.length && (isSnapshot || work+job.work>1900000 || minutes+job.minutes>122000 || bytes+job.bytes>500000 || batch.reduce((n,j)=>n+j.buckets.length,0)+job.buckets.length>2000)) break;
+      jobs.shift();batch.push(job);work+=job.work || 0;minutes+=job.minutes || 0;bytes+=job.bytes || 0;
+      if(isSnapshot) break;
+    }
+    busy=true;
+    const request={type:`ha_tools_email/${isSnapshot?'energy_snapshot':'energy_price_queries'}`};
+    if(descriptor.source==='override') request.profile=copy(descriptor.profile);
+    if(!isSnapshot) request.queries=batch.map(j=>({buckets:j.buckets}));
+    try {
+      const result=await guard.call(token,request);
+      if(!still(token,version,key) || !envelope(result,descriptor)) return;
+      if(isSnapshot) {
+        const r=result;
+        if(!['ready','partial','unavailable'].includes(r.status) || !finite(stamp(r.generated_at)) || !r.current || typeof r.current.available!=='boolean' ||
+          ![null,'cheap','expensive','mixed'].includes(r.current.zone_class) || !['energy_rate','variable_rate','usage_rate'].every(k=>number(r.current[k])) ||
+          ![null,true,false].includes(r.current.cheap) || !r.today || !['energy_cost','variable_cost','usage_cost'].every(k=>number(r.today[k])) ||
+          !(r.currency===null || typeof r.currency==='string' && /^[A-Z]{3}$/.test(r.currency)) ||
+          !r.next_cheap || !['known','unknown','not_found_in_horizon'].includes(r.next_cheap.status) ||
+          r.next_cheap.status==='known' && !finite(stamp(r.next_cheap.start))) throw Error('invalid_backend_response');
+        if(r.currency !== (descriptor.profile?.currency ?? null)) throw Error('invalid_backend_response');
+        // Compact uses a bounded projection, never arbitrary backend extensions.
+        card._energySnapshotV5={schema:1,generated_at:r.generated_at,tariff_revision:r.tariff_revision,profile_source:r.profile_source,status:r.status,currency:r.currency,
+          current:{available:r.current.available,zone_class:r.current.zone_class,cheap:r.current.cheap,energy_rate:r.current.energy_rate,variable_rate:r.current.variable_rate,usage_rate:r.current.usage_rate},
+          today:{usage_cost:r.today.usage_cost,energy_cost:r.today.energy_cost,variable_cost:r.today.variable_cost},
+          next_cheap:{status:r.next_cheap.status,start:r.next_cheap.start}};onPrices();
+      } else {
+        if(!Array.isArray(result.results) || result.results.length!==batch.length || !batch.every((job,i)=>validatePrice(result.results[i],job.buckets,descriptor.profile))) throw Error('invalid_backend_response');
+        let completed=false;
+        batch.forEach((job,i)=>{
+          const record=job.record;
+          if(record.failed) return;
+          record.parts[job.part]=copy(result.results[i]);record.remaining--;
+          if(!record.remaining) {record.value=combine(record);completed=true;}
+        });
+        if(completed) onPrices();
+      }
+    } catch(error) {
+      if(still(token,version,key)) {
+        if(isSnapshot) card._energySnapshotV5=null;
+        else for(const job of batch) {job.record.failed=true;job.record.value=unknown(job.record.buckets,descriptor,error?.code==='invalid_energy_price_queries'?'backend_request_limit':'backend_unavailable');}
+        onPrices();
+      }
+    } finally {busy=false;if(jobs.length) schedule();}
+  };
+  guard.subscribeWire(schedule);
+  const priceBuckets = (buckets, coverage) => {
+    const token=guard.snapshot();
+    const descriptor=active();
+    const rows=Array.isArray(buckets)?buckets:[];
+    if(!guard.available(token)) return unknown(rows,descriptor,'backend_unavailable');
+    const key=canonical([rows,coverage ?? null]);
+    if(records.has(key)) return records.get(key).value;
+    const record={buckets:copy(rows),coverage:copy(coverage),value:unknown(rows,descriptor),parts:[],offsets:[],remaining:0,failed:false};
+    records.set(key,record);
+    try {
+      const partitions=partition(record.buckets,descriptor.profile);
+      record.remaining=partitions.length;
+      partitions.forEach((part,i)=>{record.offsets[i]=part.offset;jobs.push({...part,record,part:i});});
+      schedule();
+    } catch(_) {record.failed=true;record.value=unknown(rows,descriptor,'backend_request_limit');}
+    return record.value;
+  };
+  const snapshot = () => {
+    guard.snapshot();active();const window=Math.floor(Date.now()/30000);
+    if(snapshotWindow!==window) {card._energySnapshotV5=null;snapshotSlot=null;snapshotWindow=window;}
+    if(!snapshotSlot && guard.available(guard.snapshot())) {snapshotSlot={snapshot:true};jobs.unshift(snapshotSlot);schedule();}
+    return card._energySnapshotV5;
+  };
+  return {priceBuckets,snapshot,invalidate:clear};
+}
 // Node-only import; omitted in consumer closure.
 
 
@@ -1216,11 +1384,27 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       ? { ...config, tariff_profile: card._sharedTariffProfile } : config;
   };
   const activeProfile = () => legacyProfile(effectiveConfig(), card._hass?.config, kind);
+  const describe = () => {
+    const shared = !Object.hasOwn(card._config || {}, 'tariff_profile') && card._sharedTariffProfile != null &&
+      card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, identity());
+    return {profile: activeProfile() ?? null, source: shared ? 'shared' : 'override', revision: shared ? state().revision : null};
+  };
+  const backend = createEnergyBackendV5({card,guard,describe,
+    onPrices: () => { if (card.isConnected) card._repriceTariffV3?.(); },
+    onRevision: () => { card._sharedTariffReadStatus = 'unconfirmed'; cachedKey = undefined; cachedModel = undefined; }
+  });
   const model = function (proposed) {
-    if (arguments.length) return createModel(proposed);
-    const profile = activeProfile(), key = JSON.stringify(profile);
+    identity();
+    const profile = arguments.length ? proposed : activeProfile(), key = JSON.stringify(profile);
+    const validated = createModel(profile);
+    const unavailable = rows => ({complete:false,issues:[{reason:'invalid_profile'}],rows:(rows || []).map((row,index)=>({index,from:row.from,to:row.to,available:false})),
+      kwh:null,energyCost:null,variableCost:null,usageCost:null,currency:null,priceBasis:null,timezone:null,clock:{},fixedMonthly:null});
+    if (!validated.valid) return {valid:false,errors:validated.errors,rateAt:()=>({available:false,reason:'invalid_profile'}),priceBuckets:unavailable};
+    if (arguments.length) return {valid:true,errors:[],rateAt:()=>({available:false,reason:'backend_required'}),priceBuckets:unavailable};
+    backend.snapshot();
     if (cachedModel && key === cachedKey) return cachedModel;
-    cachedKey = key; cachedModel = createModel(profile); return cachedModel;
+    cachedKey = key; cachedModel = {valid:true,errors:[],rateAt:()=>({available:false,reason:'backend_required'}),priceBuckets:backend.priceBuckets};
+    return cachedModel;
   };
   const currency = () => {
     const value = activeProfile()?.currency;
@@ -1230,6 +1414,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     card._sharedTariffProfile = null; card._sharedTariffAssociation = null;
     card._sharedTariffLoadedAt = 0; card._tariffEditorState = null;
     card._sharedTariffReadStatus = 'not_checked'; card._tariffSettingsOpen = false;
+    backend.invalidate();
     cachedKey = undefined; cachedModel = undefined; editorRoot?.replaceChildren(); editor?.dispose?.(); editorRoot = null; editor = null; focusKey = null;
     for (const mount of card.shadowRoot?.querySelectorAll('[data-tariff-mount]') || []) mount.replaceChildren();
     const details = card.shadowRoot?.querySelector('[data-tariff-details]'); if (details) details.open = false;
@@ -1256,6 +1441,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
         const profile = result.profile === null ? null : valid ? clone(result.profile) : { schema: 0 };
         card._sharedTariffProfile = profile; card._sharedTariffAssociation = token; card._sharedTariffLoadedAt = Date.now();
         card._sharedTariffReadStatus = 'success';
+        backend.invalidate(); cachedKey = undefined; cachedModel = undefined;
         const saved = state(), pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline) || JSON.stringify(saved.draft) === JSON.stringify(saved.profile);
         saved.profile = clone(profile); saved.revision = result.revision; saved.updated_at = result.updated_at;
         saved.backendAvailable = true;
@@ -1286,8 +1472,8 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     } : null;
     return `<style>
     [data-energy-container]{container-type:inline-size;container-name:energy-card}
-    .tabs{flex-wrap:wrap;overflow:visible;max-width:100%}
-    .tabs>button{min-height:44px;min-width:44px;white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
+    .tabs{display:flex;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:thin;mask-image:linear-gradient(to right,transparent,#000 12px,#000 calc(100% - 12px),transparent);padding-inline:12px;box-sizing:border-box}
+    .tabs>button{min-height:44px;min-width:44px;white-space:nowrap;flex:0 0 auto}
     button{min-height:44px;min-width:44px}
     .energy-tab-picker{display:none;margin:12px 0}
     .energy-tab-picker select{font:inherit;color:var(--primary-text-color,#172033);background:var(--card-background-color,#fff);width:100%;max-width:100%;min-height:44px;border:1px solid var(--divider-color,#d8dce5);border-radius:10px;padding:10px}
@@ -1316,6 +1502,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
         card._sharedTariffProfile = clone(envelope.profile); card._sharedTariffAssociation = identity(card._hass);
         card._sharedTariffLoadedAt = Date.now();
         card._sharedTariffReadStatus = 'success';
+        backend.invalidate(); cachedKey = undefined; cachedModel = undefined;
         // The editor finishes its pending state before the parent replaces DOM.
         queueMicrotask(() => {
           if (!guard.current(mountToken)) return;
@@ -1339,6 +1526,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   const bind = () => {
     guard.observe();
+    backend.snapshot();
     const tabs = card.shadowRoot.querySelector('.tabs');
     if (tabs && kind !== 'smart') {
       tabs.parentElement.setAttribute('data-energy-container', '');
@@ -1349,11 +1537,11 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       if (!picker) {
         const label = document.createElement('label'); label.className = 'energy-tab-picker';
         picker = document.createElement('select'); label.append(picker); tabs.before(label);
-        picker.addEventListener('change', () => buttons[Number(picker.value)]?.click());
+        picker.addEventListener('change', () => buttons.find(button=>button.dataset.tab===picker.value)?.click());
       }
       picker.setAttribute('aria-label', text('Energy view', 'Widok energii'));
       picker.replaceChildren(...buttons.map((button, index) => {
-        const option = document.createElement('option'); option.value = String(index);
+        const option = document.createElement('option'); option.value = button.dataset.tab || String(index);
         option.textContent = button.textContent.trim(); option.selected = button.classList.contains('active');
         button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(option.selected));
         if (!button.dataset.energyPickerBound) {
@@ -1361,7 +1549,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
           button.addEventListener('click', () => queueMicrotask(() => {
             buttons.forEach((item, i) => {
               const active = item.classList.contains('active'); item.setAttribute('aria-selected', String(active));
-              if (active) picker.value = String(i);
+              if (active) picker.value = item.dataset.tab || String(i);
             });
           }));
         }
@@ -1395,7 +1583,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       }
     }
   };
-  return { model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, ui: () => createUi({ language: language() }) };
+  return { model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
 }
 this._tariffHostController = createTariffHostV3({ card: this, kind: 'optimizer', createModel: createEnergyTariffV3, legacyProfile: energyTariffProfileV3, createSettings: createTariffSettingsV3, createUi: createUiV3, ...this._createTariffConsumerV3(createTariffGuardV3) });
 this._installTariffConsumerV3();
@@ -2470,7 +2658,7 @@ canvas {
             <div class="summary-card alt">
               <span class="summary-label">${this._text("Cost Estimate", "Koszt okresu")}</span>
               <div class="summary-value">${this._calculateTodayCost() === null ? 'N/A' : format.number(this._calculateTodayCost(), {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
-              <span class="summary-label">${_esc(this._todayTariffCosts().currency || '')} ${this._text('energy only', 'sama energia')}</span>
+              <span class="summary-label">${_esc(this._todayTariffCosts().currency || '')} ${this._text('energy + variable fees', 'energia + opłaty zmienne')}</span>
             </div>
             <div class="summary-card warn">
               <span class="summary-label">${this._text("Highest consumption", "Najwyższe zużycie")}</span>
@@ -3079,7 +3267,7 @@ async _drawComparisonChart() {
   }
 
   _calculateTodayCost() {
-    return this._todayTariffCosts().energyCost;
+    return this._energySnapshotV5?.today?.usage_cost ?? null;
   }
 
   _getPeakRowV3() {
@@ -3272,7 +3460,7 @@ async _drawComparisonChart() {
   }
 
 // HA_ENERGY_CARD_OPTIONS_V5_START
-// Presentation-only card options. No pricing, storage, backend writes or requests.
+// Presentation-only card options. Only UI preferences are stored locally; no pricing, backend writes or requests.
 function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) {
   const key = name === 'ha-energy-optimizer' ? '_currentTab' : '_activeTab';
   const pl = host => String(host._hass?.locale?.language || host._hass?.language || navigator.language || '').startsWith('pl');
@@ -3310,6 +3498,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const config = this._config || {};
     if (!visible(config).includes(this[key])) this[key] = config.default_tab || visible(config)[0];
     if (config.compact && !this._optionsExpandedV5) {
+      this._getTariffHostV3?.().backend?.snapshot();
       const snapshot = this._energySnapshotV5;
       const format = createFormatUi.forHass(this._hass);
       const value = snapshot?.today?.usage_cost;
@@ -3347,22 +3536,55 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     for (const option of root.querySelectorAll('.energy-tab-picker option, #email-tab-select option')) { option.hidden = !allowed.includes(option.value); option.disabled = option.hidden; }
     for (const select of root.querySelectorAll('.energy-tab-picker select, #email-tab-select')) select.value = this[key];
     // Only optional guidance is affected. Warnings, unknowns and setup errors stay visible.
+    const helpKey = [name, 'options-help', config.instance_id || 'default', this._hass?.user?.id || 'anonymous'].join(':');
+    if (this._helpStorageContextV5 !== helpKey) {
+      this._helpStorageContextV5 = helpKey;
+      this._helpManualOpenV5 = null; // null = responsive default; booleans = explicit gestures.
+      try {
+        const saved = localStorage.getItem(helpKey);
+        if (saved === 'closed' || saved === 'open') this._helpManualOpenV5 = saved === 'open';
+      } catch (_) { /* In-memory manual choice still works when storage is unavailable. */ }
+    }
     let help = root.querySelector('[data-energy-options-help]');
     if (!help && root.children.length) {
       const css = document.createElement('style'); css.textContent = style; root.append(css);
       help = document.createElement('details'); help.dataset.energyOptionsHelp = '';
-      help.innerHTML = '<summary></summary><p></p>'; root.append(help);
-      help.addEventListener('toggle', event => { if (event.isTrusted && help.open !== this._helpDefaultOpenV5) this._helpManualOpenV5 = help.open; });
-      help.querySelector('summary').addEventListener('click', () => { this._helpManualOpenV5 = !help.open; });
+      help.innerHTML = '<summary></summary><p></p>';
+      // Native keyboard activation also produces a summary click. Record intent before
+      // the browser changes `open`; programmatic/queued toggle events never save state.
+      help.querySelector('summary').addEventListener('click', () => {
+        if (root.querySelector('[data-energy-options-help]') !== help) return;
+        this._helpManualOpenV5 = !help.open;
+        try { localStorage.setItem(this._helpStorageContextV5, this._helpManualOpenV5 ? 'open' : 'closed'); }
+        catch (_) { /* Preserve the explicit choice for this element. */ }
+      });
     }
     if (!help) return;
+    // Keep this disclosure immediately after the header, before both the narrow
+    // picker and the normal tabs. Move an existing node only when its anchor changes.
+    const header = root.querySelector('.panel-header, .header, .card-title');
+    const navigation = root.querySelector('.energy-tab-picker, .email-tab-picker, .tabs');
+    if (header) {
+      if (header.nextElementSibling !== help) header.after(help);
+    } else if (navigation) {
+      if (help.nextElementSibling !== navigation) navigation.before(help);
+    } else if (help.parentNode !== root) root.append(help);
     help.hidden = config.show_help === false;
     help.querySelector('summary').textContent = t(this, 'Help', 'Pomoc');
     help.querySelector('p').textContent = t(this, 'Card options change the view only. N/A means unavailable data. Hour limits apply to hourly charts, without changing calendar periods, measurements or tariff prices.', 'Opcje karty zmieniają tylko widok. N/A oznacza brak danych. Limit godzin dotyczy wykresów godzinowych, bez zmiany okresów kalendarza, pomiarów ani cen taryfy.');
-    const resize = width => { this._helpDefaultOpenV5 = width >= 600; help.open = this._helpManualOpenV5 ?? this._helpDefaultOpenV5; };
-    resize(this.getBoundingClientRect().width);
-    this._optionsResizeV5?.disconnect();
-    if (typeof ResizeObserver === 'function') { this._optionsResizeV5 = new ResizeObserver(entries => resize(entries[0].contentRect.width)); this._optionsResizeV5.observe(this); }
+    this._helpResizeV5 = width => {
+      // A queued callback from a discarded render cannot update its detached disclosure.
+      if (root.querySelector('[data-energy-options-help]') !== help) return;
+      this._helpDefaultOpenV5 = width >= 600;
+      help.open = this._helpManualOpenV5 ?? this._helpDefaultOpenV5;
+    };
+    this._helpResizeV5(this.getBoundingClientRect().width);
+    if (typeof ResizeObserver === 'function') {
+      if (!this._optionsResizeV5) this._optionsResizeV5 = new ResizeObserver(entries => {
+        if (entries[0]) this._helpResizeV5?.(entries[0].contentRect.width);
+      });
+      this._optionsResizeV5.observe(this); // Idempotent; resumes observation after reconnect.
+    }
   };
   // Hour limits slice the presentation array, retaining source records and stable IDs.
   Card.prototype._limitChartRowsV5 = function(rows) {

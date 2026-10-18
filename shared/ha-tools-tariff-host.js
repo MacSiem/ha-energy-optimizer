@@ -1,6 +1,6 @@
 'use strict';
 // Node-only import; omitted in consumer closure.
-if (typeof module !== 'undefined' && module.exports) var { createTariffGuardV3 } = require('./ha-tools-tariff-guard.js');
+if (typeof module !== 'undefined' && module.exports) var { createTariffGuardV3 } = require('./ha-tools-tariff-guard.js'), { createEnergyBackendV5 } = require('./ha-tools-energy-backend.js');
 
 // Card-owned adapter: it never writes card YAML, helpers, schedules or SMTP.
 function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi, readTimeoutMs = 15000, guard, onRefresh }) {
@@ -19,11 +19,27 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       ? { ...config, tariff_profile: card._sharedTariffProfile } : config;
   };
   const activeProfile = () => legacyProfile(effectiveConfig(), card._hass?.config, kind);
+  const describe = () => {
+    const shared = !Object.hasOwn(card._config || {}, 'tariff_profile') && card._sharedTariffProfile != null &&
+      card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, identity());
+    return {profile: activeProfile() ?? null, source: shared ? 'shared' : 'override', revision: shared ? state().revision : null};
+  };
+  const backend = createEnergyBackendV5({card,guard,describe,
+    onPrices: () => { if (card.isConnected) card._repriceTariffV3?.(); },
+    onRevision: () => { card._sharedTariffReadStatus = 'unconfirmed'; cachedKey = undefined; cachedModel = undefined; }
+  });
   const model = function (proposed) {
-    if (arguments.length) return createModel(proposed);
-    const profile = activeProfile(), key = JSON.stringify(profile);
+    identity();
+    const profile = arguments.length ? proposed : activeProfile(), key = JSON.stringify(profile);
+    const validated = createModel(profile);
+    const unavailable = rows => ({complete:false,issues:[{reason:'invalid_profile'}],rows:(rows || []).map((row,index)=>({index,from:row.from,to:row.to,available:false})),
+      kwh:null,energyCost:null,variableCost:null,usageCost:null,currency:null,priceBasis:null,timezone:null,clock:{},fixedMonthly:null});
+    if (!validated.valid) return {valid:false,errors:validated.errors,rateAt:()=>({available:false,reason:'invalid_profile'}),priceBuckets:unavailable};
+    if (arguments.length) return {valid:true,errors:[],rateAt:()=>({available:false,reason:'backend_required'}),priceBuckets:unavailable};
+    backend.snapshot();
     if (cachedModel && key === cachedKey) return cachedModel;
-    cachedKey = key; cachedModel = createModel(profile); return cachedModel;
+    cachedKey = key; cachedModel = {valid:true,errors:[],rateAt:()=>({available:false,reason:'backend_required'}),priceBuckets:backend.priceBuckets};
+    return cachedModel;
   };
   const currency = () => {
     const value = activeProfile()?.currency;
@@ -33,6 +49,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     card._sharedTariffProfile = null; card._sharedTariffAssociation = null;
     card._sharedTariffLoadedAt = 0; card._tariffEditorState = null;
     card._sharedTariffReadStatus = 'not_checked'; card._tariffSettingsOpen = false;
+    backend.invalidate();
     cachedKey = undefined; cachedModel = undefined; editorRoot?.replaceChildren(); editor?.dispose?.(); editorRoot = null; editor = null; focusKey = null;
     for (const mount of card.shadowRoot?.querySelectorAll('[data-tariff-mount]') || []) mount.replaceChildren();
     const details = card.shadowRoot?.querySelector('[data-tariff-details]'); if (details) details.open = false;
@@ -59,6 +76,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
         const profile = result.profile === null ? null : valid ? clone(result.profile) : { schema: 0 };
         card._sharedTariffProfile = profile; card._sharedTariffAssociation = token; card._sharedTariffLoadedAt = Date.now();
         card._sharedTariffReadStatus = 'success';
+        backend.invalidate(); cachedKey = undefined; cachedModel = undefined;
         const saved = state(), pristine = !saved.draft || JSON.stringify(saved.draft) === JSON.stringify(saved._draftBaseline) || JSON.stringify(saved.draft) === JSON.stringify(saved.profile);
         saved.profile = clone(profile); saved.revision = result.revision; saved.updated_at = result.updated_at;
         saved.backendAvailable = true;
@@ -89,8 +107,8 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     } : null;
     return `<style>
     [data-energy-container]{container-type:inline-size;container-name:energy-card}
-    .tabs{flex-wrap:wrap;overflow:visible;max-width:100%}
-    .tabs>button{min-height:44px;min-width:44px;white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
+    .tabs{display:flex;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;scrollbar-width:thin;mask-image:linear-gradient(to right,transparent,#000 12px,#000 calc(100% - 12px),transparent);padding-inline:12px;box-sizing:border-box}
+    .tabs>button{min-height:44px;min-width:44px;white-space:nowrap;flex:0 0 auto}
     button{min-height:44px;min-width:44px}
     .energy-tab-picker{display:none;margin:12px 0}
     .energy-tab-picker select{font:inherit;color:var(--primary-text-color,#172033);background:var(--card-background-color,#fff);width:100%;max-width:100%;min-height:44px;border:1px solid var(--divider-color,#d8dce5);border-radius:10px;padding:10px}
@@ -119,6 +137,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
         card._sharedTariffProfile = clone(envelope.profile); card._sharedTariffAssociation = identity(card._hass);
         card._sharedTariffLoadedAt = Date.now();
         card._sharedTariffReadStatus = 'success';
+        backend.invalidate(); cachedKey = undefined; cachedModel = undefined;
         // The editor finishes its pending state before the parent replaces DOM.
         queueMicrotask(() => {
           if (!guard.current(mountToken)) return;
@@ -142,6 +161,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   const bind = () => {
     guard.observe();
+    backend.snapshot();
     const tabs = card.shadowRoot.querySelector('.tabs');
     if (tabs && kind !== 'smart') {
       tabs.parentElement.setAttribute('data-energy-container', '');
@@ -152,11 +172,11 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       if (!picker) {
         const label = document.createElement('label'); label.className = 'energy-tab-picker';
         picker = document.createElement('select'); label.append(picker); tabs.before(label);
-        picker.addEventListener('change', () => buttons[Number(picker.value)]?.click());
+        picker.addEventListener('change', () => buttons.find(button=>button.dataset.tab===picker.value)?.click());
       }
       picker.setAttribute('aria-label', text('Energy view', 'Widok energii'));
       picker.replaceChildren(...buttons.map((button, index) => {
-        const option = document.createElement('option'); option.value = String(index);
+        const option = document.createElement('option'); option.value = button.dataset.tab || String(index);
         option.textContent = button.textContent.trim(); option.selected = button.classList.contains('active');
         button.setAttribute('role', 'tab'); button.setAttribute('aria-selected', String(option.selected));
         if (!button.dataset.energyPickerBound) {
@@ -164,7 +184,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
           button.addEventListener('click', () => queueMicrotask(() => {
             buttons.forEach((item, i) => {
               const active = item.classList.contains('active'); item.setAttribute('aria-selected', String(active));
-              if (active) picker.value = String(i);
+              if (active) picker.value = item.dataset.tab || String(i);
             });
           }));
         }
@@ -198,7 +218,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       }
     }
   };
-  return { model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, ui: () => createUi({ language: language() }) };
+  return { model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
 }
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { createTariffHostV3 };

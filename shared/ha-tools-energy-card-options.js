@@ -36,6 +36,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const config = this._config || {};
     if (!visible(config).includes(this[key])) this[key] = config.default_tab || visible(config)[0];
     if (config.compact && !this._optionsExpandedV5) {
+      this._getTariffHostV3?.().backend?.snapshot();
       const snapshot = this._energySnapshotV5;
       const format = createFormatUi.forHass(this._hass);
       const value = snapshot?.today?.usage_cost;

@@ -58,6 +58,7 @@ function createEnergyTariffV3(input) {
     if (!finite(value) || value < 0) fail(path, 'invalid_fee');
     return value;
   };
+  const classification = (value, path) => { if (value != null && !['cheap','expensive','mixed'].includes(value)) fail(path, 'invalid_classification'); return value ?? null; };
   const zones = new Map();
   if (!Array.isArray(p.zones) || !p.zones.length || p.zones.length > 32) fail('zones', 'invalid_zones');
   for (const [i, z] of (Array.isArray(p.zones) ? p.zones : []).entries()) {
@@ -66,7 +67,7 @@ function createEnergyTariffV3(input) {
       fail(path, 'invalid_zone'); continue;
     }
     zones.set(z.id, { zone: z.id, label: typeof z.label === 'string' ? z.label : z.id,
-      energyRate: energyRate(z.energyRate, path + '.energyRate'), variableRate: variableRate(z.variableRate, path + '.variableRate') });
+      energyRate: energyRate(z.energyRate, path + '.energyRate'), variableRate: variableRate(z.variableRate, path + '.variableRate'), classification: classification(z.classification, path + '.classification') });
   }
   const defaultZone = p.defaultZone == null ? null : p.defaultZone;
   if (defaultZone !== null && !zones.has(defaultZone)) fail('defaultZone', 'unknown_zone');
@@ -112,7 +113,7 @@ function createEnergyTariffV3(input) {
         if (!Number.isFinite(from) || !Number.isFinite(to) || to <= from) fail(`dynamic.intervals.${i}`, 'invalid_interval');
         return { from, to, zone: 'dynamic', label: 'Dynamic',
           energyRate: energyRate(r?.energyRate, `dynamic.intervals.${i}.energyRate`),
-          variableRate: variableRate(r?.variableRate, `dynamic.intervals.${i}.variableRate`) };
+          variableRate: variableRate(r?.variableRate, `dynamic.intervals.${i}.variableRate`), classification: classification(r?.classification, `dynamic.intervals.${i}.classification`) };
       }).sort((a, b) => a.from - b.from);
       for (let i = 1; i < dynamic.length; i++) if (dynamic[i].from < dynamic[i - 1].to) fail('dynamic', 'overlapping_prices');
     }
