@@ -1928,14 +1928,25 @@ this._installTariffConsumerV3();
       const format = createFormatUi.forHass(this._hass);
       return row.hour == null ? format.date(row.from) : format.pointLabel(row.from);
     }
-    _insightRowDetailV3(row) {
+    _insightTechnicalDetailsV5(key, from, to, timezone, sources) {
+      const t = (en, pl) => this._insightTextV3(en, pl);
+      const identity = JSON.stringify([key, from, to, sources]);
+      const open = this._insightTechnicalOpenV5?.has(identity) ? ' open' : '';
+      return `<details data-insights-source-details="${_esc(identity)}"${open}><summary>${t('Source and time details', 'Źródło i szczegóły czasu')}</summary><dl>
+        <dt>${t('Sources', 'Źródła')}</dt><dd>${_esc(sources.join(', '))}</dd>
+        <dt>${t('Exact interval (UTC)', 'Dokładny przedział (UTC)')}</dt><dd>${_esc(new Date(from).toISOString())} — ${_esc(new Date(to).toISOString())}</dd>
+        <dt>${t('Measurement time zone', 'Strefa czasowa pomiaru')}</dt><dd>${_esc(timezone)}</dd></dl></details>`;
+    }
+    _insightRowDetailV3(row, scope = 'point') {
       if (!row) return this._insightTextV3('No completed intervals in this window.', 'Brak zakończonych przedziałów w tym okresie.');
       const t = (en, pl) => this._insightTextV3(en, pl), n = value => _esc(this._insightNumberV3(value));
-      return `<strong>${_esc(this._insightRowLabelV3(row))}</strong><p>${_esc(new Date(row.from).toISOString())} — ${_esc(new Date(row.to).toISOString())} UTC<br>${_esc(row.timezone)} · ${_esc(row.source.join(', '))}</p>
+      const count = createFormatUi.forHass(this._hass).number(row.source.length);
+      return `<strong>${_esc(this._insightRowLabelV3(row))}</strong><p data-insights-source-count>${t('Sources', 'Źródła')}: ${_esc(count)}</p>
         <p>${t('Consumption', 'Zużycie')}: ${n(row.kwh)} kWh · ${t('Energy cost', 'Koszt energii')}: ${n(row.energyCost)} ${_esc(row.currency || '')} · ${t('Variable fees', 'Opłaty zmienne')}: ${n(row.variableCost)} ${_esc(row.currency || '')}</p>
         <p>${row.measuredHours}/${row.hours} ${t('measured hours', 'zmierzonych godzin')} · ${row.missing ? t('Partial / missing', 'Niepełne / brak') : t('Measured', 'Zmierzone')}
           ${row.missing && row.recordedKwh !== null ? ` · ${t('Measured subset', 'Zmierzona część')}: ${n(row.recordedKwh)} kWh` : ''}
-          ${row.priceMissing ? ' · ' + t('Tariff coverage unavailable', 'Brak pokrycia taryfą') : ''}</p>`;
+          ${row.priceMissing ? ' · ' + t('Tariff coverage unavailable', 'Brak pokrycia taryfą') : ''}</p>
+        ${this._insightTechnicalDetailsV5(`${scope}:${row.id}`, row.from, row.to, row.timezone, row.source)}`;
     }
     _insightSvgV3(width = 600) {
       const rows = this._insightChartRowsV3(), state = this._insightChartState;
@@ -1976,13 +1987,14 @@ this._installTariffConsumerV3();
       const format = createFormatUi.forHass(this._hass);
       return `<section class="insights-measured" data-insights-analysis aria-label="${this._t(period)}">
         <h3>${this._t(period)} · ${t('Recorded consumption', 'Zarejestrowane zużycie')}</h3>
-        <p>${_esc(data.source.join(', '))}</p><p data-insights-chart-range>${_esc(format.range(new Date(data.window.from).toISOString(), new Date(data.window.to).toISOString()))} · ${_esc(format.timeZone)}</p>
+        <p data-insights-source-count>${t('Sources', 'Źródła')}: ${_esc(format.number(data.source.length))}</p><p data-insights-chart-range>${_esc(format.range(new Date(data.window.from).toISOString(), new Date(data.window.to).toISOString()))}</p>
+        ${this._insightTechnicalDetailsV5(`chart:${period}`, data.window.from, data.window.to, format.timeZone, data.source)}
         <div class="insights-controls">
           ${period !== 'daily' ? `<label>${t('Intervals', 'Przedziały')}<select data-insights-control="resolution">${option('day', state.resolution, t('Local dates', 'Daty lokalne'))}${option('hour', state.resolution, t('All measured hours', 'Wszystkie godziny pomiaru'))}</select></label>` : ''}
           <label>${t('Measure', 'Miara')}<select data-insights-control="metric">${option('kwh', state.metric, 'kWh')}${option('energyCost', state.metric, t('Energy cost', 'Koszt energii'))}${option('variableCost', state.metric, t('Variable fees', 'Opłaty zmienne'))}</select></label>
           <label>${t('Chart type', 'Typ wykresu')}<select data-insights-control="type">${option('bar', state.type, t('Bars', 'Słupki'))}${option('line', state.type, t('Line', 'Linia'))}</select></label></div>
         <div class="insights-controls" role="group" aria-label="${t('Presentation', 'Prezentacja')}"><button type="button" data-insights-control="chart" aria-pressed="${state.view === 'chart'}">${t('Chart', 'Wykres')}</button><button type="button" data-insights-control="data" aria-pressed="${state.view === 'data'}">${t('Data', 'Dane')}</button></div>
-        ${state.view === 'chart' ? `<div data-insights-plot>${this._insightSvgV3()}</div>` : `<div data-insights-data>${rows.slice(state.page * 40, state.page * 40 + 40).map(row => `<article class="insights-data-row" data-insights-row="${_esc(row.id)}" data-value="${row[state.metric] == null ? 'null' : row[state.metric]}"><p>${_esc(this._insightNumberV3(row[state.metric]))} ${_esc(unit)}</p>${this._insightRowDetailV3(row)}</article>`).join('')}</div>${this._insightPagerV3(state.page, pages, 'previous-page', 'next-page')}`}
+        ${state.view === 'chart' ? `<div data-insights-plot>${this._insightSvgV3()}</div>` : `<div data-insights-data>${rows.slice(state.page * 40, state.page * 40 + 40).map(row => `<article class="insights-data-row" data-insights-row="${_esc(row.id)}" data-value="${row[state.metric] == null ? 'null' : row[state.metric]}"><p>${_esc(this._insightNumberV3(row[state.metric]))} ${_esc(unit)}</p>${this._insightRowDetailV3(row, 'data')}</article>`).join('')}</div>${this._insightPagerV3(state.page, pages, 'previous-page', 'next-page')}`}
         <label>${t('Point details (arrows, Home / End)', 'Szczegóły punktu (strzałki, Home / End)')}<select data-insights-control="point" ${!rows.length ? 'disabled' : ''}>${rows.map(row => option(row.id, state.selected, this._insightRowLabelV3(row))).join('')}</select></label>
         <div class="insights-controls"><button type="button" data-insights-control="previous-point" ${!rows.length || state.selected === rows[0]?.id ? 'disabled' : ''}>${t('Previous point', 'Poprzedni punkt')}</button><button type="button" data-insights-control="next-point" ${!rows.length || state.selected === rows.at(-1)?.id ? 'disabled' : ''}>${t('Next point', 'Następny punkt')}</button></div>
         <div class="insights-point-detail" data-insights-detail role="status" aria-live="polite">${this._insightRowDetailV3(selected)}</div>
@@ -1990,7 +2002,13 @@ this._installTariffConsumerV3();
       </section>${this._renderInsightDevicesV3()}`;
     }
     _captureInsightFocusV3() {
+      this._insightTechnicalOpenV5 ||= new Set();
+      // Capture native state before a queued toggle or a locale/point repaint.
+      this.shadowRoot.querySelectorAll('[data-insights-source-details]').forEach(el =>
+        el.open ? this._insightTechnicalOpenV5.add(el.dataset.insightsSourceDetails) : this._insightTechnicalOpenV5.delete(el.dataset.insightsSourceDetails));
       const active = this.shadowRoot.activeElement;
+      if (active?.tagName === 'SUMMARY' && active.parentElement?.hasAttribute('data-insights-source-details'))
+        return { sourceDetailKey: active.parentElement.dataset.insightsSourceDetails };
       if (active?.tagName === 'SUMMARY' && active.parentElement?.hasAttribute('data-insights-device-details'))
         return { detailKey: active.parentElement.dataset.insightsDeviceDetails };
       if (!active?.dataset.insightsControl) return null;
@@ -1998,6 +2016,11 @@ this._installTariffConsumerV3();
     }
     _restoreInsightFocusV3(focus) {
       if (!focus) return;
+      if (focus.sourceDetailKey != null) {
+        const details = [...this.shadowRoot.querySelectorAll('[data-insights-source-details]')].find(el => el.dataset.insightsSourceDetails === focus.sourceDetailKey);
+        details?.querySelector('summary')?.focus({ preventScroll: true });
+        return;
+      }
       if (focus.detailKey != null) {
         const details = [...this.shadowRoot.querySelectorAll('[data-insights-device-details]')].find(el => el.dataset.insightsDeviceDetails === focus.detailKey);
         details?.querySelector('summary')?.focus({ preventScroll: true });
@@ -2015,6 +2038,13 @@ this._installTariffConsumerV3();
         target.setSelectionRange(focus.start, focus.end, focus.direction || 'none');
     }
     _bindInsightContentV3() {
+      this._insightTechnicalOpenV5 ||= new Set();
+      this.shadowRoot.querySelectorAll('[data-insights-source-details]').forEach(el => {
+        if (el.dataset.insightsBound) return; el.dataset.insightsBound = 'true';
+        el.addEventListener('toggle', () => {
+          if (el.isConnected) el.open ? this._insightTechnicalOpenV5.add(el.dataset.insightsSourceDetails) : this._insightTechnicalOpenV5.delete(el.dataset.insightsSourceDetails);
+        });
+      });
       const redraw = focus => { this._updateContent(); this._restoreInsightFocusV3(focus); };
       this.shadowRoot.querySelectorAll('[data-insights-device-details]').forEach(el => {
         if (el.dataset.insightsBound) return; el.dataset.insightsBound = 'true';
@@ -2254,9 +2284,9 @@ this._installTariffConsumerV3();
           .recommendation { background: var(--bento-primary-light); border: 1px solid rgba(59,130,246,.2); border-radius: var(--bento-radius-sm); padding: 14px 16px; font-size: 13px; color: var(--bento-text); margin-bottom: 16px; display: flex; align-items: flex-start; gap: 10px; }
           .recommendation-icon { font-size: 18px; flex-shrink: 0; }
           .trend-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size:12px; font-weight: 600; }
-          .trend-up { background: var(--bento-error-light); color: var(--bento-error); }
-          .trend-down { background: var(--bento-success-light); color: var(--bento-success); }
-          .trend-neutral { background: rgba(158,158,158,.15); color: #9e9e9e; }
+          .trend-up { background: var(--bento-error-light); color: var(--energy-value-red,#b91c1c); }
+          .trend-down { background: var(--bento-success-light); color: var(--energy-value-green,#166534); }
+          .trend-neutral { background: rgba(158,158,158,.15); color: var(--energy-value-neutral,#475569); }
           .section-title { font-size: 13px; font-weight: 600; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .5px; margin: 16px 0 8px; }
           .device-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; }
           .device-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--bento-radius-xs); transition: background .15s; }
@@ -2274,10 +2304,10 @@ this._installTariffConsumerV3();
           .tip-card strong { color: var(--bento-primary); display: block; margin-bottom: 4px; font-size: 12px; text-transform: uppercase; letter-spacing: .3px; }
           .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 24px; gap: 16px; color: var(--bento-text-secondary); font-size: 14px; }
           .spinner { width: 32px; height: 32px; border: 3px solid var(--bento-border); border-top-color: var(--bento-primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
-          .error-msg { padding: 16px; background: var(--bento-error-light); border-left: 4px solid var(--bento-error); border-radius: var(--bento-radius-xs); font-size: 13px; color: var(--bento-error); }
+          .error-msg { padding: 16px; background: var(--bento-error-light); border-left: 4px solid var(--bento-error); border-radius: var(--bento-radius-xs); font-size: 13px; color: var(--energy-value-red,#b91c1c); }
           .no-sensors { padding: 40px 24px; text-align: center; color: var(--bento-text-secondary); font-size: 13px; }
-          button { font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500; border-radius: var(--bento-radius-xs); transition: all .2s; cursor: pointer; border: none; padding: 8px 14px; background: var(--bento-primary); color: white; }
-          button:hover { background: #2563EB; }
+          button { font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500; border-radius: var(--bento-radius-xs); transition: all .2s; cursor: pointer; border: none; padding: 8px 14px; background: var(--bento-primary); color: var(--bento-on-primary,#fff); }
+          button:hover { background: var(--bento-primary-hover); }
           .refresh-btn { background: transparent; color: var(--bento-text-secondary); padding: 4px; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; }
           .refresh-btn:hover { color: var(--bento-primary); background: var(--bento-primary-light); }
           .refresh-btn svg { width: 18px; height: 18px; }
@@ -2351,7 +2381,7 @@ this._installTariffConsumerV3();
         console.error('[ha-energy-insights] render error:', e);
         const msg = _esc(e && e.message ? e.message : String(e));
         if (this.shadowRoot) {
-          this.shadowRoot.innerHTML = `<div style="padding:16px;font-family:system-ui,sans-serif;color:#b91c1c;"><strong>Energy Insights render error.</strong><br>${msg}</div>`;
+          this.shadowRoot.innerHTML = `<div style="padding:16px;font-family:system-ui,sans-serif;color:var(--energy-value-red,#b91c1c);"><strong>Energy Insights render error.</strong><br>${msg}</div>`;
         }
         return '';
       }

@@ -20,14 +20,22 @@ test('Email local specificity preserves one scroll row, fading edges, 44px tabs 
 test('semantic success/error/warning text meets AA on actual light and dark card/KPI tones without changing bar pigments',()=>{
  for(const dark of [false,true]){const p=palette(dark);for(const name of ['green','red','amber','neutral','purple']){const fg=p[`--energy-value-${name}`];assert.ok(fg,`${name} semantic text token`);for(const bg of dark?['#16213e',p['--energy-kpi-tone'],p['--energy-kpi-tone-alt']]:['#ffffff',p['--energy-kpi-tone'],p['--energy-kpi-tone-alt'],'#eff6f3','#fef0f0','#fff7eb'])assert.ok(ratio(fg,bg)>=4.5,`${dark?'dark':'light'} ${name} ${fg}/${bg} must meet AA`);}}
  assert.doesNotMatch(email,/class="stat-value" style="color:#10B981"/i);
+ assert.match(options,/\[data-status=success\]\{color:var\(--energy-value-green\)/);
+ assert.match(options,/\[data-status=error\]\{color:var\(--energy-value-red\)/);
  for(const source of [email,insights]){assert.match(source,/\.trend-up\s*\{[^}]*color:\s*var\(--energy-value-red/);assert.match(source,/\.trend-down\s*\{[^}]*color:\s*var\(--energy-value-green/);assert.match(source,/\.device-bar\s*\{[^}]*background:\s*var\(--bento-primary\)/);}
 });
+test('Email Largest Import uses semantic text while preserving its measured input and bar source',()=>{
+ const dom=setup(),w=dom.window,c=w.document.createElement('ha-energy-email');
+ try{const data=[{name:'Grid Import',month:90.60000056,lastMonth:100,cost:1}];const raw=JSON.stringify(data);c._getOverviewDataForPeriod=()=>data;c._periodStatus_day='ready';c._formatCost=()=> '1.00';c._tariffCurrency=()=> 'EUR';c._getTariffLabel=()=> 'Shared tariff';
+ const root=w.document.createElement('div');root.innerHTML=c._tabOverview();const value=root.querySelector('[data-email-largest-import]');assert.ok(value);assert.equal(value.textContent,'Grid Import');assert.match(value.getAttribute('style'),/color:var\(--energy-value-green/);assert.equal(JSON.stringify(data),raw);assert.ok(root.querySelector('.device-bar'));
+ }finally{w.close();}
+});
 function chartFixture(language='en'){
- const dom=setup(),w=dom.window,c=w.document.createElement('ha-energy-insights');c._schedule=()=>{};c.setConfig({show_support:false});c._hass={user:{id:'qa',is_admin:true},connection:{connected:true},language,locale:{language},config:{time_zone:'Europe/Warsaw',currency:'EUR'},states:{}};c._lang=language;
+ const dom=setup(),w=dom.window,c=w.document.createElement('ha-energy-insights');c._schedule=()=>{};w.document.body.append(c);c.setConfig({show_support:false});c._getTariffHostV3=()=>({guard:{snapshot:()=>({}),dispose(){}}});c._hass={user:{id:'qa',is_admin:true},connection:{connected:true},language,locale:{language},config:{time_zone:'Europe/Warsaw',currency:'EUR'},states:{}};c._lang=language;
  const from=Date.parse('2026-10-25T00:00:00Z'),source=['sensor.private_grid','external:import<raw>'];
  const rows=[0,1].map(i=>({id:`absolute:${from+i*3600000}`,from:from+i*3600000,to:from+(i+1)*3600000,hour:2,timezone:'Europe/Warsaw',source,kwh:i?0:90.60000056,energyCost:i?-1.25:181.20000112,variableCost:0,currency:'EUR',measuredHours:1,hours:1,missing:false,recordedKwh:null,priceMissing:false}));
  c._prepareInsightChartV3=()=>{};c._renderInsightDevicesV3=()=>'';c._insightChartDataset={source,currency:'EUR',window:{from,to:from+2*3600000},hours:rows,days:rows};c._insightChartState={resolution:'hour',metric:'kwh',type:'bar',view:'chart',selected:rows[0].id,page:0};
- c._activeTab='weekly';c._domBuilt=true;c._loading=false;c._error=null;c._renderTabContent=()=>c._renderInsightChartV3('weekly');c.shadowRoot.innerHTML='<div class="panel-body">'+c._renderTabContent()+'</div>';w.document.body.append(c);c._bindInsightContentV3();return{dom,w,c,rows,close(){c._getTariffHostV3().guard.dispose();w.close();}};
+ c._activeTab='weekly';c._domBuilt=true;c._loading=false;c._error=null;c._renderTabContent=()=>c._renderInsightChartV3('weekly');c.shadowRoot.innerHTML='<div class="panel-body">'+c._renderTabContent()+'</div>';c._bindInsightContentV3();return{dom,w,c,rows,close(){c._getTariffHostV3().guard.dispose();w.close();}};
 }
 for(const language of ['en','pl'])test(`Insights ${language} keeps IDs/exact UTC behind closed disclosures and preserves raw values/selected identity`,()=>{
  const f=chartFixture(language);try{const root=f.c.shadowRoot,technical=[...root.querySelectorAll('[data-insights-source-details]')];assert.ok(technical.length>=2);assert.ok(technical.every(el=>!el.open));

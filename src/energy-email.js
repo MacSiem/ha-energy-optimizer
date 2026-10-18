@@ -2809,20 +2809,20 @@ this._installTariffConsumerV3();
           .schedule-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; overflow: hidden; }
           .schedule-name { font-size: 14px; font-weight: 600; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
           .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size:12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
-          .badge-ok { background: var(--bento-success-light); color: var(--bento-success); }
-          .badge-er { background: var(--bento-error-light); color: var(--bento-error); }
-          .badge-wa { background: var(--bento-warning-light); color: var(--bento-warning); }
+          .badge-ok { background: var(--bento-success-light); color: var(--energy-value-green,#166534); }
+          .badge-er { background: var(--bento-error-light); color: var(--energy-value-red,#b91c1c); }
+          .badge-wa { background: var(--bento-warning-light); color: var(--energy-value-amber,#92400e); }
           .badge-pr { background: var(--bento-primary-light); color: var(--bento-text); }
-          .badge-auto { background: rgba(139,92,246,.1); color: #8B5CF6; }
+          .badge-auto { background: rgba(139,92,246,.1); color: var(--energy-value-purple,#6d28d9); }
           .schedule-meta { font-size: 12px; color: var(--bento-text-secondary); }
           .schedule-meta span { margin-right: 12px; }
           .btn-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
           .btn { padding: 8px 16px; border-radius: var(--bento-radius-xs); border: 1.5px solid var(--bento-border); background: var(--bento-card); color: var(--bento-text); font-size: 13px; font-weight: 500; cursor: pointer; font-family: 'Inter', sans-serif; transition: all .2s; }
           .btn:hover { background: var(--bento-bg); }
           .btn:disabled { opacity: .45; cursor: not-allowed; }
-          .btn-primary { background: var(--bento-primary) !important; color: #fff !important; border-color: var(--bento-primary) !important; box-shadow: 0 2px 8px rgba(59,130,246,.3); }
-          .btn-primary:hover { background: #2563EB !important; }
-          .btn-ok { background: var(--bento-success) !important; color: #fff !important; border-color: var(--bento-success) !important; }
+          .btn-primary { background: var(--bento-primary) !important; color: var(--bento-on-primary,#fff) !important; border-color: var(--bento-primary) !important; box-shadow: 0 2px 8px rgba(59,130,246,.3); }
+          .btn-primary:hover { background: var(--bento-primary-hover) !important; }
+          .btn-ok { background: var(--energy-success-button,#166534) !important; color: #fff !important; border-color: var(--energy-success-button,#166534) !important; }
           .smtp-section { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
           .smtp-missing { border-color: #f59e0b40; background: #fef3c720; }
           .smtp-header { display: flex; align-items: center; gap: 12px; }
@@ -2835,7 +2835,7 @@ this._installTariffConsumerV3();
           .guide-title { font-weight: 700; font-size: 14px; margin-bottom: 12px; color: var(--bento-text); }
           .guide-steps { display: flex; flex-direction: column; gap: 16px; }
           .guide-step { display: flex; gap: 12px; }
-          .step-num { flex-shrink: 0; width: 28px; height: 28px; background: var(--bento-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
+          .step-num { flex-shrink: 0; width: 28px; height: 28px; background: var(--bento-primary); color: var(--bento-on-primary,#fff); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
           .guide-step p { margin: 4px 0; font-size: 13px; color: var(--bento-text-secondary); line-height: 1.5; }
           .guide-step pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto; line-height: 1.6; white-space: pre; margin: 8px 0; max-width: 100%; box-sizing: border-box; }
           .guide-step a { color: var(--bento-primary); text-decoration: none; }
@@ -2855,8 +2855,8 @@ this._installTariffConsumerV3();
           .preview-table th { background: var(--bento-border); padding: 5px 8px; text-align: left; font-weight: 600; font-size:12px; }
           .preview-table td { padding: 5px 8px; border-bottom: 1px solid var(--bento-border); }
           .preview-table tr:last-child td { border-bottom: none; }
-          .trend-up { color: var(--bento-error); }
-          .trend-down { color: var(--bento-success); }
+          .trend-up { color: var(--energy-value-red,#b91c1c); }
+          .trend-down { color: var(--energy-value-green,#166534); }
           .pagination-row { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px 0 4px; }
           .pagination-btn { padding: 6px 14px; border: 1px solid var(--bento-border); border-radius: var(--bento-radius-xs); background: var(--bento-bg); color: var(--bento-text); font-size: 12px; cursor: pointer; transition: all .15s; }
           .pagination-btn:hover:not([disabled]) { background: var(--bento-primary-light); border-color: var(--bento-primary); color: var(--bento-primary); }
@@ -2864,9 +2864,9 @@ this._installTariffConsumerV3();
           .pagination-info { font-size: 12px; color: var(--bento-text-secondary); }
           .info-row { display: flex; gap: 6px; align-items: flex-start; padding: 10px; background: var(--bento-primary-light); border-radius: var(--bento-radius-xs); margin-bottom: 12px; font-size: 12px; color: var(--bento-text); }
           .info-warn { background: var(--bento-warning-light); }
-          .auto-on { color: var(--bento-success); }
-          .auto-off { color: var(--bento-error); }
-          .auto-unknown { color: var(--bento-warning); }
+          .auto-on { color: var(--energy-value-green,#166534); }
+          .auto-off { color: var(--energy-value-red,#b91c1c); }
+          .auto-unknown { color: var(--energy-value-amber,#92400e); }
           .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; margin-right: 6px; vertical-align: middle; }
           @keyframes spin { to { transform: rotate(360deg); } }
           .last-sent { font-size:12px; color: var(--bento-text); margin-top: 4px; }
@@ -2875,7 +2875,7 @@ this._installTariffConsumerV3();
           .empty-state .title { font-size: 15px; font-weight: 600; color: var(--bento-text); margin-bottom: 6px; }
           .empty-state .desc { font-size: 13px; color: var(--bento-text-secondary); line-height: 1.6; max-width: 400px; margin: 0 auto; }
           .source-badge { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px; border-radius: 10px; font-size:12px; font-weight: 600; margin-left: 6px; }
-          .source-auto { background: rgba(139,92,246,.1); color: #8B5CF6; }
+          .source-auto { background: rgba(139,92,246,.1); color: var(--energy-value-purple,#6d28d9); }
           .email-setup { background: var(--bento-warning-light); border: 1px solid rgba(245,158,11,.3); border-radius: var(--bento-radius-sm); padding: 14px; margin-bottom: 16px; }
           .email-setup-title { font-size: 13px; font-weight: 600; color: var(--bento-text); margin-bottom: 8px; }
           .email-input-row { display: flex; gap: 8px; align-items: center; }
@@ -2884,7 +2884,7 @@ this._installTariffConsumerV3();
           .email-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px 12px; background: var(--bento-success-light); border-radius: var(--bento-radius-xs); font-size: 12px; color: var(--bento-text); }
           .email-edit-btn { background: none; border: none; color: var(--bento-primary); cursor: pointer; font-size:12px; padding: 2px 6px; font-family: 'Inter', sans-serif; }
           .email-edit-btn:hover { text-decoration: underline; }
-          .source-manual { background: var(--bento-success-light); color: var(--bento-success); }
+          .source-manual { background: var(--bento-success-light); color: var(--energy-value-green,#166534); }
           .config-section { margin-bottom: 20px; }
           .config-section-title { font-size: 13px; font-weight: 700; color: var(--bento-text); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
           .device-toggle { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--bento-radius-xs); transition: background .15s; }
@@ -2933,8 +2933,8 @@ this._installTariffConsumerV3();
           #price-display:is(button){font:inherit;white-space:normal;overflow-wrap:anywhere;max-width:100%;padding:8px;border:1px dashed var(--bento-primary);border-radius:8px;background:var(--bento-card);color:var(--bento-primary);cursor:pointer}
           .price-inline{display:inline-flex;align-items:center;flex-wrap:wrap;gap:4px;max-width:100%}
           .price-inline input{min-height:44px;box-sizing:border-box}
-          .card .tabs{flex-wrap:wrap;overflow:visible}
-          .card .tab-btn{white-space:normal;overflow-wrap:anywhere;flex:0 1 auto}
+          .card .tabs{display:flex;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-width:100%;padding-inline:12px;scroll-padding-inline:12px;mask-image:linear-gradient(to right,transparent,#000 12px,#000 calc(100% - 12px),transparent);-webkit-mask-image:linear-gradient(to right,transparent,#000 12px,#000 calc(100% - 12px),transparent)}
+          .card .tab-btn{white-space:nowrap;overflow-wrap:normal;flex:0 0 auto;min-height:44px;min-width:44px}
           .email-tab-picker{display:none}
           .history-actions{display:flex;flex-wrap:wrap;gap:8px}
           .history-actions button{padding:10px 14px;border:1px solid var(--bento-border);border-radius:10px;background:var(--bento-card);color:var(--bento-text);font:inherit;cursor:pointer}
@@ -3254,7 +3254,7 @@ this._installTariffConsumerV3();
             <div class="stat-sub">@ ${_esc(this._getTariffLabel())}</div>
           </div>
           <div class="stat">
-            <div class="stat-value" style="color:#10B981">${displayData.length > 0 ? _esc(displayData[0].name.split(' ').slice(0,2).join(' ')) : '-'}</div>
+            <div class="stat-value" data-email-largest-import style="color:var(--energy-value-green,#166534)">${displayData.length > 0 ? _esc(displayData[0].name.split(' ').slice(0,2).join(' ')) : '-'}</div>
             <div class="stat-label">${L ? 'Największy import' : 'Largest Import'}</div>
             <div class="stat-sub">${displayData.length > 0 ? this._fmt(displayData[0].month, 1) + ' kWh' : ''}</div>
           </div>
