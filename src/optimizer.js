@@ -3876,8 +3876,8 @@ canvas {
           }
         }
         @container (max-width: 500px) {
-          .tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; }
-          .tab-button { min-width:0; white-space:normal; font-size:14px; padding:8px; }
+          .card-container .tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; overflow:visible; mask-image:none; padding-inline:0; }
+          .card-container .tabs>button { min-width:0; white-space:normal; font-size:14px; padding:8px; }
         }
       
 /* ===== MOBILE RESPONSIVE TABLE STYLES ===== */
