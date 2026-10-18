@@ -82,9 +82,11 @@ function createEnergyAnalysisV53({card, onChange = () => {}, refreshMs = 300000}
     if (!['kwh','energy_cost','variable_cost','usage_cost','fixed_cost','total_cost','effective_price'].every(k=>Object.hasOwn(dto.totals,k) && decimal(dto.totals[k]))) return false;
     // Validate finite numeric leaves, including money nested in groups/comparisons,
     // without converting or rounding any server value. Bound traversal as well.
+    // Supported annual hours plus 512 consumers and their room/floor comparison
+    // rows exceed 200k leaves; leave room for the bounded 32-version tariff DTO.
     let count = 0;
     const walk = (value, key = '', depth = 0) => {
-      if (++count > 200000 || depth > 40) return false;
+      if (++count > 2000000 || depth > 40) return false;
       if (value === null) return true;
       if (typeof value === 'number') return Number.isFinite(value);
       const money = /(?:^|_)(?:kwh|cost|rate|price)$/.test(key) || /^(?:energyRate|variableRate|fixedMonthly|fixed_monthly|legacy_combined_monthly)$/.test(key);
