@@ -83,7 +83,7 @@ test('revision conflict retains draft and requires explicit discard-and-reload g
 });
 test('unavailable native list preserves selected missing/inactive accounts without exposing IDs',async()=>{
  const policy={schema:1,features:{log_reports:{read:{mode:'selected_users',user_ids:['native-old','missing-private-id']}}}},f=fixture({policy});try{await f.mount();
-  f.reply=async req=>{if(req.type.endsWith('/get_feature_access'))return envelope(policy);if(req.type==='config/auth/list')throw {code:'unknown_command'};if(req.type.endsWith('/set_feature_access'))return envelope(req.policy,8);throw Error(req.type);};await f.open();assert.deepEqual(clone(f.editor.state().draft),policy);assert.match(f.node('status').textContent,/accounts|users/i);assert.doesNotMatch(f.card.shadowRoot.textContent,/missing-private-id|native-old/);
+  f.reply=async req=>{if(req.type.endsWith('/get_feature_access'))return envelope(policy);if(req.type==='config/auth/list')throw {code:'unknown_command'};if(req.type.endsWith('/set_feature_access'))return envelope(req.policy,8);throw Error(req.type);};await f.open();assert.deepEqual(clone(f.editor.state().draft),policy);assert.match(f.node('status').textContent,/account list is unavailable/i);assert.match(f.node('status').textContent,/saved choices are kept/i);assert.doesNotMatch(f.card.shadowRoot.textContent,/missing-private-id|native-old/);
   f.change('energy_tariff','visible','admin');f.node('save').click();await tick();assert.deepEqual(f.requests.find(r=>r.type.endsWith('/set_feature_access')).policy.features.log_reports,policy.features.log_reports);f.clean();
  }finally{f.close();}
 });
