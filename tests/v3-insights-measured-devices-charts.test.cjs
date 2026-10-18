@@ -196,7 +196,9 @@ test('metric and point selection stay local; tariff change reprices settled devi
     f.setHandler(async req => { assert.equal(req.type, 'ha_tools_email/get_tariff'); return { profile: { ...profile, zones: [{ id: 'a', energyRate: 3, variableRate: 0.1 }] }, revision: 2, updated_at: null }; });
     const details = f.card.shadowRoot.querySelector('[data-tariff-details]');
     details.open = true; details.dispatchEvent(new f.dom.window.Event('toggle'));
+    const tariffReads = f.calls.filter(request => request.type === 'ha_tools_email/get_tariff').length;
     f.card.shadowRoot.querySelector('[data-action="load"]').click(); await flush();
+    assert.equal(f.calls.filter(request => request.type === 'ha_tools_email/get_tariff').length, tariffReads + 1, 'a fresh Load acknowledgement precedes repricing');
     assert.equal(f.card._insightDeviceState.raw, raw);
     assert.equal(f.card._insightDeviceRowsV3()[1].energyCost, 63);
     f.card.setActiveTab('weekly'); await flush();

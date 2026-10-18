@@ -12,8 +12,9 @@ async function drainBackend() {
 }
 function energyBackend(card, handler, options = {}) {
   let shared = { profile: options.profile ?? null, revision: options.revision ?? 0 };
-  const calls = [];
+  const calls = [], wsCalls = [];
   const dispatch = async request => {
+    wsCalls.push(clone(request));
     if (!isEnergyRequest(request)) {
       const result = await handler(request);
       if (request.type === 'ha_tools_email/get_tariff' && result && Object.hasOwn(result, 'profile')) shared = clone(result);
@@ -41,6 +42,7 @@ function energyBackend(card, handler, options = {}) {
       next_cheap: { status: 'unknown', start: null } };
   };
   dispatch.energyCalls = calls;
+  dispatch.wsCalls = wsCalls;
   return dispatch;
 }
 function mountForPricing(card) {

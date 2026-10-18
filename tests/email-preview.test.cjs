@@ -166,6 +166,7 @@ test(`Recorder tariff cost weights consumption at HA local hours (${timeZone}, $
   const points = Array.from({ length: 24 }, (_, hour) => ({ start: (start + hour * 3600000) / 1000,
     change: (hour === dayHour ? 10 : hour === nightHour ? 1 : 0) * (unit === 'Wh' ? 1000 : 1) }));
   card._hass.callWS = async msg => ({
+    'ha_tools_email/get_tariff': { profile: null, revision: 0, updated_at: null },
     'energy/get_prefs': { energy_sources: [{ type: 'grid', stat_energy_from: 'sensor.grid' }] },
     'recorder/get_statistics_metadata': { 'sensor.grid': { has_sum: true, statistics_unit_of_measurement: unit } },
     'recorder/statistics_during_period': { 'sensor.grid': points },

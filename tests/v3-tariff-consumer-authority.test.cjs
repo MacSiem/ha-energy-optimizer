@@ -1,7 +1,7 @@
 // Breaks caught: missing consumer lifecycle/context fences, stale Recorder callbacks,
 // unnecessary Recorder refetch on tariff readback, and lost local configured rates.
 'use strict';
-const { energyBackend, drainBackend, mountForPricing } = require('./helpers/energy-backend-fixture.cjs');
+const { energyBackend, drainBackend, mountForPricing, isEnergyRequest } = require('./helpers/energy-backend-fixture.cjs');
 
 const {test}=require('node:test');const assert=require('node:assert/strict');
 const {readFileSync}=require('node:fs');const {join}=require('node:path');const {JSDOM}=require('jsdom');
@@ -11,7 +11,24 @@ const flush=drainBackend;
 function setup(type){const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'});dom.window.eval(readFileSync(join(__dirname,'..','ha-energy-optimizer.js'),'utf8'));const card=dom.window.document.createElement(type);const connection=new dom.window.EventTarget();connection.connected=true;card._hass={user:{id:'u',is_admin:true,is_owner:false,is_active:true,groups:[],group_ids:[]},connection,config:{time_zone:'UTC',currency:'EUR'},states:{},callWS:async()=>({profile,revision:4,updated_at:null})};card._config={...card._config,tariff_profile:profile};card._schedule=()=>{};const host=card._getTariffHostV3();return{dom,card,connection,host,close(){card._tariffConsumerUnsubscribeV3?.();host.guard.dispose();dom.window.close();}};}
 for(const type of types){
  test(`${type} observes typed connection and browser edges before mount`,()=>{const f=setup(type);try{for(const [target,event] of [[f.connection,'disconnected'],[f.connection,'ready'],[f.connection,'reconnect-error'],[f.dom.window,'offline'],[f.dom.window,'online']]){f.card._tariffEditorState={draft:{name:'PRIVATE'}};f.card._sharedTariffProfile=profile;const old=f.host.guard.snapshot();target.dispatchEvent(new f.dom.window.Event(event));assert.equal(f.card._tariffEditorState,null);assert.equal(f.card._sharedTariffProfile,null);assert.equal(f.host.guard.current(old),false);}}finally{f.close();}});
- test(`${type} config/range/source changes erase a mounted editor before stale Save`,async()=>{const f=setup(type);try{f.card._render();const details=f.card.shadowRoot.querySelector('[data-tariff-details]');details.open=true;details.dispatchEvent(new f.dom.window.Event('toggle'));let calls=0;f.card._hass.callWS=async()=>{calls++;return null;};f.host.reset();for(const change of [()=>f.card.setConfig({...f.card._config,title:'changed'}),()=>{if(type==='ha-energy-optimizer')f.card._patternsState={period:30};else if(type==='ha-energy-insights')f.card._activeTab='weekly';else f.card._overviewPeriod='month';f.card._observeTariffContextV3();},()=>{f.card._tariffSourceIds=['sensor.other'];f.card._observeTariffContextV3();}]){f.card._tariffEditorState={draft:{name:'PRIVATE'}};change();assert.equal(f.card._tariffEditorState,null);}await flush();assert.equal(calls,0);}finally{f.close();}});
+ test(`${type} config/range/source changes erase a mounted editor before stale Save`,async()=>{
+  const f=setup(type);try{
+   f.card._render();
+   const details=f.card.shadowRoot.querySelector('[data-tariff-details]');details.open=true;details.dispatchEvent(new f.dom.window.Event('toggle'));
+   const backend=energyBackend(f.card,async request=>{throw Error('Unexpected non-pricing operation '+request.type);});
+   f.card._hass.callWS=backend;f.host.reset();
+   for(const change of [()=>f.card.setConfig({...f.card._config,title:'changed'}),()=>{
+    if(type==='ha-energy-optimizer')f.card._patternsState={period:30};
+    else if(type==='ha-energy-insights')f.card._activeTab='weekly';else f.card._overviewPeriod='month';
+    f.card._observeTariffContextV3();
+   },()=>{f.card._tariffSourceIds=['sensor.other'];f.card._observeTariffContextV3();}]){
+    f.card._tariffEditorState={draft:{name:'PRIVATE'}};change();assert.equal(f.card._tariffEditorState,null);
+   }
+   await flush();
+   assert.deepEqual(backend.wsCalls.filter(request=>!isEnergyRequest(request)),[], 'context purge cannot write or dispatch measurement reads');
+   assert.equal(backend.wsCalls.some(request=>request.type==='ha_tools_email/set_tariff'),false);
+  }finally{f.close();}
+ });
  test(`${type} same-user permission/config/callWS changes purge old drafts`,()=>{const f=setup(type);try{for(const apply of [h=>h.user.is_admin=false,h=>h.user.is_owner=true,h=>h.user.groups=['x'],h=>h.user.group_ids=['x'],h=>h.user.is_active=false,h=>h.config.currency='PLN',h=>h.callWS=async()=>null]){f.card._tariffEditorState={draft:{name:'PRIVATE'}};apply(f.card._hass);f.card._resetTariffContext(f.card._hass);assert.equal(f.card._tariffEditorState,null);}}finally{f.close();}});
  test(`${type} local configuration validates offline but no backend price is fabricated`,async()=>{
   const f=setup(type);try{
@@ -24,8 +41,12 @@ for(const type of types){
     assert.equal(f.card._getTariffV3().valid,true);
     assert.equal(f.card._getTariffV3().priceBuckets(buckets).energyCost,null);
     f.card._hass.connection={connected:true};
-    f.card._hass.callWS=energyBackend(f.card,async req=>{throw Error(req.type);});
+    f.card._hass.callWS=energyBackend(f.card,async req=>{
+      if(req.type==='ha_tools_email/get_tariff')return{profile:null,revision:0,updated_at:null};
+      throw Error(req.type);
+    });
     f.card._resetTariffContext(f.card._hass);
+    assert.equal(await f.host.load(true),true,'fresh authority confirms no shared tariff before legacy override pricing');
     f.card._getTariffV3().priceBuckets(buckets);await flush();
     assert.equal(f.card._getTariffV3().priceBuckets(buckets).energyCost,0.25);
   }finally{f.close();}
@@ -71,7 +92,22 @@ for(const type of types)test(`${type} explicit tariff Load reprices settled meas
 });
 
 for(const type of types)test(`${type} unknown mutation survives detach/context reset and automatic host read`,async()=>{const f=setup(type);try{f.card._render();let release,writes=0;f.card._hass.callWS=msg=>msg.type==='ha_tools_email/set_tariff'?(writes++,new Promise(r=>release=r)):Promise.resolve({profile,revision:4,updated_at:'2026-10-12T00:00:00Z'});f.host.reset();await f.host.load(true);f.card._render();let details=f.card.shadowRoot.querySelector('[data-tariff-details]');details.open=true;details.dispatchEvent(new f.dom.window.Event('toggle'));f.card.shadowRoot.querySelector('[data-action="save"]').click();assert.equal(writes,1);f.card.disconnectedCallback();f.card.connectedCallback();release({revision:5});await flush();await f.host.load(true);f.card._render();details=f.card.shadowRoot.querySelector('[data-tariff-details]');details.open=true;details.dispatchEvent(new f.dom.window.Event('toggle'));assert.equal(f.card.shadowRoot.querySelector('[data-action="save"]').disabled,true);f.card.shadowRoot.querySelector('[data-action="save"]').click();await flush();assert.equal(writes,1);f.card.shadowRoot.querySelector('[data-action="load"]').click();await flush();assert.equal(f.card.shadowRoot.querySelector('[data-action="save"]').disabled,false);}finally{f.close();}});
-for(const type of types)test(`${type} source/window context mutation fences the next Recorder dispatch`,async()=>{const f=setup(type);try{let resolve;const calls=[];f.card._hass.callWS=req=>{calls.push(req.type);return new Promise(r=>resolve=r);};const read=f.card._createEnergyReadV3();const pending=read.hass.callWS({type:'energy/get_prefs'});f.card.setConfig({...f.card._config,power_entity:'sensor.other'});resolve({energy_sources:[{type:'grid',stat_energy_from:'sensor.stale'}]});await assert.rejects(pending,e=>e.code==='energy_context_changed');await assert.rejects(read.hass.callWS({type:'recorder/get_statistics_metadata',statistic_ids:['sensor.stale']}),e=>e.code==='energy_context_changed');assert.deepEqual(calls,['energy/get_prefs']);assert.notDeepEqual(f.card._tariffSourceIds,['sensor.stale']);}finally{f.close();}});
+for(const type of types)test(`${type} source/window context mutation fences the next Recorder dispatch`,async()=>{
+ const f=setup(type);try{
+  let resolve;
+  const backend=energyBackend(f.card,req=>new Promise(r=>{resolve=r;}));
+  f.card._hass.callWS=backend;
+  const read=f.card._createEnergyReadV3();
+  const pending=read.hass.callWS({type:'energy/get_prefs'});
+  f.card.setConfig({...f.card._config,power_entity:'sensor.other'});
+  resolve({energy_sources:[{type:'grid',stat_energy_from:'sensor.stale'}]});
+  await assert.rejects(pending,e=>e.code==='energy_context_changed');
+  await assert.rejects(read.hass.callWS({type:'recorder/get_statistics_metadata',statistic_ids:['sensor.stale']}),e=>e.code==='energy_context_changed');
+  assert.deepEqual(backend.wsCalls.filter(request=>!isEnergyRequest(request)).map(request=>request.type),['energy/get_prefs']);
+  assert.equal(backend.wsCalls.filter(request=>request.type.startsWith('recorder/')).length,0,'stale source is never dispatched to Recorder');
+  assert.notDeepEqual(f.card._tariffSourceIds,['sensor.stale']);
+ }finally{f.close();}
+});
 
 for(const type of types)test(`${type} queued repricing never renders after its document closes`,async()=>{const f=setup(type);let renders=0;try{f.card._repriceTariffV3=()=>{renders++;};f.host.guard.invalidate();f.dom.window.close();await flush();assert.equal(renders,0);}finally{f.card._tariffConsumerUnsubscribeV3?.();f.host.guard.dispose();}});
 

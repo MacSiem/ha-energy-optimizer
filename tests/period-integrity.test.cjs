@@ -20,6 +20,7 @@ function setup(type, series, options = {}) {
   const calls = [];
   card._hass = { user: { id: 'measurement-fixture', is_admin: true }, connection: { connected: true }, config: { time_zone: options.zone || 'UTC', currency: 'EUR' }, states: {}, callWS: async msg => {
     calls.push(msg);
+    if (msg.type === 'ha_tools_email/get_tariff') return { profile: null, revision: 0, updated_at: null };
     if (msg.type === 'energy/get_prefs') return options.prefs || { energy_sources: ids.map(id => ({ type: 'grid', stat_energy_from: id })) };
     if (msg.type === 'recorder/get_statistics_metadata') return Object.fromEntries(ids.map(id => [id, { has_sum: true, statistics_unit_of_measurement: options.unit || 'kWh', unit_class: 'energy' }]));
     if (msg.type === 'recorder/statistics_during_period') return series;

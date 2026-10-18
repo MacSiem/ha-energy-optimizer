@@ -281,8 +281,12 @@ test('Energy Email requires timestamped backend pricing and preserves an explici
     email.setConfig({ energy_price: 0 });
     assert.equal(email._getAvgRate(), 0);
     assert.equal(email._cost(5), null, 'an aggregate is not a timestamped measurement');
-    email._hass.callWS = energyBackend(email, async request => { throw Error(request.type); });
+    email._hass.callWS = energyBackend(email, async request => {
+      if (request.type === 'ha_tools_email/get_tariff') return { profile: null, revision: 0, updated_at: null };
+      throw Error(request.type);
+    });
     mountForPricing(email);
+    assert.equal(await email._loadSharedTariffProfile(), true, 'backend confirms no shared profile before legacy override pricing');
     const buckets = [{ from: '2026-09-30T11:00Z', to: '2026-09-30T12:00Z', kwh: 5 }];
     assert.equal(email._getTariffV3().priceBuckets(buckets).energyCost, null);
     await drainBackend();
