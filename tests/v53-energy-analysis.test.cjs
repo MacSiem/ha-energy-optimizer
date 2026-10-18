@@ -124,3 +124,30 @@ test('refresh TTL expires only on explicit read and never installs background ti
   t.mock.timers.tick(101);assert.equal(s.calls.length,1);const q=s.c.read({period:'day'});assert.equal(s.calls.length,2);
   await settle(s,1);await q;s.c.disconnect();t.mock.timers.tick(10000);assert.equal(s.calls.length,2);
 });
+
+// Actual synthetic producer DTO, backend791a6ed, FIFO21151; no private HA data.
+const producerDto=require('./fixtures/analysis-partial-v53.json');
+test('actual qualified backend partial-group DTO passes without changing one server field',async()=>{
+  const s=setup();s.c.connect();const p=s.c.read({period:'day',anchor:'2026-10-10',comparison:'previous'});
+  await settle(s,0,clone(producerDto));const result=await p;
+  assert.equal(result.status,'ready');assert.deepEqual(result.snapshot,producerDto);
+});
+test('documented 512 consumers with distinct room/floor partitions and comparison rows fit the DTO validator',async()=>{
+  const value=clone(producerDto), current=value.groups, comparison=value.comparisons.previous.groups;
+  const baseline=value.comparisons.previous.baseline_analysis.groups;
+  for(const [groups,isComparison] of [[current,false],[baseline,false],[comparison,true]]) {
+    const device=clone(groups.devices['sensor.device']), area=clone(groups.areas.office), floor=clone(groups.floors.upstairs);
+    groups.devices={};groups.areas={};groups.floors={};
+    // This is a shape-boundary fixture, not a new arithmetic/conservation oracle.
+    groups.reconciles_household_delta=false;groups.reconciles_household_cost_delta=false;
+    for(let index=0;index<512;index++) {
+      const id=String(index).padStart(3,'0');
+      groups.devices['sensor.device_'+id]={...clone(device),...(!isComparison?{area_id:'area_'+id,floor_id:'floor_'+id}: {})};
+      groups.areas['area_'+id]=clone(area);groups.floors['floor_'+id]=clone(floor);
+    }
+  }
+  const s=setup();s.c.connect();const p=s.c.read({period:'day',anchor:'2026-10-10',comparison:'previous'});
+  await settle(s,0,value);const result=await p;
+  assert.equal(result.status,'ready');assert.equal(Object.keys(result.snapshot.groups.devices).length,512);
+  assert.deepEqual(result.snapshot.comparisons.previous.groups,comparison);
+});
