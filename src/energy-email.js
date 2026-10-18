@@ -1000,13 +1000,18 @@ function createEnergyReportV53({card, format}) {
         this._resetTariffContext(hass);
         this._hass = hass;
         this._analysisHostV53?.observe();
-        this._reportHostV53?.observe();
+        const reportObservation = this._reportHostV53?.observe();
         this._serverSchedules.setContext(hass);
         this._mailPreview.setContext(hass);
         this._attemptHistory.setContext(hass);
         if (this._activeTab === 'history') this._render();
         if (!hass) { this.shadowRoot.replaceChildren(); return; }
-        if (this._activeTab==='preview' && this._firstRender) { this._render(); return; }
+        if (this._activeTab==='preview' && this._firstRender) {
+          // Ordinary HA state traffic must preserve the report iframe, scroll,
+          // open disclosures and focused controls. Identity/format changes purge.
+          if (!this._reportHostV53 || reportObservation?.contextChanged) this._render();
+          return;
+        }
         if (this._initialDiscoveryStartedV3) this._ensureInitialDiscovery();
         if ((emailContextChanged || measurementsChanged) && this._firstRender) { this._render(); return; }
         const now = Date.now();

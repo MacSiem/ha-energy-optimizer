@@ -44,8 +44,9 @@ function createEnergyReportV53({card, format}) {
     window.addEventListener('offline',disconnected);window.addEventListener('online',ready);
   }
   function observe(){
-    const next=context();if(!same(identity,next)){cancel();identity=next;}
-    return state();
+    const next=context(),contextChanged=!same(identity,next);
+    if(contextChanged){cancel();identity=next;}
+    return {...state(),contextChanged};
   }
   function fallback(error){
     if(error?.code==='unknown_command'&&card._hass?.user?.is_admin===true&&available()){
