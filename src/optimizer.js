@@ -1796,6 +1796,7 @@ this._installTariffConsumerV3();
   color-scheme: light;
   container-type: inline-size;
   --bento-primary: #1d4ed8;
+  --bento-on-primary: #fff;
   --bento-primary-hover: #2563EB;
   --bento-primary-light: rgba(59, 130, 246, 0.08);
   --bento-success: #10B981;
@@ -1822,6 +1823,7 @@ this._installTariffConsumerV3();
 :host(.bento-dark) {
   color-scheme: dark;
   --bento-primary: #a5b4fc;
+  --bento-on-primary: #111827;
   --bento-bg: var(--primary-background-color, #1a1a2e);
   --bento-card: var(--card-background-color, #16213e);
   --bento-text: var(--primary-text-color, #e2e8f0);
@@ -1903,7 +1905,7 @@ button, .btn, .action-btn {
 }
 button.active, .btn.active, .btn-primary, .action-btn.active {
   background: var(--bento-primary) !important;
-  color: white !important;
+  color: var(--bento-on-primary) !important;
   border-color: var(--bento-primary) !important;
   box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
 }
