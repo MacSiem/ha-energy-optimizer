@@ -12,6 +12,14 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
   const clock = value => value && ['civil','fixed'].includes(value.mode) && (value.mode !== 'fixed' || Number.isInteger(value.offsetMinutes) && Math.abs(value.offsetMinutes) <= 840);
   let context, generation = 0, busy = false, scheduled = false, snapshotSlot = null, snapshotWindow = null, refreshTimer = null;
   const records = new Map(), jobs = [];
+  const updatePriceStatus = () => {
+    let status = null;
+    for (const record of records.values()) {
+      if (record.priceError === 'backend_request_limit') { status = record.priceError; break; }
+      if (record.priceError) status = record.priceError;
+    }
+    card._energyPriceStatusV5 = status;
+  };
   const clear = () => {
     clearTimeout(refreshTimer); refreshTimer = null;
     generation++; records.clear(); jobs.length = 0; context = undefined;
@@ -133,15 +141,16 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
           const record=job.record;
           if(record.failed) return;
           record.parts[job.part]=copy(result.results[i]);record.remaining--;
-          if(!record.remaining) {record.value=combine(record);completed=true;}
+          if(!record.remaining) {record.value=combine(record);record.priceError=null;completed=true;}
         });
+        updatePriceStatus();
         if(completed) onPrices();
       }
     } catch(error) {
       if(still(token,version,key)) {
         if(isSnapshot) card._energySnapshotV5=null;
-        else for(const job of batch) {job.record.failed=true;job.record.retryAfter=Date.now()+retryMs;job.record.value=unknown(job.record.buckets,descriptor,error?.code==='invalid_energy_price_queries'?'backend_request_limit':'backend_unavailable');}
-        if(!isSnapshot) card._energyPriceStatusV5=error?.code==='invalid_energy_price_queries'?'backend_request_limit':'backend_unavailable';
+        else for(const job of batch) {job.record.failed=true;job.record.retryAfter=Date.now()+retryMs;job.record.priceError=error?.code==='invalid_energy_price_queries'?'backend_request_limit':'backend_unavailable';job.record.value=unknown(job.record.buckets,descriptor,job.record.priceError);}
+        if(!isSnapshot) updatePriceStatus();
         onPrices();
       }
     } finally {busy=false;if(jobs.length) schedule();}
@@ -156,14 +165,14 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     const existing=records.get(key);
     if(existing && !(existing.failed && existing.retryAfter <= Date.now() && !guard.occupied())) return existing.value;
     if(existing) records.delete(key);
-    const record={buckets:copy(rows),coverage:copy(coverage),value:unknown(rows,descriptor),parts:[],offsets:[],remaining:0,failed:false};
+    const record={buckets:copy(rows),coverage:copy(coverage),value:unknown(rows,descriptor),parts:[],offsets:[],remaining:0,failed:false,priceError:existing?.priceError ?? null};
     records.set(key,record);
     try {
       const partitions=partition(record.buckets,descriptor.profile);
       record.remaining=partitions.length;
       partitions.forEach((part,i)=>{record.offsets[i]=part.offset;jobs.push({...part,record,part:i});});
       schedule();
-    } catch(_) {record.failed=true;record.retryAfter=Infinity;record.value=unknown(rows,descriptor,'backend_request_limit');card._energyPriceStatusV5='backend_request_limit';}
+    } catch(_) {record.failed=true;record.retryAfter=Infinity;record.priceError='backend_request_limit';record.value=unknown(rows,descriptor,record.priceError);updatePriceStatus();}
     return record.value;
   };
   const armRefresh = () => {
@@ -172,8 +181,8 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
       refreshTimer=null;
       const token=guard.snapshot();
       if(!card.isConnected || !guard.available(token)) return;
-      // Expired failures may be retried only after the old raw request settles.
-      if(!guard.occupied()) for(const [key,record] of records) if(record.failed && record.retryAfter<=Date.now()) records.delete(key);
+      // priceBuckets owns bounded retries after the raw slot settles. Retain
+      // expired errors until those queries recover, not just until a timer fires.
       snapshot();onPrices();
     }, refreshMs);
     refreshTimer?.unref?.();
