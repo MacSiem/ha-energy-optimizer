@@ -35,9 +35,12 @@ function createEnergyStatisticsUiV53({card,guard,host,isActive}) {
   };
   const status = value => {
     const v=detached(value);
-    if(!keys(v,['enabled','revision','reader_scope','warning','membership_mode','pending','author_user_id','active_epoch','dataset','catalog']) || typeof v.enabled!=='boolean' || typeof v.pending!=='boolean' || !integer(v.revision) ||
+    if(!keys(v,['enabled','revision','reader_scope','warning','membership_mode','pending','author_user_id','active_epoch','dataset','catalog',...(Object.hasOwn(v,'automation')?['automation']:[])]) || typeof v.enabled!=='boolean' || typeof v.pending!=='boolean' || !integer(v.revision) ||
       v.reader_scope!=='all_authenticated_ha_users' || v.membership_mode!=='current_snapshot' || !str(v.warning,4096) || (v.author_user_id!==null&&!str(v.author_user_id,128)) || (v.active_epoch!==null&&!str(v.active_epoch,128)) ||
       !Array.isArray(v.catalog) || v.catalog.length>4096) throw Error('invalid_statistics');
+    if(Object.hasOwn(v,'automation') && (!keys(v.automation,['state','last_completed_hour']) ||
+      !['disabled','starting','active','paused','unavailable'].includes(v.automation.state) ||
+      (v.automation.last_completed_hour!==null && (!str(v.automation.last_completed_hour,64) || !Number.isFinite(Date.parse(v.automation.last_completed_hour)))))) throw Error('invalid_statistics');
     if(v.dataset!==null) v.dataset=binding(v.dataset);
     if(v.enabled && (!v.dataset || !v.author_user_id || !v.active_epoch)) throw Error('invalid_statistics');
     const ids=new Set();
@@ -69,8 +72,17 @@ function createEnergyStatisticsUiV53({card,guard,host,isActive}) {
   const paint = () => {
     if(!dialog || !current({generation,token})) { update(); return; }
     const busyNow=busy || !!raw || guard.occupied();
-    dialog.querySelector('[data-statistics-note]').textContent=note || text('Review the dataset before enabling. Enabling does not publish statistics.','Sprawdź zestaw przed włączeniem. Włączenie nie publikuje statystyk.');
+    dialog.querySelector('[data-statistics-note]').textContent=note || text('Review the dataset before enabling. Enabling starts automatic updates every hour.','Sprawdź zestaw przed włączeniem. Włączenie uruchamia automatyczną aktualizację co godzinę.');
     dialog.querySelector('[data-statistics-state]').textContent=snapshot ? text(snapshot.enabled?'Enabled':'Disabled',snapshot.enabled?'Włączone':'Wyłączone') + (snapshot.pending?text(' · Unconfirmed operation',' · Niepotwierdzona operacja'):'') : text('Status unavailable','Stan niedostępny');
+    if(snapshot?.automation) {
+      const state=snapshot.automation.state;
+      const label=state==='paused' ? text('Paused — review sources and permissions, then enable again.','Wstrzymane — sprawdź źródła i uprawnienia, potem włącz ponownie.') :
+        state==='active' ? text('Automatic updates every hour','Aktualizacja automatyczna co godzinę') :
+        state==='starting' ? text('Starting automatic updates','Uruchamianie aktualizacji automatycznych') :
+        state==='unavailable' ? text('Automatic updates unavailable — enable again after checking the integration.','Aktualizacja automatyczna niedostępna — sprawdź integrację i włącz ponownie.') :
+        text('Automatic updates disabled','Aktualizacja automatyczna wyłączona');
+      dialog.querySelector('[data-statistics-state]').textContent+=' · '+label;
+    }
     const data=dialog.querySelector('[data-statistics-dataset]'); data.replaceChildren();
     const row=(parent,value)=>{const p=document.createElement('p');p.textContent=value;parent.append(p);};
     const p=proposal?.proposal;
@@ -181,7 +193,7 @@ function createEnergyStatisticsUiV53({card,guard,host,isActive}) {
     const element=(tag,value,attr)=>{const e=document.createElement(tag);if(value)e.textContent=value;if(attr)e.setAttribute(attr,'');dialog.append(e);return e;};
     element('h2',text('Cost statistics','Statystyki kosztów'));
     element('p',text('Published history is readable by all authenticated Home Assistant users. Disabling stops future writes; existing history remains readable, including exported copies.','Opublikowaną historię mogą czytać wszyscy zalogowani użytkownicy Home Assistant. Wyłączenie zatrzymuje przyszłe zapisy; istniejąca historia pozostaje dostępna, także w wyeksportowanych kopiach.'));
-    element('p',text('History uses the current source membership, including when adding the last 7 days. Historical membership is not reconstructed. No automatic publishing cadence is configured here.','Historia używa aktualnego przypisania źródeł, także przy dodawaniu ostatnich 7 dni. Dawne przypisanie nie jest odtwarzane. Ten dialog nie ustawia automatycznej publikacji.'));
+    element('p',text('History uses the current source membership, including when adding the last 7 days. Historical membership is not reconstructed. After enabling, the last completed hour is added automatically, then every hour.','Historia używa aktualnego przypisania źródeł, także przy dodawaniu ostatnich 7 dni. Dawne przypisanie nie jest odtwarzane. Po włączeniu ostatnia zakończona godzina jest dodawana automatycznie, potem co godzinę.'));
     element('p',null,'data-statistics-state');element('p',null,'data-statistics-note').setAttribute('role','status');element('div',null,'data-statistics-dataset');element('div',null,'data-statistics-catalog');
     const label=element('label'),checkbox=document.createElement('input');checkbox.type='checkbox';label.append(checkbox,document.createTextNode(text('I agree to global sharing and using the current source membership for this dataset.','Zgadzam się na udostępnienie wszystkim oraz użycie aktualnego przypisania źródeł dla tego zestawu.')));
     checkbox.addEventListener('change',()=>{update();if(!dialog)return;checked=checkbox.checked;paint();});
