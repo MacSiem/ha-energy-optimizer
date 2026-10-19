@@ -360,3 +360,23 @@ test('unchanged ordinary hass updates preserve mounted Optimizer controls after 
   assert.equal(f.card.shadowRoot.querySelector('[data-analysis-calendar-options]'),calendar);assert.equal(calendar.open,true);assert.equal(f.card.shadowRoot.activeElement,anchor);assert.equal(f.analyses.length,count);f.assertQuiet();
  }finally{f.close();}
 });
+
+for(const boundary of ['user','role','connection'])test('optimized hass refresh rebinds after '+boundary+' change',async()=>{
+ const f=setup(cases[0]);try{await f.mount();f.advance(11000);f.update({...f.hass});await settle();
+  const old=f.card.shadowRoot.querySelector('[data-analysis-calendar-options]');old.open=true;const reads=f.analyses.length;
+  f.advance(11000);const next={...f.hass,user:{...f.hass.user}};
+  if(boundary==='user')next.user.id='replacement';if(boundary==='role')next.user.is_admin=true;if(boundary==='connection')next.connection=f.connection();
+  f.update(next);await settle();
+  const current=f.card.shadowRoot.querySelector('[data-analysis-calendar-options]');assert.ok(current,'active analysis must remount in the new context');assert.notEqual(current,old);assert.equal(current.open,false);assert.equal(f.analyses.length,reads+1);f.assertQuiet();
+ }finally{f.close();}
+});
+test('configured power still refreshes when the measured value changes',async()=>{
+ const f=setup(cases[0]);try{
+  f.card.setConfig({title:'Power',power_entity:'sensor.power',show_help:false,show_support:false});
+  const meter=value=>({state:String(value),attributes:{unit_of_measurement:'W'}});
+  f.update({...f.hass,states:{'sensor.power':meter(0)}});await f.mount();
+  assert.equal(f.card.shadowRoot.querySelector('.power-draw-value').textContent,'0.00');
+  f.advance(11000);f.update({...f.hass,states:{'sensor.power':meter(1000)}});await settle();
+  assert.equal(f.card.shadowRoot.querySelector('.power-draw-value').textContent,'1.00');f.assertQuiet();
+ }finally{f.close();}
+});
