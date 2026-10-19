@@ -1,6 +1,6 @@
 "use strict";
 // Read-only bounded report facts. One retained raw lane; no private API fallback.
-function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.snapshot().epoch,isActive = () => false,onChange = () => {}}) {
+function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.snapshot().epoch,isActive = () => false,wantsExecute = () => false,onChange = () => {}}) {
   if (!['energy_report','log_digest'].includes(purpose)) throw Error('invalid_report_status_purpose');
   const outcomes = new Set(['accepted_by_smtp','preparation_failed','authentication_failed','recipients_refused','partial_acceptance','tls_failed','transport_outcome_unknown','send_failed','cancelled_outcome_unknown','outcome_unknown']);
   const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -37,6 +37,9 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
   };
   let enabled = false, identity = null, generation = 0, revision = 0, activation = null, unsubscribe = null;
   let raw = null, pending = false, scheduled = false, snapshot = null, status = 'idle', expiry = null;
+  let capabilities = null, pendingCapabilities = false, actionWaiter = null;
+  const wantsAction = () => { try { return wantsExecute() === true; } catch (_) { return false; } };
+  const settleAction = allowed => { const waiter = actionWaiter; actionWaiter = null; waiter?.resolve(allowed); };
   const emit = () => { try { onChange(); } catch (_) { /* UI failures cannot release a wire. */ } };
   const active = () => card.isConnected && card.preview !== true && isActive() && card._hass?.connected !== false;
   const primitive = key => typeof key === 'number' && Number.isSafeInteger(key) && key >= 0;
@@ -44,6 +47,7 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
   const same = (a,b) => a && b && a.every((value,index) => value === b[index]);
   const reset = () => {
     clearTimeout(expiry); expiry = null;
+    settleAction(false); capabilities = null; pendingCapabilities = false;
     generation++; revision++; enabled = false; identity = null; activation = null; pending = false; snapshot = null; status = 'idle';
     const dispose = unsubscribe; unsubscribe = null; try { dispose?.(); } catch (_) {}
     // raw intentionally survives every authority change, stop, timeout and remount.
@@ -59,7 +63,8 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
   };
   const invalidate = () => {
     clearTimeout(expiry); expiry = null;
-    revision++; snapshot = null; pending = enabled && active(); status = pending ? 'loading' : 'idle'; emit(); queue();
+    settleAction(false); capabilities = null;
+    revision++; snapshot = null; pending = enabled && active(); pendingCapabilities = pending && wantsAction(); status = pending ? 'loading' : 'idle'; emit(); queue();
   };
   const failure = error => error?.code === 'unauthorized' || error?.code === 'not_allowed' ? 'denied' : error?.code === 'unknown_command' ? 'unsupported' : 'unavailable';
   function update() {
@@ -69,10 +74,10 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
     if (!active() || !guard.available(token)) { if (enabled || identity || snapshot || pending) reset(); return; }
     const next = [token.epoch,key,card._hass?.connected];
     if (enabled && same(identity,next)) return;
-    reset(); enabled = true; identity = next; pending = true; status = 'loading';
+    reset(); enabled = true; identity = next; pending = true; pendingCapabilities = wantsAction(); status = 'loading';
     const task = {generation,token,key};
     const connection = card._hass?.connection;
-    if (typeof connection?.subscribeMessage !== 'function') { pending = false; status = 'unavailable'; return; }
+    if (typeof connection?.subscribeMessage !== 'function') { pendingCapabilities = pending = false; status = 'unavailable'; return; }
     const operation = Promise.resolve().then(() => {
       if (!controlCurrent(task)) return null;
       return connection.subscribeMessage(() => { if (unsubscribe && controlCurrent(task)) invalidate(); },{type:'ha_tools_email/subscribe_analysis_updates'});
@@ -81,22 +86,33 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
       if (!controlCurrent(task)) { try { dispose(); } catch (_) {} return; }
       unsubscribe = dispose; pending = true; queue(); emit();
     }).catch(error => {
-      if (controlCurrent(task)) { snapshot = null; pending = false; status = failure(error); emit(); }
+      if (controlCurrent(task)) { capabilities = null; pendingCapabilities = pending = false; settleAction(false); snapshot = null; status = failure(error); emit(); }
     }).finally(() => { if (activation === operation) activation = null; });
     activation = operation;
   }
   function pump() {
-    if (!pending || !enabled || !unsubscribe || raw || guard.occupied() || !active()) return;
+    if ((!pending && !pendingCapabilities) || !enabled || !unsubscribe || raw || guard.occupied() || !active()) return;
     let key,token;
     try { key = source(); token = guard.snapshot(); } catch (_) { reset(); status = 'unavailable'; emit(); return; }
-    const task = {generation,revision,key,token,settled:false,publicDone:false,startedAt:performance.now()};
+    const kind = pending ? 'status' : 'capabilities';
+    if (kind === 'capabilities' && !wantsAction()) { pendingCapabilities = false; settleAction(false); return; }
+    const task = {generation,revision,key,token,kind,settled:false,publicDone:false,startedAt:performance.now()};
     if (!controlCurrent(task)) return;
-    raw = task; pending = false; status = 'loading'; snapshot = null;
+    raw = task;
+    if (kind === 'status') { pending = false; status = 'loading'; snapshot = null; }
+    else pendingCapabilities = false;
     let request;
-    try { request = guard.call(token,{type:'ha_tools_email/get_report_status',purpose}); }
+    try { request = guard.call(token,kind === 'status' ? {type:'ha_tools_email/get_report_status',purpose} : {type:'ha_tools_email/feature_capabilities'}); }
     catch (error) { request = Promise.reject(error); }
     Promise.resolve(request).then(value => {
       if (!current(task)) return;
+      if (kind === 'capabilities') {
+        const feature = purpose === 'energy_report' ? 'energy_reports' : 'log_reports';
+        const grant = value?.capabilities?.[feature];
+        if (value?.status !== 'ready' || !Number.isSafeInteger(value.revision) || value.revision < 0 || !object(grant) || ['visible','read','execute'].some(k => typeof grant[k] !== 'boolean')) throw {code:'invalid_capabilities'};
+        capabilities = {visible:grant.visible,read:grant.read,execute:grant.execute};
+        settleAction(capabilities.visible && capabilities.execute && wantsAction()); emit(); return;
+      }
       snapshot = validate(value); status = 'ready';
       if (snapshot.next_report_at) {
         // Re-read a known calendar boundary, never compute a new occurrence or
@@ -113,10 +129,14 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
       }
       emit();
     }).catch(error => {
-      if (current(task)) { snapshot = null; status = failure(error); if (error?.code === 'wire_occupied') pending = true; emit(); }
+      if (current(task)) {
+        if (kind === 'capabilities') { capabilities = null; settleAction(false); if (error?.code === 'wire_occupied') pendingCapabilities = true; }
+        else { snapshot = null; status = failure(error); if (error?.code === 'wire_occupied') pending = true; }
+        emit();
+      }
     }).finally(() => {
       task.publicDone = true;
-      if (task.settled || !guard.occupied()) { if (raw === task) raw = null; queue(); }
+      if (task.settled || !guard.occupied()) { if (raw === task) raw = null; queue(); emit(); }
       // A public timeout leaves raw retained until subscribeWire's actual settlement.
     });
   }
@@ -127,9 +147,16 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
   });
   const stop = () => { const changed = enabled || identity || snapshot || pending || status !== 'idle'; reset(); if (changed) emit(); };
   const state = () => {
-    update(); if (pending) queue();
-    return {status,busy:raw !== null,snapshot:snapshot ? {...snapshot,last_attempt:snapshot.last_attempt ? {...snapshot.last_attempt} : null} : null};
+    update(); if (pending || pendingCapabilities) queue();
+    return {status,busy:raw !== null,capabilities:capabilities ? {...capabilities} : null,snapshot:snapshot ? {...snapshot,last_attempt:snapshot.last_attempt ? {...snapshot.last_attempt} : null} : null};
   };
-  return {state,update:() => { update(); queue(); },stop};
+  const authorizeExecute = () => {
+    update();
+    if (!enabled || !active() || !unsubscribe || !wantsAction() || raw || guard.occupied()) return Promise.resolve(false);
+    if (actionWaiter) return actionWaiter.promise;
+    let resolve; const promise = new Promise(done => { resolve = done; });
+    actionWaiter = {resolve,promise}; pendingCapabilities = true; queue(); emit(); return promise;
+  };
+  return {state,update:() => { update(); queue(); },stop,authorizeExecute};
 }
 if (typeof module !== 'undefined' && module.exports) module.exports = {createReportStatusV53};

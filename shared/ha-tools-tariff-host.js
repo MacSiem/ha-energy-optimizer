@@ -253,7 +253,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     const controller = createEnergyAnalysisV53({card,onChange});
     return createEnergyAnalysisBindingV53({card,controller,onInvalidate});
   };
-  const reportStatus = ({onChange,isActive,getSourceKey} = {}) => createReportStatusV53({card,guard,purpose:'energy_report',onChange,isActive,getSourceKey:getSourceKey || (() => guard.snapshot().epoch)});
+  const reportStatus = ({onChange,isActive,getSourceKey,wantsExecute} = {}) => createReportStatusV53({card,guard,purpose:'energy_report',onChange,isActive,wantsExecute,getSourceKey:getSourceKey || (() => guard.snapshot().epoch)});
   return { reportStatus, summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
 }
 

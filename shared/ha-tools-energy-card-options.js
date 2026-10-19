@@ -279,15 +279,54 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     }
     bar.setAttribute('aria-label',[note,...descriptions,observed < end ? t(host,'Remaining time: Unknown','Pozostały czas: brak danych') : ''].filter(Boolean).join(' '));
   };
+  const compactActionsStyle = '[data-energy-simple=compact] [data-energy-actions]{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}[data-energy-simple=compact] [data-energy-actions] button{flex:1 1 120px;min-width:0}';
   const reportStatusStyle = '[data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}[data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:8em;font-size:12px;line-height:18px}';
   const emailStatusFor = host => host._emailStatusV100 ||= (() => {
     let scheduled = false;
     const active = () => name === 'ha-energy-email' && host.isConnected && host.preview !== true && simple(host);
-    return host._getTariffHostV3().reportStatus({isActive:active,onChange:() => {
+    return host._getTariffHostV3().reportStatus({isActive:active,wantsExecute:() => active() && variant(host._config || {}) === 'compact' && visible(host._config || {}).includes('send') && host._hass?.user?.is_admin === true,onChange:() => {
       if (scheduled) return;
       scheduled = true; queueMicrotask(() => { scheduled = false; if (active()) host._render(); });
     }});
   })();
+  const stopCompactSend = (host, purge = true) => {
+    const active = host._emailCompactSendFlowV106;
+    delete host._emailCompactSendFlowV106;
+    host._emailCompactSendUnsubscribeV106?.(); delete host._emailCompactSendUnsubscribeV106;
+    if (!active) return;
+    const prior = host._emailCompactSendPriorV106; delete host._emailCompactSendPriorV106;
+    if (prior) { host._firstRender = prior.firstRender; host._initialDiscoveryStartedV3 = prior.discovery; host._activeTab = prior.tab; }
+    host._optionsExpandedV5 = false; host._domBuilt = false;
+    if (purge) host._clearEmailContext?.();
+  };
+  const openCompactSend = async host => {
+    if (name !== 'ha-energy-email' || host.preview === true || !host.isConnected || !simple(host) || variant(host._config || {}) !== 'compact' || !visible(host._config || {}).includes('send') || host._hass?.user?.is_admin !== true) return;
+    const guard = host._getTariffHostV3().guard, token = guard.snapshot();
+    const config = JSON.stringify(host._optionsConfigV5);
+    if (!guard.current(token,true) || guard.occupied()) return;
+    const permitted = await emailStatusFor(host).authorizeExecute();
+    if (!host.isConnected || host.preview === true || !simple(host) || variant(host._config || {}) !== 'compact' || !visible(host._config || {}).includes('send') || JSON.stringify(host._optionsConfigV5) !== config || !guard.current(token,true)) return;
+    if (!permitted) { host.shadowRoot.querySelector('[data-energy-open]')?.focus({preventScroll:true}); return; }
+    // Navigation only. The existing form owns period choice, recipient review and the
+    // final send buttons; neither a cadence nor a dispatch is selected here.
+    host._emailCompactSendPriorV106 = {firstRender:host._firstRender,discovery:host._initialDiscoveryStartedV3,tab:host._activeTab};
+    host._emailCompactSendFlowV106 = true;
+    host._initialDiscoveryStartedV3 = false;
+    host._optionsExpandedV5 = true; host._domBuilt = false;
+    // Initialize the native identity in its existing no-discovery Config route,
+    // then open Send. The send form needs bounded settings/previews, not the
+    // legacy overview's Recorder/device discovery pipeline.
+    host._activeTab = 'config';
+    if (hassDescriptor?.set) hassDescriptor.set.call(host,host._hass);
+    host.setActiveTab('send');
+    host._emailCompactSendUnsubscribeV106 = guard.subscribe(() => {
+      stopCompactSend(host); if (host.isConnected) host._render();
+    });
+    host.shadowRoot.querySelector('#mail-period-mode')?.focus({preventScroll:true});
+    // Private settings are read only after this explicit, freshly authorized
+    // navigation; they never become a prerequisite of the compact status DTO.
+    void host._loadEmailBackendConfig?.().catch(() => {});
+  };
   const renderSimple = host => {
     const root = host.shadowRoot, config = host._config || {}, mode = variant(config);
     const unknown = t(host,'Unknown','Brak danych'), email = name === 'ha-energy-email';
@@ -301,7 +340,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const attempt = report?.history_state === 'ready' ? report.last_attempt : null;
     const lastAttempt = attempt ? format.dateTime(attempt.timestamp) || unknown : unknown;
     const outcomes = {
-      accepted_by_smtp:t(host,'SMTP accepted; delivery unconfirmed','SMTP przyjął; doręczenie niepotwierdzone'),
+      accepted_by_smtp:t(host,'Mail server accepted; delivery unconfirmed','Serwer poczty przyjął; doręczenie niepotwierdzone'),
       preparation_failed:t(host,'Preparation failed','Przygotowanie nieudane'),authentication_failed:t(host,'Authentication failed','Uwierzytelnienie nieudane'),
       recipients_refused:t(host,'Recipients refused','Odbiorcy odrzuceni'),partial_acceptance:t(host,'Partial SMTP acceptance','Częściowe przyjęcie przez SMTP'),
       tls_failed:t(host,'TLS failed','Błąd TLS'),transport_outcome_unknown:t(host,'Transport outcome unknown','Wynik transportu nieznany'),
@@ -326,7 +365,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}${email ? reportStatusStyle : ''}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}<button type="button" data-energy-open></button></section>`;
+      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
       section = root.querySelector('[data-energy-simple]');
       section.querySelector('button').addEventListener('click', () => open(host));
       section.querySelector('button').addEventListener('keydown', event => {
@@ -334,6 +373,22 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       });
     }
     if (email) section.dataset.energyReportStatus = '';
+    const grant = reportState?.capabilities;
+    const showSend = email && mode === 'compact' && visible(config).includes('send') && host.preview !== true && host._hass?.user?.is_admin === true && grant?.visible === true;
+    let send = section.querySelector('[data-energy-send-now]');
+    if (!showSend) send?.remove();
+    else {
+      if (!send) {
+        send = document.createElement('button'); send.type = 'button'; send.dataset.energySendNow = '';
+        send.addEventListener('click', () => { void openCompactSend(host); });
+        send.addEventListener('keydown', event => { if (['Enter',' '].includes(event.key) && !event.repeat) { event.preventDefault(); event.currentTarget.click(); } });
+        section.querySelector('[data-energy-actions]').append(send);
+      }
+      send.textContent = t(host,'Send now','Wyślij teraz');
+      send.title = grant.execute === true ? t(host,'Review the recipient and choose a period in the send form; nothing is sent yet.','Sprawdź odbiorcę i wybierz okres w formularzu; nic nie jest jeszcze wysyłane.') : t(host,'Sending is unavailable for this account.','Wysyłka jest niedostępna dla tego konta.');
+      send.setAttribute('aria-label',t(host,'Send now — open send form','Wyślij teraz — otwórz formularz wysyłki'));
+      send.disabled = grant.execute !== true || reportState.busy || host._getTariffHostV3().guard.occupied();
+    }
     const icon = section.querySelector('ha-icon');
     icon.setAttribute('icon', email ? 'mdi:email-outline' : 'mdi:lightning-bolt');
     const tone = snapshot?.status !== 'unavailable' && snapshot?.current?.available === true ? snapshot.current.zone_class : null;
@@ -343,11 +398,11 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const primary = section.querySelector('[data-energy-primary]');
     const shortReport = report?.schedule_state === 'enabled' && report.next_report_at ? `${format.date(report.next_report_at,true)} · ${format.clock(report.next_report_at)}` : unknown;
     primary.textContent = email ? mode === 'tile' ? shortReport : nextReport : mode === 'tile' ? `${zone} · ${nextLabel}` : energy;
-    primary.title = email ? `${t(host,'Next calendar occurrence','Następny termin kalendarza')}: ${nextReport}` : primary.textContent;
+    primary.title = email ? `${t(host,'Scheduled report','Zaplanowany raport')}: ${nextReport}` : primary.textContent;
     primary.setAttribute('aria-label',primary.title);
     if (mode === 'compact') {
-      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Next calendar occurrence','Następny termin kalendarza') : t(host,'Energy today','Energia dziś');
-      section.querySelector('[data-energy-cost]').textContent = email ? `${t(host,'Last attempt started','Początek ostatniej próby')}: ${lastAttempt}` : `${t(host,'Usage cost','Koszt zużycia')}: ${money}`;
+      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Scheduled report','Zaplanowany raport') : t(host,'Energy today','Energia dziś');
+      section.querySelector('[data-energy-cost]').textContent = email ? `${t(host,'Last attempt','Ostatnia próba')}: ${lastAttempt}` : `${t(host,'Usage cost','Koszt zużycia')}: ${money}`;
       section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : `${comparisonName}: ${difference}`;
       const caption = section.querySelector('[data-energy-zone-caption]');
       if (caption) caption.textContent = t(host,'Day tariff zones','Strefy taryfy w ciągu dnia');
@@ -362,6 +417,9 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   const hassDescriptor = Object.getOwnPropertyDescriptor(Card.prototype,'hass');
   if (hassDescriptor?.set) Object.defineProperty(Card.prototype,'hass',{...hassDescriptor,set(value) {
     try {
+      // Observe a sender entered from compact before choosing the full setter.
+      // A revoked context returns to compact before legacy full discovery can run.
+      if (this._emailCompactSendFlowV106) { this._hass = value; this._tariffHostController?.guard.observe(); }
       // A real inert preview renders the actual card but does not start the
       // full surface's legacy discovery of SMTP, settings or schedules.
       if (!simple(this) && this.preview !== true) return hassDescriptor.set.call(this,value);
@@ -442,7 +500,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       const css = document.createElement('style'); css.textContent = simpleStyle; root.append(css);
       const back = document.createElement('button'); back.type = 'button'; back.dataset.energyBack = '';
       back.textContent = t(this,'Back to summary','Wróć do podsumowania');
-      back.addEventListener('click', () => { this._optionsExpandedV5 = false; this._domBuilt = false; this._render(); root.querySelector('[data-energy-open]')?.focus({preventScroll:true}); });
+      back.addEventListener('click', () => { const fromSend = this._emailCompactSendFlowV106; stopCompactSend(this); this._optionsExpandedV5 = false; this._domBuilt = false; this._render(); (fromSend ? root.querySelector('[data-energy-send-now]') || root.querySelector('[data-energy-open]') : root.querySelector('[data-energy-open]'))?.focus({preventScroll:true}); });
       root.prepend(back);
     }
     const back = root.querySelector('[data-energy-back]');
@@ -545,7 +603,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     Card.prototype[method] = function(...args) { if (simple(this)) return this._render(); const value = original.apply(this,args); this._applyCardOptionsV5(); return value; };
   }
   const disconnect = Card.prototype.disconnectedCallback;
-  Card.prototype.disconnectedCallback = function() { stopPlacement(this); this._emailStatusV100?.stop(); this._simpleSummaryV95?.stop(); this._simpleTileV95?.stop(); this._optionsResizeV5?.disconnect(); return disconnect?.call(this); };
+  Card.prototype.disconnectedCallback = function() { stopCompactSend(this); stopPlacement(this); this._emailStatusV100?.stop(); this._simpleSummaryV95?.stop(); this._simpleTileV95?.stop(); this._optionsResizeV5?.disconnect(); return disconnect?.call(this); };
   // Reuse existing editor text fields and their focus/caret-preserving synchronization.
   const editorRender = Editor.prototype._render;
   Editor.prototype._render = function(...args) { editorRender.apply(this,args); this._renderOptionsV5(); };
