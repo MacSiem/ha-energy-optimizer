@@ -8,7 +8,7 @@ const names=['ha-energy-optimizer','ha-energy-insights','ha-energy-email'];
 const clone=x=>JSON.parse(JSON.stringify(x));
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};
 const tick=async()=>{for(let i=0;i<16;i++)await new Promise(resolve=>setImmediate(resolve));};
-function setup(name,{admin=true,language='en',config={type:`custom:${name}`,variant:'full',title:'Placement integration'}}={}){
+function setup(name,{admin=true,language='en',config={type:`custom:${name}`,variant:'full',...(name==='ha-energy-email'?{default_tab:'preview'}:{}),title:'Placement integration'}}={}){
  const errors=[],denied=[],calls=[],network=[],services=[],subscriptions=[];
  const console=new VirtualConsole();
  console.on('error',(...args)=>errors.push(args.join(' ')));
@@ -42,6 +42,8 @@ function setup(name,{admin=true,language='en',config={type:`custom:${name}`,vari
    if(q.type==='ha_tools_email/get_tariff')return {profile:clone(producer.rates[0].profile),revision:4,updated_at:null};
    if(q.type==='ha_tools_email/energy_snapshot')return {schema:1,generated_at:producer.generated_at,profile_source:q.profile?'override':'shared',tariff_revision:q.profile?null:4,status:'partial',currency:'EUR',current:{available:true,zone_class:'cheap',cheap:true,energy_rate:0.5,variable_rate:0.1,usage_rate:0.6},today:{usage_cost:null,energy_cost:null,variable_cost:null},next_cheap:{status:'unknown',start:null}};
    if(q.type==='ha_tools_email/energy_price_queries')return price(q);
+   // Test placement from the full Email report-preview tab, whose source and
+   // destination are both read only. SMTP settings remain a separate existing tab.
    // No SMTP/config/private settings/schedule read or write is accepted.
    denied.push(clone(q));throw {code:'forbidden',message:'Unexpected private or unsupported request'};
   }finally{if(dashboard)raw--;}
@@ -72,7 +74,7 @@ for(const name of names){
    assert.equal(f.card.shadowRoot.querySelectorAll('[data-energy-dashboard-add]').length,1);
    assert.equal(f.q('.header,.optimizer-heading,.panel-header')?.querySelector('[data-energy-dashboard-add]')||null,null);assert.equal(f.dashboardCalls().length,0);
    for(const variant of ['compact','tile']){f.card.setConfig({type:`custom:${name}`,variant});f.card._render();await tick();assert.equal(f.q('[data-energy-dashboard-add]'),null);assert.equal(f.q('[data-energy-simple]').querySelectorAll('button').length,1);}
-   f.card.setConfig({type:`custom:${name}`,variant:'full',show_support:false});f.card._render();await tick();assert.equal(f.card.shadowRoot.querySelectorAll('[data-energy-dashboard-add]').length,1);assert.equal(f.dashboardCalls().length,0);f.quiet();
+   f.card.setConfig({type:`custom:${name}`,variant:'full',...(name==='ha-energy-email'?{default_tab:'preview'}:{}),show_support:false});f.card._render();await tick();assert.equal(f.card.shadowRoot.querySelectorAll('[data-energy-dashboard-add]').length,1);assert.equal(f.dashboardCalls().length,0);f.quiet();
   }finally{f.close();}
  });
  for(const language of ['pl','en'])test(`${name}: actual ${language} card preview, one native Add, readback and Undo`,async()=>{
@@ -91,7 +93,7 @@ for(const name of names){
  });
  test(`${name}: in-place role and config changes fence a pending selection`,async()=>{
   const f=setup(name),d=deferred();try{await f.mount();await f.open();f.hook=q=>q.type==='lovelace/config'?d.promise:undefined;const selection=f.select();await new Promise(resolve=>setImmediate(resolve));f.hass.user.is_admin=false;f.card.hass=f.hass;assert.equal(f.q('dialog'),null);assert.equal(f.q('[data-energy-dashboard-add]'),null);d.resolve(clone(f.stored));await selection;assert.equal(f.saves().length,0);
-   f.hass.user.is_admin=true;f.card.hass=f.hass;f.hook=null;await f.open();await f.select();f.card.setConfig({type:`custom:${name}`,variant:'full',title:'Changed source'});assert.equal(f.q('dialog'),null);f.quiet();
+   f.hass.user.is_admin=true;f.card.hass=f.hass;f.hook=null;await f.open();await f.select();f.card.setConfig({type:`custom:${name}`,variant:'full',...(name==='ha-energy-email'?{default_tab:'preview'}:{}),title:'Changed source'});assert.equal(f.q('dialog'),null);f.quiet();
   }finally{f.close();}
  });
  test(`${name}: authoritative disconnect closes and ready may re-enable, without automatic open`,async()=>{

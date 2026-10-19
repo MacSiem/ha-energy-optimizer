@@ -8,11 +8,11 @@
     },
     {
       "path": "src/energy-insights.js",
-      "sha256": "4b495fc2292afd202edfa990f8b32d125ec098a5ab3284b108ba1ffeafa0111c"
+      "sha256": "20f3231c4ede3199f6cbcd6c0c45abac202afff8281548e13eeede18b93fb546"
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "008d0f1f339e87ec53b41827e19e828bc044b4ea35738ed9c622184d40236fb7"
+      "sha256": "b2dcd6cc1d1182ee86d98acebb3555ea042bf041705831c5e0320f6b7920bf6e"
     },
     {
       "path": "src/chart-vendor.js",

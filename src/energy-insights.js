@@ -3906,9 +3906,6 @@ this._installTariffConsumerV3();
     getGridOptions() { return { columns: 12, min_rows: 3, min_columns: 6 }; }
   }
 
-  if (!customElements.get('ha-energy-insights')) {
-    customElements.define('ha-energy-insights', HAEnergyInsights);
-  }
 
 
 
@@ -4871,6 +4868,10 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
 }
 // HA_ENERGY_CARD_OPTIONS_V5_END
 createEnergyCardOptionsV5({ Card: HAEnergyInsights, Editor: HaEnergyInsightsEditor, name: "ha-energy-insights", title: "Energy Insights", tabs: ["overview", "daily", "weekly", "monthly", "tips"], labels: [["Overview", "Daily", "Weekly", "Monthly", "Tips"], ["Przegląd", "Dziennie", "Tygodniowo", "Miesięcznie", "Wskazówki"]] });
+// Custom elements capture lifecycle callbacks when registered. Install options first.
+  if (!customElements.get('ha-energy-insights')) {
+    customElements.define('ha-energy-insights', HAEnergyInsights);
+  }
 if (!customElements.get('ha-energy-insights-editor')) { customElements.define('ha-energy-insights-editor', HaEnergyInsightsEditor); }
 
 

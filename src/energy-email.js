@@ -6129,11 +6129,6 @@ this._installTariffConsumerV3();
     }
   }
 
-  if (!customElements.get('ha-energy-email')) customElements.define('ha-energy-email', HAEnergyEmail);
-  // Energy Optimizer is the canonical owner of ha-energy-email. The alias below is always
-  // free, so the HA Tools Email & Reports compatibility shim can delegate to this card
-  // whichever bundle Home Assistant happens to load first.
-  if (!customElements.get('ha-energy-optimizer-email')) customElements.define('ha-energy-optimizer-email', class extends HAEnergyEmail {});
   class HaEnergyEmailEditor extends HTMLElement {
     constructor() {
       super();
@@ -7103,6 +7098,12 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
 }
 // HA_ENERGY_CARD_OPTIONS_V5_END
 createEnergyCardOptionsV5({ Card: HAEnergyEmail, Editor: HaEnergyEmailEditor, name: "ha-energy-email", title: "Energy Email Reports", tabs: ["overview", "schedule", "preview", "send", "config", "history"], labels: [["Overview", "Schedule", "Preview", "Send now", "Config", "History"], ["Przegląd", "Harmonogram", "Podgląd", "Wyślij teraz", "Ustawienia", "Historia"]] });
+// Custom elements capture lifecycle callbacks when registered. Install options first.
+  if (!customElements.get('ha-energy-email')) customElements.define('ha-energy-email', HAEnergyEmail);
+  // Energy Optimizer is the canonical owner of ha-energy-email. The alias below is always
+  // free, so the HA Tools Email & Reports compatibility shim can delegate to this card
+  // whichever bundle Home Assistant happens to load first.
+  if (!customElements.get('ha-energy-optimizer-email')) customElements.define('ha-energy-optimizer-email', class extends HAEnergyEmail {});
 if (!customElements.get('ha-energy-email-editor')) { customElements.define('ha-energy-email-editor', HaEnergyEmailEditor); }
 
 

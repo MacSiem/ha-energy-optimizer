@@ -136,7 +136,7 @@ for(const name of names.slice(0,2)){
  });
  test(`${name}: tile without override confirms shared tariff then snapshot; tariff denial never gates compact analysis`,async()=>{
   const f=setup(name,{config:{variant:'tile'}});try{
-   await f.mount();await tick();assert.equal(Object.hasOwn(f.card._config,'tariff_profile'),false);
+   await f.mount();await new Promise(resolve=>setTimeout(resolve,0));await tick();assert.equal(Object.hasOwn(f.card._config,'tariff_profile'),false);
    assert.ok(f.requests.some(q=>q.type==='ha_tools_email/get_tariff'));assert.ok(f.requests.some(q=>q.type==='ha_tools_email/energy_snapshot'));
    assert.match(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,/Cheap/);assert.equal(f.card.getGridOptions().rows,1);assert.equal(f.subscriptions.length,0);f.quiet();
   }finally{f.close();}
