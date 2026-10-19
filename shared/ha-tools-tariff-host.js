@@ -1,6 +1,6 @@
 'use strict';
 // Node-only import; omitted in consumer closure.
-if (typeof module !== 'undefined' && module.exports) var { createTariffGuardV3 } = require('./ha-tools-tariff-guard.js'), { createEnergyBackendV5 } = require('./ha-tools-energy-backend.js'), { createEnergyAnalysisHostV53 } = require('./ha-tools-energy-analysis-host.js'), { createEnergyAnalysisV53 } = require('./ha-tools-energy-analysis.js'), { createEnergyAnalysisBindingV53 } = require('./ha-tools-energy-analysis-binding.js'), { createReportStatusV53 } = require('./ha-tools-report-status.js');
+if (typeof module !== 'undefined' && module.exports) var { createTariffGuardV3 } = require('./ha-tools-tariff-guard.js'), { createEnergyBackendV5 } = require('./ha-tools-energy-backend.js'), { createEnergyAnalysisHostV53 } = require('./ha-tools-energy-analysis-host.js'), { createEnergyAnalysisV53 } = require('./ha-tools-energy-analysis.js'), { createEnergyAnalysisBindingV53 } = require('./ha-tools-energy-analysis-binding.js'), { createReportStatusV53 } = require('./ha-tools-report-status.js'), { createEnergyStatisticsUiV53 } = require('./ha-tools-energy-statistics-ui.js');
 
 // Card-owned adapter: it never writes card YAML, helpers, schedules or SMTP.
 function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi, readTimeoutMs = 15000, guard, onRefresh }) {
@@ -254,7 +254,8 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     return createEnergyAnalysisBindingV53({card,controller,onInvalidate});
   };
   const reportStatus = ({onChange,isActive,getSourceKey,wantsExecute} = {}) => createReportStatusV53({card,guard,purpose:'energy_report',onChange,isActive,wantsExecute,getSourceKey:getSourceKey || (() => guard.snapshot().epoch)});
-  return { reportStatus, summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
+  const statistics = options => createEnergyStatisticsUiV53({card,guard,...options});
+  return { statistics, reportStatus, summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
 }
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { createTariffHostV3 };

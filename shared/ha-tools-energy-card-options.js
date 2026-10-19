@@ -18,9 +18,11 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   };
   const stopPlacement = host => {
     host._dashboardPlacementV53?.close();
+    host._energyStatisticsV110?.close();
     host._dashboardPlacementUnsubscribeV53?.(); delete host._dashboardPlacementUnsubscribeV53;
     delete host._dashboardPlacementGuardV53;
     host._dashboardPlacementMountV53?.remove();
+    host._energyStatisticsMountV110?.remove();
     // Retain this factory and its mount for remount. destroy()+new would lose
     // occupancy of an unresolved native call; close() already purges snapshots.
   };
@@ -29,6 +31,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     if (!root) return;
     if (!placementAllowed(host)) {
       host._dashboardPlacementV53?.close();
+      host._energyStatisticsV110?.close(); host._energyStatisticsMountV110?.remove();
       host._dashboardPlacementMountV53?.remove();
       root.querySelector('[data-energy-dashboard-footer]')?.remove();
       return;
@@ -39,7 +42,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._dashboardPlacementGuardV53 = guard;
       host._dashboardPlacementUnsubscribeV53 = guard.subscribe(() => {
         // Includes authoritative browser/connection/source edges between hass setters.
-        host._dashboardPlacementV53?.close(); syncPlacement(host);
+        host._dashboardPlacementV53?.close(); host._energyStatisticsV110?.close(); syncPlacement(host);
       });
     }
     const parent = root.querySelector('.card-container,.panel-root,.card') || root;
@@ -67,6 +70,21 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       });
       footer.append(css,button); parent.append(footer);
     }
+    let statistics = footer.querySelector('[data-energy-statistics-open]');
+    if (!statistics) {
+      statistics = document.createElement('button'); statistics.type = 'button'; statistics.dataset.energyStatisticsOpen = '';
+      statistics.addEventListener('click', () => {
+        if (!placementAllowed(host)) { syncPlacement(host); return; }
+        host._energyStatisticsMountV110 ||= document.createElement('div');
+        root.append(host._energyStatisticsMountV110);
+        host._energyStatisticsV110 ||= host._getTariffHostV3().statistics({host:host._energyStatisticsMountV110,isActive:() => placementAllowed(host)});
+        host._energyStatisticsV110.open(statistics);
+      });
+      footer.append(statistics);
+    }
+    statistics.textContent = t(host,'Cost statistics','Statystyki kosztów');
+    if (host._energyStatisticsMountV110 && host._energyStatisticsMountV110.parentNode !== root) root.append(host._energyStatisticsMountV110);
+    host._energyStatisticsV110?.update();
     const button = footer.querySelector('[data-energy-dashboard-add]');
     button.textContent = t(host,'Add to dashboard','Dodaj do dashboardu');
     // Retain the mount node across ordinary full-DOM redraws. Reattach before
@@ -446,6 +464,11 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     try {
     // Preserve native showModal top-layer/focus state through ordinary source
     // updates. A source/role/config edge makes update() close it, then rendering resumes.
+    const statisticsMount = this._energyStatisticsMountV110;
+    if (statisticsMount?.isConnected && statisticsMount.querySelector('dialog[open]')) {
+      this._energyStatisticsV110.update();
+      if (statisticsMount.querySelector('dialog[open]')) return;
+    }
     const placementMount = this._dashboardPlacementMountV53;
     if (placementMount?.isConnected && placementMount.querySelector('dialog[open]')) {
       this._dashboardPlacementV53.update();

@@ -4,7 +4,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const root = path.resolve(__dirname, '..');
 const digest = value => crypto.createHash('sha256').update(value).digest('hex');
-const modules = ['shared/ha-tools-ui.js', 'shared/ha-tools-energy-tariff.js', 'shared/ha-tools-tariff-guard.js', 'shared/ha-tools-tariff-settings.js', 'shared/ha-tools-energy-backend.js', 'shared/ha-tools-report-status.js', 'shared/ha-tools-tariff-host.js', 'shared/ha-tools-energy-analysis.js', 'shared/ha-tools-energy-analysis-binding.js', 'shared/ha-tools-energy-analysis-view.js', 'shared/ha-tools-energy-patterns-view.js', 'shared/ha-tools-energy-analysis-host.js']
+const modules = ['shared/ha-tools-ui.js', 'shared/ha-tools-energy-tariff.js', 'shared/ha-tools-tariff-guard.js', 'shared/ha-tools-tariff-settings.js', 'shared/ha-tools-energy-backend.js', 'shared/ha-tools-report-status.js', 'shared/ha-tools-energy-statistics-ui.js', 'shared/ha-tools-tariff-host.js', 'shared/ha-tools-energy-analysis.js', 'shared/ha-tools-energy-analysis-binding.js', 'shared/ha-tools-energy-analysis-view.js', 'shared/ha-tools-energy-patterns-view.js', 'shared/ha-tools-energy-analysis-host.js']
   .map(file => ({ path: file, text: fs.readFileSync(path.join(root, file), 'utf8') }));
 const provenance = modules.map(module => ({ path: module.path, sha256: digest(module.text) }));
 const runtime = modules.map(module => module.text.replace(/^'use strict';\n/, '').replace(/^if \(typeof module[^\n]*$/gm, '').trimEnd()).join('\n');
