@@ -41,6 +41,7 @@ function setup(name,{config,manualAck=false,ackError=null,reply=()=>clone(produc
   config:{time_zone:producer.period.timezone,currency:'EUR'},language,locale:{language,time_zone:'server',time_format:'24'},states:{},services:{},
   callWS:async q=>{
    requests.push(clone(q));
+   if(q.type==='ha_tools_email/get_report_status' && q.purpose==='energy_report')throw {code:'unknown_command'};
    if(q.type==='ha_tools_email/energy_analysis'){
     raw++;maxRaw=Math.max(maxRaw,raw);try{return await currentReply(q);}finally{raw--;}
    }
@@ -79,7 +80,7 @@ for(const name of names){
    await f.mount();const root=f.card.shadowRoot;assert.ok(root.querySelector('[data-energy-simple="compact"]'));
    assert.equal(root.querySelectorAll('button').length,1);assert.equal(root.querySelectorAll('[data-energy-secondary]>span').length,2);assert.equal(root.querySelectorAll('.tabs,[data-energy-options-help],input,select').length,0);
    const button=root.querySelector('[data-energy-open]');button.focus();const count=f.reads().length;f.card._render();assert.equal(root.activeElement,button);assert.equal(root.querySelector('[data-energy-open]'),button);assert.equal(f.reads().length,count);
-   if(name==='ha-energy-email'){assert.equal(f.requests.length,0);assert.match(root.querySelector('[data-energy-primary]').textContent,/Unknown|Brak danych/);}
+   if(name==='ha-energy-email'){assert.deepEqual(f.requests,[{type:'ha_tools_email/get_report_status',purpose:'energy_report'}]);assert.equal(f.subscriptions.length,1);assert.match(root.querySelector('[data-energy-primary]').textContent,/Unknown|Brak danych/);}
    else {assert.equal(Object.hasOwn(f.card._config,'tariff_profile'),false);assert.match(root.querySelector('[data-energy-primary]').textContent,/250 kWh/);assert.match(root.querySelector('[data-energy-cost]').textContent,/246[,.]00 EUR/);assert.match(root.querySelector('[data-energy-comparison]').textContent,/Unknown|Brak danych/);assert.deepEqual(f.reads(),[{type:'ha_tools_email/energy_analysis',period:'day',comparison:'previous'}]);assert.equal(f.requests.some(q=>q.type==='ha_tools_email/get_tariff'),false);}
    f.update({...f.hass,locale:{...f.hass.locale,language:language==='pl'?'en':'pl'}});assert.equal(root.activeElement,button);assert.equal(f.reads().length,count);f.quiet();
   }finally{f.close();}
@@ -175,6 +176,6 @@ test('Email never infers metadata from energy snapshots/config or old identity; 
  const f=setup('ha-energy-email');try{
   await f.mount();f.card._energySnapshotV5={...producer,next_report:'PRIVATE_NEXT',last_report:'PRIVATE_LAST',result:'PRIVATE_RESULT'};f.card._config.recipient='PRIVATE_RECIPIENT';f.card._render();
   f.update({...f.hass,user:{id:'revoked',is_active:false,is_admin:false}});assert.match(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,/Unknown/);assert.doesNotMatch(f.card.shadowRoot.textContent,/PRIVATE_/);
-  f.update({...f.hass,user:{id:'other',is_active:true,is_admin:false}});assert.equal(f.requests.length,0);assert.equal(f.subscriptions.length,0);f.quiet();
+  f.update({...f.hass,user:{id:'other',is_active:true,is_admin:false}});assert.deepEqual(f.requests,[{type:'ha_tools_email/get_report_status',purpose:'energy_report'}]);assert.ok(f.subscriptions.every(s=>!s.active));f.quiet();
  }finally{f.close();}
 });

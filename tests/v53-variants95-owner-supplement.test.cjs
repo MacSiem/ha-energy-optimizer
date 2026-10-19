@@ -39,7 +39,7 @@ function setup(name,{reply=()=>clone(producer),manualAck=false,language='en'}={}
   row.confirm=()=>{row.active=true;ack.resolve(()=>{row.active=false;});};if(!manualAck)row.confirm();return ack.promise;
  };
  let hass={user:{id:'reader',is_active:true,is_admin:false},connection,connected:true,config:{time_zone:producer.period.timezone,currency:'EUR'},locale:{language,time_zone:'server',time_format:'24'},language,states:{},services:{},
-  callWS:async q=>{calls.push(clone(q));if(q.type==='ha_tools_email/energy_analysis'){raw++;maxRaw=Math.max(maxRaw,raw);try{return await current(q);}finally{raw--;}}unexpected.push(q);throw {code:'unexpected_command'};},callService(){throw Error('service forbidden');}};
+  callWS:async q=>{calls.push(clone(q));if(q.type==='ha_tools_email/get_report_status' && q.purpose==='energy_report')throw {code:'unknown_command'};if(q.type==='ha_tools_email/energy_analysis'){raw++;maxRaw=Math.max(maxRaw,raw);try{return await current(q);}finally{raw--;}}unexpected.push(q);throw {code:'unexpected_command'};},callService(){throw Error('service forbidden');}};
  return {w,card,calls,errors,subscriptions,get hass(){return hass;},get maxRaw(){return maxRaw;},set reply(fn){current=fn;},async mount(){w.document.body.append(card);card.hass=hass;await tick();},update(next){hass=next;card.hass=hass;},ack(){subscriptions.at(-1).confirm();},signal(){subscriptions.filter(s=>s.active).at(-1)?.callback({data:{registry_revision:42}});},quiet(){assert.deepEqual(errors,[]);assert.deepEqual(unexpected,[]);},close(){card.remove();card._tariffConsumerUnsubscribeV3?.();card._tariffHostController?.guard.dispose();w.close();}};
 }
 for(const name of names){
@@ -98,5 +98,5 @@ for(const name of names){
  });
 }
 test('generated Email simple view uses no lexical engine, private data or tariff zone bar',async()=>{
- const f=setup('ha-energy-email');try{await f.mount();assert.equal(f.calls.length,0);assert.equal(f.subscriptions.length,0);assert.equal(f.card.shadowRoot.querySelector('[data-energy-zonebar]'),null);assert.match(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,/Unknown/);f.quiet();}finally{f.close();}
+ const f=setup('ha-energy-email');try{await f.mount();assert.deepEqual(f.calls,[{type:'ha_tools_email/get_report_status',purpose:'energy_report'}]);assert.equal(f.subscriptions.length,1);assert.equal(f.card.shadowRoot.querySelector('[data-energy-zonebar]'),null);assert.match(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,/Unknown/);f.quiet();}finally{f.close();}
 });

@@ -39,6 +39,7 @@ function setup(name,{admin=true,language='en',config={type:`custom:${name}`,vari
    if(q.type==='lovelace/config')return clone(stored);
    if(q.type==='lovelace/config/save'){stored=clone(q.config);return null;}
    // Native per-feature capability facts contain no settings or recipients.
+   if(q.type==='ha_tools_email/get_report_status' && q.purpose==='energy_report')throw {code:'unknown_command'};
    if(q.type==='ha_tools_email/feature_capabilities')return {status:'ready',revision:0,capabilities:{energy_reports:{visible:true,read:true,execute:false}}};
    if(q.type==='ha_tools_email/energy_analysis')return clone(producer);
    if(q.type==='ha_tools_email/get_tariff')return {profile:clone(producer.rates[0].profile),revision:4,updated_at:null};
