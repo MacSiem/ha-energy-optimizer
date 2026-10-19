@@ -2,13 +2,14 @@
 function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
   const hourCycle = preferences.hourCycle || 'h23';
   const dateLanguage = preferences.dateLanguage || language;
+  const clockLanguage = preferences.clockLanguage || language;
   const stamp = value => typeof value === 'number' ? (Number.isFinite(value) ? value : NaN) : typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) ? Date.parse(value) : NaN;
   const localized = (value, options, locale = language) => {
     const time = stamp(value);
     if (!Number.isFinite(time)) return null;
     try { return new Intl.DateTimeFormat(locale, {timeZone, ...options}).format(time); } catch (_) { return null; }
   };
-  const clock = (value, withOffset = false) => localized(value, {hour:'2-digit', minute:'2-digit', hourCycle, ...(withOffset ? {timeZoneName:'shortOffset'} : {})});
+  const clock = (value, withOffset = false) => localized(value, {hour:'2-digit', minute:'2-digit', hourCycle, ...(withOffset ? {timeZoneName:'shortOffset'} : {})}, clockLanguage);
   const date = (value, short = false) => localized(value, {day:'numeric', month:'short', ...(short ? {} : {year:'numeric'})}, dateLanguage);
   // A calendar date has no instant or display zone. Use the selected date
   // locale but preserve its literal day, including historical tariff validity.
@@ -50,7 +51,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     for (const tick of ticks) counts.set(tick.label, (counts.get(tick.label) || 0) + 1);
     return ticks.map(tick => counts.get(tick.label) === 1 ? tick : {...tick, label:clock(values[tick.index], true)});
   };
-  const key = JSON.stringify([language, timeZone, hourCycle, dateLanguage]);
+  const key = JSON.stringify([language, timeZone, hourCycle, dateLanguage, clockLanguage]);
   const numbers = new Intl.NumberFormat(language);
   // Producer Decimal strings carry exact measurement/pricing precision. Keep
   // that precision in Data/details instead of Intl's default three places.
@@ -70,7 +71,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return null;
     try {
       const day = new Intl.DateTimeFormat(dateLanguage, {timeZone, dateStyle:'medium'});
-      const clock = new Intl.DateTimeFormat(language, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle});
+      const clock = new Intl.DateTimeFormat(clockLanguage, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle});
       return day.format(first) === day.format(last)
         ? `${day.format(first)} (${clock.format(first)}–${clock.format(last)})`
         : `${dateTime(from)} – ${dateTime(to)}`;
@@ -99,7 +100,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
       if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
     }
   };
-  return {language, dateLanguage, hourCycle, timeZone, key, clock, date, calendarDate, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : (typeof value === 'string' ? decimals : numbers).format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
+  return {language, dateLanguage, clockLanguage, hourCycle, timeZone, key, clock, date, calendarDate, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : (typeof value === 'string' ? decimals : numbers).format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
 // Presentation follows the HA profile; measurement and tariff calendars remain separate.
 createFormatUi.forHass = hass => {
@@ -110,14 +111,20 @@ createFormatUi.forHass = hass => {
     if (typeof value !== 'string' || !(value === 'UTC' || value.includes('/')) || /^[+-]/.test(value)) return null;
     try { new Intl.DateTimeFormat('en', {timeZone:value}).format(0); return value; } catch (_) { return null; }
   };
-  let systemZone;
-  try { systemZone = validZone(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch (_) {}
+  let systemZone, systemLocale;
+  try {
+    const resolved = Intl.DateTimeFormat().resolvedOptions();
+    systemZone = validZone(resolved.timeZone);
+    // Device region can differ from navigator's preferred content language.
+    systemLocale = resolved.locale;
+  } catch (_) {}
+  const systemRegion = systemLocale || systemLanguage || language;
   const serverZone = validZone(hass?.config?.time_zone);
   const timeZone = (locale.time_zone === 'server' ? serverZone : systemZone) || serverZone || 'UTC';
-  const clockLanguage = locale.time_format === 'system' ? systemLanguage || language : language;
+  const clockLanguage = locale.time_format === 'system' ? systemRegion : language;
   const hourCycle = locale.time_format === '12' ? 'h12' : locale.time_format === '24' ? 'h23'
     : new Intl.DateTimeFormat(clockLanguage, {hour:'numeric'}).resolvedOptions().hourCycle;
-  return createFormatUi(language, timeZone, {hourCycle, dateLanguage:locale.date_format === 'system' ? systemLanguage || language : language});
+  return createFormatUi(language, timeZone, {hourCycle, clockLanguage, dateLanguage:locale.date_format === 'system' ? systemRegion : language});
 };
 // Node tests use the canonical factory; vendored cards keep it local.
 if (typeof module !== 'undefined') module.exports = {createFormatUi};

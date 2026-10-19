@@ -4460,7 +4460,8 @@ this._installTariffConsumerV3();
         .map(field => ({ id: field.id, value: field.value, checked: field.checked }));
       const L = this._lang === 'pl';
       const recipient = this._getRecipient();
-      const recipientDisplay = this._activeTab==='preview' ? (L ? 'Raport energii w Home Assistant' : 'Energy report in Home Assistant') : recipient
+      const analysisOverview = this._activeTab === 'overview' && !this._analysisHostV53?.legacyAllowed();
+      const recipientDisplay = analysisOverview ? (L ? 'Analiza energii' : 'Energy analysis') : this._activeTab==='preview' ? (L ? 'Raport energii w Home Assistant' : 'Energy report in Home Assistant') : recipient
         ? `${L ? 'Do' : 'To'}: ${_esc(recipient)}`
         : (L ? 'Nie ustawiono odbiorcy' : 'No recipient set');
       this.shadowRoot.innerHTML = `
@@ -4693,7 +4694,7 @@ this._installTariffConsumerV3();
             <div class="header-icon">\u{1F4E7}</div>
             <div>
               <div class="header-title">${_esc(this._config.title)}</div>
-              <div class="header-sub">${recipientDisplay} ${this._activeTab === 'overview' && !this._analysisHostV53?.legacyAllowed() ? (L ? 'Analiza energii' : 'Energy analysis') : ['preview','config'].includes(this._activeTab) ? '' : `\u00A0\u2022\u00A0 ${this._hass?.user?.is_admin === true ? `<button type="button" id="price-display" aria-label="${L ? 'Edytuj taryfę energii' : 'Edit energy tariff'}">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())} \u270E</button>` : `<span id="price-display">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())}</span>`}`}</div>
+              <div class="header-sub">${recipientDisplay} ${analysisOverview || ['preview','config'].includes(this._activeTab) ? '' : `\u00A0\u2022\u00A0 ${this._hass?.user?.is_admin === true ? `<button type="button" id="price-display" aria-label="${L ? 'Edytuj taryfę energii' : 'Edit energy tariff'}">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())} \u270E</button>` : `<span id="price-display">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())}</span>`}`}</div>
             </div>
           </div>
           <label class="email-tab-picker">${L ? 'Widok' : 'View'}<select id="email-tab-select" aria-label="${L ? 'Widok' : 'View'}">${['overview','schedule','preview','send','config','history'].map((tab,i)=>({tab,i})).filter(({tab})=>this._hass?.user?.is_admin===true||['overview','preview'].includes(tab)).map(({tab,i})=>`<option value="${tab}" ${this._activeTab===tab?'selected':''}>${(L?['Przegląd','Harmonogram','Podgląd','Wyślij teraz','Ustawienia','Historia']:['Overview','Schedule','Preview','Send Now','Config','History'])[i]}</option>`).join('')}</select></label>
