@@ -1340,7 +1340,7 @@ function createFeatureAccessV53({card, guard}) {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=b4b080299133e75ebe6ff7fa1cbb4c8880d7935bb61948b4c91843ec2255f91f
+      // HA_TARIFF_V3_START sha256=1b66b7f9187108100e99a1415b458104910eb73974777e5bcebb3f0a3b553c77
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -2194,6 +2194,134 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
   };
   return {priceBuckets,snapshot,invalidate:clear};
 }
+"use strict";
+// Read-only bounded report facts. One retained raw lane; no private API fallback.
+function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.snapshot().epoch,isActive = () => false,onChange = () => {}}) {
+  if (!['energy_report','log_digest'].includes(purpose)) throw Error('invalid_report_status_purpose');
+  const outcomes = new Set(['accepted_by_smtp','preparation_failed','authentication_failed','recipients_refused','partial_acceptance','tls_failed','transport_outcome_unknown','send_failed','cancelled_outcome_unknown','outcome_unknown']);
+  const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const keys = (value,known) => {
+    if (!object(value)) return false;
+    let count = 0;
+    for (const key in value) if (Object.hasOwn(value,key)) { if (!known.includes(key)) return false; count++; }
+    return count === known.length && known.every(key => Object.hasOwn(value,key));
+  };
+  const stamp = value => {
+    if (typeof value !== 'string' || value.length > 64) return NaN;
+    const parts = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?(?:Z|([+-])(\d{2}):(\d{2}))$/.exec(value);
+    if (!parts || Number(parts[1]) < 1 || Number(parts[4]) > 23 || Number(parts[5]) > 59 || Number(parts[6]) > 59 || Number(parts[8] || 0) > 23 || Number(parts[9] || 0) > 59) return NaN;
+    const day = new Date(value.slice(0,10) + 'T00:00:00Z');
+    if (!Number.isFinite(day.getTime()) || day.toISOString().slice(0,10) !== value.slice(0,10)) return NaN;
+    return Date.parse(value);
+  };
+  const validate = value => {
+    if (!keys(value,['schema','purpose','generated_at','schedule_state','next_report_at','history_state','last_attempt']) || value.schema !== 1 || value.purpose !== purpose || !Number.isFinite(stamp(value.generated_at)) ||
+        !['enabled','disabled','unconfigured','unavailable'].includes(value.schedule_state) || !['ready','unavailable'].includes(value.history_state)) throw {code:'invalid_report_status'};
+    const generated = stamp(value.generated_at);
+    if (value.next_report_at !== null && (!Number.isFinite(stamp(value.next_report_at)) || stamp(value.next_report_at) <= generated || value.schedule_state !== 'enabled') ||
+        value.schedule_state === 'enabled' && value.next_report_at === null) throw {code:'invalid_report_status'};
+    let attempt = null;
+    if (value.last_attempt !== null) {
+      const row = value.last_attempt;
+      if (value.history_state !== 'ready' || !keys(row,['timestamp','outcome','recipient_count']) || !Number.isFinite(stamp(row.timestamp)) || stamp(row.timestamp) > generated ||
+          typeof row.outcome !== 'string' || row.outcome.length > 64 || !outcomes.has(row.outcome) ||
+          row.recipient_count !== null && (!Number.isSafeInteger(row.recipient_count) || row.recipient_count < 0 || row.recipient_count > 100000)) throw {code:'invalid_report_status'};
+      attempt = {timestamp:row.timestamp,outcome:row.outcome,recipient_count:row.recipient_count};
+    }
+    // Copy only this schema's fixed primitives. No caller objects or future/private fields.
+    return {schema:1,purpose,generated_at:value.generated_at,schedule_state:value.schedule_state,next_report_at:value.next_report_at,history_state:value.history_state,last_attempt:attempt};
+  };
+  let enabled = false, identity = null, generation = 0, revision = 0, activation = null, unsubscribe = null;
+  let raw = null, pending = false, scheduled = false, snapshot = null, status = 'idle', expiry = null;
+  const emit = () => { try { onChange(); } catch (_) { /* UI failures cannot release a wire. */ } };
+  const active = () => card.isConnected && card.preview !== true && isActive() && card._hass?.connected !== false;
+  const primitive = key => typeof key === 'number' && Number.isSafeInteger(key) && key >= 0;
+  const source = () => { const key = getSourceKey(); if (!primitive(key)) throw Error('invalid_source_key'); return key; };
+  const same = (a,b) => a && b && a.every((value,index) => value === b[index]);
+  const reset = () => {
+    clearTimeout(expiry); expiry = null;
+    generation++; revision++; enabled = false; identity = null; activation = null; pending = false; snapshot = null; status = 'idle';
+    const dispose = unsubscribe; unsubscribe = null; try { dispose?.(); } catch (_) {}
+    // raw intentionally survives every authority change, stop, timeout and remount.
+  };
+  const controlCurrent = task => {
+    try { return enabled && active() && task.generation === generation && task.key === source() && guard.current(task.token); }
+    catch (_) { return false; }
+  };
+  const current = task => controlCurrent(task) && task.revision === revision;
+  const queue = () => {
+    if (scheduled) return;
+    scheduled = true; queueMicrotask(() => { scheduled = false; update(); pump(); });
+  };
+  const invalidate = () => {
+    clearTimeout(expiry); expiry = null;
+    revision++; snapshot = null; pending = enabled && active(); status = pending ? 'loading' : 'idle'; emit(); queue();
+  };
+  const failure = error => error?.code === 'unauthorized' || error?.code === 'not_allowed' ? 'denied' : error?.code === 'unknown_command' ? 'unsupported' : 'unavailable';
+  function update() {
+    let token,key;
+    try { token = guard.snapshot(); key = source(); }
+    catch (_) { reset(); status = 'unavailable'; return; }
+    if (!active() || !guard.available(token)) { if (enabled || identity || snapshot || pending) reset(); return; }
+    const next = [token.epoch,key,card._hass?.connected];
+    if (enabled && same(identity,next)) return;
+    reset(); enabled = true; identity = next; pending = true; status = 'loading';
+    const task = {generation,token,key};
+    const connection = card._hass?.connection;
+    if (typeof connection?.subscribeMessage !== 'function') { pending = false; status = 'unavailable'; return; }
+    const operation = Promise.resolve().then(() => {
+      if (!controlCurrent(task)) return null;
+      return connection.subscribeMessage(() => { if (unsubscribe && controlCurrent(task)) invalidate(); },{type:'ha_tools_email/subscribe_analysis_updates'});
+    }).then(dispose => {
+      if (typeof dispose !== 'function') { if (controlCurrent(task)) throw {code:'subscription_unavailable'}; return; }
+      if (!controlCurrent(task)) { try { dispose(); } catch (_) {} return; }
+      unsubscribe = dispose; pending = true; queue(); emit();
+    }).catch(error => {
+      if (controlCurrent(task)) { snapshot = null; pending = false; status = failure(error); emit(); }
+    }).finally(() => { if (activation === operation) activation = null; });
+    activation = operation;
+  }
+  function pump() {
+    if (!pending || !enabled || !unsubscribe || raw || guard.occupied() || !active()) return;
+    let key,token;
+    try { key = source(); token = guard.snapshot(); } catch (_) { reset(); status = 'unavailable'; emit(); return; }
+    const task = {generation,revision,key,token,settled:false,publicDone:false};
+    if (!controlCurrent(task)) return;
+    raw = task; pending = false; status = 'loading'; snapshot = null;
+    let request;
+    try { request = guard.call(token,{type:'ha_tools_email/get_report_status',purpose}); }
+    catch (error) { request = Promise.reject(error); }
+    Promise.resolve(request).then(value => {
+      if (!current(task)) return;
+      snapshot = validate(value); status = 'ready';
+      if (snapshot.next_report_at) {
+        // Re-read a known calendar boundary, never compute a new occurrence or
+        // infer dispatch. Relative server timestamps avoid browser clock skew.
+        const delay = Math.max(1,Math.min(2147483647,stamp(snapshot.next_report_at)-stamp(snapshot.generated_at)));
+        expiry = setTimeout(() => { expiry = null; if (current(task)) invalidate(); },delay);
+        expiry?.unref?.();
+      }
+      emit();
+    }).catch(error => {
+      if (current(task)) { snapshot = null; status = failure(error); if (error?.code === 'wire_occupied') pending = true; emit(); }
+    }).finally(() => {
+      task.publicDone = true;
+      if (task.settled || !guard.occupied()) { if (raw === task) raw = null; queue(); }
+      // A public timeout leaves raw retained until subscribeWire's actual settlement.
+    });
+  }
+  guard.subscribe(() => { reset(); emit(); queue(); });
+  guard.subscribeWire(() => {
+    if (raw) { raw.settled = true; if (raw.publicDone) raw = null; }
+    queue();
+  });
+  const stop = () => { const changed = enabled || identity || snapshot || pending || status !== 'idle'; reset(); if (changed) emit(); };
+  const state = () => {
+    update(); if (pending) queue();
+    return {status,busy:raw !== null,snapshot:snapshot ? {...snapshot,last_attempt:snapshot.last_attempt ? {...snapshot.last_attempt} : null} : null};
+  };
+  return {state,update:() => { update(); queue(); },stop};
+}
 // Node-only import; omitted in consumer closure.
 
 
@@ -2448,7 +2576,8 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     const controller = createEnergyAnalysisV53({card,onChange});
     return createEnergyAnalysisBindingV53({card,controller,onInvalidate});
   };
-  return { summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
+  const reportStatus = ({onChange,isActive,getSourceKey} = {}) => createReportStatusV53({card,guard,purpose:'energy_report',onChange,isActive,getSourceKey:getSourceKey || (() => guard.snapshot().epoch)});
+  return { reportStatus, summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
 }
 "use strict";
 
@@ -6656,11 +6785,11 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     } finally { this._syncDashboardPlacementV53(); }
   };
   Card.prototype.getGridOptions = function() {
-    if (simple(this)) return variant(this._config) === 'tile' ? {columns:6,rows:1,min_columns:6,min_rows:1} : {columns:12,rows:3,min_columns:6,min_rows:2,max_rows:4};
+    if (simple(this)) return variant(this._config) === 'tile' ? {columns:6,rows:1,min_columns:6,min_rows:1} : {columns:12,rows:4,min_columns:6,min_rows:2,max_rows:4};
     return {columns:variant(this._config || {}) === 'legacy' ? 6 : 12,min_columns:3,min_rows:variant(this._config || {}) === 'legacy' ? 2 : 3};
   };
   const originalSize = Card.prototype.getCardSize;
-  Card.prototype.getCardSize = function() { return simple(this) ? (variant(this._config) === 'tile' ? 1 : 3) : variant(this._config || {}) === 'legacy' && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
+  Card.prototype.getCardSize = function() { return simple(this) ? (variant(this._config) === 'tile' ? 1 : 4) : variant(this._config || {}) === 'legacy' && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
   const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-value-green:#166534;--energy-value-red:#b91c1c;--energy-value-neutral:#475569;--energy-value-purple:#6d28d9;--energy-success-button:#166534;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
 :host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-value-green:#86efac;--energy-value-red:#fca5a5;--energy-value-neutral:#cbd5e1;--energy-value-purple:#c4b5fd;--energy-success-button:#166534;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
 .stat,.stat-card{background:var(--energy-kpi-tone)!important}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)!important}
@@ -6806,6 +6935,15 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     }
     bar.setAttribute('aria-label',[note,...descriptions,observed < end ? t(host,'Remaining time: Unknown','Pozostały czas: brak danych') : ''].filter(Boolean).join(' '));
   };
+  const reportStatusStyle = '[data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}[data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:8em;font-size:12px;line-height:18px}';
+  const emailStatusFor = host => host._emailStatusV100 ||= (() => {
+    let scheduled = false;
+    const active = () => name === 'ha-energy-email' && host.isConnected && host.preview !== true && simple(host);
+    return host._getTariffHostV3().reportStatus({isActive:active,onChange:() => {
+      if (scheduled) return;
+      scheduled = true; queueMicrotask(() => { scheduled = false; if (active()) host._render(); });
+    }});
+  })();
   const renderSimple = host => {
     const root = host.shadowRoot, config = host._config || {}, mode = variant(config);
     const unknown = t(host,'Unknown','Brak danych'), email = name === 'ha-energy-email';
@@ -6813,6 +6951,20 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const analysis = summary?.status === 'ready' ? summary.snapshot : null;
     const snapshot = !email && mode === 'tile' ? tileFor(host).state() : null;
     const format = createFormatUi.forHass(host._hass);
+    const reportState = email ? emailStatusFor(host).state() : null;
+    const report = reportState?.status === 'ready' ? reportState.snapshot : null;
+    const nextReport = report?.schedule_state === 'enabled' && report.next_report_at ? format.dateTime(report.next_report_at) || unknown : unknown;
+    const attempt = report?.history_state === 'ready' ? report.last_attempt : null;
+    const lastAttempt = attempt ? format.dateTime(attempt.timestamp) || unknown : unknown;
+    const outcomes = {
+      accepted_by_smtp:t(host,'SMTP accepted; delivery unconfirmed','SMTP przyjął; doręczenie niepotwierdzone'),
+      preparation_failed:t(host,'Preparation failed','Przygotowanie nieudane'),authentication_failed:t(host,'Authentication failed','Uwierzytelnienie nieudane'),
+      recipients_refused:t(host,'Recipients refused','Odbiorcy odrzuceni'),partial_acceptance:t(host,'Partial SMTP acceptance','Częściowe przyjęcie przez SMTP'),
+      tls_failed:t(host,'TLS failed','Błąd TLS'),transport_outcome_unknown:t(host,'Transport outcome unknown','Wynik transportu nieznany'),
+      send_failed:t(host,'Attempt failed','Próba nieudana'),cancelled_outcome_unknown:t(host,'Cancelled; outcome unknown','Anulowano; wynik nieznany'),outcome_unknown:unknown
+    };
+    const result = attempt ? outcomes[attempt.outcome] || unknown : unknown;
+    const recipients = attempt?.recipient_count !== null && attempt?.recipient_count !== undefined ? format.number(attempt.recipient_count) : unknown;
     const numeric = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '') && Number.isFinite(Number(value));
     const total = analysis?.totals, elapsed = elapsedComparison(analysis);
     const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${format.number(total.kwh,{maximumFractionDigits:2})} kWh` : unknown;
@@ -6830,24 +6982,25 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}<button type="button" data-energy-open></button></section>`;
+      root.innerHTML = `<style>${simpleStyle}${email ? reportStatusStyle : ''}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}<button type="button" data-energy-open></button></section>`;
       section = root.querySelector('[data-energy-simple]');
       section.querySelector('button').addEventListener('click', () => open(host));
       section.querySelector('button').addEventListener('keydown', event => {
         if (['Enter',' '].includes(event.key) && !event.repeat) { event.preventDefault(); event.currentTarget.click(); }
       });
     }
+    if (email) section.dataset.energyReportStatus = '';
     const icon = section.querySelector('ha-icon');
     icon.setAttribute('icon', email ? 'mdi:email-outline' : 'mdi:lightning-bolt');
     const tone = snapshot?.status !== 'unavailable' && snapshot?.current?.available === true ? snapshot.current.zone_class : null;
     icon.style.color = {cheap:'var(--energy-simple-cheap)',expensive:'var(--energy-simple-expensive)',mixed:'var(--warning-color,var(--primary-color))'}[tone] || 'var(--primary-color)';
     section.querySelector('[data-energy-name]').textContent = config.title ?? title;
     section.querySelector('[data-energy-name]').title = config.title ?? title;
-    section.querySelector('[data-energy-primary]').textContent = email ? unknown : mode === 'tile' ? `${zone} · ${nextLabel}` : energy;
+    section.querySelector('[data-energy-primary]').textContent = email ? mode === 'tile' ? `${t(host,'Report from','Raport od')} ${nextReport}` : nextReport : mode === 'tile' ? `${zone} · ${nextLabel}` : energy;
     if (mode === 'compact') {
-      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Next report','Następny raport') : t(host,'Energy today','Energia dziś');
-      section.querySelector('[data-energy-cost]').textContent = email ? t(host,'Last report: Unknown','Ostatni raport: brak danych') : `${t(host,'Usage cost','Koszt zużycia')}: ${money}`;
-      section.querySelector('[data-energy-comparison]').textContent = email ? t(host,'Result: Unknown','Wynik: brak danych') : `${comparisonName}: ${difference}`;
+      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Next calendar occurrence','Następny termin kalendarza') : t(host,'Energy today','Energia dziś');
+      section.querySelector('[data-energy-cost]').textContent = email ? `${t(host,'Last attempt started','Początek ostatniej próby')}: ${lastAttempt}` : `${t(host,'Usage cost','Koszt zużycia')}: ${money}`;
+      section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : `${comparisonName}: ${difference}`;
       const caption = section.querySelector('[data-energy-zone-caption]');
       if (caption) caption.textContent = t(host,'Day tariff zones','Strefy taryfy w ciągu dnia');
       paintZoneBar(section.querySelector('[data-energy-zonebar]'),analysis,host,format);
@@ -6893,6 +7046,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       if (placementMount.querySelector('dialog[open]')) return;
     }
     const config = this._config || {};
+    if (!simple(this) || this.preview === true) this._emailStatusV100?.stop();
     if (!simple(this) || variant(config) !== 'compact') this._simpleSummaryV95?.stop();
     if (!simple(this) || variant(config) !== 'tile') this._simpleTileV95?.stop();
     if (!visible(config).includes(this[key])) this[key] = config.default_tab || visible(config)[0];
@@ -7043,7 +7197,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     Card.prototype[method] = function(...args) { if (simple(this)) return this._render(); const value = original.apply(this,args); this._applyCardOptionsV5(); return value; };
   }
   const disconnect = Card.prototype.disconnectedCallback;
-  Card.prototype.disconnectedCallback = function() { stopPlacement(this); this._simpleSummaryV95?.stop(); this._simpleTileV95?.stop(); this._optionsResizeV5?.disconnect(); return disconnect?.call(this); };
+  Card.prototype.disconnectedCallback = function() { stopPlacement(this); this._emailStatusV100?.stop(); this._simpleSummaryV95?.stop(); this._simpleTileV95?.stop(); this._optionsResizeV5?.disconnect(); return disconnect?.call(this); };
   // Reuse existing editor text fields and their focus/caret-preserving synchronization.
   const editorRender = Editor.prototype._render;
   Editor.prototype._render = function(...args) { editorRender.apply(this,args); this._renderOptionsV5(); };
