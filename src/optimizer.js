@@ -3908,10 +3908,20 @@ canvas {
           }
         }
         @container (max-width: 500px) {
-          .card-container .tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; overflow:visible; mask-image:none; padding-inline:0; }
-          .card-container .tabs>button { min-width:0; white-space:normal; font-size:14px; padding:8px; }
+          .card-container .tabs { display:flex; flex-wrap:nowrap; gap:4px; overflow-x:auto; overflow-y:hidden; }
+          .card-container .tabs>button { flex:0 0 auto; min-width:44px; white-space:nowrap; font-size:14px; padding:8px 12px; }
         }
       
+/* Optimizer schema2 heading/tools stay auxiliary to measured analysis. */
+.optimizer-heading{display:flex;align-items:center;flex-wrap:wrap;gap:0 12px;min-height:44px}
+.optimizer-heading .card-title{flex:1 1 180px;min-width:0;margin:0;font-size:20px}
+.optimizer-heading>[data-energy-options-help][open]{flex-basis:100%;width:100%}
+.optimizer-tools{margin:0 0 4px;min-width:0}
+.optimizer-tools .power-setup summary{padding:8px 0;font-size:14px}
+.optimizer-tools .power-draw{display:flex;align-items:baseline;flex-wrap:wrap;gap:8px;min-height:44px;margin:0;padding:8px 0;background:transparent;box-shadow:none;border:0}
+.optimizer-tools .power-draw-value{font-size:14px;margin:0}
+.optimizer-tools .power-draw-unit{font-size:12px}
+@container energy-card (max-width:279.99px){.card-container .tabs{display:none}}
 /* ===== MOBILE RESPONSIVE TABLE STYLES ===== */
 .table-container {
   width: 100%;
@@ -4014,8 +4024,8 @@ canvas {
   _getTemplate() {
     if(!this._analysisLegacyAllowedV53()) {
       const tabs=[['dashboard','Overview','Przegląd'],['patterns','Patterns','Wzorce'],['recommendations','Tariff costs','Koszty taryfy'],['compare','Compare','Porównanie']];
-      return `<div class="card-container"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2>${this._powerMarkupV4()}
-      <div class="tabs" role="tablist">${tabs.map(([id,en,pl])=>`<button class="tab-button" data-tab="${id}" role="tab">${this._text(en,pl)}</button>`).join('')}</div>
+      return `<div class="card-container"><div class="optimizer-heading"><h2 class="card-title">${_esc(this._config.title || 'Energy Optimizer')}</h2></div><div class="optimizer-tools">${this._powerMarkupV4()}</div>
+      <div class="tabs optimizer-navigation" role="tablist">${tabs.map(([id,en,pl])=>`<button class="tab-button" data-tab="${id}" role="tab">${this._text(en,pl)}</button>`).join('')}</div>
       ${tabs.map(([id])=>`<div id="${id}" class="tab-content"></div>`).join('')}${this._tariffDetailsMarkup()}${this._hass?.user?.is_admin && this._config?.show_support !== false && !energySupportDismissed('ha-energy-optimizer') ? ENERGY_OPTIMIZER_DONATE_HTML : ''}</div>`;
     }
     const format = createFormatUi.forHass(this._hass);
