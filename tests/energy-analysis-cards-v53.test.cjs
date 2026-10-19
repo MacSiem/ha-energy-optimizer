@@ -34,7 +34,7 @@ function setup(spec,{response=()=>clone(producer),legacy=false,subscribeError=nu
   const dom=new JSDOM('<!doctype html><body></body>',{runScripts:'outside-only',pretendToBeVisual:true,
     url:'http://localhost/',virtualConsole:console});
   const w=dom.window,NativeDate=w.Date;
-  const now=Date.parse('2026-10-18T12:34:00Z');
+  let now=Date.parse('2026-10-18T12:34:00Z');
   w.Date=class extends NativeDate{constructor(...args){super(...(args.length?args:[now]));}static now(){return now;}};
   // Same browser-only substitutes as the existing DOM/chart/options harnesses.
   w.ResizeObserver=class{observe(){}unobserve(){}disconnect(){}};
@@ -83,7 +83,7 @@ function setup(spec,{response=()=>clone(producer),legacy=false,subscribeError=nu
   card.setConfig({title:'Actual '+spec.type,default_tab:spec.home,show_help:false,show_support:false});
   const active=conn=>subscriptions.filter(entry=>entry.active&&(!conn||entry.connection===conn));
   const api={w,card,spec,ws,subscriptions,unexpected,errors,network,serviceCalls,connection,
-    get hass(){return hass;},get maxRaw(){return maxRaw;},get raw(){return raw;},get unsubscribed(){return unsubscribed;},
+    advance(ms){now+=ms;},get hass(){return hass;},get maxRaw(){return maxRaw;},get raw(){return raw;},get unsubscribed(){return unsubscribed;},
     get analyses(){return ws.filter(request=>request.type===ANALYSIS);},
     setResponse(next){currentResponse=next;},
     update(next=hass){hass=next;card.hass=hass;},
@@ -343,5 +343,20 @@ for(const fixtureFile of ['analysis-wholeperiod-v53.json','analysis-wholeperiod7
   assert.match(f.card.shadowRoot.querySelector('[data-analysis-cheap-share]').textContent,/taniej/);
   assert.equal(f.analyses.length,reads);assert.equal(f.card._analysisHostV53.state().snapshot.snapshot_id,snapshot.snapshot_id);
   f.assertNoHistory();f.assertQuiet();
+ }finally{f.close();}
+});
+
+test('modern Email Overview header does not claim an unrelated legacy tariff or currency',async()=>{
+ const f=setup(cases[2]);try{f.update({...f.hass,config:{...f.hass.config,currency:'PLN'}});await f.mount();
+  const header=f.card.shadowRoot.querySelector('.header-sub');assert.ok(header);assert.doesNotMatch(header.textContent,/PLN|Tariff not configured|Shared tariff not confirmed/);assert.match(header.textContent,/Energy analysis/);
+  f.assertNoHistory();f.assertQuiet();
+ }finally{f.close();}
+});
+test('unchanged ordinary hass updates preserve mounted Optimizer controls after throttle interval',async()=>{
+ const f=setup(cases[0]);try{await f.mount();f.advance(11000);f.update({...f.hass});await settle();
+  const calendar=f.card.shadowRoot.querySelector('[data-analysis-calendar-options]');calendar.open=true;
+  const anchor=control(f,'anchor');anchor.focus();const count=f.analyses.length;
+  f.advance(11000);f.update({...f.hass});await settle();
+  assert.equal(f.card.shadowRoot.querySelector('[data-analysis-calendar-options]'),calendar);assert.equal(calendar.open,true);assert.equal(f.card.shadowRoot.activeElement,anchor);assert.equal(f.analyses.length,count);f.assertQuiet();
  }finally{f.close();}
 });
