@@ -67,7 +67,7 @@ for(const name of names){
    f.card.setConfig({compact:true});assert.equal(f.card.getGridOptions().columns,6);
    f.card.setConfig({variant:'full',compact:true});assert.equal(f.card.getGridOptions().columns,12);
    f.card.setConfig({variant:'tile',compact:true});assert.equal(f.card.getGridOptions().rows,1);assert.equal(f.card.getCardSize(),1);
-   f.card.setConfig({variant:'compact'});assert.equal(f.card.getGridOptions().columns,12);assert.equal(f.card.getGridOptions().max_rows,4);
+   f.card.setConfig({variant:'compact'});assert.equal(f.card.getGridOptions().columns,12);assert.equal(f.card.getGridOptions().max_rows,4);assert.equal(f.card.getGridOptions().rows,4);assert.equal(f.card.getCardSize(),4);
    assert.throws(()=>f.card.setConfig({variant:'bad'}),/variant/);assert.throws(()=>f.card.setConfig({tap_target:'https://elsewhere'}),/tap_target/);
    assert.throws(()=>f.card.setConfig({variant:'tile',tap_target:'more-info',entity:'not-an-id'}),/entity|encję/);
    f.card.setConfig({tap_target:'more-info'});assert.equal(f.card._config.tap_target,'more-info','selection can wait for the entity picker');
