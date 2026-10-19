@@ -20,6 +20,8 @@ The current schema-2 views share server-owned measurements, calendar periods and
 
 Dates follow your HA profile’s display settings and your device timezone by default. **Time zone → Server** explicitly selects the HA zone. **Time format → System** and **Date format → Use system locale** use your device preferences. Changing presentation leaves measurement periods, tariff clocks and costs unchanged.
 
+On phones, consumption and cost are the primary readings; tariff share and peak time remain in a compact secondary row. Swipe the tab row or use the keyboard to reach every section. Very narrow cards provide a named view selector. **Help** remains available beside the Optimizer title, and configured power-sensor errors stay visible.
+
 The sections below also describe supported older integration APIs. Only an explicit unsupported-command response activates the compatible Recorder view; access or network errors do not silently switch to another data source. Legacy rolling windows and mail previews retain their documented limits.
 
 ## How it works
