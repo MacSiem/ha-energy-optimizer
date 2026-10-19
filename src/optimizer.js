@@ -620,7 +620,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=498f3086635fcd4f988498c5fd32fbef3f609b8bf71e9a1e3049816369b311e3
+    // HA_TARIFF_V3_START sha256=b4b080299133e75ebe6ff7fa1cbb4c8880d7935bb61948b4c91843ec2255f91f
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1722,7 +1722,13 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       }
     }
   };
-  return { analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
+  // Engine factories are local to this adapter in generated consumers. Keep
+  // the public options helper independent of their lexical embedding location.
+  const summary = ({onChange = () => {}, onInvalidate = () => {}} = {}) => {
+    const controller = createEnergyAnalysisV53({card,onChange});
+    return createEnergyAnalysisBindingV53({card,controller,onInvalidate});
+  };
+  return { summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
 }
 "use strict";
 
@@ -4875,6 +4881,317 @@ async _drawComparisonChart() {
     connectedCallback() { this._render(); }
   }
 
+// HA_DASHBOARD_PLACEMENT_V53_START
+// Lovelace save has no CAS: compare-before-save reduces, but cannot eliminate,
+// the race with another editor between the final read and the native save.
+function createDashboardPlacementV53({host, getHass, getCardConfig,
+  cardTypes = ['custom:ha-energy-optimizer', 'custom:ha-energy-insights', 'custom:ha-energy-email'],
+  getSourceKey = () => null}) {
+  const known = ['custom:ha-energy-optimizer', 'custom:ha-energy-insights', 'custom:ha-energy-email'];
+  const allowed = known.filter(type => cardTypes.includes(type));
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const key = value => JSON.stringify(value);
+  const object = v => v !== null && typeof v === 'object' && !Array.isArray(v);
+  const pathOK = path => path === null || typeof path === 'string' && /^[a-z0-9][a-z0-9_-]*$/.test(path);
+  const titleId = 'ha-tools-placement-' + Math.random().toString(36).slice(2);
+  let session = null, dialog = null, destroyed = false, running = false, queued = null, returnFocus = null;
+  let cancelledWrite = false;
+  const text = (en, pl) => String(getHass()?.locale?.language || getHass()?.language || 'en').startsWith('pl') ? pl : en;
+  function identity() {
+    const hass = getHass();
+    if (!host.isConnected || hass?.connected === false || !hass?.connection || hass.connection.connected === false ||
+        typeof hass.callWS !== 'function' || typeof hass.user?.id !== 'string' || !hass.user.id ||
+        hass.user.is_admin !== true || hass.user.is_active === false) return null;
+    const card = clone(getCardConfig());
+    if (!object(card) || !allowed.includes(card.type)) return null;
+    return {connection:hass.connection, user:hass.user.id, card, signature:key(card), source:key(getSourceKey())};
+  }
+  function current(s, intent = s?.intent) {
+    if (!s || session !== s || destroyed || s.intent !== intent) return false;
+    if (!dialog?.isConnected) { close(); return false; }
+    let live;
+    try { live = identity(); } catch (_) { live = null; }
+    if (!live || live.connection !== s.connection || live.user !== s.user || live.signature !== s.signature || live.source !== s.source) {
+      close(); // Purge private snapshots and detached previews on identity/source revocation.
+      return false;
+    }
+    return true;
+  }
+  // Single raw operation lane, including reads. Replacement intent never starts
+  // another operation while a previous promise is unsettled, even after close().
+  function enqueue(task) { queued = task; pump(); }
+  async function pump() {
+    if (running || !queued || destroyed) return;
+    const task = queued; queued = null; running = true; paint();
+    try { await task(); } catch (_) { /* Tasks expose localized states, never raw backend/private errors. */ }
+    finally { running = false; paint(); pump(); }
+  }
+  async function call(s, intent, type, extra = {}) {
+    if (!current(s, intent)) throw Error('cancelled');
+    const message = {type, ...extra};
+    if (type !== 'lovelace/dashboards/list' && s.target !== null) message.url_path = s.target;
+    // Native HA performs fresh require_admin authorization independently.
+    let value;
+    try { value = await getHass().callWS(message); }
+    catch (error) {
+      if (['unauthorized','not_allowed','forbidden'].includes(error?.code) && session === s) close();
+      throw error;
+    }
+    if (!current(s, intent)) throw Error('cancelled');
+    return value;
+  }
+  function read(s, intent) { return call(s, intent, 'lovelace/config', {force:true}); }
+  function validateConfig(config) {
+    if (!object(config) || !Array.isArray(config.views) && !object(config.strategy)) throw Error('invalid_config');
+    return clone(config);
+  }
+  function destination(s) {
+    const config = s.baseline, view = config?.views?.[s.view];
+    if (!object(config) || config.strategy || !object(view) || view.strategy) return null;
+    const type = view.type || (view.panel === true ? 'panel' : 'masonry');
+    if (type === 'sections') {
+      const section = view.sections?.[s.section];
+      return object(section) && !section.strategy && section.type === 'grid' &&
+        (section.cards === undefined || Array.isArray(section.cards)) ? ['views',s.view,'sections',s.section,'cards'] : null;
+    }
+    if (type !== 'masonry' && type !== 'panel' || view.cards !== undefined && !Array.isArray(view.cards)) return null;
+    if (type === 'panel' && view.cards?.length) return null;
+    return ['views',s.view,'cards'];
+  }
+  function candidate(s) {
+    const path = destination(s);
+    if (!path) throw Error('readonly');
+    const result = clone(s.baseline);
+    let parent = result;
+    for (const segment of path.slice(0,-1)) parent = parent[segment];
+    parent.cards = [...(parent.cards || []), clone(s.card)];
+    return result;
+  }
+  function clearTarget(s) {
+    s.baseline = null; s.tx = null; s.previewReady = false; s.blocked = false;
+    s.view = 0; s.section = 0; s.status = 'select';
+    dialog?.querySelector('[data-preview]')?.replaceChildren();
+  }
+  function selectDashboard(value) {
+    const s = session;
+    if (!current(s) || s.writing) return;
+    s.intent++; clearTarget(s);
+    const choice = s.dashboards[Number(value)];
+    if (value === '' || !choice) { s.target = undefined; paint(); return; }
+    s.target = choice.url_path;
+    if (choice.mode !== 'storage') { s.status = 'readonly'; paint(); return; }
+    const intent = s.intent; s.status = 'loading'; paint();
+    enqueue(async () => {
+      if (!current(s, intent)) return;
+      try {
+        const config = validateConfig(await read(s, intent));
+        if (!current(s, intent)) return;
+        s.baseline = config; s.status = 'ready'; chooseView(0);
+      } catch (_) { if (current(s, intent)) { s.status = 'error'; paint(); } }
+    });
+  }
+  function chooseView(value) {
+    const s = session;
+    if (!current(s) || s.writing || !s.baseline) return;
+    s.intent++; s.view = Number(value); s.tx = null; s.blocked = false; s.status = 'ready';
+    const sections = s.baseline.views?.[s.view]?.sections;
+    s.section = Array.isArray(sections) ? sections.findIndex(section => section?.type === 'grid' && !section.strategy) : -1;
+    preview(); paint();
+  }
+  function chooseSection(value) {
+    const s = session;
+    if (!current(s) || s.writing) return;
+    s.intent++; s.section = Number(value); s.tx = null; s.blocked = false; s.status = 'ready'; preview(); paint();
+  }
+  function preview() {
+    const s = session, area = dialog?.querySelector('[data-preview]');
+    if (!current(s) || !area) return;
+    area.replaceChildren(); s.previewReady = false;
+    if (!destination(s)) { s.status = 'readonly'; return; }
+    // The allowlist is intersected with our three concrete types. No user HTML,
+    // YAML forms, guessed dialog imports, or arbitrary custom-element names.
+    const name = s.card.type.slice(7);
+    if (!host.ownerDocument.defaultView.customElements.get(name)) { s.status = 'previewerror'; return; }
+    try {
+      const card = host.ownerDocument.createElement(name);
+      // Prevent interactions in the visual preview from invoking card actions.
+      card.preview = true; card.inert = true; card.setAttribute('inert',''); card.setConfig(clone(s.card)); card.hass = getHass();
+      area.append(card); s.previewReady = true;
+    } catch (_) { area.replaceChildren(); s.status = 'previewerror'; }
+  }
+  async function confirm(s, intent) {
+    const value = validateConfig(await read(s, intent));
+    if (!current(s, intent)) return;
+    const tx = s.tx;
+    if (key(value) === key(tx.expected)) {
+      s.baseline = clone(value); s.blocked = true;
+      if (tx.undoing) { s.tx = null; s.status = 'undone'; }
+      else { tx.confirmed = clone(value); s.status = 'confirmed'; }
+    } else { s.status = 'unconfirmed'; s.blocked = true; }
+  }
+  function write(undoing) {
+    const s = session;
+    if (!current(s) || running || s.writing || !s.baseline || s.target === undefined) return;
+    if (undoing ? !s.tx?.confirmed : s.blocked || !s.previewReady || !destination(s)) return;
+    const intent = s.intent, expectedCurrent = clone(undoing ? s.tx.confirmed : s.baseline);
+    const expected = clone(undoing ? s.tx.before : candidate(s));
+    const before = clone(undoing ? s.tx.before : s.baseline);
+    s.writing = true; s.status = 'saving'; paint();
+    enqueue(async () => {
+      try {
+        const latest = validateConfig(await read(s, intent));
+        if (!current(s, intent)) return;
+        if (key(latest) !== key(expectedCurrent)) { s.blocked = true; s.tx = null; s.status = 'conflict'; return; }
+        // Private backup is detached and bound to this session's user,
+        // connection and target. No persistent storage or exports.
+        s.tx = {before, expected, confirmed:null, undoing}; s.blocked = true;
+        // Deliberate compare-before-save, NOT atomic compare-and-swap.
+        // Call exactly once, even if the response is lost or rejected.
+        try { await call(s, intent, 'lovelace/config/save', {config:clone(expected)}); }
+        catch (_) { if (!current(s, intent)) return; }
+        if (!current(s, intent)) return;
+        s.status = 'unconfirmed';
+        await confirm(s, intent); // Reconcile an uncertain ACK using a read only.
+      } catch (_) { if (current(s, intent)) { s.blocked = true; s.status = s.tx ? 'unconfirmed' : 'error'; } }
+      finally { if (current(s, intent)) { s.writing = false; paint(); } }
+    });
+  }
+  function reconcile() {
+    const s = session;
+    if (!current(s) || running || s.writing || !s.tx || s.tx.confirmed) return;
+    const intent = s.intent; s.status = 'loading';
+    enqueue(async () => {
+      try { await confirm(s, intent); }
+      catch (_) { if (current(s, intent)) s.status = 'unconfirmed'; }
+    });
+  }
+  const messages = {
+    select: ['Choose an existing dashboard.', 'Wybierz istniejący dashboard.'],
+    loading: ['Loading…', 'Wczytywanie…'],
+    ready: ['Preview only. Add saves this card to the selected place.', 'To podgląd. Dodaj zapisze kartę w wybranym miejscu.'],
+    saving: ['Saving once and checking the result…', 'Jednorazowy zapis i sprawdzanie wyniku…'],
+    confirmed: ['Save confirmed. Undo is available while nobody changes this dashboard.', 'Zapis potwierdzony. Cofnij jest dostępne, dopóki nikt nie zmieni tego dashboardu.'],
+    undone: ['Original configuration restored and confirmed.', 'Przywrócenie pierwotnej konfiguracji potwierdzone.'],
+    conflict: ['Dashboard changed. Nothing was overwritten. Reopen to review the current version.', 'Dashboard zmienił się. Niczego nie nadpisano. Otwórz ponownie, aby sprawdzić bieżącą wersję.'],
+    unconfirmed: ['Save unconfirmed. Do not repeat Add. Check the result using read only.', 'Zapis niepotwierdzony. Nie powtarzaj Dodaj. Sprawdź wynik przez sam odczyt.'],
+    error: ['Cannot load or compare the dashboard. Reopen to review it.', 'Nie można wczytać lub porównać dashboardu. Otwórz ponownie, aby go sprawdzić.'],
+    readonly: ['Read-only here: YAML, strategy, occupied Panel or unsupported layout. Use the native HA editor.', 'Tutaj tylko odczyt: YAML, strategia, zajęty Panel lub nieobsługiwany układ. Użyj natywnego edytora HA.'],
+    previewerror: ['Card preview unavailable. Add is disabled.', 'Podgląd karty jest niedostępny. Dodaj jest wyłączone.']
+  };
+  function options(select, choices, value) {
+    // Preserve focused native select nodes and avoid rebuilding their options on busy changes.
+    const signature = key(choices);
+    if (select._choices !== signature) {
+      select.replaceChildren();
+      for (const [id, label] of choices) {
+        const option = host.ownerDocument.createElement('option'); option.value = id; option.textContent = label; select.append(option);
+      }
+      select._choices = signature;
+    }
+    select.value = String(value);
+  }
+  function paint() {
+    const s = session;
+    if (!s || !dialog || !current(s)) return;
+    const q = selector => dialog.querySelector(selector);
+    q('h2').textContent = text('Add to dashboard', 'Dodaj do dashboardu');
+    q('[data-label-dashboard]').textContent = text('Dashboard', 'Dashboard');
+    q('[data-label-view]').textContent = text('View', 'Widok'); q('[data-label-section]').textContent = text('Section', 'Sekcja');
+    q('[data-preview-label]').textContent = text('Card preview (destination layout may resize it)', 'Podgląd karty (układ miejsca docelowego może zmienić rozmiar)');
+    q('[data-limit]').textContent = (cancelledWrite ? text('A previous save was cancelled while pending and may have completed. Inspect the dashboard in HA before another Add. ', 'Poprzedni zapis anulowano w trakcie i mógł się zakończyć. Przed kolejnym Dodaj sprawdź dashboard w HA. ') : '') + text('You can undo this addition until this window closes.', 'Możesz cofnąć dodanie karty do zamknięcia tego okna.');
+    q('[role=status]').textContent = text(...messages[s.status]);
+    const selected = s.dashboards.findIndex(d => d.url_path === s.target);
+    options(q('[data-dashboard]'), [['',text('Choose…','Wybierz…')],...s.dashboards.map((d,i)=>[String(i),d.title])], selected < 0 ? '' : selected);
+    options(q('[data-view]'), (s.baseline?.views || []).map((v,i)=>[String(i),v.title || v.path || text(`View ${i+1}`,`Widok ${i+1}`)]), s.view);
+    const sections = s.baseline?.views?.[s.view]?.sections;
+    options(q('[data-section]'), Array.isArray(sections) ? sections.flatMap((v,i)=>v?.type === 'grid' && !v.strategy ? [[String(i),v.title || text(`Section ${i+1}`,`Sekcja ${i+1}`)]] : []) : [], s.section);
+    q('[data-section-label]').hidden = !Array.isArray(sections);
+    q('[data-dashboard]').disabled = s.writing || !s.dashboards.length;
+    q('[data-view]').disabled = s.writing || !s.baseline;
+    q('[data-section]').disabled = s.writing || !s.baseline;
+    q('[data-add]').textContent = text('Add','Dodaj');
+    q('[data-add]').disabled = running || s.writing || s.blocked || !s.previewReady || !destination(s);
+    q('[data-undo]').textContent = text('Undo','Cofnij'); q('[data-undo]').disabled = running || s.writing || !s.tx?.confirmed;
+    q('[data-reconcile]').textContent = text('Check result (read only)','Sprawdź wynik (tylko odczyt)');
+    q('[data-reconcile]').hidden = !s.tx || !!s.tx.confirmed; q('[data-reconcile]').disabled = running || s.writing;
+    q('[data-cancel]').textContent = text('Cancel','Anuluj');
+    const native = q('[data-native]'); native.textContent = text('Open dashboard in Home Assistant','Otwórz dashboard w Home Assistant');
+    native.hidden = s.target === undefined;
+    native.setAttribute('href', s.target === undefined ? '/lovelace' : `/${s.target || 'lovelace'}`);
+  }
+  function mount() {
+    dialog = host.ownerDocument.createElement('dialog');
+    dialog.setAttribute('data-ha-tools-placement','');
+    dialog.setAttribute('aria-labelledby',titleId);
+    dialog.setAttribute('aria-describedby',titleId+'-limit');
+    dialog.innerHTML = `<style>
+dialog[data-ha-tools-placement]{box-sizing:border-box;width:min(640px,calc(100vw - 24px));max-height:calc(100dvh - 32px);overflow:auto;padding:20px;border:1px solid var(--divider-color,#888);border-radius:var(--ha-card-border-radius,12px);background:var(--card-background-color,#fff);color:var(--primary-text-color,#202124);font:14px/1.5 var(--paper-font-body1_-_font-family,system-ui)}dialog[data-ha-tools-placement]::backdrop{background:rgba(0,0,0,.45)}dialog[data-ha-tools-placement] h2{font-size:20px;margin:0 0 16px}dialog[data-ha-tools-placement] label{display:block;margin:12px 0}dialog[data-ha-tools-placement] select,dialog[data-ha-tools-placement] button,dialog[data-ha-tools-placement] a{box-sizing:border-box;min-height:44px;font:inherit}dialog[data-ha-tools-placement] select{width:100%;padding:8px;background:var(--secondary-background-color,#eee);color:inherit;border:1px solid var(--divider-color,#888);border-radius:8px}dialog[data-ha-tools-placement] button{padding:10px 16px;background:var(--secondary-background-color,#eee);color:inherit;border:1px solid var(--divider-color,#888);border-radius:8px;cursor:pointer}dialog[data-ha-tools-placement] button:disabled{opacity:.55;cursor:default}dialog[data-ha-tools-placement] [data-add]{background:var(--primary-color,#1565c0);color:var(--text-primary-color,#fff)}dialog[data-ha-tools-placement] button:focus-visible,dialog[data-ha-tools-placement] select:focus-visible,dialog[data-ha-tools-placement] a:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}dialog[data-ha-tools-placement] [data-actions]{display:flex;gap:8px;flex-wrap:wrap}dialog[data-ha-tools-placement] [data-preview]{max-width:100%;overflow:hidden}dialog[data-ha-tools-placement] [data-meta]{font-size:12px;color:var(--secondary-text-color,#555)}dialog[data-ha-tools-placement] a{display:inline-flex;align-items:center;color:var(--primary-color,#1565c0)}dialog[data-ha-tools-placement] [hidden]{display:none!important}
+      </style><h2 id="${titleId}"></h2>
+      <label><span data-label-dashboard></span><select data-dashboard></select></label>
+      <label><span data-label-view></span><select data-view></select></label>
+      <label data-section-label hidden><span data-label-section></span><select data-section></select></label>
+      <p data-preview-label></p><div data-preview></div><p role="status" aria-live="polite"></p>
+      <p data-meta data-limit id="${titleId}-limit"></p><a data-native hidden></a>
+      <div data-actions><button type="button" data-add></button><button type="button" data-undo></button><button type="button" data-reconcile hidden></button><button type="button" data-cancel></button></div>`;
+    dialog.querySelector('[data-dashboard]').addEventListener('change', e => selectDashboard(e.target.value));
+    dialog.querySelector('[data-view]').addEventListener('change', e => chooseView(e.target.value));
+    dialog.querySelector('[data-section]').addEventListener('change', e => chooseSection(e.target.value));
+    dialog.querySelector('[data-add]').addEventListener('click', () => write(false));
+    dialog.querySelector('[data-undo]').addEventListener('click', () => write(true));
+    dialog.querySelector('[data-reconcile]').addEventListener('click', reconcile);
+    dialog.querySelector('[data-cancel]').addEventListener('click', close);
+    dialog.addEventListener('cancel', e => {e.preventDefault(); close();});
+    dialog.addEventListener('close', () => { if (dialog && !dialog.open) close(); });
+    host.append(dialog);
+    if (typeof dialog.showModal === 'function') dialog.showModal(); else dialog.open = true;
+  }
+  function open() {
+    if (destroyed) return false;
+    if (session && current(session)) { dialog.querySelector('[data-dashboard]').focus(); return true; }
+    let token;
+    try { token = identity(); } catch (_) { return false; }
+    if (!token) return false;
+    returnFocus = host.ownerDocument.activeElement;
+    while (returnFocus?.shadowRoot?.activeElement) returnFocus = returnFocus.shadowRoot.activeElement;
+    const s = {...token,intent:0,dashboards:[],target:undefined,baseline:null,tx:null,view:0,section:0,writing:false,blocked:false,previewReady:false,status:'loading'};
+    session = s; mount(); paint();
+    dialog.querySelector('[data-cancel]').focus();
+    enqueue(async () => {
+      if (!current(s)) return;
+      const intent = s.intent;
+      try {
+        const result = await call(s, intent, 'lovelace/dashboards/list');
+        if (!current(s, intent)) return;
+        if (!Array.isArray(result)) throw Error('invalid_dashboards');
+        const mode = getHass()?.panels?.lovelace?.config?.mode;
+        const list = mode === 'storage' || mode === 'yaml' ? [{url_path:null,title:text('Default dashboard','Domyślny dashboard'),mode}] : [];
+        for (const d of result) if (object(d) && typeof d.url_path === 'string' && pathOK(d.url_path) && !list.some(v=>v.url_path===d.url_path)) {
+          list.push({url_path:d.url_path,title:typeof d.title === 'string' ? d.title : d.url_path,mode:d.mode});
+        }
+        s.dashboards = list; s.status = list.length ? 'select' : 'readonly';
+      } catch (_) { if (current(s, intent)) s.status = 'error'; }
+    });
+    return true;
+  }
+  function close() {
+    const old = session; session = null; queued = null;
+    // In-flight promise cannot be cancelled at HA. The lane remains occupied
+    // until it settles; its continuation cannot render, read or write again.
+    if (old) { if (old.writing && old.tx) cancelledWrite = true; old.intent++; old.baseline = null; old.tx = null; old.card = null; old.dashboards = []; }
+    const node = dialog; dialog = null; node?.remove();
+    if (returnFocus?.isConnected) returnFocus.focus({preventScroll:true});
+    returnFocus = null;
+  }
+  function update() {
+    if (!session || !current(session)) return;
+    const card = dialog.querySelector('[data-preview]')?.firstElementChild;
+    if (card) card.hass = getHass();
+    paint();
+  }
+  function destroy() { close(); destroyed = true; }
+  return {open,close,destroy,update};
+}
+// HA_DASHBOARD_PLACEMENT_V53_END
 // HA_ENERGY_CARD_OPTIONS_V5_START
 // Presentation-only card options. Only UI preferences are stored locally; no pricing, backend writes or requests.
 function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) {
@@ -4882,7 +5199,86 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   const pl = host => String(host._hass?.locale?.language || host._hass?.language || navigator.language || '').startsWith('pl');
   const t = (host, en, polish) => pl(host) ? polish : en;
   const visible = config => config.tabs || tabs;
+  const variant = config => config.variant || (config.compact ? 'legacy' : 'full');
+  const simple = host => ['tile','compact'].includes(variant(host._config || {})) && !host._optionsExpandedV5;
+
+  // Placement uses its own retained raw lane. Unmount closes/purges it but does
+  // not replace the factory while a native save may still be unsettled.
+  const placementFull = host => !simple(host) && !(variant(host._config || {}) === 'legacy' && !host._optionsExpandedV5);
+  const placementGuard = host => host._getTariffHostV3().guard;
+  const placementAllowed = host => {
+    if (!host.isConnected || host.preview === true || !placementFull(host) || host._hass?.user?.is_admin !== true) return false;
+    const guard = placementGuard(host), token = guard.snapshot();
+    return guard.available(token) && guard.current(token,true);
+  };
+  const stopPlacement = host => {
+    host._dashboardPlacementV53?.close();
+    host._dashboardPlacementUnsubscribeV53?.(); delete host._dashboardPlacementUnsubscribeV53;
+    delete host._dashboardPlacementGuardV53;
+    host._dashboardPlacementMountV53?.remove();
+    // Retain this factory and its mount for remount. destroy()+new would lose
+    // occupancy of an unresolved native call; close() already purges snapshots.
+  };
+  const syncPlacement = host => {
+    const root = host.shadowRoot;
+    if (!root) return;
+    if (!placementAllowed(host)) {
+      host._dashboardPlacementV53?.close();
+      host._dashboardPlacementMountV53?.remove();
+      root.querySelector('[data-energy-dashboard-footer]')?.remove();
+      return;
+    }
+    const guard = placementGuard(host);
+    if (host._dashboardPlacementGuardV53 !== guard || !host._dashboardPlacementUnsubscribeV53) {
+      host._dashboardPlacementUnsubscribeV53?.();
+      host._dashboardPlacementGuardV53 = guard;
+      host._dashboardPlacementUnsubscribeV53 = guard.subscribe(() => {
+        // Includes authoritative browser/connection/source edges between hass setters.
+        host._dashboardPlacementV53?.close(); syncPlacement(host);
+      });
+    }
+    const parent = root.querySelector('.card-container,.panel-root,.card') || root;
+    let footer = root.querySelector('[data-energy-dashboard-footer]');
+    if (!footer) {
+      footer = document.createElement('footer'); footer.dataset.energyDashboardFooter = '';
+      const css = document.createElement('style');
+      css.textContent = '[data-energy-dashboard-footer]{margin-block-start:12px;padding:8px 0;display:flex;flex-wrap:wrap;gap:8px}[data-energy-dashboard-footer] button{min-height:44px;min-width:44px;padding:10px 14px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit;font-size:14px;cursor:pointer}[data-energy-dashboard-footer] button:focus-visible{outline:3px solid var(--primary-color);outline-offset:2px}';
+      const button = document.createElement('button'); button.type = 'button'; button.dataset.energyDashboardAdd = '';
+      button.addEventListener('click', () => {
+        if (!placementAllowed(host)) { syncPlacement(host); return; }
+        if (!host._dashboardPlacementMountV53) {
+          host._dashboardPlacementMountV53 = document.createElement('div');
+          host._dashboardPlacementMountV53.dataset.energyDashboardMount = '';
+        }
+        root.append(host._dashboardPlacementMountV53);
+        host._dashboardPlacementV53 ||= createDashboardPlacementV53({
+          host:host._dashboardPlacementMountV53,
+          getHass:() => placementAllowed(host) ? host._hass : null,
+          getCardConfig:() => ({...(host._optionsConfigV5 || {}),type:`custom:${name}`}),
+          cardTypes:[`custom:${name}`],
+          getSourceKey:() => placementGuard(host).snapshot().epoch
+        });
+        host._dashboardPlacementV53.open();
+      });
+      footer.append(css,button); parent.append(footer);
+    }
+    const button = footer.querySelector('[data-energy-dashboard-add]');
+    button.textContent = t(host,'Add to dashboard','Dodaj do dashboardu');
+    // Retain the mount node across ordinary full-DOM redraws. Reattach before
+    // update() so a synchronous redraw does not masquerade as a source teardown.
+    if (host._dashboardPlacementMountV53 && host._dashboardPlacementMountV53.parentNode !== root) root.append(host._dashboardPlacementMountV53);
+    host._dashboardPlacementV53?.update();
+  };
+  Card.prototype._syncDashboardPlacementV53 = function() { syncPlacement(this); };
+
+  // Only the picker stub opts new cards in. Existing YAML is never migrated.
+  Card.getStubConfig = () => ({type: `custom:${name}`, title, variant: 'compact'});
+
   const validate = config => {
+    if (config.variant !== undefined && !['tile','compact','full'].includes(config.variant)) throw new Error('variant: tile / compact / full');
+    if (config.tap_target !== undefined && !['full','energy','more-info'].includes(config.tap_target)) throw new Error('tap_target: full / energy / more-info');
+    if (config.entity !== undefined && config.tap_target === 'more-info' && (typeof config.entity !== 'string' || !/^[a-z_]+\.[a-z0-9_]+$/.test(config.entity))) throw new Error('more-info: choose an entity / wybierz encję');
+
     if (config.tabs !== undefined && (!Array.isArray(config.tabs) || !config.tabs.length || config.tabs.some(id => !tabs.includes(id)) || new Set(config.tabs).size !== config.tabs.length)) throw new Error('tabs: choose at least one known visible tab / wybierz widoczną zakładkę');
     if (config.default_tab !== undefined && !visible(config).includes(config.default_tab)) throw new Error('default_tab must be a visible tab / domyślna zakładka musi być widoczna');
     for (const option of ['compact', 'show_help', 'show_support']) if (config[option] !== undefined && typeof config[option] !== 'boolean') throw new Error(`${option}: expected true or false`);
@@ -4911,20 +5307,28 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const previous = this._optionsConfigV5;
     const changed = previous ? previous.default_tab !== config.default_tab : config.default_tab !== undefined;
     this._optionsConfigV5 = { ...config };
-    if (previous && previous.compact !== config.compact) { this._optionsExpandedV5 = false; this._domBuilt = false; }
+    if (previous && (variant(previous) !== variant(config) || previous.tap_target !== config.tap_target || previous.entity !== config.entity)) {
+      this._optionsExpandedV5 = false; this._domBuilt = false;
+      this._analysisHostV53?.stop();
+    }
     if (this._config) {
       this._config = {...this._config};
-      for (const option of ['default_tab','tabs','compact','show_help','show_support','chart_hours']) if (!(option in config)) delete this._config[option];
+      for (const option of ['default_tab','tabs','compact','variant','tap_target','entity','show_help','show_support','chart_hours']) if (!(option in config)) delete this._config[option];
     }
     if (changed || !visible(config).includes(this[key])) this[key] = config.default_tab || visible(config)[0];
     // Existing integrations own their complete configuration and backend context.
-    const result = originalSet.call(this, config);
-    if (this._hass && name === 'ha-energy-insights') this._render();
-    return result;
+    try {
+      const result = originalSet.call(this, config);
+      if (this._hass && (name === 'ha-energy-insights' || simple(this))) this._render();
+      return result;
+    } finally { this._syncDashboardPlacementV53(); }
   };
-  Card.prototype.getGridOptions = function() { return { columns: this._config?.compact ? 6 : 12, min_columns: 3, min_rows: this._config?.compact ? 2 : 3 }; };
+  Card.prototype.getGridOptions = function() {
+    if (simple(this)) return variant(this._config) === 'tile' ? {columns:6,rows:1,min_columns:6,min_rows:1} : {columns:12,rows:3,min_columns:6,min_rows:2,max_rows:4};
+    return {columns:variant(this._config || {}) === 'legacy' ? 6 : 12,min_columns:3,min_rows:variant(this._config || {}) === 'legacy' ? 2 : 3};
+  };
   const originalSize = Card.prototype.getCardSize;
-  Card.prototype.getCardSize = function() { return this._config?.compact && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
+  Card.prototype.getCardSize = function() { return simple(this) ? (variant(this._config) === 'tile' ? 1 : 3) : variant(this._config || {}) === 'legacy' && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
   const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-value-green:#166534;--energy-value-red:#b91c1c;--energy-value-neutral:#475569;--energy-value-purple:#6d28d9;--energy-success-button:#166534;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
 :host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-value-green:#86efac;--energy-value-red:#fca5a5;--energy-value-neutral:#cbd5e1;--energy-value-purple:#c4b5fd;--energy-success-button:#166534;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
 .stat,.stat-card{background:var(--energy-kpi-tone)!important}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)!important}
@@ -4935,11 +5339,233 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]{flex:1 1 100%;width:100%}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer>summary{min-height:44px;padding:12px 8px;font-size:14px}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]>p{margin:0 0 8px}`;
+  const simpleStyle = `:host{display:block;min-width:0;--energy-simple-cheap:#1baf7a;--energy-simple-expensive:#2a78d6}:host(.bento-dark){--energy-simple-cheap:#199e70;--energy-simple-expensive:#3987e5} [data-energy-simple]{box-sizing:border-box;display:grid;gap:8px;padding:12px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);font-size:14px;min-width:0;overflow-wrap:anywhere} [data-energy-simple] h2,[data-energy-simple] p{margin:0;font-size:14px;line-height:20px} [data-energy-simple] h2{display:flex;align-items:center;gap:8px} [data-energy-simple] ha-icon{color:var(--primary-color);flex-shrink:0} [data-energy-primary]{font-size:24px;line-height:32px;font-weight:600} [data-energy-secondary]{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;line-height:18px} [data-energy-simple] button,[data-energy-back]{min-height:44px;min-width:44px;padding:8px 12px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit;font-size:14px;cursor:pointer} [data-energy-simple] button:focus-visible,[data-energy-back]:focus-visible{outline:3px solid var(--primary-color);outline-offset:2px} [data-energy-simple=tile]{grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;padding:4px 8px;min-height:56px} [data-energy-simple=tile] h2{font-size:14px;min-width:0} [data-energy-simple=tile] [data-energy-name],[data-energy-simple=tile] [data-energy-primary]{overflow:hidden;white-space:nowrap;text-overflow:ellipsis} [data-energy-simple=tile] [data-energy-primary]{font-size:12px;line-height:16px} [data-energy-simple=tile] button{grid-column:2;grid-row:1 / 3} [data-energy-simple=tile] ha-icon{--mdc-icon-size:20px} [data-energy-zone-wrapper] p{font-size:12px;line-height:16px;margin:0 0 4px} [data-energy-zonebar]{position:relative;height:10px;overflow:hidden;border:1px solid var(--divider-color);border-radius:4px;background:var(--disabled-color,var(--secondary-background-color))} [data-energy-zonebar] span{position:absolute;inset-block:0} [data-energy-zone=cheap]{background:var(--energy-simple-cheap)} [data-energy-zone=expensive]{background:var(--energy-simple-expensive)} [data-energy-zone=mixed]{background:var(--info-color,var(--primary-color))} [data-energy-zone=unknown]{background:var(--disabled-color,var(--secondary-background-color))}`;
+  const open = host => {
+    const config = host._config || {};
+    if (config.tap_target === 'energy') {
+      // Fixed HA route only: configuration cannot supply a URL.
+      history.pushState(null, '', '/energy'); window.dispatchEvent(new CustomEvent('location-changed')); return;
+    }
+    if (config.tap_target === 'more-info') {
+      if (host._hass?.states?.[config.entity]) host.dispatchEvent(new CustomEvent('hass-more-info', {detail:{entityId:config.entity},bubbles:true,composed:true}));
+      return;
+    }
+    host._optionsExpandedV5 = true; host._domBuilt = false;
+    if (host._hass && hassDescriptor?.set) hassDescriptor.set.call(host,host._hass);
+    host._render();
+    host.shadowRoot.querySelector('[data-energy-back]')?.focus({preventScroll:true});
+  };
+  // Reuse one real controller across context changes and remounts: disconnect()
+  // clears authority/cache while its occupied raw request survives until settlement.
+  const summaryFor = host => host._simpleSummaryV95 ||= (() => {
+    let identity = null, needsRead = true, scheduled = false;
+    const active = () => host.isConnected && simple(host) && variant(host._config || {}) === 'compact';
+    const context = () => { const h = host._hass; return [h?.connection,h?.user?.id,h?.user?.is_active,h?.user?.is_admin,h?.user?.is_owner,JSON.stringify(h?.user?.groups || []),JSON.stringify(h?.user?.group_ids || []),h?.connected,h?.config?.time_zone,h?.connection?.connected,h?.callWS]; };
+    const same = (a,b) => a && b && a.every((value,index) => value === b[index]);
+    const paint = () => {
+      if (scheduled) return;
+      scheduled = true; queueMicrotask(() => { scheduled = false; if (active()) host._render(); });
+    };
+    const binding = host._getTariffHostV3().summary({onChange:paint,onInvalidate:() => { needsRead = true; paint(); }});
+    const stop = () => { identity = null; needsRead = true; binding.stop(); };
+    const state = () => {
+      const next = context();
+      if (!same(identity,next)) { binding.stop(); identity = next; needsRead = true; }
+      // observe() masks unacknowledged data and immediately revokes stale snapshots.
+      const current = binding.observe();
+      if (active() && needsRead) {
+        needsRead = false;
+        void binding.read({period:'day',comparison:'previous'}).then(paint);
+      }
+      return current;
+    };
+    return {state,stop};
+  })();
+  const tileFor = host => host._simpleTileV95 ||= (() => {
+    const tariff = host._getTariffHostV3();
+    let attemptedEpoch = null, unsubscribe = null, timer = null;
+    const active = () => host.isConnected && simple(host) && variant(host._config || {}) === 'tile';
+    const paint = () => {
+      // Run after the raw guard and tariff load promise both settle.
+      if (timer !== null) return;
+      timer = setTimeout(() => { timer = null; if (active()) host._render(); },0);
+    };
+    const stop = () => { unsubscribe?.(); unsubscribe = null; clearTimeout(timer); timer = null; attemptedEpoch = null; };
+    const state = () => {
+      if (!unsubscribe) unsubscribe = tariff.guard.subscribeWire(paint);
+      const token = tariff.guard.snapshot();
+      if (active() && !Object.hasOwn(host._config || {},'tariff_profile') && tariff.guard.available(token) &&
+          host._sharedTariffReadStatus !== 'success' && attemptedEpoch !== token.epoch && !tariff.guard.occupied()) {
+        attemptedEpoch = token.epoch;
+        // This is the existing bounded shared-tariff read, independent of the
+        // analysis subscription/permission. Never load SMTP or schedule settings.
+        void tariff.load().then(paint);
+      }
+      return tariff.backend.snapshot();
+    };
+    return {state,stop};
+  })();
+  // The backend aligns unfinished current calendar days to the previous local
+  // cutoff. A ready full previous-day total is not proof of this comparison.
+  const elapsedComparison = analysis => {
+    const p = analysis?.period, c = analysis?.comparisons?.previous, b = c?.baseline_periods?.length === 1 ? c.baseline_periods[0] : null;
+    const stamp = value => typeof value === 'string' ? Date.parse(value) : NaN;
+    const day = value => typeof value === 'string' ? value.slice(0,10) : '';
+    const clock = value => typeof value === 'string' ? value.slice(11,19) : '';
+    const ready = row => row?.status === 'ready' && row.reason === null && row.partial === true && row.calendar_clamped === false &&
+      Array.isArray(row.clamps) && row.clamps.length === 0 && row.recorder_hour_aligned === true &&
+      stamp(row.start) === stamp(row.local_start) && stamp(row.end) === stamp(row.local_end) &&
+      stamp(row.calendar_end) === stamp(row.calendar_local_end) && stamp(row.start) < stamp(row.end) && stamp(row.end) < stamp(row.calendar_end) &&
+      clock(row.local_start) === '00:00:00' && day(row.local_start) === day(row.local_end);
+    if (p?.kind !== 'day' || !ready(p) || !ready(b) || p.timezone !== b.timezone || p.timezone !== analysis.context?.measurement_timezone ||
+        c?.status !== 'ready' || c.reason !== null || c.comparison_scope !== 'calendar_totals' ||
+        c.chart?.status !== 'ready' || c.chart.reconciles_comparison_energy !== true ||
+        clock(p.local_end) !== clock(b.local_end) || p.end_fold !== b.end_fold ||
+        ![0,1].includes(p.end_fold) || ![0,1].includes(b.end_fold) ||
+        !((typeof c.percent === 'number' || typeof c.percent === 'string' && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(c.percent)) && Number.isFinite(Number(c.percent)))) return null;
+    const prior = new Date(stamp(day(p.local_start) + 'T00:00:00Z') - 86400000);
+    if (!Number.isFinite(prior.getTime()) || prior.toISOString().slice(0,10) !== day(b.local_start)) return null;
+    try {
+      const parts = new Intl.DateTimeFormat('en',{timeZone:p.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(analysis.generated_at));
+      const fields = Object.fromEntries(parts.map(part => [part.type,part.value]));
+      if (`${fields.year}-${fields.month}-${fields.day}` !== day(p.local_start)) return null;
+    } catch (_) { return null; }
+    return {percent:c.percent,cutoff:p.end};
+  };
+  const paintZoneBar = (bar, analysis, host, format) => {
+    if (!bar) return;
+    bar.replaceChildren();
+    const unknown = t(host,'Unknown','Brak danych');
+    const names = {cheap:t(host,'Cheap','Tania'),expensive:t(host,'Expensive','Droga'),mixed:t(host,'Mixed','Mieszana')};
+    const p = analysis?.period, chart = analysis?.chart, window = analysis?.period_summary?.window;
+    const start = Date.parse(p?.start), end = Date.parse(p?.calendar_end), observed = Date.parse(p?.end);
+    const rows = chart?.bins;
+    const note = t(host,'Tariff zones for the calendar day; unconfirmed intervals are neutral.','Strefy taryfy w dniu kalendarzowym; niepotwierdzone odcinki są neutralne.');
+    const descriptions = [];
+    bar.setAttribute('aria-label',`${note} ${unknown}`);
+    // Position/width are time geometry only. Never sum bins, quantities or costs.
+    if (p?.kind !== 'day' || !Number.isFinite(start) || !Number.isFinite(end) || end <= start || end-start > 48*3600000 ||
+        !Number.isFinite(observed) || observed > end || window?.start !== p.start || window?.end !== p.end || window?.timezone !== p.timezone ||
+        chart?.timezone !== p.timezone || chart?.status !== 'ready' || chart.coverage_kind !== 'complete_household_hours' || chart.fixed_fee_scope !== 'household_period_only' ||
+        !Array.isArray(rows) || rows.length > 48) return;
+    let last = start;
+    for (const row of rows) {
+      if (!Number.isFinite(row.from) || !Number.isFinite(row.to) || row.to <= row.from || row.from < last || row.from < start || row.to > observed ||
+          Date.parse(row.start) !== row.from || Date.parse(row.end) !== row.to) { bar.replaceChildren(); bar.setAttribute('aria-label',`${note} ${unknown}`); return; }
+      last = row.to;
+      const z = row.zone_breakdown, zone = z?.zones?.length === 1 ? z.zones[0] : null;
+      const rates = (analysis.rates || []).filter(rate => rate.version_id === zone?.version_id);
+      const definitions = rates.length === 1 ? (rates[0].profile?.zones || []).filter(item => item.id === zone?.zone_id) : [];
+      const classification = definitions.length === 1 ? definitions[0].classification : null;
+      const proven = row.complete === true && row.expected_seconds === (row.to-row.from)/1000 && row.measured_seconds === row.expected_seconds &&
+        row.currency === analysis.totals?.currency && row.price_basis === analysis.totals?.price_basis && row.kwh !== null && row.kwh !== undefined &&
+        z?.status === 'ready' && z.reason === null && z.scope === 'complete_household_hours' && z.fixed_fee_scope === 'household_period_only' &&
+        z.reconciles_recorded_kwh === true && z.reconciles_known_costs === true && zone?.complete === true && zone.measured_seconds === row.measured_seconds &&
+        z.currency === row.currency && z.price_basis === row.price_basis && String(zone.kwh) === String(row.kwh) && String(row.recorded_kwh) === String(row.kwh) &&
+        String(zone.recorded_kwh) === String(row.kwh) && Object.hasOwn(names,classification);
+      const label = proven ? names[classification] : unknown;
+      const description = `${format.pointLabel(row.start)}–${format.pointLabel(row.end)}: ${label}`;
+      const segment = document.createElement('span');
+      segment.dataset.energyZone = proven ? classification : 'unknown';
+      segment.style.left = `${100*(row.from-start)/(end-start)}%`;
+      segment.style.width = `${100*(row.to-row.from)/(end-start)}%`;
+      segment.title = description; segment.setAttribute('aria-hidden','true');
+      bar.append(segment); descriptions.push(description);
+    }
+    bar.setAttribute('aria-label',[note,...descriptions,observed < end ? t(host,'Remaining time: Unknown','Pozostały czas: brak danych') : ''].filter(Boolean).join(' '));
+  };
+  const renderSimple = host => {
+    const root = host.shadowRoot, config = host._config || {}, mode = variant(config);
+    const unknown = t(host,'Unknown','Brak danych'), email = name === 'ha-energy-email';
+    const summary = !email && mode === 'compact' ? summaryFor(host).state() : null;
+    const analysis = summary?.status === 'ready' ? summary.snapshot : null;
+    const snapshot = !email && mode === 'tile' ? tileFor(host).state() : null;
+    const format = createFormatUi.forHass(host._hass);
+    const numeric = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '') && Number.isFinite(Number(value));
+    const total = analysis?.totals, elapsed = elapsedComparison(analysis);
+    const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${format.number(total.kwh,{maximumFractionDigits:2})} kWh` : unknown;
+    const money = total?.pricing_complete === true && numeric(total.usage_cost) && /^[A-Z]{3}$/.test(total.currency || '')
+      ? `${format.number(total.usage_cost,{minimumFractionDigits:2,maximumFractionDigits:2})} ${total.currency}` : unknown;
+    const difference = elapsed ? `${format.number(elapsed.percent,{maximumFractionDigits:1,signDisplay:'exceptZero'})}%` : unknown;
+    const comparisonName = elapsed ? `${t(host,'vs yesterday through','vs wczoraj do')} ${format.clock(elapsed.cutoff)}` : t(host,'Yesterday at same hour','Wczoraj o tej samej godzinie');
+    const zones = {cheap:t(host,'Cheap','Tania'),expensive:t(host,'Expensive','Droga'),mixed:t(host,'Mixed','Mieszana')};
+    const zone = snapshot?.status !== 'unavailable' && snapshot?.current?.available === true ? zones[snapshot.current.zone_class] || unknown : unknown;
+    const next = snapshot?.status !== 'unavailable' ? snapshot?.next_cheap : null;
+    const nextLabel = next?.status === 'known' && typeof next.start === 'string' && Number.isFinite(Date.parse(next.start))
+      ? format.pointLabel(next.start) || unknown : next?.status === 'not_found_in_horizon' ? t(host,'None in next 8 days','Brak w kolejnych 8 dniach') : unknown;
+    let section = root.querySelector(`[data-energy-simple="${mode}"]`);
+    if (!section) {
+      host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
+      host._featureAccessV53?.stop(); host._reportHostV53?.stop();
+      host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
+      root.innerHTML = `<style>${simpleStyle}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}<button type="button" data-energy-open></button></section>`;
+      section = root.querySelector('[data-energy-simple]');
+      section.querySelector('button').addEventListener('click', () => open(host));
+      section.querySelector('button').addEventListener('keydown', event => {
+        if (['Enter',' '].includes(event.key) && !event.repeat) { event.preventDefault(); event.currentTarget.click(); }
+      });
+    }
+    const icon = section.querySelector('ha-icon');
+    icon.setAttribute('icon', email ? 'mdi:email-outline' : 'mdi:lightning-bolt');
+    const tone = snapshot?.status !== 'unavailable' && snapshot?.current?.available === true ? snapshot.current.zone_class : null;
+    icon.style.color = {cheap:'var(--energy-simple-cheap)',expensive:'var(--energy-simple-expensive)',mixed:'var(--warning-color,var(--primary-color))'}[tone] || 'var(--primary-color)';
+    section.querySelector('[data-energy-name]').textContent = config.title ?? title;
+    section.querySelector('[data-energy-name]').title = config.title ?? title;
+    section.querySelector('[data-energy-primary]').textContent = email ? unknown : mode === 'tile' ? `${zone} · ${nextLabel}` : energy;
+    if (mode === 'compact') {
+      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Next report','Następny raport') : t(host,'Energy today','Energia dziś');
+      section.querySelector('[data-energy-cost]').textContent = email ? t(host,'Last report: Unknown','Ostatni raport: brak danych') : `${t(host,'Usage cost','Koszt zużycia')}: ${money}`;
+      section.querySelector('[data-energy-comparison]').textContent = email ? t(host,'Result: Unknown','Wynik: brak danych') : `${comparisonName}: ${difference}`;
+      const caption = section.querySelector('[data-energy-zone-caption]');
+      if (caption) caption.textContent = t(host,'Day tariff zones','Strefy taryfy w ciągu dnia');
+      paintZoneBar(section.querySelector('[data-energy-zonebar]'),analysis,host,format);
+    }
+    const button = section.querySelector('button');
+    button.textContent = t(host,'Open','Otwórz');
+    button.setAttribute('aria-label', `${t(host,'Open','Otwórz')} ${config.title ?? title}`);
+    button.disabled = config.tap_target === 'more-info' && !host._hass?.states?.[config.entity];
+  };
+  // Simple surfaces do not run the full cards' discovery/config/schedule paths.
+  const hassDescriptor = Object.getOwnPropertyDescriptor(Card.prototype,'hass');
+  if (hassDescriptor?.set) Object.defineProperty(Card.prototype,'hass',{...hassDescriptor,set(value) {
+    try {
+      // A real inert preview renders the actual card but does not start the
+      // full surface's legacy discovery of SMTP, settings or schedules.
+      if (!simple(this) && this.preview !== true) return hassDescriptor.set.call(this,value);
+      this._hass = value;
+      if (this.preview === true) this._lang = pl(this) ? 'pl' : 'en';
+      this.classList.toggle('bento-dark',value?.themes?.darkMode === true);
+      this._tariffHostController?.guard.observe();
+      this._render();
+    } finally { this._syncDashboardPlacementV53(); }
+  }});
+  const connected = Card.prototype.connectedCallback;
+  Card.prototype.connectedCallback = function() {
+    try {
+      if (!simple(this) && this.preview !== true) return connected?.call(this);
+      this._tariffHostController?.guard.resume(); this._render();
+    } finally { this._syncDashboardPlacementV53(); }
+  };
+  for (const method of ['_repriceTariffV3','_syncAnalysisV53']) {
+    const original = Card.prototype[method]; if (!original) continue;
+    Card.prototype[method] = function(...args) { if (simple(this)) return this._render(); return original.apply(this,args); };
+  }
   const render = Card.prototype._render;
   Card.prototype._render = function(...args) {
+    try {
+    // Preserve native showModal top-layer/focus state through ordinary source
+    // updates. A source/role/config edge makes update() close it, then rendering resumes.
+    const placementMount = this._dashboardPlacementMountV53;
+    if (placementMount?.isConnected && placementMount.querySelector('dialog[open]')) {
+      this._dashboardPlacementV53.update();
+      if (placementMount.querySelector('dialog[open]')) return;
+    }
     const config = this._config || {};
+    if (!simple(this) || variant(config) !== 'compact') this._simpleSummaryV95?.stop();
+    if (!simple(this) || variant(config) !== 'tile') this._simpleTileV95?.stop();
     if (!visible(config).includes(this[key])) this[key] = config.default_tab || visible(config)[0];
-    if (config.compact && !this._optionsExpandedV5) {
+    if (simple(this)) { renderSimple(this); return; }
+    if (variant(config) === 'legacy' && !this._optionsExpandedV5) {
       this._getTariffHostV3?.().backend?.snapshot();
       const snapshot = this._energySnapshotV5;
       const format = createFormatUi.forHass(this._hass);
@@ -4967,12 +5593,27 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       compact.querySelector('button').textContent = t(this, 'Open full view', 'Otwórz pełny widok');
       return;
     }
+    const restoreBack = this.shadowRoot.activeElement?.matches('[data-energy-back]');
     const result = render.apply(this, args);
     this._applyCardOptionsV5();
+    if (restoreBack) this.shadowRoot.querySelector('[data-energy-back]')?.focus({preventScroll:true});
     return result;
+    } finally { this._syncDashboardPlacementV53(); }
   };
   Card.prototype._applyCardOptionsV5 = function() {
+    this._syncDashboardPlacementV53();
+    if (simple(this)) return;
     const root = this.shadowRoot, config = this._config || {}, allowed = visible(config);
+    if (this._optionsExpandedV5 && ['tile','compact'].includes(variant(config)) && !root.querySelector('[data-energy-back]')) {
+      const css = document.createElement('style'); css.textContent = simpleStyle; root.append(css);
+      const back = document.createElement('button'); back.type = 'button'; back.dataset.energyBack = '';
+      back.textContent = t(this,'Back to summary','Wróć do podsumowania');
+      back.addEventListener('click', () => { this._optionsExpandedV5 = false; this._domBuilt = false; this._render(); root.querySelector('[data-energy-open]')?.focus({preventScroll:true}); });
+      root.prepend(back);
+    }
+    const back = root.querySelector('[data-energy-back]');
+    if (back) back.textContent = t(this,'Back to summary','Wróć do podsumowania');
+
     const heading = root.querySelector('[data-energy-card-title]'); if (heading) heading.textContent = config.title ?? title;
     for (const button of root.querySelectorAll('.tabs [data-tab]')) { button.hidden = !allowed.includes(button.dataset.tab); button.style.display = button.hidden ? 'none' : ''; }
     for (const option of root.querySelectorAll('.energy-tab-picker option, #email-tab-select option')) { option.hidden = !allowed.includes(option.value); option.disabled = option.hidden; }
@@ -5067,10 +5708,10 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   }
   for (const method of ['_updateContent','_renderTab','_renderCurrentTab']) {
     const original = Card.prototype[method]; if (!original) continue;
-    Card.prototype[method] = function(...args) { const value = original.apply(this,args); this._applyCardOptionsV5(); return value; };
+    Card.prototype[method] = function(...args) { if (simple(this)) return this._render(); const value = original.apply(this,args); this._applyCardOptionsV5(); return value; };
   }
   const disconnect = Card.prototype.disconnectedCallback;
-  Card.prototype.disconnectedCallback = function() { this._optionsResizeV5?.disconnect(); return disconnect?.call(this); };
+  Card.prototype.disconnectedCallback = function() { stopPlacement(this); this._simpleSummaryV95?.stop(); this._simpleTileV95?.stop(); this._optionsResizeV5?.disconnect(); return disconnect?.call(this); };
   // Reuse existing editor text fields and their focus/caret-preserving synchronization.
   const editorRender = Editor.prototype._render;
   Editor.prototype._render = function(...args) { editorRender.apply(this,args); this._renderOptionsV5(); };
@@ -5079,14 +5720,15 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     let fields = root.querySelector('[data-energy-option-fields]');
     if (!fields) {
       fields = document.createElement('div'); fields.dataset.energyOptionFields = '';
-      fields.innerHTML = `<style>label[data-option-row]{display:flex;align-items:center;gap:8px;min-height:44px}select,input[type=number]{min-height:44px;box-sizing:border-box;width:100%;font:inherit;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#888);border-radius:8px;padding:8px}fieldset{margin:12px 0;border:1px solid var(--divider-color,#888)}[data-option-row] input{width:24px;height:24px;min-height:24px;margin:0}select:focus-visible,input:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}[data-config-error]{color:var(--energy-value-red,#b91c1c)}</style><label data-option-label="default_tab" for="cf_default_tab"></label><select id="cf_default_tab" data-config="default_tab">${tabs.map(id=>`<option value="${id}"></option>`).join('')}</select><fieldset><legend data-option-label="tabs"></legend>${tabs.map(id=>`<label data-option-row><input type="checkbox" data-tab-option="${id}"><span data-tab-label="${id}"></span></label>`).join('')}</fieldset>${['compact','show_help','show_support'].map(id=>`<label data-option-row><input type="checkbox" data-config="${id}"><span data-option-label="${id}"></span></label>`).join('')}<label data-option-label="chart_hours" for="cf_chart_hours"></label><input id="cf_chart_hours" type="number" min="1" max="744" step="1" data-config="chart_hours"><p data-config-error role="alert"></p>`;
+      fields.innerHTML = `<style>label[data-option-row]{display:flex;align-items:center;gap:8px;min-height:44px}select,input[type=number],input[type=search]{min-height:44px;box-sizing:border-box;width:100%;font:inherit;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#888);border-radius:8px;padding:8px}fieldset{margin:12px 0;border:1px solid var(--divider-color,#888)}[data-option-row] input{width:24px;height:24px;min-height:24px;margin:0}select:focus-visible,input:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}[data-config-error]{color:var(--energy-value-red,#b91c1c)}</style><label data-option-label="variant" for="cf_variant"></label><select id="cf_variant" data-config="variant"><option value="" data-variant-label="legacy"></option><option value="tile" data-variant-label="tile"></option><option value="compact" data-variant-label="compact"></option><option value="full" data-variant-label="full"></option></select><label data-option-label="tap_target" for="cf_tap_target"></label><select id="cf_tap_target" data-config="tap_target"><option value="full" data-target-label="full"></option><option value="energy" data-target-label="energy"></option><option value="more-info" data-target-label="more-info"></option></select><div data-entity-chooser><label data-option-label="entity_search" for="cf_entity_search"></label><input id="cf_entity_search" type="search" data-entity-search><label data-option-label="entity" for="cf_entity"></label><select id="cf_entity" data-config="entity"></select><p data-entity-hint></p></div><label data-option-label="default_tab" for="cf_default_tab"></label><select id="cf_default_tab" data-config="default_tab">${tabs.map(id=>`<option value="${id}"></option>`).join('')}</select><fieldset><legend data-option-label="tabs"></legend>${tabs.map(id=>`<label data-option-row><input type="checkbox" data-tab-option="${id}"><span data-tab-label="${id}"></span></label>`).join('')}</fieldset>${['compact','show_help','show_support'].map(id=>`<label data-option-row><input type="checkbox" data-config="${id}"><span data-option-label="${id}"></span></label>`).join('')}<label data-option-label="chart_hours" for="cf_chart_hours"></label><input id="cf_chart_hours" type="number" min="1" max="744" step="1" data-config="chart_hours"><p data-config-error role="alert"></p>`;
       root.append(fields);
+      fields.addEventListener('input', event => { if (event.target.matches('[data-entity-search]')) this._renderOptionsV5(); });
       fields.addEventListener('change', event => {
         const field = event.target;
         if (!field.matches('[data-config],[data-tab-option]')) return;
         const candidate = {...this._config};
         if (field.dataset.tabOption) candidate.tabs = [...fields.querySelectorAll('[data-tab-option]:checked')].map(node=>node.dataset.tabOption);
-        else { const option = field.dataset.config; if (option === 'chart_hours' && field.value === '') delete candidate[option]; else candidate[option] = field.type === 'checkbox' ? field.checked : option === 'chart_hours' ? Number(field.value) : field.value; }
+        else { const option = field.dataset.config; if (['chart_hours','variant','entity'].includes(option) && field.value === '') delete candidate[option]; else candidate[option] = field.type === 'checkbox' ? field.checked : option === 'chart_hours' ? Number(field.value) : field.value; }
         // An implicit default is the first visible tab; explicit defaults must remain visible.
         try { validate(candidate); if (field.dataset.tabOption && !candidate.tabs.includes(candidate.default_tab || tabs[0])) throw new Error(t(this,'The default tab must remain visible.','Domyślna zakładka musi być widoczna.')); }
         catch(error) { fields.querySelector('[data-config-error]').textContent = error.message; this._renderOptionsV5(); return; }
@@ -5095,10 +5737,31 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
         this.dispatchEvent(new CustomEvent('config-changed',{detail:{config:{...candidate}},bubbles:true,composed:true}));
       });
     }
-    const names = {default_tab:t(this,'Default tab','Domyślna zakładka'),tabs:t(this,'Visible tabs','Widoczne zakładki'),compact:t(this,'Compact view','Widok kompaktowy'),show_help:t(this,'Show help','Pokaż pomoc'),show_support:t(this,'Show project support','Pokaż wsparcie projektu'),chart_hours:t(this,'Hourly chart range (1–744 hours; empty = full range)','Zakres wykresów godzinowych (1–744 godz.; puste = cały zakres)')};
+    const names = {entity:t(this,'Existing entity for details','Istniejąca encja do szczegółów'),entity_search:t(this,'Find entity','Znajdź encję'),variant:t(this,'Variant','Wariant'),tap_target:t(this,'Open destination','Cel otwarcia'),default_tab:t(this,'Default tab','Domyślna zakładka'),tabs:t(this,'Visible tabs','Widoczne zakładki'),compact:t(this,'Compact view','Widok kompaktowy'),show_help:t(this,'Show help','Pokaż pomoc'),show_support:t(this,'Show project support','Pokaż wsparcie projektu'),chart_hours:t(this,'Hourly chart range (1–744 hours; empty = full range)','Zakres wykresów godzinowych (1–744 godz.; puste = cały zakres)')};
+    const variants = {legacy:t(this,'Existing configuration (unchanged)','Istniejąca konfiguracja (bez zmian)'),tile:t(this,'Tile','Kafelek'),compact:t(this,'Compact','Kompaktowy'),full:t(this,'Full','Pełny')};
+    fields.querySelectorAll('[data-variant-label]').forEach(node => node.textContent = variants[node.dataset.variantLabel]);
+    const targets = {full:t(this,'Full card','Pełna karta'),energy:t(this,'Home Assistant Energy','Energia Home Assistant'),'more-info':t(this,'Entity details (existing entity required)','Szczegóły encji (wymagana istniejąca encja)')};
+    fields.querySelectorAll('[data-target-label]').forEach(node => node.textContent = targets[node.dataset.targetLabel]);
     fields.querySelectorAll('[data-option-label]').forEach(node=>node.textContent=names[node.dataset.optionLabel]);
+    // Native select: at most 200 matching existing entities, plus the selected
+    // existing entity. Search finds any ID/name without rendering thousands of rows.
+    const states = this._hass?.states || {}, search = fields.querySelector('[data-entity-search]');
+    const query = search.value.trim().toLocaleLowerCase();
+    const ids = Object.keys(states).filter(id => /^[a-z_]+\.[a-z0-9_]+$/.test(id));
+    const matches = ids.filter(id => `${id} ${states[id]?.attributes?.friendly_name || ''}`.toLocaleLowerCase().includes(query)).sort().slice(0,200);
+    if (states[this._config.entity] && !matches.includes(this._config.entity)) matches.unshift(this._config.entity);
+    const select = fields.querySelector('[data-config="entity"]');
+    const options = [[ '', t(this,'Choose an existing entity','Wybierz istniejącą encję') ],...matches.map(id => [id,`${states[id]?.attributes?.friendly_name || id} (${id})`])];
+    const signature = JSON.stringify(options);
+    if (select.dataset.optionsSignature !== signature) {
+      select.replaceChildren(...options.map(([value,label]) => { const node = document.createElement('option'); node.value = value; node.textContent = label; return node; }));
+      select.dataset.optionsSignature = signature;
+    }
+    select.value = states[this._config.entity] ? this._config.entity : '';
+    fields.querySelector('[data-entity-hint]').textContent = t(this,'Choose an existing entity to enable Entity details. Search shows up to 200 matches.','Wybierz istniejącą encję, aby włączyć jej szczegóły. Wyszukiwanie pokazuje do 200 wyników.');
+
     tabs.forEach((id,index)=>{const label=labels[pl(this)?1:0][index];fields.querySelector(`[data-tab-label="${id}"]`).textContent=label;const option=fields.querySelector(`option[value="${id}"]`);option.textContent=label;option.disabled=!visible(this._config).includes(id);fields.querySelector(`[data-tab-option="${id}"]`).checked=visible(this._config).includes(id);});
-    for(const field of fields.querySelectorAll('[data-config]')) {const option=field.dataset.config;field.setAttribute('aria-label',names[option]);if(field.type==='checkbox')field.checked=option==='compact'?this._config[option]===true:this._config[option]!==false;else if(root.activeElement!==field)field.value=this._config[option]??(option==='default_tab'?visible(this._config)[0]:'');}
+    for(const field of fields.querySelectorAll('[data-config]')) {const option=field.dataset.config;field.setAttribute('aria-label',names[option]);if(option==='compact')field.disabled=!!this._config.variant;if(field.type==='checkbox')field.checked=option==='compact'?this._config[option]===true:this._config[option]!==false;else if(option!=='entity'&&root.activeElement!==field)field.value=this._config[option]??(option==='default_tab'?visible(this._config)[0]:option==='tap_target'?'full':'');}
   };
 }
 // HA_ENERGY_CARD_OPTIONS_V5_END
