@@ -117,6 +117,8 @@ In a compact Energy Email card, **Send now** opens the existing Send form. Revie
 
 An administrator can open the full card and choose **Cost statistics** in its footer. Review the listed sources, currency and gross/net basis, then explicitly enable sharing. Automatic updates add completed hourly usage costs; the dialog shows when updates are paused and need the sources or permissions checked before enabling again. An optional **Add 7 days with current membership** action fills the last 168 completed hours using the current room assignments, rather than reconstructing past assignments.
 
+Late meter readings are retried for their original hour, including across a restart. If an import remains unconfirmed after a source or permissions change, choose **Disable**, then **Read status**, review the new dataset and enable it explicitly. Disable keeps the old history and stops its retries; already queued work may still finish. The dialog shows unconfirmed historical imports separately. A new consent after Disable uses separate series and never confirms or retries the old import.
+
 These native Recorder statistics can be read by **all signed-in Home Assistant users**. Disabling sharing stops future writes; it leaves existing statistics and exported copies available. The feature is off until enabled. It does not enable notifications or send email. For a native seven-day chart, add Home Assistant's **Statistics graph** card, select the published cost series by their catalog names, choose hourly changes and seven days, and keep different currencies separate. Do not add a household zone total to its room breakdown: they describe the same cost from different views.
 
 ### Enable the five Energy entities
