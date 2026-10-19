@@ -4,7 +4,16 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   const pl = host => String(host._hass?.locale?.language || host._hass?.language || navigator.language || '').startsWith('pl');
   const t = (host, en, polish) => pl(host) ? polish : en;
   const visible = config => config.tabs || tabs;
+  const variant = config => config.variant || (config.compact ? 'legacy' : 'full');
+  const simple = host => ['tile','compact'].includes(variant(host._config || {})) && !host._optionsExpandedV5;
+  // Only the picker stub opts new cards in. Existing YAML is never migrated.
+  Card.getStubConfig = () => ({type: `custom:${name}`, title, variant: 'compact'});
+
   const validate = config => {
+    if (config.variant !== undefined && !['tile','compact','full'].includes(config.variant)) throw new Error('variant: tile / compact / full');
+    if (config.tap_target !== undefined && !['full','energy','more-info'].includes(config.tap_target)) throw new Error('tap_target: full / energy / more-info');
+    if (config.entity !== undefined && config.tap_target === 'more-info' && (typeof config.entity !== 'string' || !/^[a-z_]+\.[a-z0-9_]+$/.test(config.entity))) throw new Error('more-info: choose an entity / wybierz encję');
+
     if (config.tabs !== undefined && (!Array.isArray(config.tabs) || !config.tabs.length || config.tabs.some(id => !tabs.includes(id)) || new Set(config.tabs).size !== config.tabs.length)) throw new Error('tabs: choose at least one known visible tab / wybierz widoczną zakładkę');
     if (config.default_tab !== undefined && !visible(config).includes(config.default_tab)) throw new Error('default_tab must be a visible tab / domyślna zakładka musi być widoczna');
     for (const option of ['compact', 'show_help', 'show_support']) if (config[option] !== undefined && typeof config[option] !== 'boolean') throw new Error(`${option}: expected true or false`);
@@ -33,20 +42,26 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const previous = this._optionsConfigV5;
     const changed = previous ? previous.default_tab !== config.default_tab : config.default_tab !== undefined;
     this._optionsConfigV5 = { ...config };
-    if (previous && previous.compact !== config.compact) { this._optionsExpandedV5 = false; this._domBuilt = false; }
+    if (previous && (variant(previous) !== variant(config) || previous.tap_target !== config.tap_target || previous.entity !== config.entity)) {
+      this._optionsExpandedV5 = false; this._domBuilt = false;
+      this._analysisHostV53?.stop();
+    }
     if (this._config) {
       this._config = {...this._config};
-      for (const option of ['default_tab','tabs','compact','show_help','show_support','chart_hours']) if (!(option in config)) delete this._config[option];
+      for (const option of ['default_tab','tabs','compact','variant','tap_target','entity','show_help','show_support','chart_hours']) if (!(option in config)) delete this._config[option];
     }
     if (changed || !visible(config).includes(this[key])) this[key] = config.default_tab || visible(config)[0];
     // Existing integrations own their complete configuration and backend context.
     const result = originalSet.call(this, config);
-    if (this._hass && name === 'ha-energy-insights') this._render();
+    if (this._hass && (name === 'ha-energy-insights' || simple(this))) this._render();
     return result;
   };
-  Card.prototype.getGridOptions = function() { return { columns: this._config?.compact ? 6 : 12, min_columns: 3, min_rows: this._config?.compact ? 2 : 3 }; };
+  Card.prototype.getGridOptions = function() {
+    if (simple(this)) return variant(this._config) === 'tile' ? {columns:6,rows:1,min_columns:6,min_rows:1} : {columns:12,rows:3,min_columns:6,min_rows:2,max_rows:4};
+    return {columns:variant(this._config || {}) === 'legacy' ? 6 : 12,min_columns:3,min_rows:variant(this._config || {}) === 'legacy' ? 2 : 3};
+  };
   const originalSize = Card.prototype.getCardSize;
-  Card.prototype.getCardSize = function() { return this._config?.compact && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
+  Card.prototype.getCardSize = function() { return simple(this) ? (variant(this._config) === 'tile' ? 1 : 3) : variant(this._config || {}) === 'legacy' && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
   const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-value-green:#166534;--energy-value-red:#b91c1c;--energy-value-neutral:#475569;--energy-value-purple:#6d28d9;--energy-success-button:#166534;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
 :host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-value-green:#86efac;--energy-value-red:#fca5a5;--energy-value-neutral:#cbd5e1;--energy-value-purple:#c4b5fd;--energy-success-button:#166534;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
 .stat,.stat-card{background:var(--energy-kpi-tone)!important}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)!important}
@@ -57,11 +72,149 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]{flex:1 1 100%;width:100%}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer>summary{min-height:44px;padding:12px 8px;font-size:14px}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]>p{margin:0 0 8px}`;
+  const simpleStyle = `:host{display:block;min-width:0} [data-energy-simple]{box-sizing:border-box;display:grid;gap:8px;padding:12px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);font-size:14px;min-width:0;overflow-wrap:anywhere} [data-energy-simple] h2,[data-energy-simple] p{margin:0;font-size:14px;line-height:20px} [data-energy-simple] h2{display:flex;align-items:center;gap:8px} [data-energy-simple] ha-icon{color:var(--primary-color);flex-shrink:0} [data-energy-primary]{font-size:24px;line-height:32px;font-weight:600} [data-energy-secondary]{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;line-height:18px} [data-energy-simple] button,[data-energy-back]{min-height:44px;min-width:44px;padding:8px 12px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit;font-size:14px;cursor:pointer} [data-energy-simple] button:focus-visible,[data-energy-back]:focus-visible{outline:3px solid var(--primary-color);outline-offset:2px} [data-energy-simple=tile]{grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;padding:4px 8px;min-height:56px} [data-energy-simple=tile] h2{font-size:14px;min-width:0} [data-energy-simple=tile] [data-energy-name],[data-energy-simple=tile] [data-energy-primary]{overflow:hidden;white-space:nowrap;text-overflow:ellipsis} [data-energy-simple=tile] [data-energy-primary]{font-size:12px;line-height:16px} [data-energy-simple=tile] button{grid-column:2;grid-row:1 / 3} [data-energy-simple=tile] ha-icon{--mdc-icon-size:20px}`;
+  const open = host => {
+    const config = host._config || {};
+    if (config.tap_target === 'energy') {
+      // Fixed HA route only: configuration cannot supply a URL.
+      history.pushState(null, '', '/energy'); window.dispatchEvent(new CustomEvent('location-changed')); return;
+    }
+    if (config.tap_target === 'more-info') {
+      if (host._hass?.states?.[config.entity]) host.dispatchEvent(new CustomEvent('hass-more-info', {detail:{entityId:config.entity},bubbles:true,composed:true}));
+      return;
+    }
+    host._optionsExpandedV5 = true; host._domBuilt = false;
+    if (host._hass && hassDescriptor?.set) hassDescriptor.set.call(host,host._hass);
+    host._render();
+    host.shadowRoot.querySelector('[data-energy-back]')?.focus({preventScroll:true});
+  };
+  // Reuse one real controller across context changes and remounts: disconnect()
+  // clears authority/cache while its occupied raw request survives until settlement.
+  const summaryFor = host => host._simpleSummaryV95 ||= (() => {
+    let identity = null, needsRead = true, scheduled = false;
+    const active = () => host.isConnected && simple(host) && variant(host._config || {}) === 'compact';
+    const context = () => { const h = host._hass; return [h?.connection,h?.user?.id,h?.user?.is_active,h?.user?.is_admin,h?.user?.is_owner,JSON.stringify(h?.user?.groups || []),JSON.stringify(h?.user?.group_ids || []),h?.connected,h?.config?.time_zone,h?.connection?.connected,h?.callWS]; };
+    const same = (a,b) => a && b && a.every((value,index) => value === b[index]);
+    const paint = () => {
+      if (scheduled) return;
+      scheduled = true; queueMicrotask(() => { scheduled = false; if (active()) host._render(); });
+    };
+    const controller = createEnergyAnalysisV53({card:host,onChange:paint});
+    const binding = createEnergyAnalysisBindingV53({card:host,controller,onInvalidate:() => { needsRead = true; paint(); }});
+    const stop = () => { identity = null; needsRead = true; binding.stop(); };
+    const state = () => {
+      const next = context();
+      if (!same(identity,next)) { binding.stop(); identity = next; needsRead = true; }
+      // observe() masks unacknowledged data and immediately revokes stale snapshots.
+      const current = binding.observe();
+      if (active() && needsRead) {
+        needsRead = false;
+        void binding.read({period:'day',comparison:'previous'}).then(paint);
+      }
+      return current;
+    };
+    return {state,stop};
+  })();
+  const tileFor = host => host._simpleTileV95 ||= (() => {
+    const tariff = host._getTariffHostV3();
+    let attemptedEpoch = null, unsubscribe = null, timer = null;
+    const active = () => host.isConnected && simple(host) && variant(host._config || {}) === 'tile';
+    const paint = () => {
+      // Run after the raw guard and tariff load promise both settle.
+      if (timer !== null) return;
+      timer = setTimeout(() => { timer = null; if (active()) host._render(); },0);
+    };
+    const stop = () => { unsubscribe?.(); unsubscribe = null; clearTimeout(timer); timer = null; attemptedEpoch = null; };
+    const state = () => {
+      if (!unsubscribe) unsubscribe = tariff.guard.subscribeWire(paint);
+      const token = tariff.guard.snapshot();
+      if (active() && !Object.hasOwn(host._config || {},'tariff_profile') && tariff.guard.available(token) &&
+          host._sharedTariffReadStatus !== 'success' && attemptedEpoch !== token.epoch && !tariff.guard.occupied()) {
+        attemptedEpoch = token.epoch;
+        // This is the existing bounded shared-tariff read, independent of the
+        // analysis subscription/permission. Never load SMTP or schedule settings.
+        void tariff.load().then(paint);
+      }
+      return tariff.backend.snapshot();
+    };
+    return {state,stop};
+  })();
+  const renderSimple = host => {
+    const root = host.shadowRoot, config = host._config || {}, mode = variant(config);
+    const unknown = t(host,'Unknown','Brak danych'), email = name === 'ha-energy-email';
+    const summary = !email && mode === 'compact' ? summaryFor(host).state() : null;
+    const analysis = summary?.status === 'ready' ? summary.snapshot : null;
+    const snapshot = !email && mode === 'tile' ? tileFor(host).state() : null;
+    const format = createFormatUi.forHass(host._hass);
+    const numeric = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '') && Number.isFinite(Number(value));
+    const total = analysis?.totals, comparison = analysis?.comparisons?.previous;
+    const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${format.number(total.kwh,{maximumFractionDigits:2})} kWh` : unknown;
+    const money = total?.pricing_complete === true && numeric(total.usage_cost) && /^[A-Z]{3}$/.test(total.currency || '')
+      ? `${format.number(total.usage_cost,{minimumFractionDigits:2,maximumFractionDigits:2})} ${total.currency}` : unknown;
+    const difference = comparison?.status === 'ready' && numeric(comparison.percent)
+      ? `${format.number(comparison.percent,{maximumFractionDigits:1,signDisplay:'exceptZero'})}%` : unknown;
+    const comparisonName = comparison?.comparison_scope === 'common_measurements'
+      ? t(host,'Shared measurements vs previous day','Wspólne pomiary vs poprzedni dzień') : t(host,'vs previous day','vs poprzedni dzień');
+    const zones = {cheap:t(host,'Cheap','Tania'),expensive:t(host,'Expensive','Droga'),mixed:t(host,'Mixed','Mieszana')};
+    const zone = snapshot?.status !== 'unavailable' && snapshot?.current?.available === true ? zones[snapshot.current.zone_class] || unknown : unknown;
+    const next = snapshot?.status !== 'unavailable' ? snapshot?.next_cheap : null;
+    const nextLabel = next?.status === 'known' && typeof next.start === 'string' && Number.isFinite(Date.parse(next.start))
+      ? format.pointLabel(next.start) || unknown : next?.status === 'not_found_in_horizon' ? t(host,'None in next 8 days','Brak w kolejnych 8 dniach') : unknown;
+    let section = root.querySelector(`[data-energy-simple="${mode}"]`);
+    if (!section) {
+      host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
+      host._featureAccessV53?.stop(); host._reportHostV53?.stop();
+      host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
+      root.innerHTML = `<style>${simpleStyle}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : ''}<button type="button" data-energy-open></button></section>`;
+      section = root.querySelector('[data-energy-simple]');
+      section.querySelector('button').addEventListener('click', () => open(host));
+      section.querySelector('button').addEventListener('keydown', event => {
+        if (['Enter',' '].includes(event.key) && !event.repeat) { event.preventDefault(); event.currentTarget.click(); }
+      });
+    }
+    const icon = section.querySelector('ha-icon');
+    icon.setAttribute('icon', email ? 'mdi:email-outline' : 'mdi:lightning-bolt');
+    const tone = snapshot?.status !== 'unavailable' && snapshot?.current?.available === true ? snapshot.current.zone_class : null;
+    icon.style.color = {cheap:'var(--success-color,var(--primary-color))',expensive:'var(--error-color,var(--primary-color))',mixed:'var(--warning-color,var(--primary-color))'}[tone] || 'var(--primary-color)';
+    section.querySelector('[data-energy-name]').textContent = config.title ?? title;
+    section.querySelector('[data-energy-name]').title = config.title ?? title;
+    section.querySelector('[data-energy-primary]').textContent = email ? unknown : mode === 'tile' ? `${zone} · ${nextLabel}` : energy;
+    if (mode === 'compact') {
+      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Next report','Następny raport') : t(host,'Energy today','Energia dziś');
+      section.querySelector('[data-energy-cost]').textContent = email ? t(host,'Last report: Unknown','Ostatni raport: brak danych') : `${t(host,'Usage cost','Koszt zużycia')}: ${money}`;
+      section.querySelector('[data-energy-comparison]').textContent = email ? t(host,'Result: Unknown','Wynik: brak danych') : `${comparisonName}: ${difference}`;
+    }
+    const button = section.querySelector('button');
+    button.textContent = t(host,'Open','Otwórz');
+    button.setAttribute('aria-label', `${t(host,'Open','Otwórz')} ${config.title ?? title}`);
+    button.disabled = config.tap_target === 'more-info' && !host._hass?.states?.[config.entity];
+  };
+  // Simple surfaces do not run the full cards' discovery/config/schedule paths.
+  const hassDescriptor = Object.getOwnPropertyDescriptor(Card.prototype,'hass');
+  if (hassDescriptor?.set) Object.defineProperty(Card.prototype,'hass',{...hassDescriptor,set(value) {
+    if (!simple(this)) return hassDescriptor.set.call(this,value);
+    this._hass = value;
+    this.classList.toggle('bento-dark',value?.themes?.darkMode === true);
+    this._tariffHostController?.guard.observe();
+    this._render();
+  }});
+  const connected = Card.prototype.connectedCallback;
+  Card.prototype.connectedCallback = function() {
+    if (!simple(this)) return connected?.call(this);
+    this._tariffHostController?.guard.resume(); this._render();
+  };
+  for (const method of ['_repriceTariffV3','_syncAnalysisV53']) {
+    const original = Card.prototype[method]; if (!original) continue;
+    Card.prototype[method] = function(...args) { if (simple(this)) return this._render(); return original.apply(this,args); };
+  }
   const render = Card.prototype._render;
   Card.prototype._render = function(...args) {
     const config = this._config || {};
+    if (!simple(this) || variant(config) !== 'compact') this._simpleSummaryV95?.stop();
+    if (!simple(this) || variant(config) !== 'tile') this._simpleTileV95?.stop();
     if (!visible(config).includes(this[key])) this[key] = config.default_tab || visible(config)[0];
-    if (config.compact && !this._optionsExpandedV5) {
+    if (simple(this)) { renderSimple(this); return; }
+    if (variant(config) === 'legacy' && !this._optionsExpandedV5) {
       this._getTariffHostV3?.().backend?.snapshot();
       const snapshot = this._energySnapshotV5;
       const format = createFormatUi.forHass(this._hass);
@@ -89,12 +242,25 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       compact.querySelector('button').textContent = t(this, 'Open full view', 'Otwórz pełny widok');
       return;
     }
+    const restoreBack = this.shadowRoot.activeElement?.matches('[data-energy-back]');
     const result = render.apply(this, args);
     this._applyCardOptionsV5();
+    if (restoreBack) this.shadowRoot.querySelector('[data-energy-back]')?.focus({preventScroll:true});
     return result;
   };
   Card.prototype._applyCardOptionsV5 = function() {
+    if (simple(this)) return;
     const root = this.shadowRoot, config = this._config || {}, allowed = visible(config);
+    if (this._optionsExpandedV5 && ['tile','compact'].includes(variant(config)) && !root.querySelector('[data-energy-back]')) {
+      const css = document.createElement('style'); css.textContent = simpleStyle; root.append(css);
+      const back = document.createElement('button'); back.type = 'button'; back.dataset.energyBack = '';
+      back.textContent = t(this,'Back to summary','Wróć do podsumowania');
+      back.addEventListener('click', () => { this._optionsExpandedV5 = false; this._domBuilt = false; this._render(); root.querySelector('[data-energy-open]')?.focus({preventScroll:true}); });
+      root.prepend(back);
+    }
+    const back = root.querySelector('[data-energy-back]');
+    if (back) back.textContent = t(this,'Back to summary','Wróć do podsumowania');
+
     const heading = root.querySelector('[data-energy-card-title]'); if (heading) heading.textContent = config.title ?? title;
     for (const button of root.querySelectorAll('.tabs [data-tab]')) { button.hidden = !allowed.includes(button.dataset.tab); button.style.display = button.hidden ? 'none' : ''; }
     for (const option of root.querySelectorAll('.energy-tab-picker option, #email-tab-select option')) { option.hidden = !allowed.includes(option.value); option.disabled = option.hidden; }
@@ -189,10 +355,10 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   }
   for (const method of ['_updateContent','_renderTab','_renderCurrentTab']) {
     const original = Card.prototype[method]; if (!original) continue;
-    Card.prototype[method] = function(...args) { const value = original.apply(this,args); this._applyCardOptionsV5(); return value; };
+    Card.prototype[method] = function(...args) { if (simple(this)) return this._render(); const value = original.apply(this,args); this._applyCardOptionsV5(); return value; };
   }
   const disconnect = Card.prototype.disconnectedCallback;
-  Card.prototype.disconnectedCallback = function() { this._optionsResizeV5?.disconnect(); return disconnect?.call(this); };
+  Card.prototype.disconnectedCallback = function() { this._simpleSummaryV95?.stop(); this._simpleTileV95?.stop(); this._optionsResizeV5?.disconnect(); return disconnect?.call(this); };
   // Reuse existing editor text fields and their focus/caret-preserving synchronization.
   const editorRender = Editor.prototype._render;
   Editor.prototype._render = function(...args) { editorRender.apply(this,args); this._renderOptionsV5(); };
@@ -201,14 +367,15 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     let fields = root.querySelector('[data-energy-option-fields]');
     if (!fields) {
       fields = document.createElement('div'); fields.dataset.energyOptionFields = '';
-      fields.innerHTML = `<style>label[data-option-row]{display:flex;align-items:center;gap:8px;min-height:44px}select,input[type=number]{min-height:44px;box-sizing:border-box;width:100%;font:inherit;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#888);border-radius:8px;padding:8px}fieldset{margin:12px 0;border:1px solid var(--divider-color,#888)}[data-option-row] input{width:24px;height:24px;min-height:24px;margin:0}select:focus-visible,input:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}[data-config-error]{color:var(--energy-value-red,#b91c1c)}</style><label data-option-label="default_tab" for="cf_default_tab"></label><select id="cf_default_tab" data-config="default_tab">${tabs.map(id=>`<option value="${id}"></option>`).join('')}</select><fieldset><legend data-option-label="tabs"></legend>${tabs.map(id=>`<label data-option-row><input type="checkbox" data-tab-option="${id}"><span data-tab-label="${id}"></span></label>`).join('')}</fieldset>${['compact','show_help','show_support'].map(id=>`<label data-option-row><input type="checkbox" data-config="${id}"><span data-option-label="${id}"></span></label>`).join('')}<label data-option-label="chart_hours" for="cf_chart_hours"></label><input id="cf_chart_hours" type="number" min="1" max="744" step="1" data-config="chart_hours"><p data-config-error role="alert"></p>`;
+      fields.innerHTML = `<style>label[data-option-row]{display:flex;align-items:center;gap:8px;min-height:44px}select,input[type=number],input[type=search]{min-height:44px;box-sizing:border-box;width:100%;font:inherit;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#888);border-radius:8px;padding:8px}fieldset{margin:12px 0;border:1px solid var(--divider-color,#888)}[data-option-row] input{width:24px;height:24px;min-height:24px;margin:0}select:focus-visible,input:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}[data-config-error]{color:var(--energy-value-red,#b91c1c)}</style><label data-option-label="variant" for="cf_variant"></label><select id="cf_variant" data-config="variant"><option value="" data-variant-label="legacy"></option><option value="tile" data-variant-label="tile"></option><option value="compact" data-variant-label="compact"></option><option value="full" data-variant-label="full"></option></select><label data-option-label="tap_target" for="cf_tap_target"></label><select id="cf_tap_target" data-config="tap_target"><option value="full" data-target-label="full"></option><option value="energy" data-target-label="energy"></option><option value="more-info" data-target-label="more-info"></option></select><div data-entity-chooser><label data-option-label="entity_search" for="cf_entity_search"></label><input id="cf_entity_search" type="search" data-entity-search><label data-option-label="entity" for="cf_entity"></label><select id="cf_entity" data-config="entity"></select><p data-entity-hint></p></div><label data-option-label="default_tab" for="cf_default_tab"></label><select id="cf_default_tab" data-config="default_tab">${tabs.map(id=>`<option value="${id}"></option>`).join('')}</select><fieldset><legend data-option-label="tabs"></legend>${tabs.map(id=>`<label data-option-row><input type="checkbox" data-tab-option="${id}"><span data-tab-label="${id}"></span></label>`).join('')}</fieldset>${['compact','show_help','show_support'].map(id=>`<label data-option-row><input type="checkbox" data-config="${id}"><span data-option-label="${id}"></span></label>`).join('')}<label data-option-label="chart_hours" for="cf_chart_hours"></label><input id="cf_chart_hours" type="number" min="1" max="744" step="1" data-config="chart_hours"><p data-config-error role="alert"></p>`;
       root.append(fields);
+      fields.addEventListener('input', event => { if (event.target.matches('[data-entity-search]')) this._renderOptionsV5(); });
       fields.addEventListener('change', event => {
         const field = event.target;
         if (!field.matches('[data-config],[data-tab-option]')) return;
         const candidate = {...this._config};
         if (field.dataset.tabOption) candidate.tabs = [...fields.querySelectorAll('[data-tab-option]:checked')].map(node=>node.dataset.tabOption);
-        else { const option = field.dataset.config; if (option === 'chart_hours' && field.value === '') delete candidate[option]; else candidate[option] = field.type === 'checkbox' ? field.checked : option === 'chart_hours' ? Number(field.value) : field.value; }
+        else { const option = field.dataset.config; if (['chart_hours','variant','entity'].includes(option) && field.value === '') delete candidate[option]; else candidate[option] = field.type === 'checkbox' ? field.checked : option === 'chart_hours' ? Number(field.value) : field.value; }
         // An implicit default is the first visible tab; explicit defaults must remain visible.
         try { validate(candidate); if (field.dataset.tabOption && !candidate.tabs.includes(candidate.default_tab || tabs[0])) throw new Error(t(this,'The default tab must remain visible.','Domyślna zakładka musi być widoczna.')); }
         catch(error) { fields.querySelector('[data-config-error]').textContent = error.message; this._renderOptionsV5(); return; }
@@ -217,9 +384,30 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
         this.dispatchEvent(new CustomEvent('config-changed',{detail:{config:{...candidate}},bubbles:true,composed:true}));
       });
     }
-    const names = {default_tab:t(this,'Default tab','Domyślna zakładka'),tabs:t(this,'Visible tabs','Widoczne zakładki'),compact:t(this,'Compact view','Widok kompaktowy'),show_help:t(this,'Show help','Pokaż pomoc'),show_support:t(this,'Show project support','Pokaż wsparcie projektu'),chart_hours:t(this,'Hourly chart range (1–744 hours; empty = full range)','Zakres wykresów godzinowych (1–744 godz.; puste = cały zakres)')};
+    const names = {entity:t(this,'Existing entity for details','Istniejąca encja do szczegółów'),entity_search:t(this,'Find entity','Znajdź encję'),variant:t(this,'Variant','Wariant'),tap_target:t(this,'Open destination','Cel otwarcia'),default_tab:t(this,'Default tab','Domyślna zakładka'),tabs:t(this,'Visible tabs','Widoczne zakładki'),compact:t(this,'Compact view','Widok kompaktowy'),show_help:t(this,'Show help','Pokaż pomoc'),show_support:t(this,'Show project support','Pokaż wsparcie projektu'),chart_hours:t(this,'Hourly chart range (1–744 hours; empty = full range)','Zakres wykresów godzinowych (1–744 godz.; puste = cały zakres)')};
+    const variants = {legacy:t(this,'Existing configuration (unchanged)','Istniejąca konfiguracja (bez zmian)'),tile:t(this,'Tile','Kafelek'),compact:t(this,'Compact','Kompaktowy'),full:t(this,'Full','Pełny')};
+    fields.querySelectorAll('[data-variant-label]').forEach(node => node.textContent = variants[node.dataset.variantLabel]);
+    const targets = {full:t(this,'Full card','Pełna karta'),energy:t(this,'Home Assistant Energy','Energia Home Assistant'),'more-info':t(this,'Entity details (existing entity required)','Szczegóły encji (wymagana istniejąca encja)')};
+    fields.querySelectorAll('[data-target-label]').forEach(node => node.textContent = targets[node.dataset.targetLabel]);
     fields.querySelectorAll('[data-option-label]').forEach(node=>node.textContent=names[node.dataset.optionLabel]);
+    // Native select: at most 200 matching existing entities, plus the selected
+    // existing entity. Search finds any ID/name without rendering thousands of rows.
+    const states = this._hass?.states || {}, search = fields.querySelector('[data-entity-search]');
+    const query = search.value.trim().toLocaleLowerCase();
+    const ids = Object.keys(states).filter(id => /^[a-z_]+\.[a-z0-9_]+$/.test(id));
+    const matches = ids.filter(id => `${id} ${states[id]?.attributes?.friendly_name || ''}`.toLocaleLowerCase().includes(query)).sort().slice(0,200);
+    if (states[this._config.entity] && !matches.includes(this._config.entity)) matches.unshift(this._config.entity);
+    const select = fields.querySelector('[data-config="entity"]');
+    const options = [[ '', t(this,'Choose an existing entity','Wybierz istniejącą encję') ],...matches.map(id => [id,`${states[id]?.attributes?.friendly_name || id} (${id})`])];
+    const signature = JSON.stringify(options);
+    if (select.dataset.optionsSignature !== signature) {
+      select.replaceChildren(...options.map(([value,label]) => { const node = document.createElement('option'); node.value = value; node.textContent = label; return node; }));
+      select.dataset.optionsSignature = signature;
+    }
+    select.value = states[this._config.entity] ? this._config.entity : '';
+    fields.querySelector('[data-entity-hint]').textContent = t(this,'Choose an existing entity to enable Entity details. Search shows up to 200 matches.','Wybierz istniejącą encję, aby włączyć jej szczegóły. Wyszukiwanie pokazuje do 200 wyników.');
+
     tabs.forEach((id,index)=>{const label=labels[pl(this)?1:0][index];fields.querySelector(`[data-tab-label="${id}"]`).textContent=label;const option=fields.querySelector(`option[value="${id}"]`);option.textContent=label;option.disabled=!visible(this._config).includes(id);fields.querySelector(`[data-tab-option="${id}"]`).checked=visible(this._config).includes(id);});
-    for(const field of fields.querySelectorAll('[data-config]')) {const option=field.dataset.config;field.setAttribute('aria-label',names[option]);if(field.type==='checkbox')field.checked=option==='compact'?this._config[option]===true:this._config[option]!==false;else if(root.activeElement!==field)field.value=this._config[option]??(option==='default_tab'?visible(this._config)[0]:'');}
+    for(const field of fields.querySelectorAll('[data-config]')) {const option=field.dataset.config;field.setAttribute('aria-label',names[option]);if(option==='compact')field.disabled=!!this._config.variant;if(field.type==='checkbox')field.checked=option==='compact'?this._config[option]===true:this._config[option]!==false;else if(option!=='entity'&&root.activeElement!==field)field.value=this._config[option]??(option==='default_tab'?visible(this._config)[0]:option==='tap_target'?'full':'');}
   };
 }
