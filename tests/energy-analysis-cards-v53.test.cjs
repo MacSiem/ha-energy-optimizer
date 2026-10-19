@@ -380,3 +380,24 @@ test('configured power still refreshes when the measured value changes',async()=
   assert.equal(f.card.shadowRoot.querySelector('.power-draw-value').textContent,'1.00');f.assertQuiet();
  }finally{f.close();}
 });
+
+test('top-level connected false to true remounts with the same connection and state objects',async()=>{
+ const f=setup(cases[0]);try{await f.mount();f.advance(11000);f.update({...f.hass});await settle();
+  const old=f.card.shadowRoot.querySelector('[data-analysis-calendar-options]');old.open=true;const reads=f.analyses.length;
+  const connection=f.hass.connection,states=f.hass.states;
+  f.advance(11000);f.update({...f.hass,connected:false});await settle();assert.equal(f.card.shadowRoot.querySelector('.analysis-tiles'),null);f.assertSubscriptions(0);
+  f.advance(11000);f.update({...f.hass,connected:true});await settle();assert.equal(f.hass.connection,connection);assert.equal(f.hass.states,states);
+  const calendar=f.card.shadowRoot.querySelector('[data-analysis-calendar-options]');assert.ok(calendar,'analysis restored after reconnect');assert.equal(calendar.open,false);assert.equal(f.analyses.length,reads+1);f.assertSubscriptions(1);f.assertQuiet();
+ }finally{f.close();}
+});
+test('power sensor choices track units and names at the same entity count',async()=>{
+ const f=setup(cases[0]);try{
+  const states=(unit,name)=>({'sensor.option':{state:'1',attributes:{unit_of_measurement:unit,friendly_name:name}}});
+  f.update({...f.hass,states:states('W','First')});await f.mount();f.advance(11000);f.update({...f.hass});await settle();
+  const options=()=>[...f.card.shadowRoot.querySelector('#power-sensor-guide').options].filter(x=>x.value).map(x=>x.textContent);
+  assert.deepEqual(options(),['First (sensor.option)']);
+  f.advance(11000);f.update({...f.hass,states:states('V','Voltage')});await settle();assert.deepEqual(options(),[]);
+  f.advance(11000);f.update({...f.hass,states:states('kW','Kilowatts')});await settle();assert.deepEqual(options(),['Kilowatts (sensor.option)']);
+  f.advance(11000);f.update({...f.hass,states:states('kW','Renamed')});await settle();assert.deepEqual(options(),['Renamed (sensor.option)']);f.assertQuiet();
+ }finally{f.close();}
+});
