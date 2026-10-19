@@ -8,9 +8,23 @@ Energy usage analysis for Home Assistant based on grid import configured in the 
 
 Part of the [HA Tools](https://github.com/MacSiem/ha-tools-panel) collection for Home Assistant.
 
+## Start here
+
+1. Select your grid-import meters in Home Assistant’s **Energy Dashboard**. Add the card from the dashboard’s **Add card** picker; no card YAML is required for the default view.
+2. Install and add **HA Tools Email 2.4+** for the current shared analysis and report APIs. SMTP is optional. Choose a period in **Overview**, **Tariff costs** or **Compare**. **Date and comparison** contains the calendar date and baseline choices.
+3. To see costs, an administrator saves an explicitly configured tariff in **Tariff settings**. Unavailable prices or measurements stay unavailable. Open **Data** or the named details for original precision and measurement bounds.
+4. In **Energy Email → Preview**, choose **Day / Week / Month / Year**, an optional date and comparison, then press **Read report**. Read it inside HA or explicitly download HTML, text or CSV. You do not need an email account or recipient.
+5. To receive email, configure SMTP under **Settings → Devices & services → HA Tools Email → Configure**, then use **Send Now** or explicitly save a **Schedule**. Reading a report never sends mail or enables a schedule. Report access follows the administrator’s saved policy; existing defaults remain until explicitly changed.
+
+The current schema-2 views share server-owned measurements, calendar periods and tariff calculations across all three cards. Overview contains consumption, total household cost, cheap-zone share and the highest measured hour. **Patterns** explores measured 7/30-day data. **Tariff costs** separates rates, usage components, fixed fees and group costs. **Compare** uses matching server baselines. Unmeasured energy is separate from devices with no room; group costs exclude household fixed fees.
+
+Dates follow your HA profile’s display settings and your device timezone by default. **Time zone → Server** explicitly selects the HA zone. **Time format → System** and **Date format → Use system locale** use your device preferences. Changing presentation leaves measurement periods, tariff clocks and costs unchanged.
+
+The sections below also describe supported older integration APIs. Only an explicit unsupported-command response activates the compatible Recorder view; access or network errors do not silently switch to another data source. Legacy rolling windows and mail previews retain their documented limits.
+
 ## How it works
 
-1. All three cards read the **grid import statistics selected in your Energy Dashboard** using `energy/get_prefs`. They validate Recorder metadata and use the hourly `change` series. Solar production, grid export, power sensors in watts, and unrelated statistics are excluded.
+1. Current schema-2 views request shared analysis from HA Tools Email. Its server reads Energy Dashboard preferences, validates Recorder metadata and uses measured hourly changes. Older compatible backends use the documented Recorder path in the cards. Solar production, grid export, power sensors in watts and unrelated statistics do not become grid-import totals.
 2. Complete usage totals require every configured source and completed hourly bucket in the selected window. Insights and the Email overview retain available measured rows and clearly label partial coverage; recorded subsets never become complete totals or prices. Missing or invalid measurements remain gaps. No demo numbers are shown.
 3. Costs require **HA Tools Email 2.4.0+** and use its shared tariff engine over measured hourly import and an explicitly configured tariff. Energy, variable charges and fixed monthly charges are separate; this is not a complete utility bill. The tariff supplies its own currency, clock and gross/net basis. There is no load-shifting slider or hypothetical saving.
 4. Live power is shown only if you set `power_entity`; the card does not sum overlapping power sensors.
@@ -105,7 +119,7 @@ With HA Tools Email **2.2.0+**, Energy Email can manage multiple daily, weekly o
 
 Existing automations are shown separately with warnings to avoid running both a legacy automation and a server schedule for the same report. Browser-only legacy settings do not run a schedule. History reads the server's bounded attempt log; **accepted by SMTP is not proof of delivery**. An unknown result is not automatically retried. SMTP credentials remain in the backend integration.
 
-### Actual Energy mail preview and explicit manual periods
+### Older mail preview APIs and explicit manual periods (2.3 compatibility)
 
 With stable **HA Tools Email 2.3.0+**, Preview reads the actual server-composed
 subject and HTML without requiring SMTP setup or device discovery. Choose daily,
@@ -129,7 +143,7 @@ baseline has no percentage change. Rolling reports do not claim this calendar
 comparison. Measured grid import does not establish an appliance-flow diagram.
 
 The HTML appears in an isolated sandbox with scripts, external resources and
-form actions blocked. Only administrators can read mail previews or send;
+form actions blocked. These older mail-preview and send endpoints require an administrator;
 Overview remains available to household users. The compatibility energy summary
 is retained separately. Legacy rolling and Quick Summary behavior remains
 available in its supported older integration path. Server acceptance does not

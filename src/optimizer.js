@@ -409,6 +409,18 @@ class HaEnergyOptimizer extends HTMLElement {
     if (this._hass) this._render();
   }
 
+  _presentationStateHashV85() {
+    const states = this._hass?.states || {};
+    const power = this._config.power_entity && Object.hasOwn(states, this._config.power_entity)
+      ? states[this._config.power_entity] : null;
+    const choices = Object.entries(states)
+      .filter(([id,state]) => id.startsWith('sensor.') && ['W','kW'].includes(state?.attributes?.unit_of_measurement))
+      .map(([id,state]) => [id,state.attributes.unit_of_measurement,state.attributes.friendly_name ?? null])
+      .sort((a,b) => a[0].localeCompare(b[0]));
+    return JSON.stringify([Object.keys(states).length, states['sun.sun']?.state ?? '',
+      this._config.power_entity ?? null, power?.state ?? null, power?.attributes?.unit_of_measurement ?? null, choices]);
+  }
+
   set hass(hass) {
     try {
       var _bg = (getComputedStyle(this).getPropertyValue('--card-background-color') || getComputedStyle(this).getPropertyValue('--primary-background-color') || '').trim();
@@ -475,11 +487,7 @@ class HaEnergyOptimizer extends HTMLElement {
           this._schedule(() => {
             this._renderScheduled = false;
             try {
-              const states = this._hass?.states || {};
-              const power = this._config.power_entity && Object.hasOwn(states, this._config.power_entity)
-                ? states[this._config.power_entity] : null;
-              const newHash = JSON.stringify([Object.keys(states).length, states['sun.sun']?.state ?? '',
-                this._config.power_entity ?? null, power?.state ?? null, power?.attributes?.unit_of_measurement ?? null]);
+              const newHash = this._presentationStateHashV85();
               if (newHash === this._lastStateHash) return;
               this._lastStateHash = newHash;
               this._updateEnergyData();
@@ -490,13 +498,10 @@ class HaEnergyOptimizer extends HTMLElement {
         }
         return;
       }
-      const states = this._hass?.states || {};
-      const power = this._config.power_entity && Object.hasOwn(states, this._config.power_entity)
-        ? states[this._config.power_entity] : null;
-      const stateHash = JSON.stringify([Object.keys(states).length, states['sun.sun']?.state ?? '',
-        this._config.power_entity ?? null, power?.state ?? null, power?.attributes?.unit_of_measurement ?? null]);
+      const stateHash = this._presentationStateHashV85();
       if (stateHash === this._lastStateHash && this._currentTab === 'dashboard' &&
-          this._analysisHostV53 && !this._analysisHostV53.legacyAllowed()) return;
+          this._analysisHostV53?.state().status === 'ready' &&
+          this.shadowRoot.querySelector('.energy-analysis-v53') && !this._analysisHostV53.legacyAllowed()) return;
       this._lastStateHash = stateHash;
       this._updateEnergyData();
       this._render();
