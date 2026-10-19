@@ -45,7 +45,7 @@ function setup(name,{admin=true,language='en',config={type:`custom:${name}`,vari
    if(q.type==='ha_tools_email/energy_statistics_status')return clone(stats);
    if(q.type==='ha_tools_email/energy_statistics_prepare')return {proposal:clone(expectedProposal),revision:stats.revision,warning,membership_mode:'current_snapshot'};
    if(q.type==='ha_tools_email/energy_statistics_enable'){
-    assert.equal(q.acknowledge_global,true);assert.equal(q.acknowledge_current_membership,true);assert.equal(q.expected_revision,stats.revision);assert.deepEqual(q.proposal,expectedProposal);
+    assert.equal(q.acknowledge_global,true);assert.equal(q.acknowledge_current_membership,true);assert.equal(q.expected_revision,stats.revision);assert.deepEqual(clone(q.proposal),expectedProposal,'wire proposal preserves all JSON fields');
     stats={...stats,enabled:true,revision:stats.revision+1,author_user_id:hass.user.id,active_epoch:'epoch',dataset:clone(expectedProposal)};return clone(stats);
    }
    if(q.type==='ha_tools_email/energy_statistics_disable'){assert.equal(q.expected_revision,stats.revision);stats={...stats,enabled:false,revision:stats.revision+1};return clone(stats);}
@@ -142,4 +142,18 @@ test('native cancel returns focus and closed dialog starts no further statistics
 });
 test('another administrator may disable but cannot publish under the prior author',async()=>{
  const a=setup('ha-energy-email');try{a.stats={...initial(),enabled:true,author_user_id:'previous-admin',active_epoch:'epoch',dataset:clone(proposal)};await a.mount();await a.statistics();assert.equal(a.q('[data-statistics-refresh]').disabled,true);a.check();assert.equal(a.q('[data-statistics-backfill]').disabled,true);assert.equal(a.q('[data-statistics-disable]').disabled,false);a.click('disable');await tick();assert.equal(a.stats.enabled,false);assert.equal(a.statisticsCalls().filter(q=>q.type.endsWith('_refresh')).length,0);a.quiet();}finally{a.close();}
+});
+
+test('automatic hourly sharing and paused status are clear in PL and EN',async()=>{
+ for(const language of ['pl','en']){
+  const a=setup('ha-energy-email',{language});try{
+   a.stats={...initial(),enabled:true,author_user_id:'admin',active_epoch:'epoch',dataset:clone(proposal),automation:{state:'paused',last_completed_hour:'2026-10-19T10:00:00Z'}};
+   await a.mount();await a.statistics();
+   assert.match(a.q('[data-statistics-state]').textContent,/Wstrzymane|Paused/);
+   assert.match(a.q('dialog').textContent,/co godzinę|every hour/);
+   assert.match(a.q('[data-statistics-state]').textContent,/włącz ponownie|enable again/);
+   assert.doesNotMatch(a.q('dialog').textContent,/Enabling does not publish|Włączenie nie publikuje|No automatic publishing cadence|nie ustawia automatycznej publikacji/);
+   a.quiet();
+  }finally{a.close();}
+ }
 });
