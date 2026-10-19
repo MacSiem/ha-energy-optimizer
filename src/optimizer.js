@@ -490,6 +490,14 @@ class HaEnergyOptimizer extends HTMLElement {
         }
         return;
       }
+      const states = this._hass?.states || {};
+      const power = this._config.power_entity && Object.hasOwn(states, this._config.power_entity)
+        ? states[this._config.power_entity] : null;
+      const stateHash = JSON.stringify([Object.keys(states).length, states['sun.sun']?.state ?? '',
+        this._config.power_entity ?? null, power?.state ?? null, power?.attributes?.unit_of_measurement ?? null]);
+      if (stateHash === this._lastStateHash && this._currentTab === 'dashboard' &&
+          this._analysisHostV53 && !this._analysisHostV53.legacyAllowed()) return;
+      this._lastStateHash = stateHash;
       this._updateEnergyData();
       this._render();
       this._lastRenderTime = now;

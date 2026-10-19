@@ -6,6 +6,8 @@ function createEnergyAnalysisHostV53({card}) {
   let root=null, section='overview', route=null, identity=null, mode='schema2', started=false, ticket=0;
   let selection={period:'day',comparison:'previous'}, options={level:'areas',view:'chart',selected:null};
   let calendarSelection={...selection}, patterns={days:7}, resizeObserver=null, patternWidth=0;
+  let calendarOpen=false;
+  const captureCalendar=()=>{const node=root?.querySelector('[data-analysis-calendar-options]');if(node)calendarOpen=node.open;};
   const patternsView=()=>createEnergyPatternsViewV53({card,width:root?.clientWidth||patternWidth||356});
   const context=()=>[card._hass?.connection,card._hass?.user?.id,card._hass?.user?.is_active,card._hass?.user?.is_admin,card._hass?.connected,
     card._hass?.config?.time_zone,card._hass?.connection?.connected];
@@ -21,6 +23,7 @@ function createEnergyAnalysisHostV53({card}) {
   function observe() {
     const next=context();
     if(!same(identity,next)) {
+      calendarOpen=false;
       // Clear legacy rows before any newly authorized response can arrive.
       if(root){root.removeEventListener('click',action);root.removeEventListener('change',action);root.removeEventListener('keydown',keydown);root.replaceChildren();}root=null;
       resizeObserver?.disconnect();resizeObserver=null;patterns={days:7};patternWidth=0;
@@ -33,6 +36,7 @@ function createEnergyAnalysisHostV53({card}) {
     if(!active() || mode==='legacy')return;
     const state=binding.observe(), view=section==='patterns'?patternsView():createEnergyAnalysisViewV53({card});
     if(section==='patterns'&&state.status==='ready'&&state.snapshot?.kind==='patterns')patterns=view.normalize(state.snapshot,patterns);
+    captureCalendar();
     const focus=root.getRootNode().activeElement;
     const saved=root.contains(focus)?{action:focus.dataset.analysisAction,value:focus.dataset.analysisValue}:null;
     root.innerHTML=`<style>${view.styles()}</style>` +
@@ -40,6 +44,7 @@ function createEnergyAnalysisHostV53({card}) {
         `<p role="status">${state.status==='loading'?text('Loading energy analysis…','Ładowanie analizy energii…'):
           state.status==='error'?text('Energy analysis unavailable. Access or backend response could not be confirmed.','Analiza energii niedostępna. Nie potwierdzono dostępu lub odpowiedzi serwera.'):text('Energy analysis','Analiza energii')}</p>`) +
       `<button type="button" data-analysis-action="retry">${text('Retry','Ponów')}</button>`;
+    const calendar=root.querySelector('[data-analysis-calendar-options]');if(calendar)calendar.open=calendarOpen;
     if(saved) [...root.querySelectorAll('[data-analysis-action]')].find(el=>el.dataset.analysisAction===saved.action && el.dataset.analysisValue===saved.value)?.focus({preventScroll:true});
   }
   async function read() {
@@ -118,6 +123,7 @@ function createEnergyAnalysisHostV53({card}) {
       if(period!=='day' && ['same_weekday','mean7'].includes(selection.comparison))selection.comparison='previous';
     }
     if(root!==next) {
+      captureCalendar();
       if(root){root.removeEventListener('click',action);root.removeEventListener('change',action);root.removeEventListener('keydown',keydown);if(!root.contains(next))root.replaceChildren();}
       root=next;root.addEventListener('click',action);root.addEventListener('change',action);root.addEventListener('keydown',keydown);
       resizeObserver?.disconnect();resizeObserver=null;
@@ -132,6 +138,7 @@ function createEnergyAnalysisHostV53({card}) {
     paint();if(!started && mode!=='legacy')void read();
   }
   function stop() {
+    calendarOpen=false;
     ticket++;started=false;mode='schema2';binding.stop();resizeObserver?.disconnect();resizeObserver=null;
     if(root){root.removeEventListener('click',action);root.removeEventListener('change',action);root.removeEventListener('keydown',keydown);root.replaceChildren();root=null;}
   }
