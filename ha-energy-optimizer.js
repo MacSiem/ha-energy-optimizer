@@ -620,7 +620,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=3c44a68504045524173014dee8582a7cc0c3f6408095a1e3bce5e9deab2d028d
+    // HA_TARIFF_V3_START sha256=0ebc02059f4d950d18c482018b6eabf66d74d85f9304c18490017d95cffb32d5
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1671,9 +1671,10 @@ function createEnergyStatisticsUiV53({card,guard,host,isActive}) {
   };
   const status = value => {
     const v=detached(value);
-    if(!keys(v,['enabled','revision','reader_scope','warning','membership_mode','pending','author_user_id','active_epoch','dataset','catalog',...(Object.hasOwn(v,'automation')?['automation']:[])]) || typeof v.enabled!=='boolean' || typeof v.pending!=='boolean' || !integer(v.revision) ||
+    if(!keys(v,['enabled','revision','reader_scope','warning','membership_mode','pending','author_user_id','active_epoch','dataset','catalog',...(Object.hasOwn(v,'automation')?['automation']:[]),...(Object.hasOwn(v,'unconfirmed_history')?['unconfirmed_history']:[])]) || typeof v.enabled!=='boolean' || typeof v.pending!=='boolean' || !integer(v.revision) ||
       v.reader_scope!=='all_authenticated_ha_users' || v.membership_mode!=='current_snapshot' || !str(v.warning,4096) || (v.author_user_id!==null&&!str(v.author_user_id,128)) || (v.active_epoch!==null&&!str(v.active_epoch,128)) ||
       !Array.isArray(v.catalog) || v.catalog.length>4096) throw Error('invalid_statistics');
+    if(Object.hasOwn(v,'unconfirmed_history') && (!integer(v.unconfirmed_history) || v.unconfirmed_history>4096)) throw Error('invalid_statistics');
     if(Object.hasOwn(v,'automation') && (!keys(v.automation,['state','last_completed_hour']) ||
       !['disabled','starting','active','paused','unavailable'].includes(v.automation.state) ||
       (v.automation.last_completed_hour!==null && (!str(v.automation.last_completed_hour,64) || !Number.isFinite(Date.parse(v.automation.last_completed_hour)))))) throw Error('invalid_statistics');
@@ -1726,13 +1727,14 @@ function createEnergyStatisticsUiV53({card,guard,host,isActive}) {
     const list=dialog.querySelector('[data-statistics-catalog]');list.replaceChildren();
     if(snapshot) {
       row(list,text('Existing statistics: ','Istniejące statystyki: ')+snapshot.catalog.length);
+      if(snapshot.unconfirmed_history) row(list,text('Unconfirmed history: ','Niepotwierdzona historia: ')+snapshot.unconfirmed_history+text('. No retries. Previously queued work may still finish; published history remains readable.','. Bez ponowień. Wcześniej zakolejkowana praca może się zakończyć; opublikowana historia pozostaje czytelna.'));
       for(const item of snapshot.catalog) row(list,`${item.name} · ${item.statistic_id} · ${item.currency} · ${item.price_basis} · ${text(item.current_dataset?'current dataset':'earlier dataset',item.current_dataset?'bieżący zestaw':'wcześniejszy zestaw')}`);
     }
     const checkbox=dialog.querySelector('input');checkbox.checked=checked;checkbox.disabled=busyNow || uncertain || !proposal;
     const own=snapshot?.enabled && snapshot.author_user_id===card._hass?.user?.id;
     dialog.querySelector('[data-statistics-read]').disabled=busyNow;
-    dialog.querySelector('[data-statistics-enable]').disabled=busyNow || uncertain || !checked || !proposal || !snapshot || snapshot.pending || proposal.revision!==snapshot.revision;
-    dialog.querySelector('[data-statistics-disable]').disabled=busyNow || uncertain || !snapshot?.enabled || snapshot.pending;
+    dialog.querySelector('[data-statistics-enable]').disabled=busyNow || uncertain || !checked || !proposal || !snapshot || (snapshot.pending && snapshot.author_user_id!==card._hass?.user?.id) || proposal.revision!==snapshot.revision;
+    dialog.querySelector('[data-statistics-disable]').disabled=busyNow || uncertain || !snapshot || (!snapshot.enabled && !snapshot.pending);
     dialog.querySelector('[data-statistics-refresh]').disabled=busyNow || uncertain || !own || snapshot.pending;
     dialog.querySelector('[data-statistics-backfill]').disabled=busyNow || uncertain || !own || snapshot.pending || !checked || !proposal || proposal.revision!==snapshot.revision;
   };
@@ -1783,23 +1785,30 @@ function createEnergyStatisticsUiV53({card,guard,host,isActive}) {
         if(!current(task)) return;
         // Readback reconciles an uncertain write; no mutation is retried.
         uncertain=false;paint();
-        if(!snapshot.pending) {
+        // A confirmed pending intent can still be disabled, or reauthorized
+        // for the same dataset with a fresh proposal and explicit consent.
+        // Proposal/source failure must not discard the confirmed control state.
+        try {
           const next=prepared(await call(task,'prepare'));
           if(!current(task)) return;
           if(next.revision!==snapshot.revision) throw Error('statistics_changed');
           proposal=next;
+        } catch (_) {
+          if(!current(task)) return;
+          proposal=null;checked=false;
+          note=text('Proposal unavailable. Sharing can still be disabled.','Propozycja niedostępna. Nadal można wyłączyć udostępnianie.');
         }
       } else {
         const before=snapshot, chosen=proposal;
-        if(uncertain || !before || before.pending) return;
+        if(uncertain || !before) return;
         let payload;
         if(operation==='enable') {
-          if(!checked || !chosen || chosen.revision!==before.revision) return;
+          if(!checked || !chosen || chosen.revision!==before.revision || (before.pending && before.author_user_id!==card._hass?.user?.id)) return;
           payload={proposal:detached(chosen.proposal),expected_revision:chosen.revision,acknowledge_global:true,acknowledge_current_membership:true};
         } else if(operation==='disable') {
-          if(!before.enabled) return; payload={expected_revision:before.revision};
+          if(!before.enabled && !before.pending) return; payload={expected_revision:before.revision};
         } else {
-          if(!before.enabled || before.author_user_id!==card._hass?.user?.id) return;
+          if(before.pending || !before.enabled || before.author_user_id!==card._hass?.user?.id) return;
           if(operation==='backfill' && (!checked || !chosen || chosen.revision!==before.revision)) return;
           payload=operation==='backfill'?{backfill:true,acknowledge_current_membership:true}:{backfill:false,acknowledge_current_membership:false};
         }
@@ -1808,8 +1817,8 @@ function createEnergyStatisticsUiV53({card,guard,host,isActive}) {
         const result=status(await call(task,operation==='backfill'?'refresh':operation,payload,true));
         if(!current(task)) return;
         if((operation==='enable' && (!result.enabled || result.revision<=before.revision)) || (operation==='disable' && (result.enabled || result.revision<=before.revision))) throw Error('statistics_unconfirmed');
-        snapshot=result;uncertain=result.pending;
-        note=result.pending ? text('Operation unconfirmed. Read status before another change.','Operacja niepotwierdzona. Odczytaj stan przed kolejną zmianą.') : text('Operation confirmed. Read status to review a new proposal.','Operacja potwierdzona. Odczytaj stan, aby sprawdzić nową propozycję.');
+        snapshot=result;uncertain=false;
+        note=result.pending ? text('Sharing change confirmed. A prior statistics import remains unconfirmed.','Zmiana udostępniania potwierdzona. Wcześniejszy import statystyk pozostaje niepotwierdzony.') : text('Operation confirmed. Read status to review a new proposal.','Operacja potwierdzona. Odczytaj stan, aby sprawdzić nową propozycję.');
       }
     } catch(error) {
       if(current(task)) {
@@ -6554,7 +6563,7 @@ createFormatUi.forHass = hass => {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=3c44a68504045524173014dee8582a7cc0c3f6408095a1e3bce5e9deab2d028d
+      // HA_TARIFF_V3_START sha256=0ebc02059f4d950d18c482018b6eabf66d74d85f9304c18490017d95cffb32d5
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -7605,9 +7614,10 @@ function createEnergyStatisticsUiV53({card,guard,host,isActive}) {
   };
   const status = value => {
     const v=detached(value);
-    if(!keys(v,['enabled','revision','reader_scope','warning','membership_mode','pending','author_user_id','active_epoch','dataset','catalog',...(Object.hasOwn(v,'automation')?['automation']:[])]) || typeof v.enabled!=='boolean' || typeof v.pending!=='boolean' || !integer(v.revision) ||
+    if(!keys(v,['enabled','revision','reader_scope','warning','membership_mode','pending','author_user_id','active_epoch','dataset','catalog',...(Object.hasOwn(v,'automation')?['automation']:[]),...(Object.hasOwn(v,'unconfirmed_history')?['unconfirmed_history']:[])]) || typeof v.enabled!=='boolean' || typeof v.pending!=='boolean' || !integer(v.revision) ||
       v.reader_scope!=='all_authenticated_ha_users' || v.membership_mode!=='current_snapshot' || !str(v.warning,4096) || (v.author_user_id!==null&&!str(v.author_user_id,128)) || (v.active_epoch!==null&&!str(v.active_epoch,128)) ||
       !Array.isArray(v.catalog) || v.catalog.length>4096) throw Error('invalid_statistics');
+    if(Object.hasOwn(v,'unconfirmed_history') && (!integer(v.unconfirmed_history) || v.unconfirmed_history>4096)) throw Error('invalid_statistics');
     if(Object.hasOwn(v,'automation') && (!keys(v.automation,['state','last_completed_hour']) ||
       !['disabled','starting','active','paused','unavailable'].includes(v.automation.state) ||
       (v.automation.last_completed_hour!==null && (!str(v.automation.last_completed_hour,64) || !Number.isFinite(Date.parse(v.automation.last_completed_hour)))))) throw Error('invalid_statistics');
@@ -7660,13 +7670,14 @@ function createEnergyStatisticsUiV53({card,guard,host,isActive}) {
     const list=dialog.querySelector('[data-statistics-catalog]');list.replaceChildren();
     if(snapshot) {
       row(list,text('Existing statistics: ','Istniejące statystyki: ')+snapshot.catalog.length);
+      if(snapshot.unconfirmed_history) row(list,text('Unconfirmed history: ','Niepotwierdzona historia: ')+snapshot.unconfirmed_history+text('. No retries. Previously queued work may still finish; published history remains readable.','. Bez ponowień. Wcześniej zakolejkowana praca może się zakończyć; opublikowana historia pozostaje czytelna.'));
       for(const item of snapshot.catalog) row(list,`${item.name} · ${item.statistic_id} · ${item.currency} · ${item.price_basis} · ${text(item.current_dataset?'current dataset':'earlier dataset',item.current_dataset?'bieżący zestaw':'wcześniejszy zestaw')}`);
     }
     const checkbox=dialog.querySelector('input');checkbox.checked=checked;checkbox.disabled=busyNow || uncertain || !proposal;
     const own=snapshot?.enabled && snapshot.author_user_id===card._hass?.user?.id;
     dialog.querySelector('[data-statistics-read]').disabled=busyNow;
-    dialog.querySelector('[data-statistics-enable]').disabled=busyNow || uncertain || !checked || !proposal || !snapshot || snapshot.pending || proposal.revision!==snapshot.revision;
-    dialog.querySelector('[data-statistics-disable]').disabled=busyNow || uncertain || !snapshot?.enabled || snapshot.pending;
+    dialog.querySelector('[data-statistics-enable]').disabled=busyNow || uncertain || !checked || !proposal || !snapshot || (snapshot.pending && snapshot.author_user_id!==card._hass?.user?.id) || proposal.revision!==snapshot.revision;
+    dialog.querySelector('[data-statistics-disable]').disabled=busyNow || uncertain || !snapshot || (!snapshot.enabled && !snapshot.pending);
     dialog.querySelector('[data-statistics-refresh]').disabled=busyNow || uncertain || !own || snapshot.pending;
     dialog.querySelector('[data-statistics-backfill]').disabled=busyNow || uncertain || !own || snapshot.pending || !checked || !proposal || proposal.revision!==snapshot.revision;
   };
@@ -7717,23 +7728,30 @@ function createEnergyStatisticsUiV53({card,guard,host,isActive}) {
         if(!current(task)) return;
         // Readback reconciles an uncertain write; no mutation is retried.
         uncertain=false;paint();
-        if(!snapshot.pending) {
+        // A confirmed pending intent can still be disabled, or reauthorized
+        // for the same dataset with a fresh proposal and explicit consent.
+        // Proposal/source failure must not discard the confirmed control state.
+        try {
           const next=prepared(await call(task,'prepare'));
           if(!current(task)) return;
           if(next.revision!==snapshot.revision) throw Error('statistics_changed');
           proposal=next;
+        } catch (_) {
+          if(!current(task)) return;
+          proposal=null;checked=false;
+          note=text('Proposal unavailable. Sharing can still be disabled.','Propozycja niedostępna. Nadal można wyłączyć udostępnianie.');
         }
       } else {
         const before=snapshot, chosen=proposal;
-        if(uncertain || !before || before.pending) return;
+        if(uncertain || !before) return;
         let payload;
         if(operation==='enable') {
-          if(!checked || !chosen || chosen.revision!==before.revision) return;
+          if(!checked || !chosen || chosen.revision!==before.revision || (before.pending && before.author_user_id!==card._hass?.user?.id)) return;
           payload={proposal:detached(chosen.proposal),expected_revision:chosen.revision,acknowledge_global:true,acknowledge_current_membership:true};
         } else if(operation==='disable') {
-          if(!before.enabled) return; payload={expected_revision:before.revision};
+          if(!before.enabled && !before.pending) return; payload={expected_revision:before.revision};
         } else {
-          if(!before.enabled || before.author_user_id!==card._hass?.user?.id) return;
+          if(before.pending || !before.enabled || before.author_user_id!==card._hass?.user?.id) return;
           if(operation==='backfill' && (!checked || !chosen || chosen.revision!==before.revision)) return;
           payload=operation==='backfill'?{backfill:true,acknowledge_current_membership:true}:{backfill:false,acknowledge_current_membership:false};
         }
@@ -7742,8 +7760,8 @@ function createEnergyStatisticsUiV53({card,guard,host,isActive}) {
         const result=status(await call(task,operation==='backfill'?'refresh':operation,payload,true));
         if(!current(task)) return;
         if((operation==='enable' && (!result.enabled || result.revision<=before.revision)) || (operation==='disable' && (result.enabled || result.revision<=before.revision))) throw Error('statistics_unconfirmed');
-        snapshot=result;uncertain=result.pending;
-        note=result.pending ? text('Operation unconfirmed. Read status before another change.','Operacja niepotwierdzona. Odczytaj stan przed kolejną zmianą.') : text('Operation confirmed. Read status to review a new proposal.','Operacja potwierdzona. Odczytaj stan, aby sprawdzić nową propozycję.');
+        snapshot=result;uncertain=false;
+        note=result.pending ? text('Sharing change confirmed. A prior statistics import remains unconfirmed.','Zmiana udostępniania potwierdzona. Wcześniejszy import statystyk pozostaje niepotwierdzony.') : text('Operation confirmed. Read status to review a new proposal.','Operacja potwierdzona. Odczytaj stan, aby sprawdzić nową propozycję.');
       }
     } catch(error) {
       if(current(task)) {
@@ -12966,7 +12984,7 @@ function createFeatureAccessV53({card, guard}) {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=3c44a68504045524173014dee8582a7cc0c3f6408095a1e3bce5e9deab2d028d
+      // HA_TARIFF_V3_START sha256=0ebc02059f4d950d18c482018b6eabf66d74d85f9304c18490017d95cffb32d5
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -14017,9 +14035,10 @@ function createEnergyStatisticsUiV53({card,guard,host,isActive}) {
   };
   const status = value => {
     const v=detached(value);
-    if(!keys(v,['enabled','revision','reader_scope','warning','membership_mode','pending','author_user_id','active_epoch','dataset','catalog',...(Object.hasOwn(v,'automation')?['automation']:[])]) || typeof v.enabled!=='boolean' || typeof v.pending!=='boolean' || !integer(v.revision) ||
+    if(!keys(v,['enabled','revision','reader_scope','warning','membership_mode','pending','author_user_id','active_epoch','dataset','catalog',...(Object.hasOwn(v,'automation')?['automation']:[]),...(Object.hasOwn(v,'unconfirmed_history')?['unconfirmed_history']:[])]) || typeof v.enabled!=='boolean' || typeof v.pending!=='boolean' || !integer(v.revision) ||
       v.reader_scope!=='all_authenticated_ha_users' || v.membership_mode!=='current_snapshot' || !str(v.warning,4096) || (v.author_user_id!==null&&!str(v.author_user_id,128)) || (v.active_epoch!==null&&!str(v.active_epoch,128)) ||
       !Array.isArray(v.catalog) || v.catalog.length>4096) throw Error('invalid_statistics');
+    if(Object.hasOwn(v,'unconfirmed_history') && (!integer(v.unconfirmed_history) || v.unconfirmed_history>4096)) throw Error('invalid_statistics');
     if(Object.hasOwn(v,'automation') && (!keys(v.automation,['state','last_completed_hour']) ||
       !['disabled','starting','active','paused','unavailable'].includes(v.automation.state) ||
       (v.automation.last_completed_hour!==null && (!str(v.automation.last_completed_hour,64) || !Number.isFinite(Date.parse(v.automation.last_completed_hour)))))) throw Error('invalid_statistics');
@@ -14072,13 +14091,14 @@ function createEnergyStatisticsUiV53({card,guard,host,isActive}) {
     const list=dialog.querySelector('[data-statistics-catalog]');list.replaceChildren();
     if(snapshot) {
       row(list,text('Existing statistics: ','Istniejące statystyki: ')+snapshot.catalog.length);
+      if(snapshot.unconfirmed_history) row(list,text('Unconfirmed history: ','Niepotwierdzona historia: ')+snapshot.unconfirmed_history+text('. No retries. Previously queued work may still finish; published history remains readable.','. Bez ponowień. Wcześniej zakolejkowana praca może się zakończyć; opublikowana historia pozostaje czytelna.'));
       for(const item of snapshot.catalog) row(list,`${item.name} · ${item.statistic_id} · ${item.currency} · ${item.price_basis} · ${text(item.current_dataset?'current dataset':'earlier dataset',item.current_dataset?'bieżący zestaw':'wcześniejszy zestaw')}`);
     }
     const checkbox=dialog.querySelector('input');checkbox.checked=checked;checkbox.disabled=busyNow || uncertain || !proposal;
     const own=snapshot?.enabled && snapshot.author_user_id===card._hass?.user?.id;
     dialog.querySelector('[data-statistics-read]').disabled=busyNow;
-    dialog.querySelector('[data-statistics-enable]').disabled=busyNow || uncertain || !checked || !proposal || !snapshot || snapshot.pending || proposal.revision!==snapshot.revision;
-    dialog.querySelector('[data-statistics-disable]').disabled=busyNow || uncertain || !snapshot?.enabled || snapshot.pending;
+    dialog.querySelector('[data-statistics-enable]').disabled=busyNow || uncertain || !checked || !proposal || !snapshot || (snapshot.pending && snapshot.author_user_id!==card._hass?.user?.id) || proposal.revision!==snapshot.revision;
+    dialog.querySelector('[data-statistics-disable]').disabled=busyNow || uncertain || !snapshot || (!snapshot.enabled && !snapshot.pending);
     dialog.querySelector('[data-statistics-refresh]').disabled=busyNow || uncertain || !own || snapshot.pending;
     dialog.querySelector('[data-statistics-backfill]').disabled=busyNow || uncertain || !own || snapshot.pending || !checked || !proposal || proposal.revision!==snapshot.revision;
   };
@@ -14129,23 +14149,30 @@ function createEnergyStatisticsUiV53({card,guard,host,isActive}) {
         if(!current(task)) return;
         // Readback reconciles an uncertain write; no mutation is retried.
         uncertain=false;paint();
-        if(!snapshot.pending) {
+        // A confirmed pending intent can still be disabled, or reauthorized
+        // for the same dataset with a fresh proposal and explicit consent.
+        // Proposal/source failure must not discard the confirmed control state.
+        try {
           const next=prepared(await call(task,'prepare'));
           if(!current(task)) return;
           if(next.revision!==snapshot.revision) throw Error('statistics_changed');
           proposal=next;
+        } catch (_) {
+          if(!current(task)) return;
+          proposal=null;checked=false;
+          note=text('Proposal unavailable. Sharing can still be disabled.','Propozycja niedostępna. Nadal można wyłączyć udostępnianie.');
         }
       } else {
         const before=snapshot, chosen=proposal;
-        if(uncertain || !before || before.pending) return;
+        if(uncertain || !before) return;
         let payload;
         if(operation==='enable') {
-          if(!checked || !chosen || chosen.revision!==before.revision) return;
+          if(!checked || !chosen || chosen.revision!==before.revision || (before.pending && before.author_user_id!==card._hass?.user?.id)) return;
           payload={proposal:detached(chosen.proposal),expected_revision:chosen.revision,acknowledge_global:true,acknowledge_current_membership:true};
         } else if(operation==='disable') {
-          if(!before.enabled) return; payload={expected_revision:before.revision};
+          if(!before.enabled && !before.pending) return; payload={expected_revision:before.revision};
         } else {
-          if(!before.enabled || before.author_user_id!==card._hass?.user?.id) return;
+          if(before.pending || !before.enabled || before.author_user_id!==card._hass?.user?.id) return;
           if(operation==='backfill' && (!checked || !chosen || chosen.revision!==before.revision)) return;
           payload=operation==='backfill'?{backfill:true,acknowledge_current_membership:true}:{backfill:false,acknowledge_current_membership:false};
         }
@@ -14154,8 +14181,8 @@ function createEnergyStatisticsUiV53({card,guard,host,isActive}) {
         const result=status(await call(task,operation==='backfill'?'refresh':operation,payload,true));
         if(!current(task)) return;
         if((operation==='enable' && (!result.enabled || result.revision<=before.revision)) || (operation==='disable' && (result.enabled || result.revision<=before.revision))) throw Error('statistics_unconfirmed');
-        snapshot=result;uncertain=result.pending;
-        note=result.pending ? text('Operation unconfirmed. Read status before another change.','Operacja niepotwierdzona. Odczytaj stan przed kolejną zmianą.') : text('Operation confirmed. Read status to review a new proposal.','Operacja potwierdzona. Odczytaj stan, aby sprawdzić nową propozycję.');
+        snapshot=result;uncertain=false;
+        note=result.pending ? text('Sharing change confirmed. A prior statistics import remains unconfirmed.','Zmiana udostępniania potwierdzona. Wcześniejszy import statystyk pozostaje niepotwierdzony.') : text('Operation confirmed. Read status to review a new proposal.','Operacja potwierdzona. Odczytaj stan, aby sprawdzić nową propozycję.');
       }
     } catch(error) {
       if(current(task)) {
