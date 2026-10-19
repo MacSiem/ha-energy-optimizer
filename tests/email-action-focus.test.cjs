@@ -75,7 +75,10 @@ test('period/page selection survives rerender and page boundary falls back to se
   }finally{f.dom.window.close();}
 });
 test('admin price is a named button; Escape, cancel and successful zero-rate save return focus',async()=>{
-  const f=fixture();try {
+  const f=fixture();
+  // A real input event follows the mount/navigation microtask checkpoint.
+  await new Promise(r=>setImmediate(r));
+  try {
     const button=f.root.getElementById('price-display');assert.equal(button.tagName,'BUTTON');assert.ok(button.getAttribute('aria-label'));
     button.focus();button.click();f.root.getElementById('price-input').dispatchEvent(new f.dom.window.KeyboardEvent('keydown',{key:'Escape'}));assert.equal(f.root.activeElement?.id,'price-display');
     f.root.activeElement.click();f.root.getElementById('price-cancel').focus();f.root.activeElement.click();assert.equal(f.root.activeElement?.id,'price-display');
@@ -117,7 +120,10 @@ test('compact navigation has one picker and stays synchronized after changing vi
   }finally{f.dom.window.close();}
 });
 test('Enter in the inline price input consumes the key before returning to its button',async()=>{
-  const f=fixture();try {
+  const f=fixture();
+  // A real input event follows the mount/navigation microtask checkpoint.
+  await new Promise(r=>setImmediate(r));
+  try {
     f.root.getElementById('price-display').click();const input=f.root.getElementById('price-input');input.value='0.65';
     const event=new f.dom.window.KeyboardEvent('keydown',{key:'Enter',cancelable:true});input.dispatchEvent(event);
     assert.equal(event.defaultPrevented,true);await new Promise(r=>setImmediate(r));assert.equal(f.root.activeElement?.id,'price-display');assert.equal(f.card._config.energy_price,0.65);
