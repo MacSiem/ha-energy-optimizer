@@ -1,6 +1,6 @@
 'use strict';
 // Node-only import; omitted in consumer closure.
-if (typeof module !== 'undefined' && module.exports) var { createTariffGuardV3 } = require('./ha-tools-tariff-guard.js'), { createEnergyBackendV5 } = require('./ha-tools-energy-backend.js'), { createEnergyAnalysisHostV53 } = require('./ha-tools-energy-analysis-host.js');
+if (typeof module !== 'undefined' && module.exports) var { createTariffGuardV3 } = require('./ha-tools-tariff-guard.js'), { createEnergyBackendV5 } = require('./ha-tools-energy-backend.js'), { createEnergyAnalysisHostV53 } = require('./ha-tools-energy-analysis-host.js'), { createEnergyAnalysisV53 } = require('./ha-tools-energy-analysis.js'), { createEnergyAnalysisBindingV53 } = require('./ha-tools-energy-analysis-binding.js');
 
 // Card-owned adapter: it never writes card YAML, helpers, schedules or SMTP.
 function createTariffHostV3({ card, kind, createModel, legacyProfile, createSettings, createUi, readTimeoutMs = 15000, guard, onRefresh }) {
@@ -247,7 +247,13 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       }
     }
   };
-  return { analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
+  // Engine factories are local to this adapter in generated consumers. Keep
+  // the public options helper independent of their lexical embedding location.
+  const summary = ({onChange = () => {}, onInvalidate = () => {}} = {}) => {
+    const controller = createEnergyAnalysisV53({card,onChange});
+    return createEnergyAnalysisBindingV53({card,controller,onInvalidate});
+  };
+  return { summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
 }
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { createTariffHostV3 };

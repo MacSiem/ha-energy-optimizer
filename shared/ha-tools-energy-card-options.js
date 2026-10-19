@@ -6,6 +6,76 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   const visible = config => config.tabs || tabs;
   const variant = config => config.variant || (config.compact ? 'legacy' : 'full');
   const simple = host => ['tile','compact'].includes(variant(host._config || {})) && !host._optionsExpandedV5;
+
+  // Placement uses its own retained raw lane. Unmount closes/purges it but does
+  // not replace the factory while a native save may still be unsettled.
+  const placementFull = host => !simple(host) && !(variant(host._config || {}) === 'legacy' && !host._optionsExpandedV5);
+  const placementGuard = host => host._getTariffHostV3().guard;
+  const placementAllowed = host => {
+    if (!host.isConnected || host.preview === true || !placementFull(host) || host._hass?.user?.is_admin !== true) return false;
+    const guard = placementGuard(host), token = guard.snapshot();
+    return guard.available(token) && guard.current(token,true);
+  };
+  const stopPlacement = host => {
+    host._dashboardPlacementV53?.close();
+    host._dashboardPlacementUnsubscribeV53?.(); delete host._dashboardPlacementUnsubscribeV53;
+    delete host._dashboardPlacementGuardV53;
+    host._dashboardPlacementMountV53?.remove();
+    // Retain this factory and its mount for remount. destroy()+new would lose
+    // occupancy of an unresolved native call; close() already purges snapshots.
+  };
+  const syncPlacement = host => {
+    const root = host.shadowRoot;
+    if (!root) return;
+    if (!placementAllowed(host)) {
+      host._dashboardPlacementV53?.close();
+      host._dashboardPlacementMountV53?.remove();
+      root.querySelector('[data-energy-dashboard-footer]')?.remove();
+      return;
+    }
+    const guard = placementGuard(host);
+    if (host._dashboardPlacementGuardV53 !== guard || !host._dashboardPlacementUnsubscribeV53) {
+      host._dashboardPlacementUnsubscribeV53?.();
+      host._dashboardPlacementGuardV53 = guard;
+      host._dashboardPlacementUnsubscribeV53 = guard.subscribe(() => {
+        // Includes authoritative browser/connection/source edges between hass setters.
+        host._dashboardPlacementV53?.close(); syncPlacement(host);
+      });
+    }
+    const parent = root.querySelector('.card-container,.panel-root,.card') || root;
+    let footer = root.querySelector('[data-energy-dashboard-footer]');
+    if (!footer) {
+      footer = document.createElement('footer'); footer.dataset.energyDashboardFooter = '';
+      const css = document.createElement('style');
+      css.textContent = '[data-energy-dashboard-footer]{margin-block-start:12px;padding:8px 0;display:flex;flex-wrap:wrap;gap:8px}[data-energy-dashboard-footer] button{min-height:44px;min-width:44px;padding:10px 14px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit;font-size:14px;cursor:pointer}[data-energy-dashboard-footer] button:focus-visible{outline:3px solid var(--primary-color);outline-offset:2px}';
+      const button = document.createElement('button'); button.type = 'button'; button.dataset.energyDashboardAdd = '';
+      button.addEventListener('click', () => {
+        if (!placementAllowed(host)) { syncPlacement(host); return; }
+        if (!host._dashboardPlacementMountV53) {
+          host._dashboardPlacementMountV53 = document.createElement('div');
+          host._dashboardPlacementMountV53.dataset.energyDashboardMount = '';
+        }
+        root.append(host._dashboardPlacementMountV53);
+        host._dashboardPlacementV53 ||= createDashboardPlacementV53({
+          host:host._dashboardPlacementMountV53,
+          getHass:() => placementAllowed(host) ? host._hass : null,
+          getCardConfig:() => ({...(host._optionsConfigV5 || {}),type:`custom:${name}`}),
+          cardTypes:[`custom:${name}`],
+          getSourceKey:() => placementGuard(host).snapshot().epoch
+        });
+        host._dashboardPlacementV53.open();
+      });
+      footer.append(css,button); parent.append(footer);
+    }
+    const button = footer.querySelector('[data-energy-dashboard-add]');
+    button.textContent = t(host,'Add to dashboard','Dodaj do dashboardu');
+    // Retain the mount node across ordinary full-DOM redraws. Reattach before
+    // update() so a synchronous redraw does not masquerade as a source teardown.
+    if (host._dashboardPlacementMountV53 && host._dashboardPlacementMountV53.parentNode !== root) root.append(host._dashboardPlacementMountV53);
+    host._dashboardPlacementV53?.update();
+  };
+  Card.prototype._syncDashboardPlacementV53 = function() { syncPlacement(this); };
+
   // Only the picker stub opts new cards in. Existing YAML is never migrated.
   Card.getStubConfig = () => ({type: `custom:${name}`, title, variant: 'compact'});
 
@@ -52,9 +122,11 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     }
     if (changed || !visible(config).includes(this[key])) this[key] = config.default_tab || visible(config)[0];
     // Existing integrations own their complete configuration and backend context.
-    const result = originalSet.call(this, config);
-    if (this._hass && (name === 'ha-energy-insights' || simple(this))) this._render();
-    return result;
+    try {
+      const result = originalSet.call(this, config);
+      if (this._hass && (name === 'ha-energy-insights' || simple(this))) this._render();
+      return result;
+    } finally { this._syncDashboardPlacementV53(); }
   };
   Card.prototype.getGridOptions = function() {
     if (simple(this)) return variant(this._config) === 'tile' ? {columns:6,rows:1,min_columns:6,min_rows:1} : {columns:12,rows:3,min_columns:6,min_rows:2,max_rows:4};
@@ -72,7 +144,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]{flex:1 1 100%;width:100%}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer>summary{min-height:44px;padding:12px 8px;font-size:14px}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]>p{margin:0 0 8px}`;
-  const simpleStyle = `:host{display:block;min-width:0} [data-energy-simple]{box-sizing:border-box;display:grid;gap:8px;padding:12px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);font-size:14px;min-width:0;overflow-wrap:anywhere} [data-energy-simple] h2,[data-energy-simple] p{margin:0;font-size:14px;line-height:20px} [data-energy-simple] h2{display:flex;align-items:center;gap:8px} [data-energy-simple] ha-icon{color:var(--primary-color);flex-shrink:0} [data-energy-primary]{font-size:24px;line-height:32px;font-weight:600} [data-energy-secondary]{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;line-height:18px} [data-energy-simple] button,[data-energy-back]{min-height:44px;min-width:44px;padding:8px 12px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit;font-size:14px;cursor:pointer} [data-energy-simple] button:focus-visible,[data-energy-back]:focus-visible{outline:3px solid var(--primary-color);outline-offset:2px} [data-energy-simple=tile]{grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;padding:4px 8px;min-height:56px} [data-energy-simple=tile] h2{font-size:14px;min-width:0} [data-energy-simple=tile] [data-energy-name],[data-energy-simple=tile] [data-energy-primary]{overflow:hidden;white-space:nowrap;text-overflow:ellipsis} [data-energy-simple=tile] [data-energy-primary]{font-size:12px;line-height:16px} [data-energy-simple=tile] button{grid-column:2;grid-row:1 / 3} [data-energy-simple=tile] ha-icon{--mdc-icon-size:20px}`;
+  const simpleStyle = `:host{display:block;min-width:0;--energy-simple-cheap:#1baf7a;--energy-simple-expensive:#2a78d6}:host(.bento-dark){--energy-simple-cheap:#199e70;--energy-simple-expensive:#3987e5} [data-energy-simple]{box-sizing:border-box;display:grid;gap:8px;padding:12px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);font-size:14px;min-width:0;overflow-wrap:anywhere} [data-energy-simple] h2,[data-energy-simple] p{margin:0;font-size:14px;line-height:20px} [data-energy-simple] h2{display:flex;align-items:center;gap:8px} [data-energy-simple] ha-icon{color:var(--primary-color);flex-shrink:0} [data-energy-primary]{font-size:24px;line-height:32px;font-weight:600} [data-energy-secondary]{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;line-height:18px} [data-energy-simple] button,[data-energy-back]{min-height:44px;min-width:44px;padding:8px 12px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit;font-size:14px;cursor:pointer} [data-energy-simple] button:focus-visible,[data-energy-back]:focus-visible{outline:3px solid var(--primary-color);outline-offset:2px} [data-energy-simple=tile]{grid-template-columns:minmax(0,1fr) auto;gap:4px 8px;padding:4px 8px;min-height:56px} [data-energy-simple=tile] h2{font-size:14px;min-width:0} [data-energy-simple=tile] [data-energy-name],[data-energy-simple=tile] [data-energy-primary]{overflow:hidden;white-space:nowrap;text-overflow:ellipsis} [data-energy-simple=tile] [data-energy-primary]{font-size:12px;line-height:16px} [data-energy-simple=tile] button{grid-column:2;grid-row:1 / 3} [data-energy-simple=tile] ha-icon{--mdc-icon-size:20px} [data-energy-zone-wrapper] p{font-size:12px;line-height:16px;margin:0 0 4px} [data-energy-zonebar]{position:relative;height:10px;overflow:hidden;border:1px solid var(--divider-color);border-radius:4px;background:var(--disabled-color,var(--secondary-background-color))} [data-energy-zonebar] span{position:absolute;inset-block:0} [data-energy-zone=cheap]{background:var(--energy-simple-cheap)} [data-energy-zone=expensive]{background:var(--energy-simple-expensive)} [data-energy-zone=mixed]{background:var(--info-color,var(--primary-color))} [data-energy-zone=unknown]{background:var(--disabled-color,var(--secondary-background-color))}`;
   const open = host => {
     const config = host._config || {};
     if (config.tap_target === 'energy') {
@@ -99,8 +171,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       if (scheduled) return;
       scheduled = true; queueMicrotask(() => { scheduled = false; if (active()) host._render(); });
     };
-    const controller = createEnergyAnalysisV53({card:host,onChange:paint});
-    const binding = createEnergyAnalysisBindingV53({card:host,controller,onInvalidate:() => { needsRead = true; paint(); }});
+    const binding = host._getTariffHostV3().summary({onChange:paint,onInvalidate:() => { needsRead = true; paint(); }});
     const stop = () => { identity = null; needsRead = true; binding.stop(); };
     const state = () => {
       const next = context();
@@ -139,6 +210,75 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     };
     return {state,stop};
   })();
+  // The backend aligns unfinished current calendar days to the previous local
+  // cutoff. A ready full previous-day total is not proof of this comparison.
+  const elapsedComparison = analysis => {
+    const p = analysis?.period, c = analysis?.comparisons?.previous, b = c?.baseline_periods?.length === 1 ? c.baseline_periods[0] : null;
+    const stamp = value => typeof value === 'string' ? Date.parse(value) : NaN;
+    const day = value => typeof value === 'string' ? value.slice(0,10) : '';
+    const clock = value => typeof value === 'string' ? value.slice(11,19) : '';
+    const ready = row => row?.status === 'ready' && row.reason === null && row.partial === true && row.calendar_clamped === false &&
+      Array.isArray(row.clamps) && row.clamps.length === 0 && row.recorder_hour_aligned === true &&
+      stamp(row.start) === stamp(row.local_start) && stamp(row.end) === stamp(row.local_end) &&
+      stamp(row.calendar_end) === stamp(row.calendar_local_end) && stamp(row.start) < stamp(row.end) && stamp(row.end) < stamp(row.calendar_end) &&
+      clock(row.local_start) === '00:00:00' && day(row.local_start) === day(row.local_end);
+    if (p?.kind !== 'day' || !ready(p) || !ready(b) || p.timezone !== b.timezone || p.timezone !== analysis.context?.measurement_timezone ||
+        c?.status !== 'ready' || c.reason !== null || c.comparison_scope !== 'calendar_totals' ||
+        c.chart?.status !== 'ready' || c.chart.reconciles_comparison_energy !== true ||
+        clock(p.local_end) !== clock(b.local_end) || p.end_fold !== b.end_fold ||
+        ![0,1].includes(p.end_fold) || ![0,1].includes(b.end_fold) ||
+        !((typeof c.percent === 'number' || typeof c.percent === 'string' && /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/.test(c.percent)) && Number.isFinite(Number(c.percent)))) return null;
+    const prior = new Date(stamp(day(p.local_start) + 'T00:00:00Z') - 86400000);
+    if (!Number.isFinite(prior.getTime()) || prior.toISOString().slice(0,10) !== day(b.local_start)) return null;
+    try {
+      const parts = new Intl.DateTimeFormat('en',{timeZone:p.timezone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(analysis.generated_at));
+      const fields = Object.fromEntries(parts.map(part => [part.type,part.value]));
+      if (`${fields.year}-${fields.month}-${fields.day}` !== day(p.local_start)) return null;
+    } catch (_) { return null; }
+    return {percent:c.percent,cutoff:p.end};
+  };
+  const paintZoneBar = (bar, analysis, host, format) => {
+    if (!bar) return;
+    bar.replaceChildren();
+    const unknown = t(host,'Unknown','Brak danych');
+    const names = {cheap:t(host,'Cheap','Tania'),expensive:t(host,'Expensive','Droga'),mixed:t(host,'Mixed','Mieszana')};
+    const p = analysis?.period, chart = analysis?.chart, window = analysis?.period_summary?.window;
+    const start = Date.parse(p?.start), end = Date.parse(p?.calendar_end), observed = Date.parse(p?.end);
+    const rows = chart?.bins;
+    const note = t(host,'Tariff zones for the calendar day; unconfirmed intervals are neutral.','Strefy taryfy w dniu kalendarzowym; niepotwierdzone odcinki są neutralne.');
+    const descriptions = [];
+    bar.setAttribute('aria-label',`${note} ${unknown}`);
+    // Position/width are time geometry only. Never sum bins, quantities or costs.
+    if (p?.kind !== 'day' || !Number.isFinite(start) || !Number.isFinite(end) || end <= start || end-start > 48*3600000 ||
+        !Number.isFinite(observed) || observed > end || window?.start !== p.start || window?.end !== p.end || window?.timezone !== p.timezone ||
+        chart?.timezone !== p.timezone || chart?.status !== 'ready' || chart.coverage_kind !== 'complete_household_hours' || chart.fixed_fee_scope !== 'household_period_only' ||
+        !Array.isArray(rows) || rows.length > 48) return;
+    let last = start;
+    for (const row of rows) {
+      if (!Number.isFinite(row.from) || !Number.isFinite(row.to) || row.to <= row.from || row.from < last || row.from < start || row.to > observed ||
+          Date.parse(row.start) !== row.from || Date.parse(row.end) !== row.to) { bar.replaceChildren(); bar.setAttribute('aria-label',`${note} ${unknown}`); return; }
+      last = row.to;
+      const z = row.zone_breakdown, zone = z?.zones?.length === 1 ? z.zones[0] : null;
+      const rates = (analysis.rates || []).filter(rate => rate.version_id === zone?.version_id);
+      const definitions = rates.length === 1 ? (rates[0].profile?.zones || []).filter(item => item.id === zone?.zone_id) : [];
+      const classification = definitions.length === 1 ? definitions[0].classification : null;
+      const proven = row.complete === true && row.expected_seconds === (row.to-row.from)/1000 && row.measured_seconds === row.expected_seconds &&
+        row.currency === analysis.totals?.currency && row.price_basis === analysis.totals?.price_basis && row.kwh !== null && row.kwh !== undefined &&
+        z?.status === 'ready' && z.reason === null && z.scope === 'complete_household_hours' && z.fixed_fee_scope === 'household_period_only' &&
+        z.reconciles_recorded_kwh === true && z.reconciles_known_costs === true && zone?.complete === true && zone.measured_seconds === row.measured_seconds &&
+        z.currency === row.currency && z.price_basis === row.price_basis && String(zone.kwh) === String(row.kwh) && String(row.recorded_kwh) === String(row.kwh) &&
+        String(zone.recorded_kwh) === String(row.kwh) && Object.hasOwn(names,classification);
+      const label = proven ? names[classification] : unknown;
+      const description = `${format.pointLabel(row.start)}–${format.pointLabel(row.end)}: ${label}`;
+      const segment = document.createElement('span');
+      segment.dataset.energyZone = proven ? classification : 'unknown';
+      segment.style.left = `${100*(row.from-start)/(end-start)}%`;
+      segment.style.width = `${100*(row.to-row.from)/(end-start)}%`;
+      segment.title = description; segment.setAttribute('aria-hidden','true');
+      bar.append(segment); descriptions.push(description);
+    }
+    bar.setAttribute('aria-label',[note,...descriptions,observed < end ? t(host,'Remaining time: Unknown','Pozostały czas: brak danych') : ''].filter(Boolean).join(' '));
+  };
   const renderSimple = host => {
     const root = host.shadowRoot, config = host._config || {}, mode = variant(config);
     const unknown = t(host,'Unknown','Brak danych'), email = name === 'ha-energy-email';
@@ -147,14 +287,12 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const snapshot = !email && mode === 'tile' ? tileFor(host).state() : null;
     const format = createFormatUi.forHass(host._hass);
     const numeric = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '') && Number.isFinite(Number(value));
-    const total = analysis?.totals, comparison = analysis?.comparisons?.previous;
+    const total = analysis?.totals, elapsed = elapsedComparison(analysis);
     const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${format.number(total.kwh,{maximumFractionDigits:2})} kWh` : unknown;
     const money = total?.pricing_complete === true && numeric(total.usage_cost) && /^[A-Z]{3}$/.test(total.currency || '')
       ? `${format.number(total.usage_cost,{minimumFractionDigits:2,maximumFractionDigits:2})} ${total.currency}` : unknown;
-    const difference = comparison?.status === 'ready' && numeric(comparison.percent)
-      ? `${format.number(comparison.percent,{maximumFractionDigits:1,signDisplay:'exceptZero'})}%` : unknown;
-    const comparisonName = comparison?.comparison_scope === 'common_measurements'
-      ? t(host,'Shared measurements vs previous day','Wspólne pomiary vs poprzedni dzień') : t(host,'vs previous day','vs poprzedni dzień');
+    const difference = elapsed ? `${format.number(elapsed.percent,{maximumFractionDigits:1,signDisplay:'exceptZero'})}%` : unknown;
+    const comparisonName = elapsed ? `${t(host,'vs yesterday through','vs wczoraj do')} ${format.clock(elapsed.cutoff)}` : t(host,'Yesterday at same hour','Wczoraj o tej samej godzinie');
     const zones = {cheap:t(host,'Cheap','Tania'),expensive:t(host,'Expensive','Droga'),mixed:t(host,'Mixed','Mieszana')};
     const zone = snapshot?.status !== 'unavailable' && snapshot?.current?.available === true ? zones[snapshot.current.zone_class] || unknown : unknown;
     const next = snapshot?.status !== 'unavailable' ? snapshot?.next_cheap : null;
@@ -165,7 +303,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : ''}<button type="button" data-energy-open></button></section>`;
+      root.innerHTML = `<style>${simpleStyle}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}<button type="button" data-energy-open></button></section>`;
       section = root.querySelector('[data-energy-simple]');
       section.querySelector('button').addEventListener('click', () => open(host));
       section.querySelector('button').addEventListener('keydown', event => {
@@ -175,7 +313,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const icon = section.querySelector('ha-icon');
     icon.setAttribute('icon', email ? 'mdi:email-outline' : 'mdi:lightning-bolt');
     const tone = snapshot?.status !== 'unavailable' && snapshot?.current?.available === true ? snapshot.current.zone_class : null;
-    icon.style.color = {cheap:'var(--success-color,var(--primary-color))',expensive:'var(--error-color,var(--primary-color))',mixed:'var(--warning-color,var(--primary-color))'}[tone] || 'var(--primary-color)';
+    icon.style.color = {cheap:'var(--energy-simple-cheap)',expensive:'var(--energy-simple-expensive)',mixed:'var(--warning-color,var(--primary-color))'}[tone] || 'var(--primary-color)';
     section.querySelector('[data-energy-name]').textContent = config.title ?? title;
     section.querySelector('[data-energy-name]').title = config.title ?? title;
     section.querySelector('[data-energy-primary]').textContent = email ? unknown : mode === 'tile' ? `${zone} · ${nextLabel}` : energy;
@@ -183,6 +321,9 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Next report','Następny raport') : t(host,'Energy today','Energia dziś');
       section.querySelector('[data-energy-cost]').textContent = email ? t(host,'Last report: Unknown','Ostatni raport: brak danych') : `${t(host,'Usage cost','Koszt zużycia')}: ${money}`;
       section.querySelector('[data-energy-comparison]').textContent = email ? t(host,'Result: Unknown','Wynik: brak danych') : `${comparisonName}: ${difference}`;
+      const caption = section.querySelector('[data-energy-zone-caption]');
+      if (caption) caption.textContent = t(host,'Day tariff zones','Strefy taryfy w ciągu dnia');
+      paintZoneBar(section.querySelector('[data-energy-zonebar]'),analysis,host,format);
     }
     const button = section.querySelector('button');
     button.textContent = t(host,'Open','Otwórz');
@@ -192,16 +333,23 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   // Simple surfaces do not run the full cards' discovery/config/schedule paths.
   const hassDescriptor = Object.getOwnPropertyDescriptor(Card.prototype,'hass');
   if (hassDescriptor?.set) Object.defineProperty(Card.prototype,'hass',{...hassDescriptor,set(value) {
-    if (!simple(this)) return hassDescriptor.set.call(this,value);
-    this._hass = value;
-    this.classList.toggle('bento-dark',value?.themes?.darkMode === true);
-    this._tariffHostController?.guard.observe();
-    this._render();
+    try {
+      // A real inert preview renders the actual card but does not start the
+      // full surface's legacy discovery of SMTP, settings or schedules.
+      if (!simple(this) && this.preview !== true) return hassDescriptor.set.call(this,value);
+      this._hass = value;
+      if (this.preview === true) this._lang = pl(this) ? 'pl' : 'en';
+      this.classList.toggle('bento-dark',value?.themes?.darkMode === true);
+      this._tariffHostController?.guard.observe();
+      this._render();
+    } finally { this._syncDashboardPlacementV53(); }
   }});
   const connected = Card.prototype.connectedCallback;
   Card.prototype.connectedCallback = function() {
-    if (!simple(this)) return connected?.call(this);
-    this._tariffHostController?.guard.resume(); this._render();
+    try {
+      if (!simple(this) && this.preview !== true) return connected?.call(this);
+      this._tariffHostController?.guard.resume(); this._render();
+    } finally { this._syncDashboardPlacementV53(); }
   };
   for (const method of ['_repriceTariffV3','_syncAnalysisV53']) {
     const original = Card.prototype[method]; if (!original) continue;
@@ -209,6 +357,14 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   }
   const render = Card.prototype._render;
   Card.prototype._render = function(...args) {
+    try {
+    // Preserve native showModal top-layer/focus state through ordinary source
+    // updates. A source/role/config edge makes update() close it, then rendering resumes.
+    const placementMount = this._dashboardPlacementMountV53;
+    if (placementMount?.isConnected && placementMount.querySelector('dialog[open]')) {
+      this._dashboardPlacementV53.update();
+      if (placementMount.querySelector('dialog[open]')) return;
+    }
     const config = this._config || {};
     if (!simple(this) || variant(config) !== 'compact') this._simpleSummaryV95?.stop();
     if (!simple(this) || variant(config) !== 'tile') this._simpleTileV95?.stop();
@@ -247,8 +403,10 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     this._applyCardOptionsV5();
     if (restoreBack) this.shadowRoot.querySelector('[data-energy-back]')?.focus({preventScroll:true});
     return result;
+    } finally { this._syncDashboardPlacementV53(); }
   };
   Card.prototype._applyCardOptionsV5 = function() {
+    this._syncDashboardPlacementV53();
     if (simple(this)) return;
     const root = this.shadowRoot, config = this._config || {}, allowed = visible(config);
     if (this._optionsExpandedV5 && ['tile','compact'].includes(variant(config)) && !root.querySelector('[data-energy-back]')) {
@@ -358,7 +516,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     Card.prototype[method] = function(...args) { if (simple(this)) return this._render(); const value = original.apply(this,args); this._applyCardOptionsV5(); return value; };
   }
   const disconnect = Card.prototype.disconnectedCallback;
-  Card.prototype.disconnectedCallback = function() { this._simpleSummaryV95?.stop(); this._simpleTileV95?.stop(); this._optionsResizeV5?.disconnect(); return disconnect?.call(this); };
+  Card.prototype.disconnectedCallback = function() { stopPlacement(this); this._simpleSummaryV95?.stop(); this._simpleTileV95?.stop(); this._optionsResizeV5?.disconnect(); return disconnect?.call(this); };
   // Reuse existing editor text fields and their focus/caret-preserving synchronization.
   const editorRender = Editor.prototype._render;
   Editor.prototype._render = function(...args) { editorRender.apply(this,args); this._renderOptionsV5(); };

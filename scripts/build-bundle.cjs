@@ -28,6 +28,17 @@ for (const source of sources.slice(0, 3)) {
   const embedded = source.match(/\/\/ HA_ENERGY_CARD_OPTIONS_V5_START\n([\s\S]*?)\/\/ HA_ENERGY_CARD_OPTIONS_V5_END/);
   if (!embedded || embedded[1] !== optionsSource) throw new Error('Card options source parity mismatch');
 }
+const placementPath = 'shared/ha-tools-dashboard-placement.js';
+const placementSource = fs.readFileSync(path.join(root, placementPath), 'utf8');
+const placementProvenance = { path: placementPath, sha256: digest(placementSource) };
+if (JSON.stringify(manifest.sharedDashboardPlacement) !== JSON.stringify(placementProvenance)) throw new Error('Placement provenance mismatch; run scripts/sync-card-options.cjs --write');
+for (const source of sources.slice(0, 3)) {
+  const matches = [...source.matchAll(/\/\/ HA_DASHBOARD_PLACEMENT_V53_START\n([\s\S]*?)\/\/ HA_DASHBOARD_PLACEMENT_V53_END/g)];
+  if (matches.length !== 1 || matches[0][1] !== placementSource) throw new Error('Placement source parity mismatch');
+  const end = source.indexOf('// HA_DASHBOARD_PLACEMENT_V53_END') + '// HA_DASHBOARD_PLACEMENT_V53_END'.length;
+  const start = source.indexOf('// HA_ENERGY_CARD_OPTIONS_V5_START');
+  if (source.slice(end, start) !== '\n') throw new Error('Placement must precede card options in the outer card scope');
+}
 const bundle = sources.join('');
 const artifact = path.join(root, 'ha-energy-optimizer.js');
 if (process.argv.includes('--write')) fs.writeFileSync(artifact, bundle);
