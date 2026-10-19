@@ -5,29 +5,29 @@
   "images": [
     {
       "file": "optimizer-mobile-light.jpg",
-      "sha256": "76fd91c97d02352e19a71007871a58c5d6fb639557f26733a51b0f2536b60675",
+      "sha256": "49b41b882bc44360a23e58a3ce3909b4f62fa25c224e36e8572da056ce349b03",
       "pixels": [
         390,
-        674
+        844
       ],
-      "captured_at": "2026-10-18T08:56:08.256198+00:00",
-      "source_candidate": "989e05e959d4b7e2ed2f4aa5b252fd0e2e1c6944",
-      "backend_candidate": "0869a2e2acef805224a72d5668df27da314dd215",
-      "capture": "w22-390-light-optimizer-settled.jpg",
-      "qualification": "Unedited actual native Chrome capture, personally inspected; synthetic measurements only. Stable visible frame, no household data, personal tabs or real recipient. Current 4.0 frontend and 2.4 backend. Mobile viewport390x674; this is device emulation, not native browser zoom200%."
+      "captured_at": "2026-10-19",
+      "source_candidate": "09a3262070c69d13400e37d44ed24508fdfb49d5",
+      "backend_candidate": "16eaabe2c8222313363152f5835c79579f7a6fe2",
+      "capture": "optimizer390-pl-light.png",
+      "qualification": "Unedited native HA Core2026.9.4 Chrome screenshot, actual CSS390x844 dpr1, personally inspected. HACS exactpair and HTTP bundle verified. Synthetic Recorder dayOct10:250kWh,totalcost247EUR,cheapshare23.2%,peak22kWh18Warsaw. Current schema2 Optimizer; no household data, recipients or inbox-delivery claim. Not actual browser200percent zoom."
     },
     {
       "file": "optimizer-mobile-dark.jpg",
-      "sha256": "40f5aa0d91512792c4eb8ec68b6c6d8d42c072d1a5bbbc34f1d846031a69ef3b",
+      "sha256": "239f1f0b28250e080975170f483bdad36b0ae0a3be978a29dd3d3b95696c75a9",
       "pixels": [
         390,
-        674
+        844
       ],
-      "captured_at": "2026-10-18T08:51:15.169546+00:00",
-      "source_candidate": "989e05e959d4b7e2ed2f4aa5b252fd0e2e1c6944",
-      "backend_candidate": "0869a2e2acef805224a72d5668df27da314dd215",
-      "capture": "w22-390-dark-optimizer.jpg",
-      "qualification": "Unedited actual native Chrome capture, personally inspected; synthetic measurements only. Stable visible frame, no household data, personal tabs or real recipient. Current 4.0 frontend and 2.4 backend. Mobile viewport390x674; this is device emulation, not native browser zoom200%."
+      "captured_at": "2026-10-19",
+      "source_candidate": "09a3262070c69d13400e37d44ed24508fdfb49d5",
+      "backend_candidate": "16eaabe2c8222313363152f5835c79579f7a6fe2",
+      "capture": "optimizer390-pl-dark.png",
+      "qualification": "Unedited native HA Core2026.9.4 Chrome screenshot, actual CSS390x844 dpr1, personally inspected. HACS exactpair and HTTP bundle verified. Synthetic Recorder dayOct10:250kWh,totalcost247EUR,cheapshare23.2%,peak22kWh18Warsaw. Current schema2 Optimizer; no household data, recipients or inbox-delivery claim. Not actual browser200percent zoom."
     },
     {
       "file": "insights-mobile-light.jpg",
@@ -111,7 +111,7 @@
   "data": "Controlled synthetic Recorder Alpha/Beta, sample EUR gross tariff, no household data or real recipient.",
   "windows": "Optimizer/Insights today18Oct2026 Europe/Warsaw00:00–10:00:37.20kWh/10completedhours. Optimizer usage cost34.50EUR includes energy25.20EUR and variablefees9.30EUR. Email rolling24h:90.6kWh/48of48sourcehours/103.20EUR energy cost. Weekly actual mail5–12Oct:634.20kWh/336sourcehours/880.95EUR usagecost. Fixed monthly7EUR remains separate. Different windows and cost components are intentional.",
   "email_preview": "Current Polish weekly actual backend HTML, HA languagepl/Warsaw, readable local header, chart and comparison dates. Preview-only, no Send.",
-  "capture_limit": "Mobile screenshots have actual CSSheight674, not800. Device emulation is separate from browser200% zoom. The first transient faded390light frame was rejected; optimizer-mobile-light uses the later settled capture. Published images retain original JPEG bytes without crop/retouch/scaling/compositing. This image set is product documentation; it does not assert completion of the whole W22 matrix or mail-client delivery.",
+  "capture_limit": "Optimizer native92 captures CSS390x844; older compatibility mobile images CSS390x674. Native browser200percent is separate. All images retain original JPEG bytes without crop/retouch/scaling/compositing. This partial image set does not qualify the whole W22 or mail-client matrix.",
   "compact": "Three compact cards in Masonry after actual Polish visual-editor saves; N/A reflects a missing new measured hour. Same frontend989, backend source84e; later backend0869 changes mail dates only, without compact/tariff engine changes.",
   "decorative_banner": {
     "file": "../../banner-v3.6.png",
@@ -125,5 +125,6 @@
     "title": "Energy Optimizer",
     "subtitle": "Measured energy & tariff costs",
     "old_banner": "banner.png retained as historical asset, no longer referenced by README"
-  }
+  },
+  "image_set_note": "Mixed sources: Optimizer images updated to native92 exact schema2 bundle; remaining images retain their recorded historical compatibility sources and are labeled as such in README."
 }

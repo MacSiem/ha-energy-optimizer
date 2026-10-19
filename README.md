@@ -159,7 +159,7 @@ follow Home Assistant's light/dark theme and date/time preferences.
 
 | Optimizer, phone light | Optimizer, phone dark |
 |---|---|
-| ![Optimizer with readable local dates, measured usage of 37.20 kWh and usage cost of 34.50 EUR](docs/screenshots/optimizer-mobile-light.jpg) | ![The same Optimizer view in the dark theme](docs/screenshots/optimizer-mobile-dark.jpg) |
+| ![Optimizer with 250 kWh, total period cost 247 EUR and 23.2% cheap-zone share](docs/screenshots/optimizer-mobile-light.jpg) | ![The same Optimizer view in the dark theme](docs/screenshots/optimizer-mobile-dark.jpg) |
 
 | Insights, phone light | Insights, phone dark |
 |---|---|
@@ -173,13 +173,19 @@ follow Home Assistant's light/dark theme and date/time preferences.
 |---|---|
 | ![Server-composed Polish weekly mail in Phone/Dark preview; no message sent](docs/screenshots/email-polish-preview-dark.jpg) | ![Three compact cards after Polish visual-editor saves; missing data stays N/A](docs/screenshots/compact-masonry-pl-dark.jpg) |
 
-The phone captures use a 390 px viewport. Optimizer and Insights show 37.20 kWh
-across 10 completed hours on 18 October 2026 in the Home Assistant measurement
-calendar. Optimizer's 34.50 EUR usage cost includes 25.20 EUR energy and 9.30 EUR
-variable fees. The Email overview uses a separate 24-hour window: 90.6 kWh across
-48 of 48 source-hours and 103.20 EUR energy cost. Its weekly mail preview covers the
-previous completed ISO week, 5–12 October: 634.20 kWh and 880.95 EUR usage cost. Fixed
-monthly fees stay separate; these amounts are not a complete utility bill.
+Optimizer captures show the current schema-2 view at 390 × 844 px: the complete
+10 October 2026 measurement day, 250 kWh, total period cost 247 EUR and 23.2%
+cheap-zone share. The total includes 221 EUR energy, 25 EUR variable charges and
+1 EUR period fixed fee. The measured peak is 22 kWh at 18:00 Europe/Warsaw.
+The first screen keeps the chart and its axis labels visible. Help and the
+optional power selector expand on demand; the four-tab bar scrolls horizontally.
+
+The remaining captures document earlier compatibility views at their recorded
+source versions; they do not show the current schema-2 layout. Insights shows
+37.20 kWh across 10 completed hours on 18 October. The earlier Email overview
+uses a separate 24-hour window: 90.6 kWh across 48 source-hours and 103.20 EUR
+energy cost. Its weekly preview covers 5–12 October: 634.20 kWh and 880.95 EUR
+usage cost, with fixed monthly fees separate.
 
 The compact example deliberately includes a missing new measured hour, so its
 cost is N/A. Open full view reveals the detailed card. Configure compact mode,
