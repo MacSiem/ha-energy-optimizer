@@ -99,12 +99,25 @@ Use Left / Right to move between visible tabs, or Home / End for the first / las
 | `title` | Card heading. |
 | `default_tab` | Initial visible tab; defaults to the first visible tab. |
 | `tabs` | Nonempty list of visible tab IDs; the default must stay visible. |
-| `compact` | Cost today, current tariff class and next future cheap period, with **Open full view**. Default false. |
+| `variant` | `tile`, `compact` or `full`. New cards start compact. Tile has one primary reading and an Open action; compact adds a short summary. Open and Back keep keyboard focus. Existing cards without this option keep their previous layout. |
+| `compact` | Older boolean setting, retained for compatibility. Use `variant` for new cards. |
 | `show_help` | Optional help; default true. Narrow cards start collapsed. A manual choice is remembered in this browser per user and instance. |
 | `show_support` | Optional administrator support link; default true. Permissions and error messages stay visible. |
 | `chart_hours` | 1–744 completed hours shown in hourly charts; empty keeps the full range. Daily/calendar periods, measured totals and prices are unchanged. Email has no hourly chart. |
 
 Optimizer tab IDs: `dashboard`, `patterns`, `recommendations`, `compare`. Insights: `overview`, `daily`, `weekly`, `monthly`, `tips`. Email: `overview`, `schedule`, `preview`, `send`, `config`, `history`. Sections support 3-column minimum, normal 12-column and compact 6-column sizing; Masonry and Panel remain available. Small layouts use a named tab picker.
+
+### Add a card to another dashboard
+
+Open the full card and choose **Add to dashboard** in its footer. Select an existing dashboard, view and, for a Sections view, section. Review the preview, then press **Add**. The card confirms the saved result. **Undo** restores the previous configuration only while no one has changed that destination since your addition. The closed dialog performs no dashboard requests.
+
+In a compact Energy Email card, **Send now** opens the existing Send form. Review the period and recipients there before sending; opening the form does not send a message. That action requires permission to send, independently of permission to read report status. Tile keeps its single Open action.
+
+### Native cost statistics
+
+An administrator can open the full card and choose **Cost statistics** in its footer. Review the listed sources, currency and gross/net basis, then explicitly enable sharing. Automatic updates add completed hourly usage costs; the dialog shows when updates are paused and need the sources or permissions checked before enabling again. An optional **Add 7 days with current membership** action fills the last 168 completed hours using the current room assignments, rather than reconstructing past assignments.
+
+These native Recorder statistics can be read by **all signed-in Home Assistant users**. Disabling sharing stops future writes; it leaves existing statistics and exported copies available. The feature is off until enabled. It does not enable notifications or send email. For a native seven-day chart, add Home Assistant's **Statistics graph** card, select the published cost series by their catalog names, choose hourly changes and seven days, and keep different currencies separate. Do not add a household zone total to its room breakdown: they describe the same cost from different views.
 
 ### Enable the five Energy entities
 
