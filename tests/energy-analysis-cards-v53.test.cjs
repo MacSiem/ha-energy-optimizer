@@ -401,3 +401,11 @@ test('power sensor choices track units and names at the same entity count',async
   f.advance(11000);f.update({...f.hass,states:states('kW','Renamed')});await settle();assert.deepEqual(options(),['Renamed (sensor.option)']);f.assertQuiet();
  }finally{f.close();}
 });
+
+for(const recipient of [undefined,'qa-recipient@example.invalid'])test('analysis-only Email Overview does not ask for recipient '+Boolean(recipient),async()=>{
+ const f=setup(cases[2]);try{
+  f.card.setConfig({title:'Energy',default_tab:'overview',recipient,show_help:false,show_support:false});await f.mount();
+  assert.equal(f.card.shadowRoot.querySelector('.header-sub').textContent.trim(),'Energy analysis');
+  f.assertNoHistory();f.assertQuiet();
+ }finally{f.close();}
+});
