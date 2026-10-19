@@ -1,3 +1,4 @@
+const { isolateLegacyAnalysis } = require('./helpers/legacy-analysis-fixture.cjs');
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { readFileSync } = require('node:fs');
@@ -350,6 +351,7 @@ test('Email locale changes preserve unsaved schedule fields, checkbox and caret 
 test('Email locale changes keep an inline tariff draft open without applying its value', () => {
   const { dom, card, hass } = setup('ha-energy-email');
   try {
+    isolateLegacyAnalysis(card);card._render();
     card.shadowRoot.getElementById('price-display').click();
     const input = card.shadowRoot.getElementById('price-input');
     input.value = '1.25';

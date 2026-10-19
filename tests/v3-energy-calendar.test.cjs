@@ -161,7 +161,7 @@ for(const backendVersion of ['2.1.2','2.1.99','2.2.0b1']) test('actual Energy so
 const tariffFixtureProfile = {schema:1,name:'Fixture',currency:'CHF',timezone:'UTC',
  clock:{mode:'civil'},priceBasis:'gross',defaultZone:'a',zones:[{id:'a',energyRate:2,variableRate:0}]};
 async function confirmedTariffFixture(t, nextRead, options={}) {
- const f=fixture(t,options);const original=f.hass.callWS;let reads=0;
+ const f=fixture(t,{...options,legacyAnalysis:true});const original=f.hass.callWS;let reads=0;
  f.hass.config.currency='PLN';f.card._config.energy_price=0.7;
  f.hass.callWS=energyBackend(f.card,async msg=>{
   if(msg.type!=='ha_tools_email/get_tariff')return original(msg);
