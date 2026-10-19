@@ -6,13 +6,13 @@ const clone=x=>JSON.parse(JSON.stringify(x));
 const tick=async()=>{for(let i=0;i<10;i++)await new Promise(resolve=>setImmediate(resolve));};
 const deferred=()=>{let resolve,reject;const promise=new Promise((a,b)=>{resolve=a;reject=b;});return {promise,resolve,reject};};
 const facts=(purpose='energy_report')=>({schema:1,purpose,generated_at:'2026-10-19T08:00:00+00:00',schedule_state:'enabled',next_report_at:'2026-10-20T05:00:00+00:00',history_state:'ready',last_attempt:{timestamp:'2026-10-19T07:30:00+00:00',outcome:'accepted_by_smtp',recipient_count:0}});
-function fixture({manualAck=false,ackError=null,purpose='energy_report',reply=()=>facts(purpose),timeoutMs=1000,sourceKey,external}={}){
+function fixture({manualAck=false,ackError=null,purpose='energy_report',reply=()=>facts(purpose),timeoutMs=1000,sourceKey,external,onChange}={}){
  let surface=false,handler=reply,raw=0,maxRaw=0;const calls=[],subscriptions=[];
  const connection=new EventTarget();connection.connected=true;
  connection.subscribeMessage=(callback,message)=>{assert.deepEqual(message,{type:'ha_tools_email/subscribe_analysis_updates'});const ack=deferred(),row={callback,ack,active:false};row.confirm=()=>{row.active=true;ack.resolve(()=>{row.active=false;row.unsubs=(row.unsubs || 0)+1;});};subscriptions.push(row);if(ackError)ack.reject(ackError);else if(!manualAck)row.confirm();return ack.promise;};
  const card={isConnected:false,preview:false,_hass:{user:{id:'one',is_admin:false,is_active:true,groups:[]},connected:true,connection,config:{time_zone:'Europe/Warsaw'},callWS:async request=>{calls.push(clone(request));if(request.type==='unit/read_only_external' && external)return external();assert.deepEqual(request,{type:'ha_tools_email/get_report_status',purpose});raw++;maxRaw=Math.max(maxRaw,raw);try{return await handler(request);}finally{raw--;}}}};
  const guard=createTariffGuardV3({getHass:()=>card._hass,getContext:()=>card.config || null,browser:null,timeoutMs});
- const c=createReportStatusV53({card,guard,purpose,isActive:()=>surface,...(sourceKey?{getSourceKey:sourceKey}:{})});
+ const c=createReportStatusV53({card,guard,purpose,isActive:()=>surface,onChange,...(sourceKey?{getSourceKey:sourceKey}:{})});
  return {card,guard,c,calls,subscriptions,get maxRaw(){return maxRaw;},set reply(value){handler=value;},async mount(){surface=true;card.isConnected=true;c.update();await tick();},stop(){surface=false;card.isConnected=false;c.stop();},async remount(){surface=true;card.isConnected=true;c.update();await tick();},ack(){subscriptions.at(-1).confirm();},signal(){subscriptions.filter(row=>row.active).at(-1)?.callback({});},close(){surface=false;card.isConnected=false;c.stop();guard.dispose();}};
 }
 test('no metadata IO before active mount; ACK is mandatory; snapshot is a copied bounded purpose DTO',async()=>{
@@ -78,4 +78,15 @@ test('an active known calendar boundary expires into one bounded status re-read,
  const f=fixture({reply:()=>++reads===1?first:{...facts(),schedule_state:'unconfigured',next_report_at:null}});try{
   await f.mount();await new Promise(resolve=>setTimeout(resolve,30));await tick();assert.equal(f.calls.length,2);assert.equal(f.c.state().snapshot.schedule_state,'unconfigured');assert.ok(f.calls.every(q=>q.type==='ha_tools_email/get_report_status'));
  }finally{f.close();}
+});
+
+// Transport latency must consume the server's known calendar budget.
+test('delayed reply never publishes an already elapsed next occurrence and refreshes once after raw settlement',async()=>{
+ const old=deferred(),observed=[],d=facts();d.generated_at='2026-10-19T08:00:00.000Z';d.next_report_at='2026-10-19T08:00:00.010Z';
+ const f=fixture({reply:()=>old.promise,onChange:()=>observed.push(f.c.state().snapshot?.next_report_at)});try{
+  await f.mount();assert.equal(f.calls.length,1);await new Promise(resolve=>setTimeout(resolve,30));
+  f.reply=()=>({...facts(),schedule_state:'unconfigured',next_report_at:null});old.resolve(d);await tick();
+  assert.equal(observed.includes(d.next_report_at),false,'expired calendar fact must never be emitted as ready');
+  assert.equal(f.calls.length,2);assert.equal(f.maxRaw,1);assert.equal(f.c.state().snapshot.schedule_state,'unconfigured');
+ }finally{old.resolve(d);f.close();}
 });
