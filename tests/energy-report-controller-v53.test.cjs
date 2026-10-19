@@ -2,6 +2,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
 const {JSDOM}=require('jsdom');
+const {systemIntl}=require('./helpers/system-intl-fixture.cjs');
 const tick=async()=>{for(let i=0;i<8;i++)await new Promise(r=>setImmediate(r));};
 const defer=()=>{let resolve,reject;return {promise:new Promise((a,b)=>{resolve=a;reject=b;}),get resolve(){return resolve;},get reject(){return reject;}};};
 test('shared report helper keeps occupied capabilities wire over identity change, coalesces fresh intent, and disposes subscriptions',async()=>{
@@ -36,6 +37,7 @@ test('report date language follows system date preference independently of UI; r
   const dom=new JSDOM('<body><div id="card"></div></body>',{runScripts:'outside-only'}),w=dom.window;
   w.eval(['ha-tools-format.js','ha-tools-energy-report.js'].map(file=>fs.readFileSync(path.join(__dirname,'..','shared',file),'utf8')).join('\n')+'\nwindow.__reportFactory=createEnergyReportV53;window.__formatFactory=createFormatUi;');
   Object.defineProperty(w.navigator,'language',{configurable:true,value:systemLanguage});
+  Object.defineProperty(w,'Intl',{configurable:true,value:systemIntl(systemLanguage,w.Intl)});
   const card=w.document.getElementById('card');card.attachShadow({mode:'open'});const root=w.document.createElement('section');card.shadowRoot.append(root);card._activeTab='preview';
   const requests=[];let echo='correct';
   card._hass={user:{id:'one'},connection:{connected:true,async subscribeMessage(){return ()=>{};}},config:{time_zone:'Europe/Warsaw'},locale:{language:uiLanguage,date_format:'system',time_format:'24',time_zone:'local'},callWS:async q=>{

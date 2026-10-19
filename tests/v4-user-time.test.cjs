@@ -4,6 +4,7 @@ process.env.TZ='America/New_York';
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const {readFileSync}=require('node:fs');const {JSDOM}=require('jsdom');
 const {createFormatUi}=require('../shared/ha-tools-format.js');
+const {systemIntl}=require('./helpers/system-intl-fixture.cjs');
 const stamp=Date.parse('2026-10-15T22:00:00Z'),H=3600000;
 const hass=(extra={})=>({user:{id:'qa',is_admin:true},connection:{connected:true},language:'pl',locale:{language:'pl',time_zone:'local',time_format:'24',...extra},config:{time_zone:'Europe/Warsaw',currency:'EUR'},states:{}});
 test('display uses the user system zone, with an explicit HA server-zone choice',()=>{
@@ -56,6 +57,7 @@ for(const scenario of [
 ])test(`system date format reaches chart point labels with ${scenario.ui} UI and ${scenario.system} system`,async()=>{
  const f=fixture();try{
   Object.defineProperty(f.dom.window.navigator,'language',{configurable:true,value:scenario.system});
+  Object.defineProperty(f.dom.window,'Intl',{configurable:true,value:systemIntl(scenario.system,f.dom.window.Intl)});
   f.card._hass.locale.language=scenario.ui;f.card._hass.locale.date_format='system';
   const before=f.card._dashboardRowsV3().map(r=>({id:r.id,kwh:r.kwh,energyCost:r.energyCost}));
   await f.card._drawDashboardChart();const chart=f.charts.at(-1);

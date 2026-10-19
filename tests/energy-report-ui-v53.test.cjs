@@ -70,7 +70,7 @@ test('ACK precedes capabilities and data; selected local calendar, comparison, b
   f.ack();await tick();f.change('period','year');f.change('anchor','2024-02-29');f.change('comparison','year_ago');await f.load();
   const q=f.requests.find(x=>x.type.endsWith('/energy_report'));assert.equal(q.period,'year');assert.equal(q.anchor,'2024-02-29');assert.equal(q.comparison,'year_ago');assert.equal(q.language,'en');
   assert.equal(q.timezone,f.w.Intl.DateTimeFormat().resolvedOptions().timeZone);
-  const clock=f.w.Intl.DateTimeFormat(f.w.navigator.language,{hour:'numeric'}).resolvedOptions().hourCycle;assert.equal(q.hour_cycle,['h11','h12'].includes(clock)?'12':'24');
+  const clock=f.w.Intl.DateTimeFormat(undefined,{hour:'numeric'}).resolvedOptions().hourCycle;assert.equal(q.hour_cycle,['h11','h12'].includes(clock)?'12':'24');
   assert.equal(f.node('anchor').value,'2024-02-29');f.clean();
  }finally{f.close();}
 });
