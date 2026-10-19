@@ -95,3 +95,10 @@ test('visual preview is inert and cannot expose live card actions',async()=>{
 test('top-level strategy without views remains read-only with native dashboard link',async()=>{
  const x=setup({strategy:{type:'original'}});try{await x.open();assert.equal(x.q('[data-add]').disabled,true);assert.match(x.q('[role=status]').textContent,/read.only/i);assert.equal(x.q('[data-native]').hidden,false);assert.equal(saves(x).length,0);}finally{x.done();}
 });
+
+test('foreign JSON key reordering is conservatively protected before add and undo',async()=>{
+ const original={title:'Home',unknown:1,views:[{title:'Home',cards:[]}]};
+ const x=setup(original);try{await x.open();x.stored={unknown:1,title:'Home',views:copy(original.views)};x.q('[data-add]').click();await flush();assert.equal(saves(x).length,0);assert.match(x.q('[role=status]').textContent,/changed/i);}finally{x.done();}
+ const y=setup(original);try{await y.open();y.q('[data-add]').click();await flush();const before=JSON.stringify(y.stored);y.q('[data-undo]').click();await flush();assert.equal(JSON.stringify(y.stored),JSON.stringify(original));assert.notEqual(before,JSON.stringify(original));}finally{y.done();}
+ const z=setup(original);try{await z.open();z.q('[data-add]').click();await flush();const saved=z.stored;z.stored={unknown:saved.unknown,title:saved.title,views:saved.views};z.q('[data-undo]').click();await flush();assert.equal(saves(z).length,1);assert.match(z.q('[role=status]').textContent,/changed/i);}finally{z.done();}
+});

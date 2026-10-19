@@ -23,7 +23,8 @@ function createDashboardPlacementV53({host, getHass, getCardConfig,
     return {connection:hass.connection, user:hass.user.id, card, signature:key(card), source:key(getSourceKey())};
   }
   function current(s, intent = s?.intent) {
-    if (!s || session !== s || !dialog?.isConnected || destroyed || s.intent !== intent) return false;
+    if (!s || session !== s || destroyed || s.intent !== intent) return false;
+    if (!dialog?.isConnected) { close(); return false; }
     let live;
     try { live = identity(); } catch (_) { live = null; }
     if (!live || live.connection !== s.connection || live.user !== s.user || live.signature !== s.signature || live.source !== s.source) {
