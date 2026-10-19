@@ -48,7 +48,7 @@ function setup(name,{admin=true,language='en',config={type:`custom:${name}`,vari
     assert.equal(q.acknowledge_global,true);assert.equal(q.acknowledge_current_membership,true);assert.equal(q.expected_revision,stats.revision);assert.deepEqual(clone(q.proposal),expectedProposal,'wire proposal preserves all JSON fields');
     stats={...stats,enabled:true,revision:stats.revision+1,author_user_id:hass.user.id,active_epoch:'epoch',dataset:clone(expectedProposal)};return clone(stats);
    }
-   if(q.type==='ha_tools_email/energy_statistics_disable'){assert.equal(q.expected_revision,stats.revision);stats={...stats,enabled:false,revision:stats.revision+1};return clone(stats);}
+   if(q.type==='ha_tools_email/energy_statistics_disable'){assert.equal(q.expected_revision,stats.revision);stats={...stats,enabled:false,revision:stats.revision+1,...(stats.pending?{pending:false,unconfirmed_history:(stats.unconfirmed_history||0)+1}:{})};return clone(stats);}
    if(q.type==='ha_tools_email/energy_statistics_refresh'){assert.ok(stats.enabled);if(q.backfill)assert.equal(q.acknowledge_current_membership,true);return clone(stats);}
    if(q.type==='lovelace/dashboards/list')return [{url_path:'existing',title:'Existing',mode:'storage'}];
    if(q.type==='lovelace/config')return clone(stored);
@@ -156,4 +156,93 @@ test('automatic hourly sharing and paused status are clear in PL and EN',async()
    a.quiet();
   }finally{a.close();}
  }
+});
+
+// Pending is a confirmed durable-import state, distinct from uncertain wire ACK.
+for(const name of names)test(name+': confirmed pending permits disable even when source preparation is denied',async()=>{
+ const a=setup(name);try{
+  a.stats={...initial(),enabled:true,revision:7,pending:true,author_user_id:'previous-admin',active_epoch:'epoch',dataset:clone(proposal)};
+  a.hook=q=>q.type.endsWith('/energy_statistics_prepare')?Promise.reject({code:'unauthorized',message:'PRIVATE_SOURCE'}):undefined;
+  await a.mount();await a.statistics();
+  assert.equal(a.q('[data-statistics-disable]').disabled,false);
+  assert.equal(a.q('[data-statistics-enable]').disabled,true);
+  assert.equal(a.q('[data-energy-statistics-dialog] input').checked,false);
+  assert.doesNotMatch(a.q('dialog').textContent,/PRIVATE_SOURCE/);
+  a.click('disable');await tick();
+  const writes=a.statisticsCalls().filter(q=>q.type.endsWith('_disable'));
+  assert.equal(writes.length,1);assert.equal(writes[0].expected_revision,7);
+  assert.equal(a.stats.enabled,false);assert.equal(a.stats.pending,false);assert.equal(a.stats.unconfirmed_history,1);
+  assert.match(a.q('[data-statistics-catalog]').textContent,/Unconfirmed history: 1.*No retries.*Previously queued work.*published history remains readable/);
+  assert.equal(a.statisticsCalls().filter(q=>q.type.endsWith('_refresh')||q.type.endsWith('_enable')).length,0);
+  a.quiet();
+ }finally{a.close();}
+});
+test('pending reauthorization requires a fresh proposal and new checkbox; confirmed ACK still permits disable',async()=>{
+ const a=setup('ha-energy-email');try{
+  a.stats={...initial(),enabled:true,revision:3,pending:true,author_user_id:'admin',active_epoch:'epoch',dataset:clone(proposal)};
+  await a.mount();await a.statistics();
+  assert.deepEqual(a.statisticsCalls().map(q=>q.type.split('_').pop()),['status','prepare']);
+  assert.equal(a.q('[data-statistics-enable]').disabled,true);
+  assert.equal(a.q('[data-energy-statistics-dialog] input').checked,false);
+  a.check();assert.equal(a.q('[data-statistics-enable]').disabled,false);a.click('enable');await tick();
+  const enables=a.statisticsCalls().filter(q=>q.type.endsWith('_enable'));
+  assert.equal(enables.length,1);assert.equal(enables[0].expected_revision,3);
+  assert.equal(enables[0].acknowledge_global,true);assert.equal(enables[0].acknowledge_current_membership,true);
+  assert.equal(a.stats.pending,true);assert.equal(a.q('[data-statistics-disable]').disabled,false);
+  a.click('disable');await tick();assert.equal(a.stats.enabled,false);
+  assert.equal(a.statisticsCalls().filter(q=>q.type.endsWith('_refresh')).length,0);a.quiet();
+ }finally{a.close();}
+});
+test('pending belonging to another administrator requires Disable before new consent',async()=>{
+ const a=setup('ha-energy-email');try{
+  a.stats={...initial(),enabled:true,revision:3,pending:true,author_user_id:'previous-admin',active_epoch:'epoch',dataset:clone(proposal)};
+  await a.mount();await a.statistics();a.check();
+  assert.equal(a.q('[data-statistics-enable]').disabled,true);
+  a.q('[data-statistics-enable]').disabled=false;a.click('enable');await tick();
+  assert.equal(a.statisticsCalls().filter(q=>q.type.endsWith('_enable')).length,0);
+  assert.equal(a.q('[data-statistics-disable]').disabled,false);
+  a.click('disable');await tick();assert.equal(a.stats.pending,false);a.quiet();
+ }finally{a.close();}
+});
+test('pending still denies refresh/backfill in handler; rejected disable ACK requires explicit readback',async()=>{
+ const a=setup('ha-energy-email');try{
+  a.stats={...initial(),enabled:true,revision:2,pending:true,author_user_id:'admin',active_epoch:'epoch',dataset:clone(proposal)};
+  await a.mount();await a.statistics();a.check();
+  for(const action of ['refresh','backfill']){
+   assert.equal(a.q('[data-statistics-'+action+']').disabled,true);
+   a.q('[data-statistics-'+action+']').disabled=false;a.click(action);await tick();
+  }
+  assert.equal(a.statisticsCalls().filter(q=>q.type.endsWith('_refresh')).length,0);
+  let writes=0;a.hook=q=>{if(q.type.endsWith('_disable')){writes++;return Promise.reject({code:'energy_statistics_unavailable'});}};
+  a.click('disable');await tick();assert.equal(writes,1);
+  assert.equal(a.q('[data-statistics-disable]').disabled,true);a.click('disable');await tick();assert.equal(writes,1);
+  a.hook=null;a.click('read');await tick();assert.equal(a.q('[data-statistics-disable]').disabled,false);
+  assert.equal(a.q('[data-energy-statistics-dialog] input').checked,false);a.quiet();
+ }finally{a.close();}
+});
+
+test('archived intent count is bounded optional metadata and PL/EN explain no retry without confirming old import',async()=>{
+ for(const language of ['pl','en']){
+  const a=setup('ha-energy-email',{language});try{
+   a.stats={...initial(),unconfirmed_history:2};await a.mount();await a.statistics();
+   assert.match(a.q('[data-statistics-catalog]').textContent,/Niepotwierdzona historia: 2|Unconfirmed history: 2/);
+   assert.match(a.q('[data-statistics-catalog]').textContent,/Bez ponowień|No retries/);
+   assert.match(a.q('[data-statistics-catalog]').textContent,/może się zakończyć|may still finish/);a.quiet();
+  }finally{a.close();}
+ }
+ for(const value of [-1,4097,1.5,'1',null]){
+  const a=setup('ha-energy-email');try{a.stats={...initial(),unconfirmed_history:value};await a.mount();await a.statistics();
+   assert.equal(a.q('[data-statistics-enable]').disabled,true);assert.equal(a.q('[data-statistics-disable]').disabled,true);a.quiet();
+  }finally{a.close();}
+ }
+});
+
+test('legacy disabled pending can explicitly withdraw intent instead of trapping new enable',async()=>{
+ const a=setup('ha-energy-email');try{
+  a.stats={...initial(),enabled:false,revision:4,pending:true,author_user_id:'previous-admin',active_epoch:'epoch',dataset:clone(proposal)};
+  await a.mount();await a.statistics();assert.equal(a.q('[data-statistics-disable]').disabled,false);
+  a.click('disable');await tick();assert.equal(a.stats.enabled,false);assert.equal(a.stats.pending,false);
+  assert.equal(a.stats.unconfirmed_history,1);assert.equal(a.statisticsCalls().filter(q=>q.type.endsWith('_disable')).length,1);
+  assert.equal(a.statisticsCalls().filter(q=>q.type.endsWith('_enable')||q.type.endsWith('_refresh')).length,0);a.quiet();
+ }finally{a.close();}
 });
