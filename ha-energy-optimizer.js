@@ -7,13 +7,14 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
   const hourCycle = preferences.hourCycle || 'h23';
   const dateLanguage = preferences.dateLanguage || language;
+  const clockLanguage = preferences.clockLanguage || language;
   const stamp = value => typeof value === 'number' ? (Number.isFinite(value) ? value : NaN) : typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) ? Date.parse(value) : NaN;
   const localized = (value, options, locale = language) => {
     const time = stamp(value);
     if (!Number.isFinite(time)) return null;
     try { return new Intl.DateTimeFormat(locale, {timeZone, ...options}).format(time); } catch (_) { return null; }
   };
-  const clock = (value, withOffset = false) => localized(value, {hour:'2-digit', minute:'2-digit', hourCycle, ...(withOffset ? {timeZoneName:'shortOffset'} : {})});
+  const clock = (value, withOffset = false) => localized(value, {hour:'2-digit', minute:'2-digit', hourCycle, ...(withOffset ? {timeZoneName:'shortOffset'} : {})}, clockLanguage);
   const date = (value, short = false) => localized(value, {day:'numeric', month:'short', ...(short ? {} : {year:'numeric'})}, dateLanguage);
   // A calendar date has no instant or display zone. Use the selected date
   // locale but preserve its literal day, including historical tariff validity.
@@ -55,7 +56,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     for (const tick of ticks) counts.set(tick.label, (counts.get(tick.label) || 0) + 1);
     return ticks.map(tick => counts.get(tick.label) === 1 ? tick : {...tick, label:clock(values[tick.index], true)});
   };
-  const key = JSON.stringify([language, timeZone, hourCycle, dateLanguage]);
+  const key = JSON.stringify([language, timeZone, hourCycle, dateLanguage, clockLanguage]);
   const numbers = new Intl.NumberFormat(language);
   // Producer Decimal strings carry exact measurement/pricing precision. Keep
   // that precision in Data/details instead of Intl's default three places.
@@ -75,7 +76,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return null;
     try {
       const day = new Intl.DateTimeFormat(dateLanguage, {timeZone, dateStyle:'medium'});
-      const clock = new Intl.DateTimeFormat(language, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle});
+      const clock = new Intl.DateTimeFormat(clockLanguage, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle});
       return day.format(first) === day.format(last)
         ? `${day.format(first)} (${clock.format(first)}–${clock.format(last)})`
         : `${dateTime(from)} – ${dateTime(to)}`;
@@ -104,7 +105,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
       if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
     }
   };
-  return {language, dateLanguage, hourCycle, timeZone, key, clock, date, calendarDate, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : (typeof value === 'string' ? decimals : numbers).format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
+  return {language, dateLanguage, clockLanguage, hourCycle, timeZone, key, clock, date, calendarDate, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : (typeof value === 'string' ? decimals : numbers).format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
 // Presentation follows the HA profile; measurement and tariff calendars remain separate.
 createFormatUi.forHass = hass => {
@@ -115,14 +116,20 @@ createFormatUi.forHass = hass => {
     if (typeof value !== 'string' || !(value === 'UTC' || value.includes('/')) || /^[+-]/.test(value)) return null;
     try { new Intl.DateTimeFormat('en', {timeZone:value}).format(0); return value; } catch (_) { return null; }
   };
-  let systemZone;
-  try { systemZone = validZone(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch (_) {}
+  let systemZone, systemLocale;
+  try {
+    const resolved = Intl.DateTimeFormat().resolvedOptions();
+    systemZone = validZone(resolved.timeZone);
+    // Device region can differ from navigator's preferred content language.
+    systemLocale = resolved.locale;
+  } catch (_) {}
+  const systemRegion = systemLocale || systemLanguage || language;
   const serverZone = validZone(hass?.config?.time_zone);
   const timeZone = (locale.time_zone === 'server' ? serverZone : systemZone) || serverZone || 'UTC';
-  const clockLanguage = locale.time_format === 'system' ? systemLanguage || language : language;
+  const clockLanguage = locale.time_format === 'system' ? systemRegion : language;
   const hourCycle = locale.time_format === '12' ? 'h12' : locale.time_format === '24' ? 'h23'
     : new Intl.DateTimeFormat(clockLanguage, {hour:'numeric'}).resolvedOptions().hourCycle;
-  return createFormatUi(language, timeZone, {hourCycle, dateLanguage:locale.date_format === 'system' ? systemLanguage || language : language});
+  return createFormatUi(language, timeZone, {hourCycle, clockLanguage, dateLanguage:locale.date_format === 'system' ? systemRegion : language});
 };
 // Node tests use the canonical factory; vendored cards keep it local.
 // HA_FORMAT_UI_END
@@ -5102,13 +5109,14 @@ if (!window.customCards.some(c => c.type === 'ha-energy-optimizer')) { window.cu
 function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
   const hourCycle = preferences.hourCycle || 'h23';
   const dateLanguage = preferences.dateLanguage || language;
+  const clockLanguage = preferences.clockLanguage || language;
   const stamp = value => typeof value === 'number' ? (Number.isFinite(value) ? value : NaN) : typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) ? Date.parse(value) : NaN;
   const localized = (value, options, locale = language) => {
     const time = stamp(value);
     if (!Number.isFinite(time)) return null;
     try { return new Intl.DateTimeFormat(locale, {timeZone, ...options}).format(time); } catch (_) { return null; }
   };
-  const clock = (value, withOffset = false) => localized(value, {hour:'2-digit', minute:'2-digit', hourCycle, ...(withOffset ? {timeZoneName:'shortOffset'} : {})});
+  const clock = (value, withOffset = false) => localized(value, {hour:'2-digit', minute:'2-digit', hourCycle, ...(withOffset ? {timeZoneName:'shortOffset'} : {})}, clockLanguage);
   const date = (value, short = false) => localized(value, {day:'numeric', month:'short', ...(short ? {} : {year:'numeric'})}, dateLanguage);
   // A calendar date has no instant or display zone. Use the selected date
   // locale but preserve its literal day, including historical tariff validity.
@@ -5150,7 +5158,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     for (const tick of ticks) counts.set(tick.label, (counts.get(tick.label) || 0) + 1);
     return ticks.map(tick => counts.get(tick.label) === 1 ? tick : {...tick, label:clock(values[tick.index], true)});
   };
-  const key = JSON.stringify([language, timeZone, hourCycle, dateLanguage]);
+  const key = JSON.stringify([language, timeZone, hourCycle, dateLanguage, clockLanguage]);
   const numbers = new Intl.NumberFormat(language);
   // Producer Decimal strings carry exact measurement/pricing precision. Keep
   // that precision in Data/details instead of Intl's default three places.
@@ -5170,7 +5178,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return null;
     try {
       const day = new Intl.DateTimeFormat(dateLanguage, {timeZone, dateStyle:'medium'});
-      const clock = new Intl.DateTimeFormat(language, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle});
+      const clock = new Intl.DateTimeFormat(clockLanguage, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle});
       return day.format(first) === day.format(last)
         ? `${day.format(first)} (${clock.format(first)}–${clock.format(last)})`
         : `${dateTime(from)} – ${dateTime(to)}`;
@@ -5199,7 +5207,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
       if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
     }
   };
-  return {language, dateLanguage, hourCycle, timeZone, key, clock, date, calendarDate, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : (typeof value === 'string' ? decimals : numbers).format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
+  return {language, dateLanguage, clockLanguage, hourCycle, timeZone, key, clock, date, calendarDate, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : (typeof value === 'string' ? decimals : numbers).format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
 // Presentation follows the HA profile; measurement and tariff calendars remain separate.
 createFormatUi.forHass = hass => {
@@ -5210,14 +5218,20 @@ createFormatUi.forHass = hass => {
     if (typeof value !== 'string' || !(value === 'UTC' || value.includes('/')) || /^[+-]/.test(value)) return null;
     try { new Intl.DateTimeFormat('en', {timeZone:value}).format(0); return value; } catch (_) { return null; }
   };
-  let systemZone;
-  try { systemZone = validZone(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch (_) {}
+  let systemZone, systemLocale;
+  try {
+    const resolved = Intl.DateTimeFormat().resolvedOptions();
+    systemZone = validZone(resolved.timeZone);
+    // Device region can differ from navigator's preferred content language.
+    systemLocale = resolved.locale;
+  } catch (_) {}
+  const systemRegion = systemLocale || systemLanguage || language;
   const serverZone = validZone(hass?.config?.time_zone);
   const timeZone = (locale.time_zone === 'server' ? serverZone : systemZone) || serverZone || 'UTC';
-  const clockLanguage = locale.time_format === 'system' ? systemLanguage || language : language;
+  const clockLanguage = locale.time_format === 'system' ? systemRegion : language;
   const hourCycle = locale.time_format === '12' ? 'h12' : locale.time_format === '24' ? 'h23'
     : new Intl.DateTimeFormat(clockLanguage, {hour:'numeric'}).resolvedOptions().hourCycle;
-  return createFormatUi(language, timeZone, {hourCycle, dateLanguage:locale.date_format === 'system' ? systemLanguage || language : language});
+  return createFormatUi(language, timeZone, {hourCycle, clockLanguage, dateLanguage:locale.date_format === 'system' ? systemRegion : language});
 };
 // Node tests use the canonical factory; vendored cards keep it local.
 // HA_FORMAT_UI_END
@@ -9299,13 +9313,14 @@ const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&
 function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
   const hourCycle = preferences.hourCycle || 'h23';
   const dateLanguage = preferences.dateLanguage || language;
+  const clockLanguage = preferences.clockLanguage || language;
   const stamp = value => typeof value === 'number' ? (Number.isFinite(value) ? value : NaN) : typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(value) ? Date.parse(value) : NaN;
   const localized = (value, options, locale = language) => {
     const time = stamp(value);
     if (!Number.isFinite(time)) return null;
     try { return new Intl.DateTimeFormat(locale, {timeZone, ...options}).format(time); } catch (_) { return null; }
   };
-  const clock = (value, withOffset = false) => localized(value, {hour:'2-digit', minute:'2-digit', hourCycle, ...(withOffset ? {timeZoneName:'shortOffset'} : {})});
+  const clock = (value, withOffset = false) => localized(value, {hour:'2-digit', minute:'2-digit', hourCycle, ...(withOffset ? {timeZoneName:'shortOffset'} : {})}, clockLanguage);
   const date = (value, short = false) => localized(value, {day:'numeric', month:'short', ...(short ? {} : {year:'numeric'})}, dateLanguage);
   // A calendar date has no instant or display zone. Use the selected date
   // locale but preserve its literal day, including historical tariff validity.
@@ -9347,7 +9362,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     for (const tick of ticks) counts.set(tick.label, (counts.get(tick.label) || 0) + 1);
     return ticks.map(tick => counts.get(tick.label) === 1 ? tick : {...tick, label:clock(values[tick.index], true)});
   };
-  const key = JSON.stringify([language, timeZone, hourCycle, dateLanguage]);
+  const key = JSON.stringify([language, timeZone, hourCycle, dateLanguage, clockLanguage]);
   const numbers = new Intl.NumberFormat(language);
   // Producer Decimal strings carry exact measurement/pricing precision. Keep
   // that precision in Data/details instead of Intl's default three places.
@@ -9367,7 +9382,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
     if (!Number.isFinite(first) || !Number.isFinite(last) || last < first) return null;
     try {
       const day = new Intl.DateTimeFormat(dateLanguage, {timeZone, dateStyle:'medium'});
-      const clock = new Intl.DateTimeFormat(language, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle});
+      const clock = new Intl.DateTimeFormat(clockLanguage, {timeZone, hour:'2-digit', minute:'2-digit', hourCycle});
       return day.format(first) === day.format(last)
         ? `${day.format(first)} (${clock.format(first)}–${clock.format(last)})`
         : `${dateTime(from)} – ${dateTime(to)}`;
@@ -9396,7 +9411,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
       if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
     }
   };
-  return {language, dateLanguage, hourCycle, timeZone, key, clock, date, calendarDate, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : (typeof value === 'string' ? decimals : numbers).format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
+  return {language, dateLanguage, clockLanguage, hourCycle, timeZone, key, clock, date, calendarDate, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : (typeof value === 'string' ? decimals : numbers).format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
 // Presentation follows the HA profile; measurement and tariff calendars remain separate.
 createFormatUi.forHass = hass => {
@@ -9407,14 +9422,20 @@ createFormatUi.forHass = hass => {
     if (typeof value !== 'string' || !(value === 'UTC' || value.includes('/')) || /^[+-]/.test(value)) return null;
     try { new Intl.DateTimeFormat('en', {timeZone:value}).format(0); return value; } catch (_) { return null; }
   };
-  let systemZone;
-  try { systemZone = validZone(Intl.DateTimeFormat().resolvedOptions().timeZone); } catch (_) {}
+  let systemZone, systemLocale;
+  try {
+    const resolved = Intl.DateTimeFormat().resolvedOptions();
+    systemZone = validZone(resolved.timeZone);
+    // Device region can differ from navigator's preferred content language.
+    systemLocale = resolved.locale;
+  } catch (_) {}
+  const systemRegion = systemLocale || systemLanguage || language;
   const serverZone = validZone(hass?.config?.time_zone);
   const timeZone = (locale.time_zone === 'server' ? serverZone : systemZone) || serverZone || 'UTC';
-  const clockLanguage = locale.time_format === 'system' ? systemLanguage || language : language;
+  const clockLanguage = locale.time_format === 'system' ? systemRegion : language;
   const hourCycle = locale.time_format === '12' ? 'h12' : locale.time_format === '24' ? 'h23'
     : new Intl.DateTimeFormat(clockLanguage, {hour:'numeric'}).resolvedOptions().hourCycle;
-  return createFormatUi(language, timeZone, {hourCycle, dateLanguage:locale.date_format === 'system' ? systemLanguage || language : language});
+  return createFormatUi(language, timeZone, {hourCycle, clockLanguage, dateLanguage:locale.date_format === 'system' ? systemRegion : language});
 };
 // Node tests use the canonical factory; vendored cards keep it local.
 // HA_FORMAT_UI_END
@@ -13749,7 +13770,8 @@ this._installTariffConsumerV3();
         .map(field => ({ id: field.id, value: field.value, checked: field.checked }));
       const L = this._lang === 'pl';
       const recipient = this._getRecipient();
-      const recipientDisplay = this._activeTab==='preview' ? (L ? 'Raport energii w Home Assistant' : 'Energy report in Home Assistant') : recipient
+      const analysisOverview = this._activeTab === 'overview' && !this._analysisHostV53?.legacyAllowed();
+      const recipientDisplay = analysisOverview ? (L ? 'Analiza energii' : 'Energy analysis') : this._activeTab==='preview' ? (L ? 'Raport energii w Home Assistant' : 'Energy report in Home Assistant') : recipient
         ? `${L ? 'Do' : 'To'}: ${_esc(recipient)}`
         : (L ? 'Nie ustawiono odbiorcy' : 'No recipient set');
       this.shadowRoot.innerHTML = `
@@ -13982,7 +14004,7 @@ this._installTariffConsumerV3();
             <div class="header-icon">\u{1F4E7}</div>
             <div>
               <div class="header-title">${_esc(this._config.title)}</div>
-              <div class="header-sub">${recipientDisplay} ${this._activeTab === 'overview' && !this._analysisHostV53?.legacyAllowed() ? (L ? 'Analiza energii' : 'Energy analysis') : ['preview','config'].includes(this._activeTab) ? '' : `\u00A0\u2022\u00A0 ${this._hass?.user?.is_admin === true ? `<button type="button" id="price-display" aria-label="${L ? 'Edytuj taryfę energii' : 'Edit energy tariff'}">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())} \u270E</button>` : `<span id="price-display">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())}</span>`}`}</div>
+              <div class="header-sub">${recipientDisplay} ${analysisOverview || ['preview','config'].includes(this._activeTab) ? '' : `\u00A0\u2022\u00A0 ${this._hass?.user?.is_admin === true ? `<button type="button" id="price-display" aria-label="${L ? 'Edytuj taryfę energii' : 'Edit energy tariff'}">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())} \u270E</button>` : `<span id="price-display">${_esc(this._tariffHeaderCurrencyV3())} ${_esc(this._getTariffLabel())}</span>`}`}</div>
             </div>
           </div>
           <label class="email-tab-picker">${L ? 'Widok' : 'View'}<select id="email-tab-select" aria-label="${L ? 'Widok' : 'View'}">${['overview','schedule','preview','send','config','history'].map((tab,i)=>({tab,i})).filter(({tab})=>this._hass?.user?.is_admin===true||['overview','preview'].includes(tab)).map(({tab,i})=>`<option value="${tab}" ${this._activeTab===tab?'selected':''}>${(L?['Przegląd','Harmonogram','Podgląd','Wyślij teraz','Ustawienia','Historia']:['Overview','Schedule','Preview','Send Now','Config','History'])[i]}</option>`).join('')}</select></label>
