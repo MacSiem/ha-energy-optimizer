@@ -620,7 +620,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=1b66b7f9187108100e99a1415b458104910eb73974777e5bcebb3f0a3b553c77
+    // HA_TARIFF_V3_START sha256=4dd00d7ae646527c1e09637e6c1fba59e81651531ad1e7fcc6cada281eccd805
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1565,7 +1565,7 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
     if (!pending || !enabled || !unsubscribe || raw || guard.occupied() || !active()) return;
     let key,token;
     try { key = source(); token = guard.snapshot(); } catch (_) { reset(); status = 'unavailable'; emit(); return; }
-    const task = {generation,revision,key,token,settled:false,publicDone:false};
+    const task = {generation,revision,key,token,settled:false,publicDone:false,startedAt:performance.now()};
     if (!controlCurrent(task)) return;
     raw = task; pending = false; status = 'loading'; snapshot = null;
     let request;
@@ -1577,7 +1577,13 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
       if (snapshot.next_report_at) {
         // Re-read a known calendar boundary, never compute a new occurrence or
         // infer dispatch. Relative server timestamps avoid browser clock skew.
-        const delay = Math.max(1,Math.min(2147483647,stamp(snapshot.next_report_at)-stamp(snapshot.generated_at)));
+        // The server generated this DTO during the request, before receipt.
+        // Subtract monotonic request time so transport/queue delay cannot extend
+        // the lifetime. This may conservatively refresh early, without relying
+        // on agreement between browser and server wall clocks.
+        const remaining = stamp(snapshot.next_report_at)-stamp(snapshot.generated_at)-Math.max(0,performance.now()-task.startedAt);
+        if (remaining <= 0) { invalidate(); return; }
+        const delay = Math.max(1,Math.min(2147483647,remaining));
         expiry = setTimeout(() => { expiry = null; if (current(task)) invalidate(); },delay);
         expiry?.unref?.();
       }
