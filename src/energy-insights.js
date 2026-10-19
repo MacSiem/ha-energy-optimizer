@@ -295,7 +295,7 @@ createFormatUi.forHass = hass => {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=4dd00d7ae646527c1e09637e6c1fba59e81651531ad1e7fcc6cada281eccd805
+      // HA_TARIFF_V3_START sha256=4cae4321521e9b2fdb27cc0d4918e3a5b9e8d8a44770f1862c52369028f0190d
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1151,7 +1151,7 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
 }
 "use strict";
 // Read-only bounded report facts. One retained raw lane; no private API fallback.
-function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.snapshot().epoch,isActive = () => false,onChange = () => {}}) {
+function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.snapshot().epoch,isActive = () => false,wantsExecute = () => false,onChange = () => {}}) {
   if (!['energy_report','log_digest'].includes(purpose)) throw Error('invalid_report_status_purpose');
   const outcomes = new Set(['accepted_by_smtp','preparation_failed','authentication_failed','recipients_refused','partial_acceptance','tls_failed','transport_outcome_unknown','send_failed','cancelled_outcome_unknown','outcome_unknown']);
   const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -1188,6 +1188,9 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
   };
   let enabled = false, identity = null, generation = 0, revision = 0, activation = null, unsubscribe = null;
   let raw = null, pending = false, scheduled = false, snapshot = null, status = 'idle', expiry = null;
+  let capabilities = null, pendingCapabilities = false, actionWaiter = null;
+  const wantsAction = () => { try { return wantsExecute() === true; } catch (_) { return false; } };
+  const settleAction = allowed => { const waiter = actionWaiter; actionWaiter = null; waiter?.resolve(allowed); };
   const emit = () => { try { onChange(); } catch (_) { /* UI failures cannot release a wire. */ } };
   const active = () => card.isConnected && card.preview !== true && isActive() && card._hass?.connected !== false;
   const primitive = key => typeof key === 'number' && Number.isSafeInteger(key) && key >= 0;
@@ -1195,6 +1198,7 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
   const same = (a,b) => a && b && a.every((value,index) => value === b[index]);
   const reset = () => {
     clearTimeout(expiry); expiry = null;
+    settleAction(false); capabilities = null; pendingCapabilities = false;
     generation++; revision++; enabled = false; identity = null; activation = null; pending = false; snapshot = null; status = 'idle';
     const dispose = unsubscribe; unsubscribe = null; try { dispose?.(); } catch (_) {}
     // raw intentionally survives every authority change, stop, timeout and remount.
@@ -1210,7 +1214,8 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
   };
   const invalidate = () => {
     clearTimeout(expiry); expiry = null;
-    revision++; snapshot = null; pending = enabled && active(); status = pending ? 'loading' : 'idle'; emit(); queue();
+    settleAction(false); capabilities = null;
+    revision++; snapshot = null; pending = enabled && active(); pendingCapabilities = pending && wantsAction(); status = pending ? 'loading' : 'idle'; emit(); queue();
   };
   const failure = error => error?.code === 'unauthorized' || error?.code === 'not_allowed' ? 'denied' : error?.code === 'unknown_command' ? 'unsupported' : 'unavailable';
   function update() {
@@ -1220,10 +1225,10 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
     if (!active() || !guard.available(token)) { if (enabled || identity || snapshot || pending) reset(); return; }
     const next = [token.epoch,key,card._hass?.connected];
     if (enabled && same(identity,next)) return;
-    reset(); enabled = true; identity = next; pending = true; status = 'loading';
+    reset(); enabled = true; identity = next; pending = true; pendingCapabilities = wantsAction(); status = 'loading';
     const task = {generation,token,key};
     const connection = card._hass?.connection;
-    if (typeof connection?.subscribeMessage !== 'function') { pending = false; status = 'unavailable'; return; }
+    if (typeof connection?.subscribeMessage !== 'function') { pendingCapabilities = pending = false; status = 'unavailable'; return; }
     const operation = Promise.resolve().then(() => {
       if (!controlCurrent(task)) return null;
       return connection.subscribeMessage(() => { if (unsubscribe && controlCurrent(task)) invalidate(); },{type:'ha_tools_email/subscribe_analysis_updates'});
@@ -1232,22 +1237,33 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
       if (!controlCurrent(task)) { try { dispose(); } catch (_) {} return; }
       unsubscribe = dispose; pending = true; queue(); emit();
     }).catch(error => {
-      if (controlCurrent(task)) { snapshot = null; pending = false; status = failure(error); emit(); }
+      if (controlCurrent(task)) { capabilities = null; pendingCapabilities = pending = false; settleAction(false); snapshot = null; status = failure(error); emit(); }
     }).finally(() => { if (activation === operation) activation = null; });
     activation = operation;
   }
   function pump() {
-    if (!pending || !enabled || !unsubscribe || raw || guard.occupied() || !active()) return;
+    if ((!pending && !pendingCapabilities) || !enabled || !unsubscribe || raw || guard.occupied() || !active()) return;
     let key,token;
     try { key = source(); token = guard.snapshot(); } catch (_) { reset(); status = 'unavailable'; emit(); return; }
-    const task = {generation,revision,key,token,settled:false,publicDone:false,startedAt:performance.now()};
+    const kind = pending ? 'status' : 'capabilities';
+    if (kind === 'capabilities' && !wantsAction()) { pendingCapabilities = false; settleAction(false); return; }
+    const task = {generation,revision,key,token,kind,settled:false,publicDone:false,startedAt:performance.now()};
     if (!controlCurrent(task)) return;
-    raw = task; pending = false; status = 'loading'; snapshot = null;
+    raw = task;
+    if (kind === 'status') { pending = false; status = 'loading'; snapshot = null; }
+    else pendingCapabilities = false;
     let request;
-    try { request = guard.call(token,{type:'ha_tools_email/get_report_status',purpose}); }
+    try { request = guard.call(token,kind === 'status' ? {type:'ha_tools_email/get_report_status',purpose} : {type:'ha_tools_email/feature_capabilities'}); }
     catch (error) { request = Promise.reject(error); }
     Promise.resolve(request).then(value => {
       if (!current(task)) return;
+      if (kind === 'capabilities') {
+        const feature = purpose === 'energy_report' ? 'energy_reports' : 'log_reports';
+        const grant = value?.capabilities?.[feature];
+        if (value?.status !== 'ready' || !Number.isSafeInteger(value.revision) || value.revision < 0 || !object(grant) || ['visible','read','execute'].some(k => typeof grant[k] !== 'boolean')) throw {code:'invalid_capabilities'};
+        capabilities = {visible:grant.visible,read:grant.read,execute:grant.execute};
+        settleAction(capabilities.visible && capabilities.execute && wantsAction()); emit(); return;
+      }
       snapshot = validate(value); status = 'ready';
       if (snapshot.next_report_at) {
         // Re-read a known calendar boundary, never compute a new occurrence or
@@ -1264,10 +1280,14 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
       }
       emit();
     }).catch(error => {
-      if (current(task)) { snapshot = null; status = failure(error); if (error?.code === 'wire_occupied') pending = true; emit(); }
+      if (current(task)) {
+        if (kind === 'capabilities') { capabilities = null; settleAction(false); if (error?.code === 'wire_occupied') pendingCapabilities = true; }
+        else { snapshot = null; status = failure(error); if (error?.code === 'wire_occupied') pending = true; }
+        emit();
+      }
     }).finally(() => {
       task.publicDone = true;
-      if (task.settled || !guard.occupied()) { if (raw === task) raw = null; queue(); }
+      if (task.settled || !guard.occupied()) { if (raw === task) raw = null; queue(); emit(); }
       // A public timeout leaves raw retained until subscribeWire's actual settlement.
     });
   }
@@ -1278,10 +1298,17 @@ function createReportStatusV53({card,guard,purpose,getSourceKey = () => guard.sn
   });
   const stop = () => { const changed = enabled || identity || snapshot || pending || status !== 'idle'; reset(); if (changed) emit(); };
   const state = () => {
-    update(); if (pending) queue();
-    return {status,busy:raw !== null,snapshot:snapshot ? {...snapshot,last_attempt:snapshot.last_attempt ? {...snapshot.last_attempt} : null} : null};
+    update(); if (pending || pendingCapabilities) queue();
+    return {status,busy:raw !== null,capabilities:capabilities ? {...capabilities} : null,snapshot:snapshot ? {...snapshot,last_attempt:snapshot.last_attempt ? {...snapshot.last_attempt} : null} : null};
   };
-  return {state,update:() => { update(); queue(); },stop};
+  const authorizeExecute = () => {
+    update();
+    if (!enabled || !active() || !unsubscribe || !wantsAction() || raw || guard.occupied()) return Promise.resolve(false);
+    if (actionWaiter) return actionWaiter.promise;
+    let resolve; const promise = new Promise(done => { resolve = done; });
+    actionWaiter = {resolve,promise}; pendingCapabilities = true; queue(); emit(); return promise;
+  };
+  return {state,update:() => { update(); queue(); },stop,authorizeExecute};
 }
 // Node-only import; omitted in consumer closure.
 
@@ -1537,7 +1564,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     const controller = createEnergyAnalysisV53({card,onChange});
     return createEnergyAnalysisBindingV53({card,controller,onInvalidate});
   };
-  const reportStatus = ({onChange,isActive,getSourceKey} = {}) => createReportStatusV53({card,guard,purpose:'energy_report',onChange,isActive,getSourceKey:getSourceKey || (() => guard.snapshot().epoch)});
+  const reportStatus = ({onChange,isActive,getSourceKey,wantsExecute} = {}) => createReportStatusV53({card,guard,purpose:'energy_report',onChange,isActive,wantsExecute,getSourceKey:getSourceKey || (() => guard.snapshot().epoch)});
   return { reportStatus, summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
 }
 "use strict";
@@ -4711,15 +4738,54 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     }
     bar.setAttribute('aria-label',[note,...descriptions,observed < end ? t(host,'Remaining time: Unknown','Pozostały czas: brak danych') : ''].filter(Boolean).join(' '));
   };
+  const compactActionsStyle = '[data-energy-simple=compact] [data-energy-actions]{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}[data-energy-simple=compact] [data-energy-actions] button{flex:1 1 120px;min-width:0}';
   const reportStatusStyle = '[data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}[data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:8em;font-size:12px;line-height:18px}';
   const emailStatusFor = host => host._emailStatusV100 ||= (() => {
     let scheduled = false;
     const active = () => name === 'ha-energy-email' && host.isConnected && host.preview !== true && simple(host);
-    return host._getTariffHostV3().reportStatus({isActive:active,onChange:() => {
+    return host._getTariffHostV3().reportStatus({isActive:active,wantsExecute:() => active() && variant(host._config || {}) === 'compact' && visible(host._config || {}).includes('send') && host._hass?.user?.is_admin === true,onChange:() => {
       if (scheduled) return;
       scheduled = true; queueMicrotask(() => { scheduled = false; if (active()) host._render(); });
     }});
   })();
+  const stopCompactSend = (host, purge = true) => {
+    const active = host._emailCompactSendFlowV106;
+    delete host._emailCompactSendFlowV106;
+    host._emailCompactSendUnsubscribeV106?.(); delete host._emailCompactSendUnsubscribeV106;
+    if (!active) return;
+    const prior = host._emailCompactSendPriorV106; delete host._emailCompactSendPriorV106;
+    if (prior) { host._firstRender = prior.firstRender; host._initialDiscoveryStartedV3 = prior.discovery; host._activeTab = prior.tab; }
+    host._optionsExpandedV5 = false; host._domBuilt = false;
+    if (purge) host._clearEmailContext?.();
+  };
+  const openCompactSend = async host => {
+    if (name !== 'ha-energy-email' || host.preview === true || !host.isConnected || !simple(host) || variant(host._config || {}) !== 'compact' || !visible(host._config || {}).includes('send') || host._hass?.user?.is_admin !== true) return;
+    const guard = host._getTariffHostV3().guard, token = guard.snapshot();
+    const config = JSON.stringify(host._optionsConfigV5);
+    if (!guard.current(token,true) || guard.occupied()) return;
+    const permitted = await emailStatusFor(host).authorizeExecute();
+    if (!host.isConnected || host.preview === true || !simple(host) || variant(host._config || {}) !== 'compact' || !visible(host._config || {}).includes('send') || JSON.stringify(host._optionsConfigV5) !== config || !guard.current(token,true)) return;
+    if (!permitted) { host.shadowRoot.querySelector('[data-energy-open]')?.focus({preventScroll:true}); return; }
+    // Navigation only. The existing form owns period choice, recipient review and the
+    // final send buttons; neither a cadence nor a dispatch is selected here.
+    host._emailCompactSendPriorV106 = {firstRender:host._firstRender,discovery:host._initialDiscoveryStartedV3,tab:host._activeTab};
+    host._emailCompactSendFlowV106 = true;
+    host._initialDiscoveryStartedV3 = false;
+    host._optionsExpandedV5 = true; host._domBuilt = false;
+    // Initialize the native identity in its existing no-discovery Config route,
+    // then open Send. The send form needs bounded settings/previews, not the
+    // legacy overview's Recorder/device discovery pipeline.
+    host._activeTab = 'config';
+    if (hassDescriptor?.set) hassDescriptor.set.call(host,host._hass);
+    host.setActiveTab('send');
+    host._emailCompactSendUnsubscribeV106 = guard.subscribe(() => {
+      stopCompactSend(host); if (host.isConnected) host._render();
+    });
+    host.shadowRoot.querySelector('#mail-period-mode')?.focus({preventScroll:true});
+    // Private settings are read only after this explicit, freshly authorized
+    // navigation; they never become a prerequisite of the compact status DTO.
+    void host._loadEmailBackendConfig?.().catch(() => {});
+  };
   const renderSimple = host => {
     const root = host.shadowRoot, config = host._config || {}, mode = variant(config);
     const unknown = t(host,'Unknown','Brak danych'), email = name === 'ha-energy-email';
@@ -4733,7 +4799,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const attempt = report?.history_state === 'ready' ? report.last_attempt : null;
     const lastAttempt = attempt ? format.dateTime(attempt.timestamp) || unknown : unknown;
     const outcomes = {
-      accepted_by_smtp:t(host,'SMTP accepted; delivery unconfirmed','SMTP przyjął; doręczenie niepotwierdzone'),
+      accepted_by_smtp:t(host,'Mail server accepted; delivery unconfirmed','Serwer poczty przyjął; doręczenie niepotwierdzone'),
       preparation_failed:t(host,'Preparation failed','Przygotowanie nieudane'),authentication_failed:t(host,'Authentication failed','Uwierzytelnienie nieudane'),
       recipients_refused:t(host,'Recipients refused','Odbiorcy odrzuceni'),partial_acceptance:t(host,'Partial SMTP acceptance','Częściowe przyjęcie przez SMTP'),
       tls_failed:t(host,'TLS failed','Błąd TLS'),transport_outcome_unknown:t(host,'Transport outcome unknown','Wynik transportu nieznany'),
@@ -4758,7 +4824,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}${email ? reportStatusStyle : ''}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}<button type="button" data-energy-open></button></section>`;
+      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
       section = root.querySelector('[data-energy-simple]');
       section.querySelector('button').addEventListener('click', () => open(host));
       section.querySelector('button').addEventListener('keydown', event => {
@@ -4766,6 +4832,22 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       });
     }
     if (email) section.dataset.energyReportStatus = '';
+    const grant = reportState?.capabilities;
+    const showSend = email && mode === 'compact' && visible(config).includes('send') && host.preview !== true && host._hass?.user?.is_admin === true && grant?.visible === true;
+    let send = section.querySelector('[data-energy-send-now]');
+    if (!showSend) send?.remove();
+    else {
+      if (!send) {
+        send = document.createElement('button'); send.type = 'button'; send.dataset.energySendNow = '';
+        send.addEventListener('click', () => { void openCompactSend(host); });
+        send.addEventListener('keydown', event => { if (['Enter',' '].includes(event.key) && !event.repeat) { event.preventDefault(); event.currentTarget.click(); } });
+        section.querySelector('[data-energy-actions]').append(send);
+      }
+      send.textContent = t(host,'Send now','Wyślij teraz');
+      send.title = grant.execute === true ? t(host,'Review the recipient and choose a period in the send form; nothing is sent yet.','Sprawdź odbiorcę i wybierz okres w formularzu; nic nie jest jeszcze wysyłane.') : t(host,'Sending is unavailable for this account.','Wysyłka jest niedostępna dla tego konta.');
+      send.setAttribute('aria-label',t(host,'Send now — open send form','Wyślij teraz — otwórz formularz wysyłki'));
+      send.disabled = grant.execute !== true || reportState.busy || host._getTariffHostV3().guard.occupied();
+    }
     const icon = section.querySelector('ha-icon');
     icon.setAttribute('icon', email ? 'mdi:email-outline' : 'mdi:lightning-bolt');
     const tone = snapshot?.status !== 'unavailable' && snapshot?.current?.available === true ? snapshot.current.zone_class : null;
@@ -4775,11 +4857,11 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const primary = section.querySelector('[data-energy-primary]');
     const shortReport = report?.schedule_state === 'enabled' && report.next_report_at ? `${format.date(report.next_report_at,true)} · ${format.clock(report.next_report_at)}` : unknown;
     primary.textContent = email ? mode === 'tile' ? shortReport : nextReport : mode === 'tile' ? `${zone} · ${nextLabel}` : energy;
-    primary.title = email ? `${t(host,'Next calendar occurrence','Następny termin kalendarza')}: ${nextReport}` : primary.textContent;
+    primary.title = email ? `${t(host,'Scheduled report','Zaplanowany raport')}: ${nextReport}` : primary.textContent;
     primary.setAttribute('aria-label',primary.title);
     if (mode === 'compact') {
-      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Next calendar occurrence','Następny termin kalendarza') : t(host,'Energy today','Energia dziś');
-      section.querySelector('[data-energy-cost]').textContent = email ? `${t(host,'Last attempt started','Początek ostatniej próby')}: ${lastAttempt}` : `${t(host,'Usage cost','Koszt zużycia')}: ${money}`;
+      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Scheduled report','Zaplanowany raport') : t(host,'Energy today','Energia dziś');
+      section.querySelector('[data-energy-cost]').textContent = email ? `${t(host,'Last attempt','Ostatnia próba')}: ${lastAttempt}` : `${t(host,'Usage cost','Koszt zużycia')}: ${money}`;
       section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : `${comparisonName}: ${difference}`;
       const caption = section.querySelector('[data-energy-zone-caption]');
       if (caption) caption.textContent = t(host,'Day tariff zones','Strefy taryfy w ciągu dnia');
@@ -4794,6 +4876,9 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   const hassDescriptor = Object.getOwnPropertyDescriptor(Card.prototype,'hass');
   if (hassDescriptor?.set) Object.defineProperty(Card.prototype,'hass',{...hassDescriptor,set(value) {
     try {
+      // Observe a sender entered from compact before choosing the full setter.
+      // A revoked context returns to compact before legacy full discovery can run.
+      if (this._emailCompactSendFlowV106) { this._hass = value; this._tariffHostController?.guard.observe(); }
       // A real inert preview renders the actual card but does not start the
       // full surface's legacy discovery of SMTP, settings or schedules.
       if (!simple(this) && this.preview !== true) return hassDescriptor.set.call(this,value);
@@ -4874,7 +4959,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       const css = document.createElement('style'); css.textContent = simpleStyle; root.append(css);
       const back = document.createElement('button'); back.type = 'button'; back.dataset.energyBack = '';
       back.textContent = t(this,'Back to summary','Wróć do podsumowania');
-      back.addEventListener('click', () => { this._optionsExpandedV5 = false; this._domBuilt = false; this._render(); root.querySelector('[data-energy-open]')?.focus({preventScroll:true}); });
+      back.addEventListener('click', () => { const fromSend = this._emailCompactSendFlowV106; stopCompactSend(this); this._optionsExpandedV5 = false; this._domBuilt = false; this._render(); (fromSend ? root.querySelector('[data-energy-send-now]') || root.querySelector('[data-energy-open]') : root.querySelector('[data-energy-open]'))?.focus({preventScroll:true}); });
       root.prepend(back);
     }
     const back = root.querySelector('[data-energy-back]');
@@ -4977,7 +5062,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     Card.prototype[method] = function(...args) { if (simple(this)) return this._render(); const value = original.apply(this,args); this._applyCardOptionsV5(); return value; };
   }
   const disconnect = Card.prototype.disconnectedCallback;
-  Card.prototype.disconnectedCallback = function() { stopPlacement(this); this._emailStatusV100?.stop(); this._simpleSummaryV95?.stop(); this._simpleTileV95?.stop(); this._optionsResizeV5?.disconnect(); return disconnect?.call(this); };
+  Card.prototype.disconnectedCallback = function() { stopCompactSend(this); stopPlacement(this); this._emailStatusV100?.stop(); this._simpleSummaryV95?.stop(); this._simpleTileV95?.stop(); this._optionsResizeV5?.disconnect(); return disconnect?.call(this); };
   // Reuse existing editor text fields and their focus/caret-preserving synchronization.
   const editorRender = Editor.prototype._render;
   Editor.prototype._render = function(...args) { editorRender.apply(this,args); this._renderOptionsV5(); };
