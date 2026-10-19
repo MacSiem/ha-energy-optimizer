@@ -166,3 +166,18 @@ test('unknown subscription with ready modern data never paints or exposes privat
   assert.ok(painted.every(state=>!state.tile&&!state.snapshot));
  }finally{h.close();}
 });
+
+test('calendar disclosure survives ordinary repaint and parent replacement, closes on identity loss',async()=>{
+  const h=harness();try {
+    h.render();await settled();
+    h.card.querySelector('[data-analysis-calendar-options]').open=true;
+    h.card.querySelector('[data-analysis-action="point"]').click();
+    assert.equal(h.card.querySelector('[data-analysis-calendar-options]').open,true);
+    h.render();await settled();
+    assert.equal(h.card.querySelector('[data-analysis-calendar-options]').open,true);
+    assert.equal(h.calls.length,1);
+    h.card._hass={...h.card._hass,user:{id:'different-reader',is_active:true}};
+    h.host.observe();h.render();await settled();
+    assert.equal(h.card.querySelector('[data-analysis-calendar-options]').open,false);
+  }finally{h.close();}
+});
