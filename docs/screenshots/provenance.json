@@ -1,7 +1,7 @@
 {
-  "runtime_candidate": "989e05e959d4b7e2ed2f4aa5b252fd0e2e1c6944",
-  "runtime_bundle_sha256": "ba3973fc80763648d8f750bc412b6147bdf48eb3b1254c2a3b94c13bdb66f2bb",
-  "backend_candidate": "0869a2e2acef805224a72d5668df27da314dd215",
+  "runtime_candidate": "123a527e72d9231d030deef6707b6ed0f3bea85f",
+  "runtime_bundle_sha256": "14e81ebac66bfa7f486da14b008e48729bc0e4e8431d09decfd5f2fe1cb48e46",
+  "backend_candidate": "337bd1102e747e968f27ce98791edd3a743d677b",
   "images": [
     {
       "file": "optimizer-mobile-light.jpg",
@@ -158,10 +158,23 @@
       "backend_candidate": "ea55b07fe43f211d4e4b8e3618c955b918b246dd",
       "capture": "native134ui/sections6-en390-dark.png",
       "qualification": "Unedited native HA Core2026.9.4 supported-tab CDP viewport screenshot, CSS390x844/DPR1/scale1; personally inspected. Actual HACS68backendfiles and frontend from native134r2 retained byte-exact; source852hour rows per series, old851 exact. No tariff book or SMTP; no household data. Sections6 EN Dark20Oct through13:00Warsaw:130kWh/32.50EUR;183pxcards246high/actions44/font12, no overflow. Not an inbox, real200percent zoom, or whole-matrix claim."
+    },
+    {
+      "file": "overview-comparison-pl-dark.png",
+      "sha256": "bbe7f45c22b7aee360a30659f43908d64e12d56824dc85d3b856209a458e4846",
+      "pixels": [
+        390,
+        844
+      ],
+      "captured_at": "2026-10-20",
+      "source_candidate": "123a527e72d9231d030deef6707b6ed0f3bea85f",
+      "backend_candidate": "6b7ebafb872fcbb354253970c92fdf09f38a755d",
+      "capture": "optimizer-day10-pl390-dark.png",
+      "qualification": "Unedited native HA Core2026.9.4 capture, synthetic Recorder dayOct10 250kWh247EUR, previous full-period delta0, effective0.99EUR/kWh, highest18:00 without redundant offset. PL390Dark no horizontal overflow. Backend337 changes mail presentation only; overview facts/view unchanged. No physical phone or delivery claim."
     }
   ],
   "data": "Controlled synthetic Recorder Alpha/Beta, sample EUR gross tariff, no household data or real recipient.",
-  "windows": "Optimizer/Insights today18Oct2026 Europe/Warsaw00:00–10:00:37.20kWh/10completedhours. Optimizer usage cost34.50EUR includes energy25.20EUR and variablefees9.30EUR. Email rolling24h:90.6kWh/48of48sourcehours/103.20EUR energy cost. Weekly actual mail5–12Oct:634.20kWh/336sourcehours/880.95EUR usagecost. Fixed monthly7EUR remains separate. Different windows and cost components are intentional.",
+  "windows": "Optimizer/Insights today18Oct2026 Europe/Warsaw00:00\u201310:00:37.20kWh/10completedhours. Optimizer usage cost34.50EUR includes energy25.20EUR and variablefees9.30EUR. Email rolling24h:90.6kWh/48of48sourcehours/103.20EUR energy cost. Weekly actual mail5\u201312Oct:634.20kWh/336sourcehours/880.95EUR usagecost. Fixed monthly7EUR remains separate. Different windows and cost components are intentional.",
   "email_preview": "Current Polish weekly actual backend HTML, HA languagepl/Warsaw, readable local header, chart and comparison dates. Preview-only, no Send.",
   "capture_limit": "Optimizer native92 captures CSS390x844; older compatibility mobile images CSS390x674. Native browser200percent is separate. All images retain original JPEG bytes without crop/retouch/scaling/compositing. This partial image set does not qualify the whole W22 or mail-client matrix.",
   "compact": "Three compact cards in Masonry after actual Polish visual-editor saves; N/A reflects a missing new measured hour. Same frontend989, backend source84e; later backend0869 changes mail dates only, without compact/tariff engine changes.",

@@ -178,6 +178,10 @@ confirm inbox delivery; an occupied send is never automatically retried.
 
 ## Screenshots
 
+The overview explains measured consumption using the selected comparable baseline. Unknown comparisons stay explicit; ordinary peak times follow your clock preference, with offsets retained for repeated DST hours or a different display zone.
+
+![Current Polish dark overview: 250 kWh, previous-period change 0, cost 247 EUR and peak at 18:00](docs/screenshots/overview-comparison-pl-dark.png)
+
 These unedited native Home Assistant browser captures use synthetic Recorder statistics and a
 sample EUR tariff or an independently recorded EUR import-cost series. They contain no household data or real recipients. The cards
 follow Home Assistant's light/dark theme and date/time preferences.

@@ -2,6 +2,8 @@
 
 ## 4.0.0 (Unreleased)
 
+- Explain overview consumption with a matching published comparison, preserving unknown baselines. Omit redundant offsets from ordinary peak times while keeping DST disambiguation, different display zones and exact time details.
+
 - Show the grid-import cost already recorded by HA Energy in analysis, Compact and HTML/text/CSV reports when no tariff book is configured. Keep current prices explicitly current-only, partial coverage distinct, and cost components and fixed fees unknown; preserve tariff-book calculations and source permissions.
 
 - Default new picker cards to Compact while preserving existing full cards. Keep native tariff tiles readable in narrow Sections columns, with a complete next-cheap clock, accessible product names and full calendar details. Compact summaries retain measured energy, usage cost and neutral unconfirmed intervals.
