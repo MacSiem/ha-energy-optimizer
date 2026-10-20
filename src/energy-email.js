@@ -4941,83 +4941,48 @@ this._installTariffConsumerV3();
       this.shadowRoot.innerHTML = `
         <style>${LOCAL_BENTO_CSS}
 
-
   /* ===== BENTO DESIGN SYSTEM (local fallback) ===== */
 
   :host {
-    --bento-primary: #3B82F6;
-    --bento-primary-hover: #2563EB;
-    --bento-primary-light: rgba(59, 130, 246, 0.08);
-    --bento-success: #10B981;
-    --bento-success-light: rgba(16, 185, 129, 0.08);
-    --bento-error: #EF4444;
-    --bento-error-light: rgba(239, 68, 68, 0.08);
-    --bento-warning: #F59E0B;
-    --bento-warning-light: rgba(245, 158, 11, 0.08);
-    --bento-bg: var(--primary-background-color, #F8FAFC);
-    --bento-card: var(--card-background-color, #FFFFFF);
-    --bento-border: var(--divider-color, #E2E8F0);
-    --bento-text: var(--primary-text-color, #1E293B);
-    --bento-text-secondary: var(--secondary-text-color, #64748B);
-    --bento-text-muted: var(--disabled-text-color, #94A3B8);
-    --bento-radius-xs: 6px;
-    --bento-radius-sm: 10px;
-    --bento-radius-md: 16px;
-    --bento-shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
-    --bento-shadow-md: 0 4px 12px rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.04);
-    --bento-shadow-lg: 0 8px 25px rgba(0,0,0,0.06), 0 4px 10px rgba(0,0,0,0.04);
-    --bento-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  :host {
-            font-family: 'Inter', sans-serif;
+            font-family: var(--hat-font, var(--_hat-font));
           }
 
-  :host(.bento-dark) {
-      --bento-bg: var(--primary-background-color, #1a1a2e);
-      --bento-card: var(--card-background-color, #16213e);
-      --bento-text: var(--primary-text-color, #e2e8f0);
-      --bento-text-secondary: var(--secondary-text-color, #94a3b8);
-      --bento-border: var(--divider-color, #334155);
-      --bento-shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
-      --bento-shadow-md: 0 4px 12px rgba(0,0,0,0.4);
-    }
-          .card { container-type: inline-size; container-name: energy-card; background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-md); padding: 20px; box-shadow: var(--bento-shadow-sm); box-sizing: border-box; max-width: 100%; overflow: hidden; }
-          .header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+          .card { container-type: inline-size; container-name: energy-card; background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-md); padding: 24px; box-shadow: var(--bento-shadow-sm); box-sizing: border-box; max-width: 100%; overflow: hidden; }
+          .header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
           .header-icon { font-size: 24px; }
           .header-title { font-size: 17px; font-weight: 700; color: var(--bento-text); }
           .header-sub { font-size: 12px; color: var(--bento-text-secondary); margin-top: 1px; }
-          .tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--bento-border); margin-bottom: 18px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: var(--bento-border) transparent; -webkit-overflow-scrolling: touch; }
+          .tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--bento-border); margin-bottom: 16px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: var(--bento-border) transparent; -webkit-overflow-scrolling: touch; }
           .tabs::-webkit-scrollbar { height: 4px; }
           .tabs::-webkit-scrollbar-track { background: transparent; }
           .tabs::-webkit-scrollbar-thumb { background: var(--bento-border); border-radius: 4px; }
-          .tab-btn { padding: 8px 16px; border: none; background: transparent; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--bento-text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; white-space: nowrap; font-family: 'Inter', sans-serif; border-radius: 0; }
+          .tab-btn { padding: 8px 16px; border: none; background: transparent; cursor: pointer; font-size: 14px; font-weight: 500; color: var(--bento-text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; white-space: nowrap; font-family: var(--hat-font, var(--_hat-font)); border-radius: 0; }
           .tab-btn:hover { color: var(--bento-primary); background: var(--bento-primary-light); }
           .tab-btn.active { color: var(--bento-primary); border-bottom-color: var(--bento-primary); font-weight: 600; }
-          .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 16px; }
-          .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; margin-bottom: 16px; }
+          .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-bottom: 16px; }
+          .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 12px; margin-bottom: 16px; }
           @media (max-width: 768px) { .grid3 { grid-template-columns: repeat(2, 1fr); } }
           @media (max-width: 480px) { .grid3 { grid-template-columns: 1fr; } .grid2 { grid-template-columns: repeat(2, 1fr); } }
-          .stat { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 14px; text-align: center; min-width: 0; overflow: hidden; box-sizing: border-box; }
+          .stat { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 16px; text-align: center; min-width: 0; overflow: hidden; box-sizing: border-box; }
           .stat-value { font-size: 24px; font-weight: 700; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
           .stat-label { font-size:12px; font-weight: 500; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .4px; margin-top: 2px; }
           .stat-sub { font-size:12px; color: var(--bento-text-secondary); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
           .stat-sub.source-coverage { white-space: normal; overflow-wrap: anywhere; }
-          .section-title { font-size: 13px; font-weight: 600; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .5px; margin: 16px 0 8px; }
-          .device-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--bento-radius-xs); transition: background .15s; box-sizing: border-box; max-width: 100%; overflow: hidden; }
+          .section-title { font-size: 14px; font-weight: 600; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .5px; margin: 16px 0 8px; }
+          .device-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--bento-radius-xs); transition: background .15s; box-sizing: border-box; max-width: 100%; overflow: hidden; }
           .device-row:hover { background: var(--bento-primary-light); }
-          .device-name { flex: 1; font-size: 13px; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+          .device-name { flex: 1; font-size: 14px; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
           .device-val { font-size: 12px; font-weight: 600; color: var(--bento-primary); min-width: 70px; text-align: right; white-space: nowrap; flex-shrink: 0; }
           .device-bar-wrap { flex: 1; background: var(--bento-border); border-radius: 4px; height: 6px; overflow: hidden; }
           .device-bar { height: 100%; background: var(--bento-primary); border-radius: 4px; transition: width .4s; }
-          .schedule-card { border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 14px; margin-bottom: 10px; box-sizing: border-box; max-width: 100%; overflow: hidden; }
+          .schedule-card { border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 16px; margin-bottom: 12px; box-sizing: border-box; max-width: 100%; overflow: hidden; }
           .schedule-card .config-input { box-sizing: border-box; min-width: 0; max-width: 100%; }
           .schedule-card input:not([type="checkbox"]), .schedule-card select { min-height: 44px; min-width: 44px; box-sizing: border-box; }
           .schedule-toggle { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; gap: 8px; cursor: pointer; }
           .schedule-toggle input[type="checkbox"] { width: 24px; height: 24px; flex: 0 0 24px; margin: 0; }
-          .schedule-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; overflow: hidden; }
+          .schedule-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; overflow: hidden; }
           .schedule-name { font-size: 14px; font-weight: 600; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-          .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size:12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+          .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 12px; border-radius: 20px; font-size:12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
           .badge-ok { background: var(--bento-success-light); color: var(--energy-value-green,#166534); }
           .badge-er { background: var(--bento-error-light); color: var(--energy-value-red,#b91c1c); }
           .badge-wa { background: var(--bento-warning-light); color: var(--energy-value-amber,#92400e); }
@@ -5026,40 +4991,40 @@ this._installTariffConsumerV3();
           .schedule-meta { font-size: 12px; color: var(--bento-text-secondary); }
           .schedule-meta span { margin-right: 12px; }
           .btn-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-          .btn { padding: 8px 16px; border-radius: var(--bento-radius-xs); border: 1.5px solid var(--bento-border); background: var(--bento-card); color: var(--bento-text); font-size: 13px; font-weight: 500; cursor: pointer; font-family: 'Inter', sans-serif; transition: all .2s; }
+          .btn { padding: 8px 16px; border-radius: var(--bento-radius-xs); border: 1.5px solid var(--bento-border); background: var(--bento-card); color: var(--bento-text); font-size: 14px; font-weight: 500; cursor: pointer; font-family: var(--hat-font, var(--_hat-font)); transition: all .2s; }
           .btn:hover { background: var(--bento-bg); }
           .btn:disabled { opacity: .45; cursor: not-allowed; }
-          .btn-primary { background: var(--bento-primary) !important; color: var(--bento-on-primary,#fff) !important; border-color: var(--bento-primary) !important; box-shadow: 0 2px 8px rgba(59,130,246,.3); }
-          .btn-primary:hover { background: var(--bento-primary-hover) !important; }
-          .btn-ok { background: var(--energy-success-button,#166534) !important; color: #fff !important; border-color: var(--energy-success-button,#166534) !important; }
+          .btn-primary { background: var(--bento-primary); color: var(--bento-on-primary,#fff); border-color: var(--bento-primary); box-shadow: 0 2px 8px rgba(59,130,246,.3); }
+          .btn-primary:hover { background: var(--bento-primary-hover); }
+          .btn-ok { background: var(--energy-success-button,#166534); color: #fff; border-color: var(--energy-success-button,#166534); }
           .smtp-section { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
           .smtp-missing { border-color: #f59e0b40; background: #fef3c720; }
           .smtp-header { display: flex; align-items: center; gap: 12px; }
           .smtp-icon { font-size: 24px; }
           .smtp-title { font-weight: 700; font-size: 14px; color: var(--bento-text); }
           .smtp-detail { font-size: 12px; color: var(--bento-text-secondary); margin-top: 2px; }
-          .smtp-detail code { background: var(--bento-border); padding: 1px 6px; border-radius: 4px; font-size:12px; }
-          .smtp-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+          .smtp-detail code { background: var(--bento-border); padding: 1px 8px; border-radius: 4px; font-size:12px; }
+          .smtp-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
           .smtp-guide { margin-top: 16px; }
           .guide-title { font-weight: 700; font-size: 14px; margin-bottom: 12px; color: var(--bento-text); }
           .guide-steps { display: flex; flex-direction: column; gap: 16px; }
           .guide-step { display: flex; gap: 12px; }
-          .step-num { flex-shrink: 0; width: 28px; height: 28px; background: var(--bento-primary); color: var(--bento-on-primary,#fff); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
-          .guide-step p { margin: 4px 0; font-size: 13px; color: var(--bento-text-secondary); line-height: 1.5; }
+          .step-num { flex-shrink: 0; width: 28px; height: 28px; background: var(--bento-primary); color: var(--bento-on-primary,#fff); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
+          .guide-step p { margin: 4px 0; font-size: 14px; color: var(--bento-text-secondary); line-height: 1.5; }
           .guide-step pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto; line-height: 1.6; white-space: pre; margin: 8px 0; max-width: 100%; box-sizing: border-box; }
           .guide-step a { color: var(--bento-primary); text-decoration: none; }
           .guide-step a:hover { text-decoration: underline; }
-          .guide-alt { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--bento-border); }
+          .guide-alt { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--bento-border); }
           .smtp-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
-          .smtp-table th { background: var(--bento-border); padding: 6px 10px; text-align: left; font-weight: 600; }
-          .smtp-table td { padding: 6px 10px; border-bottom: 1px solid var(--bento-border); }
+          .smtp-table th { background: var(--bento-border); padding: 8px 12px; text-align: left; font-weight: 600; }
+          .smtp-table td { padding: 8px 12px; border-bottom: 1px solid var(--bento-border); }
           .smtp-table tr:hover td { background: var(--bento-border); }
-          .toast { display: none; position: fixed; bottom: 24px; right: 24px; z-index: 9999; background: #1e293b; color: #e2e8f0; padding: 12px 20px; border-radius: var(--bento-radius-sm); font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.3); max-width: 320px; }
+          .toast { display: none; position: fixed; bottom: 24px; right: 24px; z-index: 9999; background: #1e293b; color: #e2e8f0; padding: 12px 24px; border-radius: var(--bento-radius-sm); font-size: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.3); max-width: 320px; }
           .toast.show { display: block; animation: slideUp .3s ease-out; }
           @keyframes slideUp { from { opacity:0; transform: translateY(12px); } to { opacity:1; transform: translateY(0); } }
-          .preview-box { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 16px; font-size: 13px; color: var(--bento-text); max-height: 320px; overflow-y: auto; }
-          .preview-box h3 { font-size: 15px; margin: 0 0 10px; }
-          .preview-box h4 { font-size: 13px; margin: 14px 0 6px; color: var(--bento-text-secondary); }
+          .preview-box { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 16px; font-size: 14px; color: var(--bento-text); max-height: 320px; overflow-y: auto; }
+          .preview-box h3 { font-size: 15px; margin: 0 0 12px; }
+          .preview-box h4 { font-size: 14px; margin: 16px 0 8px; color: var(--bento-text-secondary); }
           .preview-table { width: 100%; border-collapse: collapse; font-size: 12px; }
           .preview-table th { background: var(--bento-border); padding: 5px 8px; text-align: left; font-weight: 600; font-size:12px; }
           .preview-table td { padding: 5px 8px; border-bottom: 1px solid var(--bento-border); }
@@ -5067,38 +5032,38 @@ this._installTariffConsumerV3();
           .trend-up { color: var(--energy-value-red,#b91c1c); }
           .trend-down { color: var(--energy-value-green,#166534); }
           .pagination-row { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px 0 4px; }
-          .pagination-btn { padding: 6px 14px; border: 1px solid var(--bento-border); border-radius: var(--bento-radius-xs); background: var(--bento-bg); color: var(--bento-text); font-size: 12px; cursor: pointer; transition: all .15s; }
+          .pagination-btn { padding: 8px 16px; border: 1px solid var(--bento-border); border-radius: var(--bento-radius-xs); background: var(--bento-bg); color: var(--bento-text); font-size: 12px; cursor: pointer; transition: all .15s; }
           .pagination-btn:hover:not([disabled]) { background: var(--bento-primary-light); border-color: var(--bento-primary); color: var(--bento-primary); }
           .pagination-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
           .pagination-info { font-size: 12px; color: var(--bento-text-secondary); }
-          .info-row { display: flex; gap: 6px; align-items: flex-start; padding: 10px; background: var(--bento-primary-light); border-radius: var(--bento-radius-xs); margin-bottom: 12px; font-size: 12px; color: var(--bento-text); }
+          .info-row { display: flex; gap: 8px; align-items: flex-start; padding: 12px; background: var(--bento-primary-light); border-radius: var(--bento-radius-xs); margin-bottom: 12px; font-size: 12px; color: var(--bento-text); }
           .info-warn { background: var(--bento-warning-light); }
           .auto-on { color: var(--energy-value-green,#166534); }
           .auto-off { color: var(--energy-value-red,#b91c1c); }
           .auto-unknown { color: var(--energy-value-amber,#92400e); }
-          .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; margin-right: 6px; vertical-align: middle; }
+          .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; margin-right: 8px; vertical-align: middle; }
           @keyframes spin { to { transform: rotate(360deg); } }
           .last-sent { font-size:12px; color: var(--bento-text); margin-top: 4px; }
-          .empty-state { text-align: center; padding: 32px 20px; }
+          .empty-state { text-align: center; padding: 32px 24px; }
           .empty-state .big { font-size: 40px; margin-bottom: 12px; }
-          .empty-state .title { font-size: 15px; font-weight: 600; color: var(--bento-text); margin-bottom: 6px; }
-          .empty-state .desc { font-size: 13px; color: var(--bento-text-secondary); line-height: 1.6; max-width: 400px; margin: 0 auto; }
-          .source-badge { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px; border-radius: 10px; font-size:12px; font-weight: 600; margin-left: 6px; }
+          .empty-state .title { font-size: 15px; font-weight: 600; color: var(--bento-text); margin-bottom: 8px; }
+          .empty-state .desc { font-size: 14px; color: var(--bento-text-secondary); line-height: 1.6; max-width: 400px; margin: 0 auto; }
+          .source-badge { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px; border-radius: 10px; font-size:12px; font-weight: 600; margin-left: 8px; }
           .source-auto { background: rgba(139,92,246,.1); color: var(--energy-value-purple,#6d28d9); }
-          .email-setup { background: var(--bento-warning-light); border: 1px solid rgba(245,158,11,.3); border-radius: var(--bento-radius-sm); padding: 14px; margin-bottom: 16px; }
-          .email-setup-title { font-size: 13px; font-weight: 600; color: var(--bento-text); margin-bottom: 8px; }
+          .email-setup { background: var(--bento-warning-light); border: 1px solid rgba(245,158,11,.3); border-radius: var(--bento-radius-sm); padding: 16px; margin-bottom: 16px; }
+          .email-setup-title { font-size: 14px; font-weight: 600; color: var(--bento-text); margin-bottom: 8px; }
           .email-input-row { display: flex; gap: 8px; align-items: center; }
-          .email-input { flex: 1; padding: 8px 12px; border: 1.5px solid var(--bento-border); border-radius: var(--bento-radius-xs); font-size: 13px; font-family: 'Inter', sans-serif; background: var(--bento-card); color: var(--bento-text); outline: none; }
+          .email-input { flex: 1; padding: 8px 12px; border: 1.5px solid var(--bento-border); border-radius: var(--bento-radius-xs); font-size: 14px; font-family: var(--hat-font, var(--_hat-font)); background: var(--bento-card); color: var(--bento-text); outline: none; }
           .email-input:focus { border-color: var(--bento-primary); box-shadow: 0 0 0 3px var(--bento-primary-light); }
           .email-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px 12px; background: var(--bento-success-light); border-radius: var(--bento-radius-xs); font-size: 12px; color: var(--bento-text); }
-          .email-edit-btn { background: none; border: none; color: var(--bento-primary); cursor: pointer; font-size:12px; padding: 2px 6px; font-family: 'Inter', sans-serif; }
+          .email-edit-btn { background: none; border: none; color: var(--bento-primary); cursor: pointer; font-size:12px; padding: 2px 8px; font-family: var(--hat-font, var(--_hat-font)); }
           .email-edit-btn:hover { text-decoration: underline; }
           .source-manual { background: var(--bento-success-light); color: var(--energy-value-green,#166534); }
-          .config-section { margin-bottom: 20px; }
-          .config-section-title { font-size: 13px; font-weight: 700; color: var(--bento-text); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
-          .device-toggle { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--bento-radius-xs); transition: background .15s; }
+          .config-section { margin-bottom: 24px; }
+          .config-section-title { font-size: 14px; font-weight: 700; color: var(--bento-text); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+          .device-toggle { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: var(--bento-radius-xs); transition: background .15s; }
           .device-toggle:hover { background: var(--bento-primary-light); }
-          .device-toggle label { flex: 1; font-size: 13px; color: var(--bento-text); cursor: pointer; display: flex; align-items: center; gap: 8px; }
+          .device-toggle label { flex: 1; font-size: 14px; color: var(--bento-text); cursor: pointer; display: flex; align-items: center; gap: 8px; }
           .device-toggle .dt-val { font-size:12px; color: var(--bento-text-secondary); min-width: 60px; text-align: right; }
           .toggle-switch { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
           .toggle-switch input { opacity: 0; width: 0; height: 0; }
@@ -5108,13 +5073,13 @@ this._installTariffConsumerV3();
           .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
           .config-input-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
           .config-input-row label { font-size: 12px; color: var(--bento-text-secondary); min-width: 80px; font-weight: 500; }
-          .config-input { padding: 6px 10px; border: 1.5px solid var(--bento-border); border-radius: var(--bento-radius-xs); font-size: 13px; background: var(--bento-card); color: var(--bento-text); font-family: 'Inter', sans-serif; }
+          .config-input { padding: 8px 12px; border: 1.5px solid var(--bento-border); border-radius: var(--bento-radius-xs); font-size: 14px; background: var(--bento-card); color: var(--bento-text); font-family: var(--hat-font, var(--_hat-font)); }
           .config-input:focus { border-color: var(--bento-primary); outline: none; box-shadow: 0 0 0 3px var(--bento-primary-light); }
           .device-count { font-size:12px; color: var(--bento-text-muted); font-weight: 400; }
           @media (max-width: 768px) {
             .tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 2px; }
-            .tab-btn { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
-            .card { padding: 14px; }
+            .tab-btn { padding: 8px 12px; font-size: 12px; white-space: nowrap; }
+            .card { padding: 16px; }
             .grid3 { grid-template-columns: repeat(2, 1fr); gap: 8px; }
             .grid2 { grid-template-columns: repeat(2, 1fr); gap: 8px; }
             .stat-value { font-size: 18px; }
@@ -5128,13 +5093,11 @@ this._installTariffConsumerV3();
             .stat-value { font-size: 16px; }
           }
 
-
-
           ${this._getTariffHostV3().ui().css}
           .email-action-result{padding:12px;border:1px solid var(--bento-border);border-radius:10px;margin:12px 0;overflow-wrap:anywhere}
           .email-action-result p{margin:8px 0 0;line-height:1.5}
-          .card a{color:#2563eb;text-underline-offset:2px}
-          :host(.bento-dark) .card a{color:#93c5fd}
+          .card a{color:var(--hat-primary, var(--_hat-primary));text-underline-offset:2px}
+          
           :host .ht-result-state--not_checked,:host .ht-result-state--no_data{color:var(--bento-text-secondary,#64748b)}
           .card button,.card select{min-height:44px;min-width:44px;box-sizing:border-box}
           .card :is(button,input,select,[tabindex]):focus-visible{outline:3px solid var(--bento-primary);outline-offset:2px}
@@ -5146,22 +5109,81 @@ this._installTariffConsumerV3();
           .card .tab-btn{white-space:nowrap;overflow-wrap:normal;flex:0 0 auto;min-height:44px;min-width:44px}
           .email-tab-picker{display:none}
           .history-actions{display:flex;flex-wrap:wrap;gap:8px}
-          .history-actions button{padding:10px 14px;border:1px solid var(--bento-border);border-radius:10px;background:var(--bento-card);color:var(--bento-text);font:inherit;cursor:pointer}
+          .history-actions button{padding:12px 16px;border:1px solid var(--bento-border);border-radius:10px;background:var(--bento-card);color:var(--bento-text);font:inherit;cursor:pointer}
           .history-actions button:focus-visible{outline:3px solid var(--bento-primary);outline-offset:2px}
           .attempt-history p{line-height:1.55}.history-records{font-size:14px}
           .attempt-history{overflow-wrap:anywhere;color:var(--bento-text)}
           .history-records{width:100%;border-collapse:collapse}
-          .history-records th,.history-records td{padding:10px;text-align:left;border-bottom:1px solid var(--bento-border);overflow-wrap:anywhere}
+          .history-records th,.history-records td{padding:12px;text-align:left;border-bottom:1px solid var(--bento-border);overflow-wrap:anywhere}
           @container energy-card (max-width:499px){
             .history-records thead{position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden}
             .history-records,.history-records tbody{display:block}
             .history-records tbody tr{display:block;border:1px solid var(--bento-border);border-radius:10px;margin-block:12px;padding:8px}
-            .history-records tbody td{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:10px;border:0;padding:8px}
+            .history-records tbody td{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:12px;border:0;padding:8px}
             .history-records tbody td::before{content:attr(data-label);font-weight:600}
           }
           @container energy-card (max-width:279px){.card .tabs{display:none !important}.email-tab-picker{display:block}.email-tab-picker select{width:100%}}
 
-  </style>
+  
+/* Spec 5.3 full-view bridge; shared UI supplies defaults after vendoring. */
+:host {
+  --bento-primary: var(--hat-primary, var(--_hat-primary));
+  --bento-on-primary: var(--hat-on-primary, var(--_hat-on-primary));
+  --bento-primary-hover: color-mix(in srgb, var(--hat-primary-fill, var(--_hat-primary-fill)) 90%, var(--hat-text, var(--_hat-text)));
+  --bento-primary-light: color-mix(in srgb, var(--hat-primary, var(--_hat-primary)) 8%, transparent);
+  --bento-success: var(--hat-good, var(--_hat-good));
+  --bento-error: var(--hat-crit, var(--_hat-crit));
+  --bento-warning: var(--hat-warn, var(--_hat-warn));
+  --bento-bg: var(--hat-bg, var(--_hat-bg));
+  --bento-card: var(--hat-card, var(--_hat-card));
+  --bento-border: var(--hat-border, var(--_hat-border));
+  --bento-text: var(--hat-text, var(--_hat-text));
+  --bento-text-secondary: var(--hat-text-2, var(--_hat-text-2));
+  --bento-text-muted: var(--hat-text-2, var(--_hat-text-2));
+  --bento-radius-xs: var(--hat-radius, var(--_hat-radius));
+  --bento-radius-sm: var(--hat-radius, var(--_hat-radius));
+  --bento-radius-md: var(--hat-radius, var(--_hat-radius));
+  --bento-radius: var(--hat-radius, var(--_hat-radius));
+  --bento-shadow-sm: var(--ha-card-box-shadow, none);
+  --bento-shadow-md: var(--ha-card-box-shadow, none);
+  --bento-shadow-lg: var(--ha-card-box-shadow, none);
+  --bento-transition: var(--hat-motion,150ms ease);
+  --bento-success-light: color-mix(in srgb, var(--hat-good, var(--_hat-good)) 8%, transparent);
+  --bento-error-light: color-mix(in srgb, var(--hat-crit, var(--_hat-crit)) 8%, transparent);
+  --bento-warning-light: color-mix(in srgb, var(--hat-warn, var(--_hat-warn)) 8%, transparent);
+  --energy-value-blue: var(--hat-primary, var(--_hat-primary));
+  --energy-value-amber: var(--hat-warn-text, var(--_hat-warn-text));
+  --energy-value-green: var(--hat-good-text, var(--_hat-good-text));
+  --energy-value-red: var(--hat-crit-text, var(--_hat-crit-text));
+  --energy-value-neutral: var(--hat-text-2, var(--_hat-text-2));
+  --energy-value-purple: var(--hat-d2, var(--_hat-d2));
+  --energy-success-button: var(--hat-primary-fill, var(--_hat-primary-fill));
+  font-family:var(--hat-font, var(--_hat-font));font-size:14px;line-height:20px;color:var(--hat-text, var(--_hat-text));
+}
+
+:is(.card,.card-container,.panel-root,ha-card,.stat,.stat-card) { border-radius:var(--hat-radius, var(--_hat-radius));box-shadow:var(--ha-card-box-shadow,none); }
+:is(button,.btn,.tab,.tab-btn,.tab-button,input,select,textarea) { font-family:var(--hat-font, var(--_hat-font));font-size:14px;line-height:20px; }
+:is(.btn-primary,button.active,.btn.active,.action-btn.active) { background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary));border-color:var(--hat-primary-fill, var(--_hat-primary-fill));box-shadow:none; }
+:is(.btn-primary,button.active,.btn.active,.action-btn.active):hover { background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary));filter:brightness(.96); }
+.btn-ok { background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary));border-color:var(--hat-primary-fill, var(--_hat-primary-fill)); }
+:is(.badge,.status-badge,.tag,.chip,.trend-badge) { min-height:24px;box-sizing:border-box;border:1px solid currentColor;border-radius:999px;background:transparent;font-size:12px;line-height:16px;text-transform:none;letter-spacing:normal; }
+:is(.badge-success,.badge-ok,.status-ok,.status-good,.trend-down) { color:var(--hat-good-text, var(--_hat-good-text)); }
+:is(.badge-error,.badge-er,.status-error,.status-critical,.trend-up) { color:var(--hat-crit-text, var(--_hat-crit-text)); }
+:is(.badge-warning,.badge-wa,.status-warning) { color:var(--hat-warn-text, var(--_hat-warn-text)); }
+:is(.stat-value,.metric-value,.stat-number) { font-weight:600;line-height:34px;font-variant-numeric:tabular-nums; }
+:is(.stat-label,.stat-sub,.header-sub,.panel-subtitle,.pagination-info,.pag-info) { font-size:12px;line-height:16px;color:var(--hat-text-2, var(--_hat-text-2)); }
+:is(.card,.card-container,.panel-root) a { color:var(--hat-primary, var(--_hat-primary));text-underline-offset:2px; }
+:is(.insights-measured,.patterns-measured) svg text { font-family:var(--hat-font, var(--_hat-font)); }
+:is(.insights-measured,.patterns-measured) { line-height:20px; }
+:is(.card,.card-container,.panel-root) :is(button,input,select,summary,a):focus-visible { outline:2px solid var(--hat-primary, var(--_hat-primary));outline-offset:2px; }
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none;transition:none; } }
+
+:is(.header-title,.panel-title){font-size:16px;line-height:22px;font-weight:600}
+
+:is(.card,.card-container,.panel-root) td{font-size:14px;line-height:20px}
+
+.step-num{background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary))}
+</style>
 
         <div class="card">
           <div class="header">
@@ -5264,7 +5286,7 @@ this._installTariffConsumerV3();
         const token = this._emailContextToken(), tab = this._activeTab;
         const inputHtml = `<span class="price-inline">
           <span>${_esc(this._tariffCurrency())}</span>
-          <input type="number" id="price-input" aria-label="${L ? 'Cena energii za kWh' : 'Energy price per kWh'}" value="${cur ?? ''}" step="0.01" min="0" style="width:70px;padding:3px 6px;border:1.5px solid var(--bento-primary);border-radius:4px;font-size:12px;background:var(--bento-card);color:var(--bento-text);font-family:'Inter',sans-serif;text-align:center">
+          <input type="number" id="price-input" aria-label="${L ? 'Cena energii za kWh' : 'Energy price per kWh'}" value="${cur ?? ''}" step="0.01" min="0" style="width:70px;padding:3px 6px;border:1.5px solid var(--bento-primary);border-radius:4px;font-size:12px;background:var(--bento-card);color:var(--bento-text);font-family:var(--hat-font, var(--_hat-font));text-align:center">
           <span>/kWh</span>
           <button id="price-save" class="btn btn-primary" style="padding:3px 10px;font-size:12px;margin:0" aria-label="${L ? 'Zapisz' : 'Save'}">\u2714</button>
           <button id="price-cancel" class="btn" style="padding:3px 8px;font-size:12px;margin:0" aria-label="${L ? 'Anuluj' : 'Cancel'}">\u2716</button>
@@ -5727,7 +5749,7 @@ this._installTariffConsumerV3();
           <div class="schedule-meta"><span>\u{1F552} ${timeLabel}</span><span>${recipientInfo}</span></div>
           <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
             <label style="font-size:12px;color:var(--bento-text-secondary);font-weight:500">${L ? 'Godzina' : 'Time'}:</label>
-            <input type="time" id="${timeInputId}" value="${timeValue}" style="padding:5px 10px;border:1.5px solid var(--bento-border);border-radius:var(--bento-radius-xs);font-size:13px;background:var(--bento-card);color:var(--bento-text);font-family:'Inter',sans-serif;">
+            <input type="time" id="${timeInputId}" value="${timeValue}" style="padding:5px 10px;border:1.5px solid var(--bento-border);border-radius:var(--bento-radius-xs);font-size:13px;background:var(--bento-card);color:var(--bento-text);font-family:var(--hat-font, var(--_hat-font));">
             ${extraInputHtml || ''}
           </div>
           <div class="btn-row">
@@ -5761,7 +5783,7 @@ this._installTariffConsumerV3();
           `${weeklyDayLabel} ${L ? 'o' : 'at'} ${sd.weekly_time}`,
           'enable-weekly', 'disable-weekly', 'create-weekly', 'time-weekly', sd.weekly_time,
           `<label style="font-size:12px;color:var(--bento-text-secondary);font-weight:500;margin-left:8px">${L ? 'Dzie\u0144' : 'Day'}:</label>
-           <select id="day-weekly" style="padding:5px 10px;border:1.5px solid var(--bento-border);border-radius:var(--bento-radius-xs);font-size:13px;background:var(--bento-card);color:var(--bento-text);font-family:'Inter',sans-serif">${dayOptions}</select>`
+           <select id="day-weekly" style="padding:5px 10px;border:1.5px solid var(--bento-border);border-radius:var(--bento-radius-xs);font-size:13px;background:var(--bento-card);color:var(--bento-text);font-family:var(--hat-font, var(--_hat-font))">${dayOptions}</select>`
         )}
         ${scheduleCard(
           '\u{1F4C8}', 'Raport miesi\u0119czny', 'Monthly Report', monthlyState,
