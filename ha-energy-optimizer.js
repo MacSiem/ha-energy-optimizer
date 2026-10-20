@@ -620,7 +620,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=52cb02c5eca9b6d206ede5422ab7c5cac3cf2df45c881e20232a0fc2f8546c72
+    // HA_TARIFF_V3_START sha256=a19622d626bdf2fc4e133bb32659bd9d00c5a1ce1ebccfb903383738a8ecfeb7
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1389,11 +1389,13 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     }
     busy=true;
     const request={type:`ha_tools_email/${isSnapshot?'energy_snapshot':'energy_price_queries'}`};
-    if(descriptor.source==='override') request.profile=copy(descriptor.profile);
+    const bookSnapshot = isSnapshot && descriptor.snapshot?.source === 'shared';
+    const wireDescriptor = bookSnapshot ? {...descriptor,...descriptor.snapshot} : descriptor;
+    if(wireDescriptor.source==='override') request.profile=copy(wireDescriptor.profile);
     if(!isSnapshot) request.queries=batch.map(j=>({buckets:j.buckets}));
     try {
       const result=await guard.call(token,request);
-      if(!still(token,version,key) || isSnapshot && snapshotSlot !== batch[0] || !envelope(result,descriptor)) return;
+      if(!still(token,version,key) || isSnapshot && snapshotSlot !== batch[0] || !envelope(result,wireDescriptor)) return;
       if(isSnapshot) {
         const r=result;
         if(!['ready','partial','unavailable'].includes(r.status) || !finite(stamp(r.generated_at)) || !r.current || typeof r.current.available!=='boolean' ||
@@ -1402,7 +1404,7 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
           !(r.currency===null || typeof r.currency==='string' && /^[A-Z]{3}$/.test(r.currency)) ||
           !r.next_cheap || !['known','unknown','not_found_in_horizon'].includes(r.next_cheap.status) ||
           r.next_cheap.status==='known' && !finite(stamp(r.next_cheap.start))) throw Error('invalid_backend_response');
-        if(r.currency !== (descriptor.profile?.currency ?? null)) throw Error('invalid_backend_response');
+        if(!bookSnapshot && r.currency !== (wireDescriptor.profile?.currency ?? null)) throw Error('invalid_backend_response');
         // Compact uses a bounded projection, never arbitrary backend extensions.
         card._energySnapshotV5={schema:1,generated_at:r.generated_at,tariff_revision:r.tariff_revision,profile_source:r.profile_source,status:r.status,currency:r.currency,
           current:{available:r.current.available,zone_class:r.current.zone_class,cheap:r.current.cheap,energy_rate:r.current.energy_rate,variable_rate:r.current.variable_rate,usage_rate:r.current.usage_rate},
@@ -1878,10 +1880,14 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   const activeProfile = () => legacyProfile(effectiveConfig(), card._hass?.config, kind);
   const describe = () => {
-    const shared = !Object.hasOwn(card._config || {}, 'tariff_profile') && card._sharedTariffProfile != null &&
+    const confirmedShared = !Object.hasOwn(card._config || {}, 'tariff_profile') &&
       card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, identity());
+    const shared = confirmedShared && card._sharedTariffProfile != null;
     return {profile: activeProfile() ?? null, source: shared ? 'shared' : 'override', revision: shared ? confirmedRevision : null,
-      ready: Object.hasOwn(card._config || {}, 'tariff_profile') || card._sharedTariffReadStatus === 'success'};
+      ready: Object.hasOwn(card._config || {}, 'tariff_profile') || card._sharedTariffReadStatus === 'success',
+      // The public household snapshot belongs to the server's active book.
+      // Legacy price queries retain their profile and currency contract.
+      ...(confirmedShared ? {snapshot:{source:'shared',revision:confirmedRevision}} : {})};
   };
   const backend = createEnergyBackendV5({card,guard,describe,
     onPrices: () => {
@@ -6010,6 +6016,23 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   };
   const compactActionsStyle = '[data-energy-simple=compact] [data-energy-actions]{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}[data-energy-simple=compact] [data-energy-actions] button{flex:1 1 120px;min-width:0}';
   const reportStatusStyle = '[data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}[data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:8em;font-size:12px;line-height:18px}';
+  // Six native HA columns can be only183px wide at a390px viewport.
+  // Stack the primary label and use the full line for secondary facts.
+  const narrowSimpleStyle = `:host{container-type:inline-size;container-name:energy-simple-card}
+  @container energy-simple-card (max-width:240px){
+    [data-energy-simple=compact]{grid-template-columns:minmax(0,1fr);gap:4px;padding:8px}
+    [data-energy-simple=compact] h2{min-width:0;line-height:18px}
+    [data-energy-simple=compact] [data-energy-name]{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+    [data-energy-simple=compact] [data-energy-primary]{grid-column:1;grid-row:2;font-size:22px;line-height:28px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+    [data-energy-simple=compact] [data-energy-primary-label]{grid-column:1;grid-row:3;justify-self:start;line-height:16px}
+    [data-energy-simple=compact] [data-energy-secondary]{display:grid;gap:0;font-size:12px;line-height:16px}
+    [data-energy-report-status][data-energy-simple=compact]{padding:6px;gap:2px}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:none;line-height:16px}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions]{flex-wrap:nowrap}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions] button{flex:1 1 0;min-width:44px;padding-inline:4px}
+  }`;
+
   const emailStatusFor = host => host._emailStatusV100 ||= (() => {
     let scheduled = false;
     const active = () => name === 'ha-energy-email' && host.isConnected && host.preview !== true && simple(host);
@@ -6094,7 +6117,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
+      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
       section = root.querySelector('[data-energy-simple]');
       section.querySelector('button').addEventListener('click', () => open(host));
       section.querySelector('button').addEventListener('keydown', event => {
@@ -6694,7 +6717,7 @@ createFormatUi.forHass = hass => {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=52cb02c5eca9b6d206ede5422ab7c5cac3cf2df45c881e20232a0fc2f8546c72
+      // HA_TARIFF_V3_START sha256=a19622d626bdf2fc4e133bb32659bd9d00c5a1ce1ebccfb903383738a8ecfeb7
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -7463,11 +7486,13 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     }
     busy=true;
     const request={type:`ha_tools_email/${isSnapshot?'energy_snapshot':'energy_price_queries'}`};
-    if(descriptor.source==='override') request.profile=copy(descriptor.profile);
+    const bookSnapshot = isSnapshot && descriptor.snapshot?.source === 'shared';
+    const wireDescriptor = bookSnapshot ? {...descriptor,...descriptor.snapshot} : descriptor;
+    if(wireDescriptor.source==='override') request.profile=copy(wireDescriptor.profile);
     if(!isSnapshot) request.queries=batch.map(j=>({buckets:j.buckets}));
     try {
       const result=await guard.call(token,request);
-      if(!still(token,version,key) || isSnapshot && snapshotSlot !== batch[0] || !envelope(result,descriptor)) return;
+      if(!still(token,version,key) || isSnapshot && snapshotSlot !== batch[0] || !envelope(result,wireDescriptor)) return;
       if(isSnapshot) {
         const r=result;
         if(!['ready','partial','unavailable'].includes(r.status) || !finite(stamp(r.generated_at)) || !r.current || typeof r.current.available!=='boolean' ||
@@ -7476,7 +7501,7 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
           !(r.currency===null || typeof r.currency==='string' && /^[A-Z]{3}$/.test(r.currency)) ||
           !r.next_cheap || !['known','unknown','not_found_in_horizon'].includes(r.next_cheap.status) ||
           r.next_cheap.status==='known' && !finite(stamp(r.next_cheap.start))) throw Error('invalid_backend_response');
-        if(r.currency !== (descriptor.profile?.currency ?? null)) throw Error('invalid_backend_response');
+        if(!bookSnapshot && r.currency !== (wireDescriptor.profile?.currency ?? null)) throw Error('invalid_backend_response');
         // Compact uses a bounded projection, never arbitrary backend extensions.
         card._energySnapshotV5={schema:1,generated_at:r.generated_at,tariff_revision:r.tariff_revision,profile_source:r.profile_source,status:r.status,currency:r.currency,
           current:{available:r.current.available,zone_class:r.current.zone_class,cheap:r.current.cheap,energy_rate:r.current.energy_rate,variable_rate:r.current.variable_rate,usage_rate:r.current.usage_rate},
@@ -7952,10 +7977,14 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   const activeProfile = () => legacyProfile(effectiveConfig(), card._hass?.config, kind);
   const describe = () => {
-    const shared = !Object.hasOwn(card._config || {}, 'tariff_profile') && card._sharedTariffProfile != null &&
+    const confirmedShared = !Object.hasOwn(card._config || {}, 'tariff_profile') &&
       card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, identity());
+    const shared = confirmedShared && card._sharedTariffProfile != null;
     return {profile: activeProfile() ?? null, source: shared ? 'shared' : 'override', revision: shared ? confirmedRevision : null,
-      ready: Object.hasOwn(card._config || {}, 'tariff_profile') || card._sharedTariffReadStatus === 'success'};
+      ready: Object.hasOwn(card._config || {}, 'tariff_profile') || card._sharedTariffReadStatus === 'success',
+      // The public household snapshot belongs to the server's active book.
+      // Legacy price queries retain their profile and currency contract.
+      ...(confirmedShared ? {snapshot:{source:'shared',revision:confirmedRevision}} : {})};
   };
   const backend = createEnergyBackendV5({card,guard,describe,
     onPrices: () => {
@@ -11511,6 +11540,23 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   };
   const compactActionsStyle = '[data-energy-simple=compact] [data-energy-actions]{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}[data-energy-simple=compact] [data-energy-actions] button{flex:1 1 120px;min-width:0}';
   const reportStatusStyle = '[data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}[data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:8em;font-size:12px;line-height:18px}';
+  // Six native HA columns can be only183px wide at a390px viewport.
+  // Stack the primary label and use the full line for secondary facts.
+  const narrowSimpleStyle = `:host{container-type:inline-size;container-name:energy-simple-card}
+  @container energy-simple-card (max-width:240px){
+    [data-energy-simple=compact]{grid-template-columns:minmax(0,1fr);gap:4px;padding:8px}
+    [data-energy-simple=compact] h2{min-width:0;line-height:18px}
+    [data-energy-simple=compact] [data-energy-name]{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+    [data-energy-simple=compact] [data-energy-primary]{grid-column:1;grid-row:2;font-size:22px;line-height:28px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+    [data-energy-simple=compact] [data-energy-primary-label]{grid-column:1;grid-row:3;justify-self:start;line-height:16px}
+    [data-energy-simple=compact] [data-energy-secondary]{display:grid;gap:0;font-size:12px;line-height:16px}
+    [data-energy-report-status][data-energy-simple=compact]{padding:6px;gap:2px}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:none;line-height:16px}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions]{flex-wrap:nowrap}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions] button{flex:1 1 0;min-width:44px;padding-inline:4px}
+  }`;
+
   const emailStatusFor = host => host._emailStatusV100 ||= (() => {
     let scheduled = false;
     const active = () => name === 'ha-energy-email' && host.isConnected && host.preview !== true && simple(host);
@@ -11595,7 +11641,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
+      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
       section = root.querySelector('[data-energy-simple]');
       section.querySelector('button').addEventListener('click', () => open(host));
       section.querySelector('button').addEventListener('keydown', event => {
@@ -13246,7 +13292,7 @@ function createFeatureAccessV53({card, guard}) {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=52cb02c5eca9b6d206ede5422ab7c5cac3cf2df45c881e20232a0fc2f8546c72
+      // HA_TARIFF_V3_START sha256=a19622d626bdf2fc4e133bb32659bd9d00c5a1ce1ebccfb903383738a8ecfeb7
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -14015,11 +14061,13 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     }
     busy=true;
     const request={type:`ha_tools_email/${isSnapshot?'energy_snapshot':'energy_price_queries'}`};
-    if(descriptor.source==='override') request.profile=copy(descriptor.profile);
+    const bookSnapshot = isSnapshot && descriptor.snapshot?.source === 'shared';
+    const wireDescriptor = bookSnapshot ? {...descriptor,...descriptor.snapshot} : descriptor;
+    if(wireDescriptor.source==='override') request.profile=copy(wireDescriptor.profile);
     if(!isSnapshot) request.queries=batch.map(j=>({buckets:j.buckets}));
     try {
       const result=await guard.call(token,request);
-      if(!still(token,version,key) || isSnapshot && snapshotSlot !== batch[0] || !envelope(result,descriptor)) return;
+      if(!still(token,version,key) || isSnapshot && snapshotSlot !== batch[0] || !envelope(result,wireDescriptor)) return;
       if(isSnapshot) {
         const r=result;
         if(!['ready','partial','unavailable'].includes(r.status) || !finite(stamp(r.generated_at)) || !r.current || typeof r.current.available!=='boolean' ||
@@ -14028,7 +14076,7 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
           !(r.currency===null || typeof r.currency==='string' && /^[A-Z]{3}$/.test(r.currency)) ||
           !r.next_cheap || !['known','unknown','not_found_in_horizon'].includes(r.next_cheap.status) ||
           r.next_cheap.status==='known' && !finite(stamp(r.next_cheap.start))) throw Error('invalid_backend_response');
-        if(r.currency !== (descriptor.profile?.currency ?? null)) throw Error('invalid_backend_response');
+        if(!bookSnapshot && r.currency !== (wireDescriptor.profile?.currency ?? null)) throw Error('invalid_backend_response');
         // Compact uses a bounded projection, never arbitrary backend extensions.
         card._energySnapshotV5={schema:1,generated_at:r.generated_at,tariff_revision:r.tariff_revision,profile_source:r.profile_source,status:r.status,currency:r.currency,
           current:{available:r.current.available,zone_class:r.current.zone_class,cheap:r.current.cheap,energy_rate:r.current.energy_rate,variable_rate:r.current.variable_rate,usage_rate:r.current.usage_rate},
@@ -14504,10 +14552,14 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   const activeProfile = () => legacyProfile(effectiveConfig(), card._hass?.config, kind);
   const describe = () => {
-    const shared = !Object.hasOwn(card._config || {}, 'tariff_profile') && card._sharedTariffProfile != null &&
+    const confirmedShared = !Object.hasOwn(card._config || {}, 'tariff_profile') &&
       card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, identity());
+    const shared = confirmedShared && card._sharedTariffProfile != null;
     return {profile: activeProfile() ?? null, source: shared ? 'shared' : 'override', revision: shared ? confirmedRevision : null,
-      ready: Object.hasOwn(card._config || {}, 'tariff_profile') || card._sharedTariffReadStatus === 'success'};
+      ready: Object.hasOwn(card._config || {}, 'tariff_profile') || card._sharedTariffReadStatus === 'success',
+      // The public household snapshot belongs to the server's active book.
+      // Legacy price queries retain their profile and currency contract.
+      ...(confirmedShared ? {snapshot:{source:'shared',revision:confirmedRevision}} : {})};
   };
   const backend = createEnergyBackendV5({card,guard,describe,
     onPrices: () => {
@@ -19248,6 +19300,23 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   };
   const compactActionsStyle = '[data-energy-simple=compact] [data-energy-actions]{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}[data-energy-simple=compact] [data-energy-actions] button{flex:1 1 120px;min-width:0}';
   const reportStatusStyle = '[data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}[data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:8em;font-size:12px;line-height:18px}';
+  // Six native HA columns can be only183px wide at a390px viewport.
+  // Stack the primary label and use the full line for secondary facts.
+  const narrowSimpleStyle = `:host{container-type:inline-size;container-name:energy-simple-card}
+  @container energy-simple-card (max-width:240px){
+    [data-energy-simple=compact]{grid-template-columns:minmax(0,1fr);gap:4px;padding:8px}
+    [data-energy-simple=compact] h2{min-width:0;line-height:18px}
+    [data-energy-simple=compact] [data-energy-name]{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+    [data-energy-simple=compact] [data-energy-primary]{grid-column:1;grid-row:2;font-size:22px;line-height:28px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+    [data-energy-simple=compact] [data-energy-primary-label]{grid-column:1;grid-row:3;justify-self:start;line-height:16px}
+    [data-energy-simple=compact] [data-energy-secondary]{display:grid;gap:0;font-size:12px;line-height:16px}
+    [data-energy-report-status][data-energy-simple=compact]{padding:6px;gap:2px}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:none;line-height:16px}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions]{flex-wrap:nowrap}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions] button{flex:1 1 0;min-width:44px;padding-inline:4px}
+  }`;
+
   const emailStatusFor = host => host._emailStatusV100 ||= (() => {
     let scheduled = false;
     const active = () => name === 'ha-energy-email' && host.isConnected && host.preview !== true && simple(host);
@@ -19332,7 +19401,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
+      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
       section = root.querySelector('[data-energy-simple]');
       section.querySelector('button').addEventListener('click', () => open(host));
       section.querySelector('button').addEventListener('keydown', event => {
