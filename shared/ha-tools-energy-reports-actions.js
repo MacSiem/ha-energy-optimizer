@@ -18,15 +18,15 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
  const same=(a,b)=>a&&a.length===b.length&&a.every((v,i)=>v===b[i]);
  const available=()=>isActive()&&readable()&&card.isConnected&&card.preview!==true&&card._hass?.user?.is_active!==false&&guard.available(guard.snapshot());
  let scheduleReview=null;
- let identity=null,epoch=0,raw=null,pending=false,loaded=false,refreshSchedules=false,root=null,store=null,proxy=null,unwire=null,unauthority=null,form=null,serial=0;
+ let identity=null,epoch=0,raw=null,pending=false,loaded=false,refreshSchedules=false,scheduleDirty=false,scheduleVersion=0,root=null,store=null,proxy=null,unwire=null,unauthority=null,form=null,serial=0;
  let state={status:'idle',schedules:[],deliveries:[],targets:[],reportStatus:null,outcome:null,message:null};
  const failed=new Set(['preparation_failed','authentication_failed','recipients_refused','tls_failed','send_failed']);
  function emit(){paint();onChange();}
- function clear(){epoch++;pending=false;loaded=false;form=null;scheduleReview=null;state={status:'idle',schedules:[],deliveries:[],targets:[],reportStatus:null,outcome:null,message:null};store?.discard?.();store=null;proxy=null;if(root){root.replaceChildren();root._reportMarkup=null;}}
+ function clear(){epoch++;pending=false;loaded=false;scheduleDirty=false;scheduleVersion++;form=null;scheduleReview=null;state={status:'idle',schedules:[],deliveries:[],targets:[],reportStatus:null,outcome:null,message:null};store?.discard?.();store=null;proxy=null;if(root){root.replaceChildren();root._reportMarkup=null;}}
  const current=(e,token)=>e===epoch&&available()&&same(identity,context())&&guard.current(token);
  function observe(){if(getCapabilities()?.energy_reports)knownGrants=copy(getCapabilities().energy_reports);const next=context();if(!same(identity,next)){identity=next;clear();}return available();}
  function stop(){identity=null;knownGrants=null;clear();unwire?.();unauthority?.();unwire=unauthority=null;root=null;}
- function storeChanged(){if(!store||!available())return;if(!store.model().draft)scheduleReview=null;state.schedules=store.model().rows.filter(r=>r.kind==='energy_report').map(r=>({...r,channel:(r.channels||['email']).join(', '),editable:true}));emit();}
+ function storeChanged(){if(!store||!available())return;if(!store.model().draft)scheduleReview=null;state.schedules=store.model().rows.filter(r=>r.kind==='energy_report').map(r=>({...r,channel:(r.channels||['email']).join(', '),editable:true}));emit();queueMicrotask(refreshDirtySchedules);}
  // An ACK is not readback. Keep an accepted write associated while a secured
  // update refreshes model grants; subsequent reads wait and require fresh grants.
  const associated=(e,token)=>e===epoch&&isActive()&&card.isConnected&&card.preview!==true&&same(identity,context())&&guard.current(token);
@@ -44,8 +44,20 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
    unwire=guard.subscribeWire(check);unauthority=guard.subscribe(check);check();
   });
  }
+ // A tagged secured event invalidates rows, never a write or a local draft.
+ function scheduleChanged(){
+  if(!isActive()||!card.isConnected||card.preview===true||!guard.available(guard.snapshot()))return;
+  observe();scheduleDirty=true;scheduleVersion++;queueMicrotask(refreshDirtySchedules);
+ }
+ function refreshDirtySchedules(){
+  if(!scheduleDirty||!available()||card._hass?.user?.is_admin!==true||raw||isModelBusy()||guard.occupied()||!store)return;
+  const sm=store.model();
+  if(sm.draft||sm.reading||sm.writing||sm.locked)return;
+  // Consume once before IO. Failure needs explicit Refresh, never a read loop.
+  scheduleDirty=false;void store.refresh();
+ }
  async function protectedCall(request){
-  const e=epoch,token=guard.snapshot(),admin=card._hass?.user?.is_admin===true;
+  const e=epoch,token=guard.snapshot(),admin=card._hass?.user?.is_admin===true,version=scheduleVersion;
   let owner=null;
   const readback=['manifest/get','ha_tools_email/list_schedules'].includes(request.type);
   if(readback&&(isModelBusy()||guard.occupied()))owner=await acquireScheduleRead(e,token);
@@ -69,6 +81,7 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   try{
    const result=await guard.call(token,request,true,owner);
    if(!(request.type==='ha_tools_email/set_schedule'?associated(e,token):current(e,token)))throw {code:'stale_context'};
+   if(request.type==='ha_tools_email/list_schedules'&&version===scheduleVersion)scheduleDirty=false;
    return result;
   }finally{owner?.release();}
  }
@@ -100,10 +113,11 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   }catch(error){if(current(e,token)){if(error?.code==='wire_occupied'){pending=true;state.status='loading';}else{loaded=true;state.status='error';}}}finally{if(raw===lane)raw=null;if(current(e,token)){emit();if(state.status==='ready'&&card._hass?.user?.is_admin===true){const c=schedules();if(refreshSchedules){refreshSchedules=false;await c?.refresh?.();}else await c?.ensureRead?.();}}}
  }
  function update(){
-  if(!unwire)unwire=guard.subscribeWire(()=>queueMicrotask(()=>{if(pending)void load();else emit();}));
+  if(!unwire)unwire=guard.subscribeWire(()=>queueMicrotask(()=>{if(pending)void load();else emit();refreshDirtySchedules();}));
   if(!unauthority)unauthority=guard.subscribe(()=>{clear();identity=null;emit();});
   if(!observe())return;
   if(!loaded){pending=true;void load();}
+  queueMicrotask(refreshDirtySchedules);
  }
  function defaultChannel(){return state.targets.find(r=>r.default&&r.id.startsWith('notify.mobile_app_'))?.id||state.targets.find(r=>r.id==='persistent_notification')?.id||'';}
  function openSend({email=false,retryId=null}={}){
@@ -130,13 +144,15 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
    if(plan.channel==='email')request.recipients=recipients(plan.recipients);
    dispatched=true;
    const result=await guard.call(token,request,true);
-   if(!current(e,token)){if(e===epoch&&same(identity,context())){state.outcome='outcome_unknown';form=null;emit();}return false;}
+   // A secured update may clear model grants after the server accepted this send.
+   // Bind the ACK to its unchanged authority; paint still requires current grants.
+   if(!associated(e,token)){if(e===epoch&&same(identity,context())){state.outcome='outcome_unknown';form=null;emit();}return false;}
    const parts=Array.isArray(result?.channels)?result.channels:Array.isArray(result?.results)?result.results:[result];
    const statuses=parts.map(r=>r?.status);
    const accepted=result?.ok===true&&parts.length>0&&parts.every(r=>r?.ok===true&&['accepted_by_notify','accepted_by_smtp'].includes(r.status)&&typeof r.attempt_id==='string'&&r.attempt_id.length>0);
    state.outcome=accepted?(statuses.every(s=>s==='accepted_by_notify')?'accepted_by_notify':'accepted_by_smtp'):'outcome_unknown';
    form=null;emit();return accepted;
-  }catch(error){if(current(e,token)){state.outcome=dispatched?'outcome_unknown':'not_sent';state.message=null;form=null;emit();}return false;}
+  }catch(error){if(associated(e,token)){state.outcome=dispatched?'outcome_unknown':'not_sent';state.message=null;form=null;emit();}return false;}
   finally{if(raw===lane)raw=null;emit();}
  }
  function reviewSchedule(){
@@ -217,6 +233,6 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   if(selector){const next=[...root.querySelectorAll('input,select')].find(n=>n.dataset[selector[0]]===selector[1]);next?.focus({preventScroll:true});if(next&&selection)next.setSelectionRange(...selection);}
  }
  function snapshot(){observe();const sm=store?.model();return copy({...state,busy:!!raw||guard.occupied(),canExecute:executable(),canManageSchedules:executable()&&!!store&&!sm.reading&&!sm.writing&&!sm.locked,formOpen:!!form});}
- return {mount,update,stop,state:snapshot,openSend,review,confirm,scheduleAction,reviewSchedule,confirmSchedule,refresh:()=>{refreshSchedules=true;loaded=false;pending=true;void load();}};
+ return {mount,update,stop,scheduleChanged,state:snapshot,openSend,review,confirm,scheduleAction,reviewSchedule,confirmSchedule,refresh:()=>{refreshSchedules=true;loaded=false;pending=true;void load();}};
 }
 if(typeof module!=='undefined'&&module.exports)module.exports={createEnergyReportsActionsV53};

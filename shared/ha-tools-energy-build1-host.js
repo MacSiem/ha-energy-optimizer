@@ -30,7 +30,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
   const text=(card,en,polish)=>pl(card)?polish:en;
   let painting=new WeakSet();
   const presentations=new WeakMap();
-  function client(card){return card._build1ClientV53 ||= createClient({card,guard:card._getTariffHostV3().guard,format,isActive:()=>active(card),onChange:()=>changed(card)});}
+  function client(card){return card._build1ClientV53 ||= createClient({card,guard:card._getTariffHostV3().guard,format,isActive:()=>active(card),onChange:()=>changed(card),onScheduleChange:()=>card._build1ReportsV53?.scheduleChanged()});}
   function changed(card){
     if(full(card)){paint(card);return;}
     // Pending/old capability replies must leave existing forms, focus and startup alone.

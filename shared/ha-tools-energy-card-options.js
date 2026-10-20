@@ -358,6 +358,27 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     [data-energy-report-status] [data-energy-actions] button{flex:1 1 0;min-width:44px;padding-inline:4px}
   }`;
 
+  const narrowEnergyStyle = `
+  [data-energy-simple=compact]:not([data-energy-report-status]){overflow:auto;scrollbar-width:thin}
+  [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-zone-axis]{position:relative;min-height:16px}
+  [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-zone-axis] span{position:absolute;white-space:nowrap;line-height:16px}
+  @container energy-simple-card (max-width:279px){
+    [data-energy-simple=compact]:not([data-energy-report-status]){padding:8px;gap:4px}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-heading]{gap:8px;align-items:flex-start}
+    [data-energy-simple=compact]:not([data-energy-report-status]) ha-icon{width:28px;height:28px;--mdc-icon-size:18px}
+    [data-energy-simple=compact]:not([data-energy-report-status]) h2{font-size:14px;line-height:18px}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-name],
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-primary-label]{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-values]{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 8px;align-items:baseline}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-primary]{font-size:18px;line-height:22px;min-width:0;overflow-wrap:anywhere}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-cost]{font-size:16px;line-height:22px;min-width:0;text-align:end;overflow-wrap:anywhere}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-unit]{font-size:12px;line-height:16px;white-space:nowrap}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-comparison]{grid-column:1/-1;display:block;max-width:none;margin:0;text-align:start;-webkit-line-clamp:unset;overflow:visible;overflow-wrap:anywhere}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-zonebar]{height:20px}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-zone-legend]{gap:0 8px}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-zone-legend] span{white-space:nowrap}
+  }`;
+
   const emailStatusFor = host => host._emailStatusV100 ||= (() => {
     let scheduled = false;
     const active = () => name === 'ha-energy-email' && host.isConnected && host.preview !== true && simple(host);
@@ -453,7 +474,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${host._getTariffHostV3().ui().css}${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><ha-card data-energy-simple="${mode}" role="button" tabindex="0"${!email ? ' data-energy-open' : ''}><div data-energy-heading><ha-icon aria-hidden="true"></ha-icon><div data-energy-heading-text><h2><span data-energy-name></span></h2>${mode === 'compact' ? '<p data-energy-primary-label></p>' : '<div data-energy-primary role="status"></div>'}</div></div>${mode === 'compact' ? email ? '<div data-energy-primary role="status"></div><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : '<div data-energy-values><div data-energy-primary role="status"></div><span data-energy-cost></span><span data-energy-comparison></span></div><div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div><div data-energy-zone-axis></div><div data-energy-zone-legend></div></div>' : ''}${email ? mode === 'compact' ? '<div data-energy-actions><button type="button" data-energy-open></button></div>' : '<button type="button" data-energy-open></button>' : ''}</ha-card>`;
+      root.innerHTML = `<style>${host._getTariffHostV3().ui().css}${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}${narrowEnergyStyle}</style><ha-card data-energy-simple="${mode}" role="button" tabindex="0"${!email ? ' data-energy-open' : ''}><div data-energy-heading><ha-icon aria-hidden="true"></ha-icon><div data-energy-heading-text><h2><span data-energy-name></span></h2>${mode === 'compact' ? '<p data-energy-primary-label></p>' : '<div data-energy-primary role="status"></div>'}</div></div>${mode === 'compact' ? email ? '<div data-energy-primary role="status"></div><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : '<div data-energy-values><div data-energy-primary role="status"></div><span data-energy-cost></span><span data-energy-comparison></span></div><div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div><div data-energy-zone-axis></div><div data-energy-zone-legend></div></div>' : ''}${email ? mode === 'compact' ? '<div data-energy-actions><button type="button" data-energy-open></button></div>' : '<button type="button" data-energy-open></button>' : ''}</ha-card>`;
       section = root.querySelector('[data-energy-simple]');
       section.addEventListener('click', event => {
         if (event.target.closest?.('button,a,input,select,textarea')) return;
@@ -539,8 +560,19 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       if (axis) {
         axis.replaceChildren();
         const start = Date.parse(analysis?.period?.start), end = Date.parse(analysis?.period?.calendar_end);
-        if (Number.isFinite(start) && Number.isFinite(end) && end > start) for (const instant of [start,start+(end-start)/2,end]) {
-          const point = document.createElement('span'); point.textContent = format.clock(new Date(instant).toISOString()) || unknown; axis.append(point);
+        if (Number.isFinite(start) && Number.isFinite(end) && end > start && end-start <= 48*3600000) {
+          // Reuse the format layer's compact 24-hour axis notation. Full point
+          // labels retain the user's 12/24-hour clock and DST offsets.
+          const values=Array.from({length:Math.ceil((end-start)/3600000)},(_,index)=>new Date(start+index*3600000).toISOString());
+          const ticks=format.chartTicks(values,'hour');
+          const selected=[...new Set([0,Math.floor((ticks.length-1)/2),ticks.length-1])].map(index=>ticks[index]).filter(Boolean);
+          axis.setAttribute('aria-label',t(host,'Hourly ticks (24-hour notation)','Godziny osi (zapis 24-godzinny)'));
+          for(const tick of selected){
+            const value=values[tick.index],instant=Date.parse(value),position=100*(instant-start)/(end-start);
+            const point=document.createElement('span');point.textContent=tick.label;point.title=format.pointLabel(value)||unknown;
+            point.style.left=`${position}%`;point.style.transform=position<=10?'translateX(0)':position>=90?'translateX(-100%)':'translateX(-50%)';
+            axis.append(point);
+          }
         }
       }
       const legend = section.querySelector('[data-energy-zone-legend]');

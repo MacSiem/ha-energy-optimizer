@@ -1,6 +1,6 @@
 'use strict';
 // Per-card transport; raw calls stay occupied across every identity/selection edge.
-function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>true}) {
+function createEnergyModelV53({card,guard,format,onChange=()=>{},onScheduleChange=()=>{},isActive=()=>true}) {
   const clone=v=>v==null?v:JSON.parse(JSON.stringify(v));
   let enabled=false,identity=null,epoch=0,raw=null,pending=false,ack=false,selection={period:'day',mode:'full'};
   let unsub=[],wire=null,authority=null,subscribing=null;
@@ -22,7 +22,7 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
     const e=epoch,c=card._hass.connection,association=identity;
     const task=(async()=>{
       if(typeof c?.subscribeMessage!=='function')throw Error('subscription_unavailable');
-      const off=await c.subscribeMessage(()=>{if(enabled&&same(association,context()))invalidate();},{type:'ha_tools_email/subscribe_analysis_updates'});
+      const off=await c.subscribeMessage(event=>{if(enabled&&same(association,context())){invalidate();if(event?.schedules_changed===true)onScheduleChange();}},{type:'ha_tools_email/subscribe_analysis_updates'});
       if(!current(e)){off?.();return false;}
       if(typeof off!=='function')throw Error('subscription_unavailable');
       unsub.push(off);ack=true;
