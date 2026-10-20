@@ -295,7 +295,7 @@ createFormatUi.forHass = hass => {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=5925ee42507139fb4e806c8e2491c35a6e7219bb92aa38d25812a1fa580546a3
+      // HA_TARIFF_V3_START sha256=1b26b22f4efd262818c28c55223984e7347584407d7cce1a93c50484cce567f1
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -315,6 +315,45 @@ function createUiV3({ language = 'en' } = {}) {
   const statusHtml = (value) => {
     const result = status(value);
     return `<span class="ht-result-state ht-result-state--${result.code}" data-result-state="${result.code}"><span aria-hidden="true">${result.icon}</span> ${result.label}</span>`;
+  };
+  const parseColor = value => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    const hex = /^#([a-f0-9]{3}|[a-f0-9]{6})$/i.exec(text);
+    if (hex) return (hex[1].length === 3 ? [...hex[1]].map(c=>c+c).join('') : hex[1]).match(/../g).map(c=>parseInt(c,16));
+    const rgb = /^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*1(?:\.0+)?)?\s*\)$/i.exec(text);
+    return rgb ? rgb.slice(1,4).map(c=>Math.min(255,Math.round(Number(c)))) : null;
+  };
+  const hexColor = rgb => '#' + rgb.map(c=>c.toString(16).padStart(2,'0')).join('');
+  const luminance = rgb => rgb.map(c=>c/255).map(c=>c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4)
+    .reduce((sum,c,i)=>sum+c*[.2126,.7152,.0722][i],0);
+  const ratio = (a,b) => (Math.max(luminance(a),luminance(b))+.05)/(Math.min(luminance(a),luminance(b))+.05);
+  const primaryColors = (value, {dark = false} = {}) => {
+    const original = parseColor(value) || parseColor(dark ? '#818cf8' : '#2563eb');
+    const white = [255,255,255], ink = [15,23,42];
+    const foreground = ratio(original,white) >= ratio(original,ink) ? white : ink;
+    const target = foreground === white ? 0 : 255;
+    let fill = original;
+    // The nearest 5% step keeps a supplied theme color when it is readable.
+    for (let step=1; ratio(fill,foreground)<4.5 && step<=20; step++)
+      fill = original.map(c=>Math.round(c+(target-c)*step*.05));
+    return {fill:hexColor(fill),foreground:hexColor(foreground),contrast:ratio(fill,foreground)};
+  };
+  const applyTheme = host => {
+    const view = host?.ownerDocument?.defaultView;
+    if (!host?.isConnected || !view?.getComputedStyle) return null;
+    const raw = view.getComputedStyle(host).getPropertyValue('--primary-color').trim();
+    let resolved = raw;
+    // Resolve ordinary named colors through the browser without a persistent node.
+    if (raw && !parseColor(raw) && !raw.includes('var(') && raw !== 'transparent' && view.CSS?.supports?.('color',raw)) {
+      const probe = host.ownerDocument.createElement('span');
+      probe.style.display = 'none'; probe.style.color = raw;
+      host.append(probe);
+      try { resolved = view.getComputedStyle(probe).color; } finally { probe.remove(); }
+    }
+    const result = primaryColors(resolved,{dark:host.classList.contains('bento-dark') || host.classList.contains('hat-dark')});
+    for (const [key,value] of [['--hat-primary-fill-computed',result.fill],['--hat-on-primary-computed',result.foreground]])
+      if (host.style.getPropertyValue(key) !== value) host.style.setProperty(key,value);
+    return result;
   };
   // v5.3: public tokens stay inheritable; private defaults follow the HA dark flag.
   const css = `
@@ -396,7 +435,7 @@ function createUiV3({ language = 'en' } = {}) {
 .ht-result-state--not_checked,.ht-result-state--no_data { color:var(--hat-text-2, var(--_hat-text-2)); }
 .ht-result-state--no_data { border-style:dashed; }
 `;
-  return { status, statusHtml, css };
+  return { status, statusHtml, css, primaryColors, applyTheme };
 }
 // Node tests use the canonical factory; this line is excluded from runtime copies.
 
@@ -5131,9 +5170,9 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   };
   const originalSize = Card.prototype.getCardSize;
   Card.prototype.getCardSize = function() { return simple(this) ? (variant(this._config) === 'tile' ? 1 : 4) : variant(this._config || {}) === 'legacy' && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
-  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-value-green:#166534;--energy-value-red:#b91c1c;--energy-value-neutral:#475569;--energy-value-purple:#6d28d9;--energy-success-button:#166534;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
-:host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-value-green:#86efac;--energy-value-red:#fca5a5;--energy-value-neutral:#cbd5e1;--energy-value-purple:#c4b5fd;--energy-success-button:#166534;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
-.stat,.stat-card{background:var(--energy-kpi-tone)!important}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)!important}
+  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--bento-primary-hover:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--bento-on-primary:var(--hat-on-primary,var(--_hat-on-primary,#fff));--bento-text-muted:var(--hat-text-2,var(--secondary-text-color,#4b5563));--energy-value-blue:var(--hat-text,var(--primary-text-color,#111827));--energy-value-amber:var(--hat-warn-text,var(--_hat-warn-text,#a16207));--energy-value-green:var(--hat-good-text,var(--_hat-good-text,#15803d));--energy-value-red:var(--hat-crit-text,var(--_hat-crit-text,#b91c1c));--energy-value-neutral:var(--hat-text-2,var(--secondary-text-color,#4b5563));--energy-value-purple:var(--hat-d2,var(--_hat-d2,#6250d6));--energy-success-button:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--energy-kpi-tone:var(--hat-chip,var(--secondary-background-color,#f3f4f6));--energy-kpi-tone-alt:var(--energy-kpi-tone)}
+:host(.bento-dark){color-scheme:dark}
+.stat,.stat-card{background:var(--energy-kpi-tone)}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)}
 .btn-primary,button.btn-primary{color:var(--bento-on-primary)}
 .ht-tariff-v3 [data-status=success]{color:var(--energy-value-green)}.ht-tariff-v3 [data-status=error]{color:var(--energy-value-red)}.ht-tariff-v3 [data-status=partial],.ht-tariff-v3 [data-status=unconfirmed]{color:var(--energy-value-amber)}
  [data-energy-options-help], [data-energy-compact]{box-sizing:border-box;padding:16px;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border-radius:12px;font-size:14px;overflow-wrap:anywhere} [data-energy-options-help] summary, [data-energy-expand]{min-height:44px;box-sizing:border-box;padding:12px;cursor:pointer} [data-energy-compact] dl{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin:12px 0} [data-energy-compact] dt{font-size:13px;color:var(--secondary-text-color,#50545b)} [data-energy-compact] dd{margin:0 0 12px;font-weight:600;font-size:18px} [data-energy-expand]{color:var(--primary-text-color,#202124);background:var(--secondary-background-color,#eee);border:1px solid var(--divider-color,#888);border-radius:8px;font:inherit} [data-energy-options-help] summary:focus-visible,[data-energy-expand]:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}
@@ -5141,7 +5180,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]{flex:1 1 100%;width:100%}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer>summary{min-height:44px;padding:12px 8px;font-size:14px}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]>p{margin:0 0 8px}`;
-  const simpleStyle = `:host{display:block;min-width:0;container-type:inline-size;container-name:energy-simple-card;--energy-simple-cheap:var(--hat-zone-cheap,#1baf7a);--energy-simple-expensive:var(--hat-zone-exp,#2a78d6)}
+  const simpleStyle = `:host{display:block;min-width:0;container-type:inline-size;container-name:energy-simple-card;--energy-simple-cheap:var(--hat-zone-cheap,var(--_hat-zone-cheap,#1baf7a));--energy-simple-expensive:var(--hat-zone-exp,var(--_hat-zone-exp,#2a78d6))}
 :host(.bento-dark){--energy-simple-cheap:var(--hat-zone-cheap,#199e70);--energy-simple-expensive:var(--hat-zone-exp,#3987e5)}
 [data-energy-simple]{box-sizing:border-box;display:grid;gap:8px;min-width:0;color:var(--primary-text-color);font-size:14px;cursor:pointer}
 [data-energy-simple] h2,[data-energy-simple] p{margin:0} [data-energy-simple] h2{font-size:16px;line-height:22px;font-weight:600;min-width:0} [data-energy-name]{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -5410,7 +5449,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><ha-card data-energy-simple="${mode}" role="button" tabindex="0"${!email ? ' data-energy-open' : ''}><div data-energy-heading><ha-icon aria-hidden="true"></ha-icon><div data-energy-heading-text><h2><span data-energy-name></span></h2>${mode === 'compact' ? '<p data-energy-primary-label></p>' : '<div data-energy-primary role="status"></div>'}</div></div>${mode === 'compact' ? email ? '<div data-energy-primary role="status"></div><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : '<div data-energy-values><div data-energy-primary role="status"></div><span data-energy-cost></span><span data-energy-comparison></span></div><div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div><div data-energy-zone-axis></div><div data-energy-zone-legend></div></div>' : ''}${email ? mode === 'compact' ? '<div data-energy-actions><button type="button" data-energy-open></button></div>' : '<button type="button" data-energy-open></button>' : ''}</ha-card>`;
+      root.innerHTML = `<style>${host._getTariffHostV3().ui().css}${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><ha-card data-energy-simple="${mode}" role="button" tabindex="0"${!email ? ' data-energy-open' : ''}><div data-energy-heading><ha-icon aria-hidden="true"></ha-icon><div data-energy-heading-text><h2><span data-energy-name></span></h2>${mode === 'compact' ? '<p data-energy-primary-label></p>' : '<div data-energy-primary role="status"></div>'}</div></div>${mode === 'compact' ? email ? '<div data-energy-primary role="status"></div><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : '<div data-energy-values><div data-energy-primary role="status"></div><span data-energy-cost></span><span data-energy-comparison></span></div><div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div><div data-energy-zone-axis></div><div data-energy-zone-legend></div></div>' : ''}${email ? mode === 'compact' ? '<div data-energy-actions><button type="button" data-energy-open></button></div>' : '<button type="button" data-energy-open></button>' : ''}</ha-card>`;
       section = root.querySelector('[data-energy-simple]');
       section.addEventListener('click', event => {
         if (event.target.closest?.('button,a,input,select,textarea')) return;
@@ -5516,6 +5555,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     }
   };
   // Simple surfaces do not run the full cards' discovery/config/schedule paths.
+  Card.prototype._applyThemeV150 = function() { this._getTariffHostV3().ui().applyTheme(this); };
   const hassDescriptor = Object.getOwnPropertyDescriptor(Card.prototype,'hass');
   if (hassDescriptor?.set) Object.defineProperty(Card.prototype,'hass',{...hassDescriptor,set(value) {
     try {
@@ -5530,14 +5570,14 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       this.classList.toggle('bento-dark',value?.themes?.darkMode === true);
       this._tariffHostController?.guard.observe();
       this._render();
-    } finally { this._syncDashboardPlacementV53(); }
+    } finally { this._syncDashboardPlacementV53(); this._applyThemeV150(); }
   }});
   const connected = Card.prototype.connectedCallback;
   Card.prototype.connectedCallback = function() {
     try {
       if (!simple(this) && this.preview !== true) return connected?.call(this);
       this._tariffHostController?.guard.resume(); this._render();
-    } finally { this._syncDashboardPlacementV53(); }
+    } finally { this._syncDashboardPlacementV53(); this._applyThemeV150(); }
   };
   for (const method of ['_repriceTariffV3','_syncAnalysisV53']) {
     const original = Card.prototype[method]; if (!original) continue;
@@ -5597,7 +5637,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     this._applyCardOptionsV5();
     if (restoreBack) this.shadowRoot.querySelector('[data-energy-back]')?.focus({preventScroll:true});
     return result;
-    } finally { this._syncDashboardPlacementV53(); }
+    } finally { this._syncDashboardPlacementV53(); this._applyThemeV150(); }
   };
   Card.prototype._applyCardOptionsV5 = function() {
     this._syncDashboardPlacementV53();
