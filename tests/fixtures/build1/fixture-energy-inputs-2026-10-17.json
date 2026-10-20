@@ -1,0 +1,481 @@
+{
+ "now": "2026-10-17T19:07:00+02:00",
+ "timezone": "Europe/Warsaw",
+ "currency": "PLN",
+ "language": "pl",
+ "energy_prefs": {
+  "energy_sources": [
+   {
+    "type": "grid",
+    "flow_from": [
+     {
+      "stat_energy_from": "sensor.licznik_import"
+     }
+    ],
+    "flow_to": []
+   }
+  ],
+  "device_consumption": [
+   {
+    "stat_consumption": "sensor.pompa_ciepla_energia"
+   },
+   {
+    "stat_consumption": "sensor.bojler_energia"
+   },
+   {
+    "stat_consumption": "sensor.zmywarka_energia"
+   },
+   {
+    "stat_consumption": "sensor.pralka_energia"
+   },
+   {
+    "stat_consumption": "sensor.lodowka_energia"
+   },
+   {
+    "stat_consumption": "sensor.suszarka_reczniki_energia"
+   },
+   {
+    "stat_consumption": "sensor.tv_salon_energia"
+   },
+   {
+    "stat_consumption": "sensor.pompa_ciepla_sprezarka",
+    "included_in_stat": "sensor.pompa_ciepla_energia"
+   }
+  ]
+ },
+ "registries": {
+  "entities": {
+   "sensor.pompa_ciepla_energia": {
+    "name": "Pompa ciepła",
+    "area_id": "kotlownia"
+   },
+   "sensor.bojler_energia": {
+    "name": "Bojler",
+    "area_id": "kotlownia"
+   },
+   "sensor.zmywarka_energia": {
+    "name": "Zmywarka",
+    "area_id": "kuchnia"
+   },
+   "sensor.pralka_energia": {
+    "name": "Pralka",
+    "area_id": "lazienka"
+   },
+   "sensor.lodowka_energia": {
+    "name": "Lodówka",
+    "area_id": "kuchnia"
+   },
+   "sensor.suszarka_reczniki_energia": {
+    "name": "Suszarka na ręczniki",
+    "area_id": "lazienka"
+   },
+   "sensor.tv_salon_energia": {
+    "name": "TV salon",
+    "area_id": "salon"
+   },
+   "sensor.pompa_ciepla_sprezarka": {
+    "name": "Sprężarka pompy",
+    "area_id": "kotlownia"
+   }
+  },
+  "areas": {
+   "kotlownia": {
+    "name": "Kotłownia",
+    "floor_id": "parter"
+   },
+   "kuchnia": {
+    "name": "Kuchnia",
+    "floor_id": "parter"
+   },
+   "lazienka": {
+    "name": "Łazienka",
+    "floor_id": "pietro"
+   },
+   "salon": {
+    "name": "Salon",
+    "floor_id": "parter"
+   }
+  },
+  "floors": {
+   "parter": "Parter",
+   "pietro": "Piętro"
+  }
+ },
+ "statistics_hourly_change_kwh": {
+  "sensor.licznik_import": {
+   "2026-10-17": [
+    0.42,
+    0.38,
+    0.36,
+    0.36,
+    0.4,
+    0.55,
+    0.95,
+    1.1,
+    0.8,
+    0.62,
+    0.58,
+    0.66,
+    0.74,
+    0.92,
+    0.86,
+    0.6,
+    0.68,
+    0.88,
+    1.32,
+    1.45,
+    1.22,
+    0.96,
+    1.18,
+    0.78
+   ],
+   "2026-10-16": [
+    0.38,
+    0.36,
+    0.36,
+    0.36,
+    0.38,
+    0.5,
+    0.81,
+    0.99,
+    0.8,
+    0.65,
+    0.58,
+    0.63,
+    0.67,
+    0.74,
+    0.73,
+    0.6,
+    0.71,
+    0.88,
+    1.25,
+    1.3,
+    1.16,
+    0.96,
+    1.06,
+    0.74
+   ]
+  },
+  "sensor.pompa_ciepla_energia": {
+   "2026-10-17": [
+    0.104047,
+    0.067247,
+    0.190024,
+    0.3312,
+    0.368,
+    0.471512,
+    0.628683,
+    0.628683,
+    0.314342,
+    0.157171,
+    0.157171,
+    0.157171,
+    0.157171,
+    0.092871,
+    0.037671,
+    0.157171,
+    0.157171,
+    0.314342,
+    0.471512,
+    0.471512,
+    0.471512,
+    0.314342,
+    0.385404,
+    0.294071
+   ]
+  },
+  "sensor.bojler_energia": {
+   "2026-10-17": [
+    0.282353,
+    0.282353,
+    0.141176,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.423529,
+    0.423529,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.423529,
+    0.423529
+   ]
+  },
+  "sensor.zmywarka_energia": {
+   "2026-10-17": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.216667,
+    0.433333,
+    0.433333,
+    0.216667,
+    0.0
+   ]
+  },
+  "sensor.pralka_energia": {
+   "2026-10-17": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.11,
+    0.33,
+    0.33,
+    0.22,
+    0.11,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "sensor.lodowka_energia": {
+   "2026-10-17": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.034488,
+    0.042307,
+    0.042307,
+    0.042307,
+    0.042307,
+    0.042307,
+    0.042307,
+    0.042307,
+    0.0,
+    0.0,
+    0.042307,
+    0.042307,
+    0.042307,
+    0.042307,
+    0.042307,
+    0.042307,
+    0.015525,
+    0.0,
+    0.0
+   ]
+  },
+  "sensor.suszarka_reczniki_energia": {
+   "2026-10-17": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.1,
+    0.1,
+    0.05,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.05,
+    0.05,
+    0.05,
+    0.0,
+    0.0,
+    0.0
+   ]
+  },
+  "sensor.tv_salon_energia": {
+   "2026-10-17": [
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0,
+    0.06,
+    0.12,
+    0.12,
+    0.12,
+    0.12,
+    0.06,
+    0.0
+   ]
+  },
+  "sensor.pompa_ciepla_sprezarka": {
+   "2026-10-17": [
+    0.126422,
+    0.081708,
+    0.230887,
+    0.258197,
+    0.258197,
+    0.258197,
+    0.258197,
+    0.258197,
+    0.258197,
+    0.190969,
+    0.190969,
+    0.190969,
+    0.190969,
+    0.112842,
+    0.045771,
+    0.190969,
+    0.190969,
+    0.258197,
+    0.258197,
+    0.258197,
+    0.258197,
+    0.258197,
+    0.258197,
+    0.258197
+   ]
+  }
+ },
+ "daily_totals_kwh": {
+  "2026-10-10": 17.6,
+  "2026-10-11": 16.9,
+  "2026-10-12": 17.2,
+  "2026-10-13": 16.8,
+  "2026-10-14": 17.9,
+  "2026-10-15": 17.4,
+  "2026-10-16": 17.6
+ },
+ "tariff": {
+  "schema": 2,
+  "name": "G12",
+  "currency": "PLN",
+  "priceBasis": "gross",
+  "timezone": "Europe/Warsaw",
+  "validFrom": "2026-01-01",
+  "validTo": null,
+  "zones": [
+   {
+    "id": "cheap",
+    "label": "tania",
+    "energyRate": 0.4,
+    "variableRate": 0.22
+   },
+   {
+    "id": "exp",
+    "label": "droga",
+    "energyRate": 0.62,
+    "variableRate": 0.32
+   }
+  ],
+  "defaultZone": "exp",
+  "rules": [
+   {
+    "zone": "cheap",
+    "priority": 10,
+    "weekdays": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     6
+    ],
+    "intervals": [
+     {
+      "from": "22:00",
+      "to": "24:00"
+     },
+     {
+      "from": "00:00",
+      "to": "06:00"
+     },
+     {
+      "from": "13:00",
+      "to": "15:00"
+     }
+    ]
+   }
+  ],
+  "exceptions": [],
+  "fixed": [
+   {
+    "id": "network",
+    "label": "opłata stała sieciowa",
+    "monthly": 12.4
+   },
+   {
+    "id": "subscription",
+    "label": "opłata abonamentowa",
+    "monthly": 0.75
+   },
+   {
+    "id": "capacity",
+    "label": "opłata mocowa",
+    "monthly": 11.62
+   },
+   {
+    "id": "retail",
+    "label": "opłata handlowa",
+    "monthly": 9.33
+   }
+  ]
+ },
+ "alternative_tariffs": [
+  {
+   "name": "G11",
+   "zones": [
+    {
+     "id": "all",
+     "energyRate": 0.55,
+     "variableRate": 0.34
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,842 @@
+{
+ "model": {
+  "schema": "ha_tools.energy_report/1",
+  "period": {
+   "kind": "day",
+   "start": "2026-10-17T00:00:00+02:00",
+   "end": "2026-10-18T00:00:00+02:00",
+   "timezone": "Europe/Warsaw",
+   "hours": 24,
+   "label": "sobota, 17 paź 2026",
+   "complete": true
+  },
+  "coverage": {
+   "expected_hours": 24,
+   "measured_hours": 24,
+   "ratio": 1.0,
+   "complete": true
+  },
+  "currency": "PLN",
+  "price_basis": "gross",
+  "totals": {
+   "import_kwh": 18.77,
+   "measured_kwh": 13.299999999999999,
+   "unmeasured_kwh": 5.470000000000001,
+   "energy_cost": 10.2712,
+   "variable_cost": 5.385400000000001,
+   "usage_cost": 15.656600000000001,
+   "fixed_share": 1.1,
+   "total_with_fixed": 16.756600000000002,
+   "effective_rate": 0.8341289291422483,
+   "peak_hour": 19,
+   "peak_kwh": 1.45
+  },
+  "zones": [
+   {
+    "id": "cheap",
+    "label": "tania",
+    "kwh": 6.21,
+    "energy_rate": 0.4,
+    "variable_rate": 0.22,
+    "rate": 0.62,
+    "energy_cost": 2.484000000000001,
+    "variable_cost": 1.3662,
+    "hours": [
+     0,
+     1,
+     2,
+     3,
+     4,
+     5,
+     13,
+     14,
+     22,
+     23
+    ],
+    "cost": 3.850200000000001,
+    "share": 0.33084709643047416,
+    "hours_label": "22–6, 13–15"
+   },
+   {
+    "id": "exp",
+    "label": "droga",
+    "kwh": 12.559999999999999,
+    "energy_rate": 0.62,
+    "variable_rate": 0.32,
+    "rate": 0.94,
+    "energy_cost": 7.7872,
+    "variable_cost": 4.0192000000000005,
+    "hours": [
+     6,
+     7,
+     8,
+     9,
+     10,
+     11,
+     12,
+     15,
+     16,
+     17,
+     18,
+     19,
+     20,
+     21
+    ],
+    "cost": 11.8064,
+    "share": 0.6691529035695258,
+    "hours_label": "6–13, 15–22"
+   }
+  ],
+  "hourly": [
+   {
+    "start": "2026-10-17T00:00:00+02:00",
+    "hour": 0,
+    "kwh": 0.42,
+    "zone": "cheap",
+    "energy_cost": 0.168,
+    "variable_cost": 0.0924,
+    "cost": 0.2604,
+    "prev_kwh": 0.38,
+    "measured_kwh": 0.3864
+   },
+   {
+    "start": "2026-10-17T01:00:00+02:00",
+    "hour": 1,
+    "kwh": 0.38,
+    "zone": "cheap",
+    "energy_cost": 0.15200000000000002,
+    "variable_cost": 0.08360000000000001,
+    "cost": 0.23560000000000003,
+    "prev_kwh": 0.36,
+    "measured_kwh": 0.3496
+   },
+   {
+    "start": "2026-10-17T02:00:00+02:00",
+    "hour": 2,
+    "kwh": 0.36,
+    "zone": "cheap",
+    "energy_cost": 0.144,
+    "variable_cost": 0.07919999999999999,
+    "cost": 0.22319999999999998,
+    "prev_kwh": 0.36,
+    "measured_kwh": 0.3312
+   },
+   {
+    "start": "2026-10-17T03:00:00+02:00",
+    "hour": 3,
+    "kwh": 0.36,
+    "zone": "cheap",
+    "energy_cost": 0.144,
+    "variable_cost": 0.07919999999999999,
+    "cost": 0.22319999999999998,
+    "prev_kwh": 0.36,
+    "measured_kwh": 0.3312
+   },
+   {
+    "start": "2026-10-17T04:00:00+02:00",
+    "hour": 4,
+    "kwh": 0.4,
+    "zone": "cheap",
+    "energy_cost": 0.16000000000000003,
+    "variable_cost": 0.08800000000000001,
+    "cost": 0.24800000000000005,
+    "prev_kwh": 0.38,
+    "measured_kwh": 0.36800000000000005
+   },
+   {
+    "start": "2026-10-17T05:00:00+02:00",
+    "hour": 5,
+    "kwh": 0.55,
+    "zone": "cheap",
+    "energy_cost": 0.22000000000000003,
+    "variable_cost": 0.12100000000000001,
+    "cost": 0.341,
+    "prev_kwh": 0.5,
+    "measured_kwh": 0.5060000000000001
+   },
+   {
+    "start": "2026-10-17T06:00:00+02:00",
+    "hour": 6,
+    "kwh": 0.95,
+    "zone": "exp",
+    "energy_cost": 0.589,
+    "variable_cost": 0.304,
+    "cost": 0.893,
+    "prev_kwh": 0.81,
+    "measured_kwh": 0.770990064102564
+   },
+   {
+    "start": "2026-10-17T07:00:00+02:00",
+    "hour": 7,
+    "kwh": 1.1,
+    "zone": "exp",
+    "energy_cost": 0.682,
+    "variable_cost": 0.35200000000000004,
+    "cost": 1.034,
+    "prev_kwh": 0.99,
+    "measured_kwh": 0.770990064102564
+   },
+   {
+    "start": "2026-10-17T08:00:00+02:00",
+    "hour": 8,
+    "kwh": 0.8,
+    "zone": "exp",
+    "energy_cost": 0.496,
+    "variable_cost": 0.256,
+    "cost": 0.752,
+    "prev_kwh": 0.8,
+    "measured_kwh": 0.4066483974358974
+   },
+   {
+    "start": "2026-10-17T09:00:00+02:00",
+    "hour": 9,
+    "kwh": 0.62,
+    "zone": "exp",
+    "energy_cost": 0.3844,
+    "variable_cost": 0.1984,
+    "cost": 0.5828,
+    "prev_kwh": 0.65,
+    "measured_kwh": 0.19947756410256406
+   },
+   {
+    "start": "2026-10-17T10:00:00+02:00",
+    "hour": 10,
+    "kwh": 0.58,
+    "zone": "exp",
+    "energy_cost": 0.3596,
+    "variable_cost": 0.1856,
+    "cost": 0.5451999999999999,
+    "prev_kwh": 0.58,
+    "measured_kwh": 0.19947756410256406
+   },
+   {
+    "start": "2026-10-17T11:00:00+02:00",
+    "hour": 11,
+    "kwh": 0.66,
+    "zone": "exp",
+    "energy_cost": 0.4092,
+    "variable_cost": 0.21120000000000003,
+    "cost": 0.6204000000000001,
+    "prev_kwh": 0.63,
+    "measured_kwh": 0.19947756410256406
+   },
+   {
+    "start": "2026-10-17T12:00:00+02:00",
+    "hour": 12,
+    "kwh": 0.74,
+    "zone": "exp",
+    "energy_cost": 0.4588,
+    "variable_cost": 0.2368,
+    "cost": 0.6956,
+    "prev_kwh": 0.67,
+    "measured_kwh": 0.3094775641025641
+   },
+   {
+    "start": "2026-10-17T13:00:00+02:00",
+    "hour": 13,
+    "kwh": 0.92,
+    "zone": "cheap",
+    "energy_cost": 0.36800000000000005,
+    "variable_cost": 0.2024,
+    "cost": 0.5704,
+    "prev_kwh": 0.74,
+    "measured_kwh": 0.8464
+   },
+   {
+    "start": "2026-10-17T14:00:00+02:00",
+    "hour": 14,
+    "kwh": 0.86,
+    "zone": "cheap",
+    "energy_cost": 0.34400000000000003,
+    "variable_cost": 0.1892,
+    "cost": 0.5332,
+    "prev_kwh": 0.73,
+    "measured_kwh": 0.7912000000000001
+   },
+   {
+    "start": "2026-10-17T15:00:00+02:00",
+    "hour": 15,
+    "kwh": 0.6,
+    "zone": "exp",
+    "energy_cost": 0.372,
+    "variable_cost": 0.192,
+    "cost": 0.5640000000000001,
+    "prev_kwh": 0.6,
+    "measured_kwh": 0.4194775641025641
+   },
+   {
+    "start": "2026-10-17T16:00:00+02:00",
+    "hour": 16,
+    "kwh": 0.68,
+    "zone": "exp",
+    "energy_cost": 0.42160000000000003,
+    "variable_cost": 0.21760000000000002,
+    "cost": 0.6392,
+    "prev_kwh": 0.71,
+    "measured_kwh": 0.3094775641025641
+   },
+   {
+    "start": "2026-10-17T17:00:00+02:00",
+    "hour": 17,
+    "kwh": 0.88,
+    "zone": "exp",
+    "energy_cost": 0.5456,
+    "variable_cost": 0.2816,
+    "cost": 0.8271999999999999,
+    "prev_kwh": 0.88,
+    "measured_kwh": 0.4166483974358974
+   },
+   {
+    "start": "2026-10-17T18:00:00+02:00",
+    "hour": 18,
+    "kwh": 1.32,
+    "zone": "exp",
+    "energy_cost": 0.8184,
+    "variable_cost": 0.42240000000000005,
+    "cost": 1.2408000000000001,
+    "prev_kwh": 1.25,
+    "measured_kwh": 0.6838192307692307
+   },
+   {
+    "start": "2026-10-17T19:00:00+02:00",
+    "hour": 19,
+    "kwh": 1.45,
+    "zone": "exp",
+    "energy_cost": 0.899,
+    "variable_cost": 0.46399999999999997,
+    "cost": 1.363,
+    "prev_kwh": 1.3,
+    "measured_kwh": 0.9004858974358974
+   },
+   {
+    "start": "2026-10-17T20:00:00+02:00",
+    "hour": 20,
+    "kwh": 1.22,
+    "zone": "exp",
+    "energy_cost": 0.7564,
+    "variable_cost": 0.3904,
+    "cost": 1.1468,
+    "prev_kwh": 1.16,
+    "measured_kwh": 1.1171525641025641
+   },
+   {
+    "start": "2026-10-17T21:00:00+02:00",
+    "hour": 21,
+    "kwh": 0.96,
+    "zone": "exp",
+    "energy_cost": 0.5952,
+    "variable_cost": 0.3072,
+    "cost": 0.9023999999999999,
+    "prev_kwh": 0.96,
+    "measured_kwh": 0.8832
+   },
+   {
+    "start": "2026-10-17T22:00:00+02:00",
+    "hour": 22,
+    "kwh": 1.18,
+    "zone": "cheap",
+    "energy_cost": 0.472,
+    "variable_cost": 0.2596,
+    "cost": 0.7316,
+    "prev_kwh": 1.06,
+    "measured_kwh": 1.0856
+   },
+   {
+    "start": "2026-10-17T23:00:00+02:00",
+    "hour": 23,
+    "kwh": 0.78,
+    "zone": "cheap",
+    "energy_cost": 0.31200000000000006,
+    "variable_cost": 0.1716,
+    "cost": 0.48360000000000003,
+    "prev_kwh": 0.74,
+    "measured_kwh": 0.7176
+   }
+  ],
+  "devices": [
+   {
+    "id": "sensor.pompa_ciepla_energia",
+    "name": "Pompa ciepła",
+    "kwh": 6.8999999999999995,
+    "share": 0.36760788492274904,
+    "cost": 5.736545333333333,
+    "effective_rate": 0.8313833816425121,
+    "area_id": "kotlownia",
+    "floor_id": "parter",
+    "children": [
+     {
+      "id": "sensor.pompa_ciepla_sprezarka",
+      "name": "Sprężarka pompy",
+      "kwh": 5.1
+     }
+    ]
+   },
+   {
+    "id": "sensor.bojler_energia",
+    "name": "Bojler",
+    "kwh": 2.4,
+    "share": 0.12786361214704314,
+    "cost": 1.488,
+    "effective_rate": 0.62,
+    "area_id": "kotlownia",
+    "floor_id": "parter",
+    "children": []
+   },
+   {
+    "id": "sensor.zmywarka_energia",
+    "name": "Zmywarka",
+    "kwh": 1.3,
+    "share": 0.06925945657964838,
+    "cost": 1.1526666666666667,
+    "effective_rate": 0.8866666666666667,
+    "area_id": "kuchnia",
+    "floor_id": "parter",
+    "children": []
+   },
+   {
+    "id": "sensor.pralka_energia",
+    "name": "Pralka",
+    "kwh": 1.1,
+    "share": 0.05860415556739478,
+    "cost": 0.8228,
+    "effective_rate": 0.7479999999999999,
+    "area_id": "lazienka",
+    "floor_id": "pietro",
+    "children": []
+   },
+   {
+    "id": "sensor.lodowka_energia",
+    "name": "Lodówka",
+    "kwh": 0.6000000000000001,
+    "share": 0.03196590303676079,
+    "cost": 0.552964,
+    "effective_rate": 0.9216066666666666,
+    "area_id": "kuchnia",
+    "floor_id": "parter",
+    "children": []
+   },
+   {
+    "id": "sensor.tv_salon_energia",
+    "name": "TV salon",
+    "kwh": 0.6,
+    "share": 0.031965903036760786,
+    "cost": 0.5448,
+    "effective_rate": 0.9079999999999999,
+    "area_id": "salon",
+    "floor_id": "parter",
+    "children": []
+   },
+   {
+    "id": "sensor.suszarka_reczniki_energia",
+    "name": "Suszarka na ręczniki",
+    "kwh": 0.4,
+    "share": 0.021310602024507193,
+    "cost": 0.376,
+    "effective_rate": 0.94,
+    "area_id": "lazienka",
+    "floor_id": "pietro",
+    "children": []
+   }
+  ],
+  "ranking": [
+   {
+    "id": "sensor.pompa_ciepla_energia",
+    "name": "Pompa ciepła",
+    "kwh": 6.8999999999999995,
+    "share": 0.36760788492274904,
+    "cost": 5.736545333333333,
+    "effective_rate": 0.8313833816425121,
+    "area_id": "kotlownia",
+    "floor_id": "parter",
+    "children": [
+     {
+      "id": "sensor.pompa_ciepla_sprezarka",
+      "name": "Sprężarka pompy",
+      "kwh": 5.1
+     }
+    ],
+    "color": "d1"
+   },
+   {
+    "id": "sensor.bojler_energia",
+    "name": "Bojler",
+    "kwh": 2.4,
+    "share": 0.12786361214704314,
+    "cost": 1.488,
+    "effective_rate": 0.62,
+    "area_id": "kotlownia",
+    "floor_id": "parter",
+    "children": [],
+    "color": "d2"
+   },
+   {
+    "id": "sensor.zmywarka_energia",
+    "name": "Zmywarka",
+    "kwh": 1.3,
+    "share": 0.06925945657964838,
+    "cost": 1.1526666666666667,
+    "effective_rate": 0.8866666666666667,
+    "area_id": "kuchnia",
+    "floor_id": "parter",
+    "children": [],
+    "color": "d3"
+   },
+   {
+    "id": "sensor.pralka_energia",
+    "name": "Pralka",
+    "kwh": 1.1,
+    "share": 0.05860415556739478,
+    "cost": 0.8228,
+    "effective_rate": 0.7479999999999999,
+    "area_id": "lazienka",
+    "floor_id": "pietro",
+    "children": [],
+    "color": "d4"
+   },
+   {
+    "id": "_other_measured",
+    "name": "Pozostałe zmierzone",
+    "kwh": 1.6,
+    "share": 0.08524240809802877,
+    "cost": 1.473764,
+    "color": "other",
+    "count": 3
+   },
+   {
+    "id": "_unmeasured",
+    "name": "Niezmierzone",
+    "kwh": 5.470000000000001,
+    "share": 0.2914224826851359,
+    "cost": 4.982824000000001,
+    "color": "unmeasured"
+   }
+  ],
+  "unmeasured": {
+   "kwh": 5.470000000000001,
+   "share": 0.2914224826851359,
+   "cost": 4.982824000000001,
+   "status": "ok"
+  },
+  "rooms": [
+   {
+    "area_id": "kotlownia",
+    "name": "Kotłownia",
+    "floor_id": "parter",
+    "floor": "Parter",
+    "kwh": 9.299999999999999,
+    "cost": 7.224545333333333,
+    "devices": 2,
+    "share": 0.49547149706979215
+   },
+   {
+    "area_id": "kuchnia",
+    "name": "Kuchnia",
+    "floor_id": "parter",
+    "floor": "Parter",
+    "kwh": 1.9000000000000001,
+    "cost": 1.7056306666666667,
+    "devices": 2,
+    "share": 0.10122535961640917
+   },
+   {
+    "area_id": "lazienka",
+    "name": "Łazienka",
+    "floor_id": "pietro",
+    "floor": "Piętro",
+    "kwh": 1.5,
+    "cost": 1.1987999999999999,
+    "devices": 2,
+    "share": 0.07991475759190197
+   },
+   {
+    "area_id": "salon",
+    "name": "Salon",
+    "floor_id": "parter",
+    "floor": "Parter",
+    "kwh": 0.6,
+    "cost": 0.5448,
+    "devices": 1,
+    "share": 0.031965903036760786
+   },
+   {
+    "area_id": null,
+    "name": "Bez pokoju",
+    "kwh": 0.0,
+    "cost": 0.0,
+    "share": 0.0,
+    "devices": 0
+   },
+   {
+    "area_id": "_unmeasured",
+    "name": "Niezmierzone",
+    "kwh": 5.470000000000001,
+    "cost": 4.982824000000001,
+    "share": 0.2914224826851359
+   }
+  ],
+  "floors": [
+   {
+    "floor_id": "parter",
+    "name": "Parter",
+    "kwh": 11.799999999999999,
+    "cost": 9.474976
+   },
+   {
+    "floor_id": "pietro",
+    "name": "Piętro",
+    "kwh": 1.5,
+    "cost": 1.1987999999999999
+   }
+  ],
+  "comparisons": [
+   {
+    "key": "previous_day",
+    "label": "piątek, 16 paź",
+    "kwh": 17.6,
+    "delta_kwh": 1.1699999999999982,
+    "delta_pct": 6.647727272727262,
+    "coverage_ok": true
+   },
+   {
+    "key": "same_weekday_last_week",
+    "label": "sobota, 10 paź",
+    "kwh": 19.4,
+    "delta_kwh": -0.629999999999999,
+    "delta_pct": -3.2474226804123663,
+    "coverage_ok": true
+   },
+   {
+    "key": "avg_7d",
+    "label": "średnia 7 dni",
+    "kwh": 17.3,
+    "delta_kwh": 1.4699999999999989,
+    "delta_pct": 8.497109826589588,
+    "coverage_ok": true
+   }
+  ],
+  "alternatives": [
+   {
+    "tariff": "G11",
+    "rate": 0.8900000000000001,
+    "cost": 16.7053,
+    "delta": 1.0487000000000002
+   }
+  ],
+  "tariff": {
+   "name": "G12",
+   "valid_from": "2026-01-01",
+   "price_basis": "gross",
+   "zones": [
+    {
+     "id": "cheap",
+     "label": "tania",
+     "energy_rate": 0.4,
+     "variable_rate": 0.22,
+     "rate": 0.62,
+     "hours_label": "22–6, 13–15"
+    },
+    {
+     "id": "exp",
+     "label": "droga",
+     "energy_rate": 0.62,
+     "variable_rate": 0.32,
+     "rate": 0.94,
+     "hours_label": "6–13, 15–22"
+    }
+   ],
+   "fixed": [
+    {
+     "id": "network",
+     "label": "opłata stała sieciowa",
+     "monthly": 12.4,
+     "share": 0.4
+    },
+    {
+     "id": "subscription",
+     "label": "opłata abonamentowa",
+     "monthly": 0.75,
+     "share": 0.024193548387096774
+    },
+    {
+     "id": "capacity",
+     "label": "opłata mocowa",
+     "monthly": 11.62,
+     "share": 0.37483870967741933
+    },
+    {
+     "id": "retail",
+     "label": "opłata handlowa",
+     "monthly": 9.33,
+     "share": 0.30096774193548387
+    }
+   ],
+   "fixed_monthly": 34.1,
+   "days_in_month": 31
+  },
+  "issues": []
+ },
+ "entities_at_19_07": {
+  "sensor.energia_dzis": {
+   "state": 13.18,
+   "unit": "kWh",
+   "device_class": "energy",
+   "state_class": "total",
+   "last_reset": "2026-10-17T00:00:00+02:00"
+  },
+  "sensor.energia_koszt_dzis": {
+   "state": 11.03,
+   "unit": "PLN",
+   "device_class": "monetary",
+   "state_class": "total",
+   "last_reset": "2026-10-17T00:00:00+02:00"
+  },
+  "sensor.energia_strefa_taryfy": {
+   "state": "exp",
+   "device_class": "enum",
+   "options": [
+    "cheap",
+    "exp"
+   ],
+   "attributes": {
+    "label": "droga",
+    "rate": 0.94,
+    "next_change": "2026-10-17T22:00:00+02:00",
+    "next_zone": "cheap"
+   }
+  },
+  "sensor.energia_cena_teraz": {
+   "state": 0.94,
+   "unit": "PLN/kWh",
+   "state_class": "measurement"
+  },
+  "sensor.energia_nastepna_tania_strefa": {
+   "state": "2026-10-17T22:00:00+02:00",
+   "device_class": "timestamp"
+  },
+  "binary_sensor.energia_tania_strefa": {
+   "state": "off"
+  },
+  "sensor.energia_udzial_taniej_strefy_dzis": {
+   "state": 32.2,
+   "unit": "%",
+   "state_class": "measurement"
+  }
+ },
+ "display": {
+  "compact.main": "13,2 kWh",
+  "compact.cost": "11,03 zł",
+  "compact.cmp": "+6,5% vs wczoraj o tej porze (12,4 kWh)",
+  "compact.chip": "droga · tania od 22:00",
+  "tile.state.long": "droga · tania od 22:00",
+  "tile.state.short": "tania od 22:00",
+  "mail.subject": "Energia: sobota 17 paź — 18,8 kWh · 15,66 zł (+6,6%)",
+  "mail.kpi.import": "18,8",
+  "mail.kpi.cost": "15,66",
+  "mail.kpi.cheap_share": "33",
+  "mail.rooms.kotlownia.cost": "7,22 zł",
+  "mail.devices.unmeasured.kwh": "5,47 kWh",
+  "mail.costs.total_with_fixed": "16,76 zł",
+  "mail.costs.fixed_share": "1,10 zł",
+  "notify.title": "Energia wczoraj: 18,8 kWh · 15,66 zł"
+ },
+ "format_cases": [
+  [
+   7.225,
+   2,
+   "7,23"
+  ],
+  [
+   7.2249,
+   2,
+   "7,22"
+  ],
+  [
+   -0.63,
+   1,
+   "−0,6"
+  ],
+  [
+   1234.5,
+   1,
+   "1 234,5"
+  ],
+  [
+   0.005,
+   2,
+   "0,01"
+  ],
+  [
+   6.6477,
+   1,
+   "6,6"
+  ],
+  [
+   18.77,
+   1,
+   "18,8"
+  ],
+  [
+   15.6566,
+   2,
+   "15,66"
+  ]
+ ],
+ "plural_cases": [
+  [
+   0,
+   "błędów"
+  ],
+  [
+   1,
+   "błąd"
+  ],
+  [
+   2,
+   "błędy"
+  ],
+  [
+   4,
+   "błędy"
+  ],
+  [
+   5,
+   "błędów"
+  ],
+  [
+   12,
+   "błędów"
+  ],
+  [
+   13,
+   "błędów"
+  ],
+  [
+   21,
+   "błędów"
+  ],
+  [
+   22,
+   "błędy"
+  ],
+  [
+   25,
+   "błędów"
+  ],
+  [
+   1.5,
+   "błędy"
+  ]
+ ],
+ "dst_cases": [
+  {
+   "date": "2026-03-29",
+   "expected_hours": 23,
+   "note": "brak 02:00; strefa tania 00–06 obejmuje 5 godzin"
+  },
+  {
+   "date": "2026-10-25",
+   "expected_hours": 25,
+   "note": "dwie godziny 02:00 (fold 0 i 1), obie w strefie taniej; porównania po dniach lokalnych"
+  }
+ ]
+}
