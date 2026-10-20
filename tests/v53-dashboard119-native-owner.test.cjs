@@ -23,7 +23,8 @@ function setup(name,{admin=true,language='en',config={type:`custom:${name}`,vari
  // Contract fixture for frontend 20260826.7 make-dialog-manager.ts:
  // provideHass, showDialog before append, stable parent, cached legacy element.
  const shell=w.document.createElement('home-assistant');shell.attachShadow({mode:'open'});w.document.body.append(shell);
- const providers=new Set();let nativeDialog;
+ const providers=new Set(),closed=[];let nativeDialog;
+ shell.addEventListener('dialog-closed',()=>closed.push(new Error('native dialog closed').stack));
  shell.provideHass=element=>{providers.add(element);element.hass=hass;};
  shell.addEventListener('show-dialog',async event=>{
   const {dialogTag,dialogImport,dialogParams}=event.detail;
@@ -61,7 +62,7 @@ function setup(name,{admin=true,language='en',config={type:`custom:${name}`,vari
    denied.push(clone(q));throw {code:'forbidden',message:'Unexpected private or unsupported request'};
   }finally{if(dashboard)raw--;}
  },callService(...args){services.push(args);throw Error('Unexpected service write');}};
- const api={w,card,shell,get nativeDialog(){return nativeDialog;},calls,errors,denied,subscriptions,get hass(){return hass;},get stored(){return stored;},set stored(v){stored=v;},set hook(v){hook=v;},get maxRaw(){return maxRaw;},
+ const api={w,card,shell,closed,get nativeDialog(){return nativeDialog;},calls,errors,denied,subscriptions,get hass(){return hass;},get stored(){return stored;},set stored(v){stored=v;},set hook(v){hook=v;},get maxRaw(){return maxRaw;},
  q(selector){return nativeDialog?.querySelector(selector)||card.shadowRoot.querySelector(selector);},dashboardCalls(){return calls.filter(q=>q.type.startsWith('lovelace/'));},saves(){return calls.filter(q=>q.type==='lovelace/config/save');},
  async mount(){shell.shadowRoot.append(card);card.hass=hass;await tick();},
  update(next){hass=next;for(const element of providers)element.hass=hass;if(card.isConnected)card.hass=hass;},
@@ -84,7 +85,7 @@ for(const name of names) {
    }};
    f.q('[data-add]').click();await tick();assert.equal(f.saves().length,1);
    assert.ok(f.nativeDialog?.isConnected,'HA owns the stable live session');
-   assert.ok(f.q('dialog[open]'),'dialog survives source card teardown');
+   assert.ok(f.q('dialog[open]'),'dialog survives source card teardown: '+f.closed.join('\n'));
    assert.equal(f.q('[data-undo]').disabled,true,'unsettled save is not confirmed');
    ack.resolve(null);await tick();assert.match(f.q('[role=status]').textContent,/confirmed/i);
    assert.equal(f.q('[data-undo]').disabled,false);f.hook=null;f.q('[data-undo]').click();await tick();
