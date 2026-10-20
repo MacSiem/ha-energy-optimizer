@@ -620,7 +620,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=d1552bb6e7ff4d3c915647ef75b2d43e349e9937829833402aeda9c93c153cd1
+    // HA_TARIFF_V3_START sha256=72c7993c3137c0c637e63c85782bd984c2de7acad399f137976d236d65a8a632
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -702,7 +702,7 @@ function createUiV3({ language = 'en' } = {}) {
 
   /* stany: wypełnienie (≥ 3:1) i tekst (≥ 4,5:1) */
   --_hat-good: #0ca30c;  --_hat-good-text: #15803d;
-  --_hat-warn: #fab219;  --_hat-warn-text: #a16207;
+  --_hat-warn: #fab219;  --_hat-warn-text: #a16207;  --_hat-warn-readout: #9a5b05;
   --_hat-crit: #d03b3b;  --_hat-crit-text: #b91c1c;
 
   /* serie (W23) */
@@ -742,7 +742,7 @@ function createUiV3({ language = 'en' } = {}) {
   --_hat-primary-fill: var(--hat-primary-fill-computed, #818cf8);
   --_hat-on-primary:   var(--hat-on-primary-computed, #0f172a);
   --_hat-good: #22c55e;  --_hat-good-text: #22c55e;
-  --_hat-warn: #fab219;  --_hat-warn-text: #fab219;
+  --_hat-warn: #fab219;  --_hat-warn-text: #fab219;  --_hat-warn-readout: #fab219;
   --_hat-crit: #e05252;  --_hat-crit-text: #f87171;
   --_hat-s1: #3987e5; --_hat-s2: #d95926; --_hat-s3: #199e70; --_hat-s4: #c98500; --_hat-s5: #d55181;
   --_hat-zone-cheap: #199e70; --_hat-zone-exp: #3987e5;
@@ -6089,7 +6089,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   };
   const originalSize = Card.prototype.getCardSize;
   Card.prototype.getCardSize = function() { return simple(this) ? (variant(this._config) === 'tile' ? 1 : 4) : variant(this._config || {}) === 'legacy' && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
-  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--bento-primary-hover:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--bento-on-primary:var(--hat-on-primary,var(--_hat-on-primary,#fff));--bento-text-muted:var(--hat-text-2,var(--secondary-text-color,#4b5563));--energy-value-blue:var(--hat-text,var(--primary-text-color,#111827));--energy-value-amber:var(--hat-warn-text,var(--_hat-warn-text,#a16207));--energy-value-green:var(--hat-good-text,var(--_hat-good-text,#15803d));--energy-value-red:var(--hat-crit-text,var(--_hat-crit-text,#b91c1c));--energy-value-neutral:var(--hat-text-2,var(--secondary-text-color,#4b5563));--energy-value-purple:var(--hat-d2,var(--_hat-d2,#6250d6));--energy-success-button:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--energy-kpi-tone:var(--hat-chip,var(--secondary-background-color,#f3f4f6));--energy-kpi-tone-alt:var(--energy-kpi-tone)}
+  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--bento-primary-hover:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--bento-on-primary:var(--hat-on-primary,var(--_hat-on-primary,#fff));--bento-text-muted:var(--hat-text-2,var(--secondary-text-color,#4b5563));--energy-value-blue:var(--hat-text,var(--primary-text-color,#111827));--energy-value-amber:var(--hat-warn-text,var(--_hat-warn-readout,#9a5b05));--energy-value-green:var(--hat-good-text,var(--_hat-good-text,#15803d));--energy-value-red:var(--hat-crit-text,var(--_hat-crit-text,#b91c1c));--energy-value-neutral:var(--hat-text-2,var(--secondary-text-color,#4b5563));--energy-value-purple:var(--hat-d2,var(--_hat-d2,#6250d6));--energy-success-button:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--energy-kpi-tone:var(--hat-chip,var(--secondary-background-color,#f3f4f6));--energy-kpi-tone-alt:var(--energy-kpi-tone)}
 :host(.bento-dark){color-scheme:dark}
 .stat,.stat-card{background:var(--energy-kpi-tone)}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)}
 .btn-primary,button.btn-primary{color:var(--bento-on-primary)}
@@ -6421,7 +6421,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       }
       const nextShort = nextKnown ? `${t(host,'Cheap from','Tania od')} ${format.clock(next.start) || unknown}` : nextLabel;
       long.textContent = email ? shortReport : `${zone} · ${nextShort}`;
-      short.textContent = email ? shortReport : nextShort;
+      short.textContent = email ? shortReport : nextKnown ? `${zone} · ${format.clock(next.start) || unknown}` : `${zone} · ${nextLabel}`;
     } else if (email) primary.textContent = nextReport;
     else {
       primary.replaceChildren(document.createTextNode(total?.measurement_complete !== false && numeric(total?.kwh) ? format.number(total.kwh,{minimumFractionDigits:1,maximumFractionDigits:1}) + ' ' : unknown));
