@@ -7,8 +7,8 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   const variant = config => config.variant || (config.compact ? 'legacy' : 'full');
   const simple = host => ['tile','compact'].includes(variant(host._config || {})) && !host._optionsExpandedV5;
 
-  // Placement uses its own retained raw lane. Unmount closes/purges it but does
-  // not replace the factory while a native save may still be unsettled.
+  // Placement retains its raw lane. A native dialog can take ownership of an
+  // already-sent transaction across the expected Lovelace source remount.
   const placementFull = host => !simple(host) && !(variant(host._config || {}) === 'legacy' && !host._optionsExpandedV5);
   const placementGuard = host => host._getTariffHostV3().guard;
   const placementAllowed = host => {
@@ -17,7 +17,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     return guard.available(token) && guard.current(token,true);
   };
   const stopPlacement = host => {
-    host._dashboardPlacementV53?.close();
+    if (!host._dashboardPlacementV53?.sourceDisconnected?.()) host._dashboardPlacementV53?.close();
     host._energyStatisticsV110?.close();
     host._dashboardPlacementUnsubscribeV53?.(); delete host._dashboardPlacementUnsubscribeV53;
     delete host._dashboardPlacementGuardV53;
