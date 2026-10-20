@@ -232,3 +232,8 @@ for(const name of names.slice(0,2))for(const language of ['en','pl'])test(`${nam
   assert.equal(JSON.stringify(dto),before);f.quiet();
  }finally{f.close();}
 });
+
+for(const language of ['en','pl'])test(`compact caption names only the active producer tariff (${language})`,async()=>{
+ const dto=clone(producer);dto.alternatives.find(r=>r.tariff_id===dto.active_tariff_id).tariff_name='QA G12';const before=JSON.stringify(dto),f=setup(names[0],{language,reply:()=>clone(dto)});
+ try{await f.mount();const label=f.card.shadowRoot.querySelector('[data-energy-primary-label]');assert.match(label.textContent,language==='pl'?/Do .* · Taryfa QA G12/:/Through .* · Tariff QA G12/);assert.equal(label.title,label.textContent);assert.equal(JSON.stringify(dto),before);assert.equal(f.requests.some(q=>q.type==='ha_tools_email/get_tariff'),false,'no extra private settings read for a caption');f.quiet();}finally{f.close();}
+});

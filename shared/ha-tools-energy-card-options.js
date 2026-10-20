@@ -415,12 +415,18 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const recipients = attempt?.recipient_count !== null && attempt?.recipient_count !== undefined ? format.number(attempt.recipient_count) : unknown;
     const numeric = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '') && Number.isFinite(Number(value));
     const total = analysis?.totals, elapsed = elapsedComparison(analysis);
-    const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${format.number(total.kwh,{minimumFractionDigits:1,maximumFractionDigits:1})} kWh` : unknown;
+    // Display bounds preserve a nonzero producer reading that rounds below the visible unit.
+    const brief = (value,places) => {
+      const options={minimumFractionDigits:places,maximumFractionDigits:places},shown=format.number(value,options),raw=String(value).trim();
+      return /[1-9]/.test(raw.split(/[eE]/)[0]) && shown.replace(/^[-+−]/,'')===format.number('0',options)
+        ? (raw.startsWith('-')?'>−':'<')+format.number('0.'+'0'.repeat(places-1)+'1',options) : shown;
+    };
+    const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${brief(total.kwh,1)} kWh` : unknown;
     const native = !analysis?.active_tariff_id && analysis?.native_pricing?.source === 'ha_energy' && analysis?.native_pricing?.schema === 1 ? analysis.native_pricing.period_cost : null;
     const nativeReady = native?.status === 'ready' && native.coverage?.complete === true && numeric(native.amount) && /^[A-Z]{3}$/.test(native.currency || '');
     const bookReady = total?.pricing_complete === true && numeric(total.usage_cost) && /^[A-Z]{3}$/.test(total.currency || '');
     const money = total?.pricing_complete === true && numeric(total.usage_cost) && /^[A-Z]{3}$/.test(total.currency || '')
-      ? `${format.number(total.usage_cost,{minimumFractionDigits:2,maximumFractionDigits:2})} ${total.currency}` : nativeReady ? `${format.number(native.amount,{minimumFractionDigits:2,maximumFractionDigits:2})} ${native.currency}` : unknown;
+      ? `${brief(total.usage_cost,2)} ${total.currency}` : nativeReady ? `${brief(native.amount,2)} ${native.currency}` : unknown;
     const difference = elapsed ? `${format.number(elapsed.percent,{maximumFractionDigits:1,signDisplay:'exceptZero'})}%` : unknown;
     const comparisonName = elapsed ? `${t(host,'vs yesterday through','vs wczoraj do')} ${format.clock(elapsed.cutoff)}` : t(host,'Yesterday at same hour','Wczoraj o tej samej godzinie');
     const zones = {cheap:t(host,'Cheap','Tania'),expensive:t(host,'Expensive','Droga'),mixed:t(host,'Mixed','Mieszana')};
@@ -490,13 +496,17 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       short.textContent = email ? shortReport : nextKnown ? `${zone} · ${format.clock(next.start) || unknown}` : `${zone} · ${nextLabel}`;
     } else if (email) primary.textContent = nextReport;
     else {
-      primary.replaceChildren(document.createTextNode(total?.measurement_complete !== false && numeric(total?.kwh) ? format.number(total.kwh,{minimumFractionDigits:1,maximumFractionDigits:1}) + ' ' : unknown));
+      primary.replaceChildren(document.createTextNode(total?.measurement_complete !== false && numeric(total?.kwh) ? brief(total.kwh,1) + ' ' : unknown));
       if (energy !== unknown) { const unit = document.createElement('span'); unit.dataset.energyUnit = ''; unit.textContent = 'kWh'; primary.append(unit); }
     }
     primary.title = email ? `${t(host,'Scheduled report','Zaplanowany raport')}: ${nextReport}` : mode === 'tile' ? `${zone} · ${nextKnown ? t(host,'Cheap from','Tania od') + ' ' : ''}${nextLabel}` : primary.textContent;
     primary.setAttribute('aria-label',primary.title);
     if (mode === 'compact') {
-      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Scheduled report','Zaplanowany raport') : analysis?.period?.end ? `${t(host,'Through','Do')} ${format.clock(analysis.period.end) || unknown}` : unknown;
+      const primaryLabel=section.querySelector('[data-energy-primary-label]');
+      const activeTariff=analysis?.active_tariff_id ? analysis.alternatives?.find(row=>row.tariff_id===analysis.active_tariff_id)?.tariff_name : null;
+      const tariffLabel=typeof activeTariff==='string' && activeTariff.trim() ? activeTariff : unknown;
+      primaryLabel.textContent = email ? t(host,'Scheduled report','Zaplanowany raport') : analysis?.period?.end ? `${t(host,'Through','Do')} ${format.clock(analysis.period.end) || unknown} · ${nativeReady?t(host,'Home Assistant Energy','Home Assistant Energy'):t(host,'Tariff','Taryfa')+' '+tariffLabel}` : unknown;
+      primaryLabel.title=primaryLabel.textContent;
       section.querySelector('[data-energy-cost]').textContent = email ? `${t(host,'Last attempt','Ostatnia próba')}: ${lastAttempt}` : money;
       const costLine = section.querySelector('[data-energy-cost]');
       if (!email && money !== unknown) {
@@ -506,7 +516,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       }
       costLine.title = !email && !bookReady && nativeReady ? `${t(host,'Cost recorded in HA','Koszt zapisany w HA')}: ${costLine.textContent}. ${t(host,'Source: Home Assistant Energy. Cost breakdown and fixed fees are unknown; this is not a complete bill.','Źródło: Home Assistant Energy. Rozbicie kosztu i opłaty stałe są nieznane; to nie jest pełny rachunek.')}` : email ? costLine.textContent : `${t(host,'Usage cost','Koszt zużycia')}: ${money}`;
       costLine.setAttribute('aria-label',costLine.title);
-      section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : elapsed ? `${difference} ${comparisonName}${numeric(elapsed.baseline) ? ` (${format.number(elapsed.baseline,{minimumFractionDigits:1,maximumFractionDigits:1})} kWh)` : ''}` : `${comparisonName}: ${difference}`;
+      section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : elapsed ? `${difference} ${comparisonName}${numeric(elapsed.baseline) ? ` (${brief(elapsed.baseline,1)} kWh)` : ''}` : `${comparisonName}: ${difference}`;
       const caption = section.querySelector('[data-energy-zone-caption]');
       if (caption) caption.textContent = t(host,'Measured day energy','Zmierzona energia w ciągu dnia');
       paintZoneBar(section.querySelector('[data-energy-zonebar]'),analysis,host,format);
