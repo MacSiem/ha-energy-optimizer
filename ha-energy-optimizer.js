@@ -620,7 +620,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=100e5e0bfabf2780b4e5930917eeb27b787b530b21561ae467a50da399a4fec2
+    // HA_TARIFF_V3_START sha256=d1552bb6e7ff4d3c915647ef75b2d43e349e9937829833402aeda9c93c153cd1
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -641,20 +641,126 @@ function createUiV3({ language = 'en' } = {}) {
     const result = status(value);
     return `<span class="ht-result-state ht-result-state--${result.code}" data-result-state="${result.code}"><span aria-hidden="true">${result.icon}</span> ${result.label}</span>`;
   };
+  const parseColor = value => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    const hex = /^#([a-f0-9]{3}|[a-f0-9]{6})$/i.exec(text);
+    if (hex) return (hex[1].length === 3 ? [...hex[1]].map(c=>c+c).join('') : hex[1]).match(/../g).map(c=>parseInt(c,16));
+    const rgb = /^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*1(?:\.0+)?)?\s*\)$/i.exec(text);
+    return rgb ? rgb.slice(1,4).map(c=>Math.min(255,Math.round(Number(c)))) : null;
+  };
+  const hexColor = rgb => '#' + rgb.map(c=>c.toString(16).padStart(2,'0')).join('');
+  const luminance = rgb => rgb.map(c=>c/255).map(c=>c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4)
+    .reduce((sum,c,i)=>sum+c*[.2126,.7152,.0722][i],0);
+  const ratio = (a,b) => (Math.max(luminance(a),luminance(b))+.05)/(Math.min(luminance(a),luminance(b))+.05);
+  const primaryColors = (value, {dark = false} = {}) => {
+    const original = parseColor(value) || parseColor(dark ? '#818cf8' : '#2563eb');
+    const white = [255,255,255], ink = [15,23,42];
+    const foreground = ratio(original,white) >= ratio(original,ink) ? white : ink;
+    const target = foreground === white ? 0 : 255;
+    let fill = original;
+    // The nearest 5% step keeps a supplied theme color when it is readable.
+    for (let step=1; ratio(fill,foreground)<4.5 && step<=20; step++)
+      fill = original.map(c=>Math.round(c+(target-c)*step*.05));
+    return {fill:hexColor(fill),foreground:hexColor(foreground),contrast:ratio(fill,foreground)};
+  };
+  const applyTheme = host => {
+    const view = host?.ownerDocument?.defaultView;
+    if (!host?.isConnected || !view?.getComputedStyle) return null;
+    const raw = view.getComputedStyle(host).getPropertyValue('--primary-color').trim();
+    let resolved = raw;
+    // Resolve ordinary named colors through the browser without a persistent node.
+    if (raw && !parseColor(raw) && !raw.includes('var(') && raw !== 'transparent' && view.CSS?.supports?.('color',raw)) {
+      const probe = host.ownerDocument.createElement('span');
+      probe.style.display = 'none'; probe.style.color = raw;
+      host.append(probe);
+      try { resolved = view.getComputedStyle(probe).color; } finally { probe.remove(); }
+    }
+    const result = primaryColors(resolved,{dark:host.classList.contains('bento-dark') || host.classList.contains('hat-dark')});
+    for (const [key,value] of [['--hat-primary-fill-computed',result.fill],['--hat-on-primary-computed',result.foreground]])
+      if (host.style.getPropertyValue(key) !== value) host.style.setProperty(key,value);
+    return result;
+  };
+  // v5.3: public tokens stay inheritable; private defaults follow the HA dark flag.
   const css = `
-.ht-result-state { display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid currentColor;border-radius:6px;font-size:12px;line-height:1.4;white-space:normal; }
-.ht-result-state--success { color:#237b3d;background:rgba(35,123,61,.10); }
-.ht-result-state--partial { color:#966400;background:rgba(150,100,0,.10); }
-.ht-result-state--unconfirmed { color:#ad5200;background:rgba(173,82,0,.10); }
-.ht-result-state--error { color:#c32b2b;background:rgba(195,43,43,.10); }
-.ht-result-state--not_checked,.ht-result-state--no_data { color:var(--secondary-text-color,#666);background:transparent; }
+:host, .hat {
+  color-scheme: light;
+  /* powierzchnie i tekst — z motywu HA, w nawiasie wartość domyślna */
+  --_hat-bg:       var(--primary-background-color, #f3f4f6);
+  --_hat-card:     var(--ha-card-background, var(--card-background-color, #ffffff));
+  --_hat-chip:     var(--secondary-background-color, #f3f4f6);
+  --_hat-border:   var(--ha-card-border-color, var(--divider-color, #e5e7eb));
+  --_hat-text:     var(--primary-text-color, #111827);
+  --_hat-text-2:   var(--secondary-text-color, #4b5563);
+  --_hat-text-3:   var(--hat-text-3-theme, #6b7280);   /* tylko na tle karty; ≥ 12 px */
+  --_hat-grid:     color-mix(in srgb, var(--hat-text, var(--_hat-text)) 6%, var(--hat-card, var(--_hat-card)));
+  --_hat-radius:   var(--ha-card-border-radius, 12px);
+
+  /* Computed values supplied by the host when available; literals are explicit fallback colors, not dynamic contrast. */
+  --_hat-primary:      var(--primary-color, #2563eb);
+  --_hat-primary-fill: var(--hat-primary-fill-computed, #2563eb);
+  --_hat-on-primary:   var(--hat-on-primary-computed, #ffffff);
+
+  /* stany: wypełnienie (≥ 3:1) i tekst (≥ 4,5:1) */
+  --_hat-good: #0ca30c;  --_hat-good-text: #15803d;
+  --_hat-warn: #fab219;  --_hat-warn-text: #a16207;
+  --_hat-crit: #d03b3b;  --_hat-crit-text: #b91c1c;
+
+  /* serie (W23) */
+  --_hat-s1: #2a78d6; --_hat-s2: #eb6834; --_hat-s3: #1baf7a; --_hat-s4: #eda100; --_hat-s5: #e87ba4;
+  --_hat-zone-cheap: #1baf7a; --_hat-zone-exp: #2a78d6;
+  --_hat-d1: #eb6834; --_hat-d2: #6250d6; --_hat-d3: #e87ba4; --_hat-d4: #eda100;
+  --_hat-unmeasured: #9ca3af;
+
+  /* typografia (W16: treść ≥ 14, metadane ≥ 12, wersaliki ≥ 11) */
+  --_hat-font: var(--ha-font-family-body, Roboto, Inter, system-ui, sans-serif);
+  --_hat-fs-display: 28px;  --_hat-fs-number2: 20px;  --_hat-fs-title: 16px;
+  --_hat-fs-body: 14px;     --_hat-fs-meta: 12px;     --_hat-fs-caps: 11px;
+  --_hat-fw-regular: 400;   --_hat-fw-medium: 500;    --_hat-fw-bold: 600;
+
+  /* odstępy (siatka 4 px) i rozmiary */
+  --_hat-space-1: 4px; --_hat-space-2: 8px; --_hat-space-3: 12px; --_hat-space-4: 16px; --_hat-space-5: 24px;
+  --_hat-icon-lg: 36px; --_hat-icon-lg-glyph: 20px;   /* nagłówek, kafelek */
+  --_hat-icon-md: 28px; --_hat-icon-md-glyph: 16px;   /* wiersz, launcher */
+  --_hat-icon-sm: 24px; --_hat-icon-sm-glyph: 14px;   /* odznaka */
+  --_hat-tint: 18%;                                   /* tło ikony = akcent 18 % */
+  --_hat-pill-h: 32px;  --_hat-pill-h-mini: 28px;  --_hat-target: 44px;
+  --_hat-row-h: 56px;   --_hat-gap: 8px;           /* siatka Sections HA */
+  --_hat-motion: 150ms ease;
+  font-family: var(--hat-font, var(--_hat-font));
+  color: var(--hat-text, var(--_hat-text));
+}
+
+/* ---------- 2. Tokeny: ciemny (hass.themes.darkMode → klasa .hat-dark) ---------- */
+:host(.hat-dark), :host(.bento-dark), .hat.hat-dark {
+  --_hat-bg:     var(--primary-background-color, #111214);
+  --_hat-card:   var(--ha-card-background, var(--card-background-color, #1c1c1e));
+  --_hat-chip:   var(--secondary-background-color, #26272b);
+  --_hat-border: var(--ha-card-border-color, var(--divider-color, #2e2f33));
+  --_hat-text:   var(--primary-text-color, #e5e7eb);
+  --_hat-text-2: var(--secondary-text-color, #a1a1aa);
+  --_hat-text-3: var(--hat-text-3-theme, #8b8b93);
+  --_hat-primary-fill: var(--hat-primary-fill-computed, #818cf8);
+  --_hat-on-primary:   var(--hat-on-primary-computed, #0f172a);
+  --_hat-good: #22c55e;  --_hat-good-text: #22c55e;
+  --_hat-warn: #fab219;  --_hat-warn-text: #fab219;
+  --_hat-crit: #e05252;  --_hat-crit-text: #f87171;
+  --_hat-s1: #3987e5; --_hat-s2: #d95926; --_hat-s3: #199e70; --_hat-s4: #c98500; --_hat-s5: #d55181;
+  --_hat-zone-cheap: #199e70; --_hat-zone-exp: #3987e5;
+  --_hat-d1: #d95926; --_hat-d2: #9085e9; --_hat-d3: #d55181; --_hat-d4: #c98500;
+  --_hat-unmeasured: #6b7280;
+  color-scheme: dark;
+}
+
+
+
+.ht-result-state { display:inline-flex;align-items:center;gap:var(--hat-space-1,4px);min-height:24px;padding:0 10px;border:1px solid currentColor;border-radius:999px;font-size:var(--hat-fs-meta,12px);font-weight:600;line-height:16px;white-space:normal;background:transparent; }
+.ht-result-state--success { color:var(--hat-good-text, var(--_hat-good-text)); }
+.ht-result-state--partial,.ht-result-state--unconfirmed { color:var(--hat-warn-text, var(--_hat-warn-text)); }
+.ht-result-state--error { color:var(--hat-crit-text, var(--_hat-crit-text)); }
+.ht-result-state--not_checked,.ht-result-state--no_data { color:var(--hat-text-2, var(--_hat-text-2)); }
 .ht-result-state--no_data { border-style:dashed; }
-:host(.bento-dark) .ht-result-state--success { color:#81cf99; }
-:host(.bento-dark) .ht-result-state--partial { color:#efd080; }
-:host(.bento-dark) .ht-result-state--unconfirmed { color:#ffb97b; }
-:host(.bento-dark) .ht-result-state--error { color:#ff9999; }
 `;
-  return { status, statusHtml, css };
+  return { status, statusHtml, css, primaryColors, applyTheme };
 }
 // Node tests use the canonical factory; this line is excluded from runtime copies.
 
@@ -2470,7 +2576,18 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     ? `${signed && !String(value).startsWith('-') && /[1-9]/.test(String(value).split(/[eE]/)[0]) ? '+' : ''}${number(value)}${unit === '%' ? '' : ' '}${unit}` : unknown();
   const money = (value, currency, signed = false) => quantity(value, currency || t('currency unknown','waluta nieznana'), signed);
   // Presentation only: exact server values remain in Data and named details.
-  const briefEnergy=value=>valid(value)?`${number(value,{maximumSignificantDigits:6})} kWh`:unknown();
+  const briefNumber=(value,places,minimum=places,signed=false)=>{
+    if(!valid(value))return unknown();
+    const options={minimumFractionDigits:minimum,maximumFractionDigits:places};
+    const shown=number(value,options),direction=compare(value,'0');
+    if(direction && shown.replace(/^[-+−]/,'')===number('0',options))
+      return (direction<0?'>−':'<')+number('0.'+'0'.repeat(places-1)+'1',options);
+    return (signed&&direction>0?'+':'')+shown;
+  };
+  const briefEnergy=(value,signed=false)=>valid(value)?`${briefNumber(value,1,1,signed)} kWh`:unknown();
+  const briefMoney=(value,currency,signed=false)=>valid(value)?`${briefNumber(value,2,2,signed)} ${pl&&currency==='PLN'?'zł':currency||t('currency unknown','waluta nieznana')}`:unknown();
+  const briefRate=(value,currency)=>valid(value)?`${briefNumber(value,4,2)} ${pl&&currency==='PLN'?'zł':currency||t('currency unknown','waluta nieznana')}`:unknown();
+  const briefPercent=value=>valid(value)?ui.number(value,{style:'percent',maximumFractionDigits:0}).replace(/\s+(?=%)/g,''):unknown();
   const dateTime = value => {
     // Dynamic tariffs allow epoch milliseconds as well as ISO instants.
     if (typeof value === 'number') {
@@ -2570,20 +2687,20 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     });
     return ui.clock(peak.start,ui.timeZone!==snapshot.period?.timezone || repeated);
   };
-  const tiles = (snapshot, overview=false) => {
+  const tiles = (snapshot, overview=false, data=false) => {
     const total=snapshot.totals || {}, supplied=overview&&Object.hasOwn(snapshot,'period_summary'), native=nativeComplete(snapshot);
     const base=[
-      [t('Consumption','Zużycie'),quantity(total.kwh)], [native?nativeCostLabel():t('Cost','Koszt'),native?nativeMoney(native):money(total.total_cost,total.currency)],
-      native ? [t('Source','Źródło'),'Home Assistant Energy'] : [t('Effective price','Cena efektywna'),money(total.effective_price,total.currency) + (valid(total.effective_price) ? '/kWh' : '')],
+      [t('Consumption','Zużycie'),data?quantity(total.kwh):briefEnergy(total.kwh)], [native?nativeCostLabel():t('Cost','Koszt'),native?nativeMoney(native):data?money(total.total_cost,total.currency):briefMoney(total.total_cost,total.currency)],
+      native ? [t('Source','Źródło'),'Home Assistant Energy'] : [t('Effective price','Cena efektywna'),(data?money(total.effective_price,total.currency):briefRate(total.effective_price,total.currency)) + (valid(total.effective_price) ? '/kWh' : '')],
       [t('Measurement coverage','Pokrycie pomiarów'),coverage(snapshot.coverage)]
     ];
     if(!supplied)return `<div class="analysis-tiles">${base.map(([label,value],index)=>`<div class="analysis-tile ${index<2?'analysis-tile-primary':'analysis-tile-secondary'}"><span>${esc(label)}</span><strong>${esc(value)}</strong>${index===0?`<span data-analysis-kpi-comparison>${esc(kpiComparison(snapshot))}</span>`:''}</div>`).join('')}</div>`;
     const frame=periodWindow(snapshot),share=shareProof(snapshot,frame),peak=peakProof(snapshot,frame);
     const knownPeak=peak&&peak.kwh!==null,localPeak=knownPeak&&peak.reason!=='measurement_timezone_unavailable',partialPeak=peak&&(peak.status==='partial'||knownPeak&&!snapshot.totals?.measurement_complete);
-    const shareNote=share?.reason==='zero_total_kwh'?t('No share for a zero energy total','Brak udziału przy zerowym zużyciu'):share?.status==='ready'?quantity(share.known_cheap_kwh):t('Full-period share unavailable','Brak udziału za cały okres');
+    const shareNote=share?.reason==='zero_total_kwh'?t('No share for a zero energy total','Brak udziału przy zerowym zużyciu'):share?.status==='ready'?(data?quantity(share.known_cheap_kwh):briefEnergy(share.known_cheap_kwh)):t('Full-period share unavailable','Brak udziału za cały okres');
     return `<div class="analysis-tiles">${base.slice(0,2).map(([label,value],index)=>`<div class="analysis-tile analysis-tile-primary"><span>${esc(label)}</span><strong>${esc(value)}</strong>${index===0?`<span data-analysis-kpi-comparison>${esc(kpiComparison(snapshot))}</span>`:''}${index===1?`<span>${esc(base[2][0])}: ${esc(base[2][1])}</span>`:''}</div>`).join('')}
-      <div class="analysis-tile analysis-tile-secondary" data-analysis-cheap-share><span>${esc(t('Cheap-zone share','Udział taniej strefy'))}</span><strong>${esc(share?.status==='ready'?percentage(share.ratio):unknown())}</strong><span>${esc(shareNote)}</span></div>
-      <div class="analysis-tile analysis-tile-secondary" data-analysis-peak${knownPeak?` data-analysis-peak-id="${esc(peak.id)}"`:''}><span>${esc(partialPeak?t('Highest observed hour','Najwyższe zarejestrowane zużycie'):t('Highest hour','Godzina szczytu'))}</span><strong>${esc(localPeak?peakClock(snapshot,peak)||unknown():unknown())}</strong><span>${esc(knownPeak?quantity(peak.kwh)+(localPeak?' · '+date(peak.start):''):unknown())}</span>${partialPeak?`<span>${esc(t('Incomplete period','Niepełny okres'))}</span>`:''}${peak?.reason==='measurement_timezone_unavailable'?`<span>${esc(t('Measurement time zone unavailable','Brak strefy czasu pomiarów'))}</span>`:''}</div></div>`;
+      <div class="analysis-tile analysis-tile-secondary" data-analysis-cheap-share><span>${esc(t('Cheap-zone share','Udział taniej strefy'))}</span><strong>${esc(share?.status==='ready'?(data?percentage(share.ratio):briefPercent(share.ratio)):unknown())}</strong><span>${esc(shareNote)}</span></div>
+      <div class="analysis-tile analysis-tile-secondary" data-analysis-peak${knownPeak?` data-analysis-peak-id="${esc(peak.id)}"`:''}><span>${esc(partialPeak?t('Highest observed hour','Najwyższe zarejestrowane zużycie'):t('Highest hour','Godzina szczytu'))}</span><strong>${esc(localPeak?peakClock(snapshot,peak)||unknown():unknown())}</strong><span>${esc(knownPeak?(data?quantity(peak.kwh):briefEnergy(peak.kwh))+(localPeak?' · '+date(peak.start):''):unknown())}</span>${partialPeak?`<span>${esc(t('Incomplete period','Niepełny okres'))}</span>`:''}${peak?.reason==='measurement_timezone_unavailable'?`<span>${esc(t('Measurement time zone unavailable','Brak strefy czasu pomiarów'))}</span>`:''}</div></div>`;
   };
   const baselineNote = () => `<p data-analysis-baseline="unknown">${esc(t('No matching comparison is available for these intervals.','Brak dopasowanego porównania dla tych przedziałów.'))}</p>`;
   const instant = value => {
@@ -2667,10 +2784,10 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   const zoneColor=(version,zone,snapshot)=>{
     const rates=(snapshot?.rates||[]).filter(rate=>rate.version_id===version);
     const matches=rates.length===1?rates[0].profile?.zones?.filter(row=>row.id===zone)||[]:[];
-    if(matches.length===1&&matches[0].classification==='cheap')return 'var(--analysis-zone-cheap,#1baf7a)';
-    if(matches.length===1&&matches[0].classification==='expensive')return 'var(--analysis-zone-expensive,#2a78d6)';
+    if(matches.length===1&&matches[0].classification==='cheap')return 'var(--analysis-zone-cheap,var(--hat-zone-cheap, var(--_hat-zone-cheap)))';
+    if(matches.length===1&&matches[0].classification==='expensive')return 'var(--analysis-zone-expensive,var(--hat-zone-exp, var(--_hat-zone-exp)))';
     let hash=0;for(const char of JSON.stringify([version,zone]))hash=(hash*31+char.charCodeAt(0))>>>0;
-    return ['#287fd1','#8754b3','#c76428','#bc447b','#238782','#92821a','#64748b','#a54444'][hash%8];
+    return ['var(--hat-s1, var(--_hat-s1))','var(--hat-d2, var(--_hat-d2))','var(--hat-s2, var(--_hat-s2))','var(--hat-s5, var(--_hat-s5))','var(--hat-s3, var(--_hat-s3))','var(--hat-s4, var(--_hat-s4))','var(--hat-unmeasured, var(--_hat-unmeasured))','var(--hat-crit, var(--_hat-crit))'][hash%8];
   };
   const zoneEntries=(snapshot,row,{period=false}={})=>{
     const proof=zoneProof(row,{period});if(!proof)return null;
@@ -2836,7 +2953,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const destinations=groupReady?rows.filter(({row})=>compare(row.kwh,'0')>0).map(({id,label,row})=>({id,label,kwh:row.kwh,color:id==='unmeasured'?null:`var(--analysis-rank-${colors.get(id)??4})`})):[];
     const sources=source?source.zones.filter(zone=>compare(zone.kwh,'0')>0).map(zone=>({id:zone.version_id+'|'+zone.zone_id,label:zone.label,kwh:zone.kwh,color:zoneColor(zone.version_id,zone.zone_id,snapshot)})):[];
     const swatch=item=>`<i class="analysis-flow-swatch${item.color?'':' analysis-hatched'}" aria-hidden="true"${item.color?` style="background:${item.color}"`:''}></i>`;
-    const legend=items=>`<ul class="analysis-flow-labels">${items.map(item=>`<li>${swatch(item)}<span>${esc(item.label)} · ${esc(briefEnergy(item.kwh))} · ${esc(percentage(shareGeometry(item.kwh,total)))}</span></li>`).join('')}</ul>`;
+    const legend=items=>`<ul class="analysis-flow-labels">${items.map(item=>`<li>${swatch(item)}<span>${esc(item.label)} · ${esc(briefEnergy(item.kwh))} · ${esc(briefPercent(shareGeometry(item.kwh,total)))}</span></li>`).join('')}</ul>`;
     const bar=(side,items,ready)=>ready&&positive?`<div class="analysis-composition" data-analysis-composition="${side}" aria-hidden="true">${items.map(item=>`<span data-analysis-segment class="${item.color?'':'analysis-hatched'}" style="width:${shareGeometry(item.kwh,total)*100}%;${item.color?'background:'+item.color:''}"></span>`).join('')}</div>`:`<p class="analysis-note">${esc(positive?unknown():nonnegative(total)&&compare(total,'0')===0?t('No energy recorded in this period.','W tym okresie zarejestrowano zerowe zużycie.'):unknown())}</p>`;
     let diagram='';
     if(groupReady&&source&&positive){
@@ -2884,7 +3001,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const note=series.markers.size?`<p data-analysis-baseline="${series.reconciles?'ready':'partial'}">${esc(series.reconciles?t('Comparison covers the displayed intervals.','Porównanie obejmuje wyświetlone przedziały.'):t('Comparison is available for selected intervals only; it does not cover the whole period.','Porównanie obejmuje wybrane przedziały, ale nie cały okres.'))}</p>`:baselineNote();
     return `<section data-analysis-chart><div class="analysis-section-title"><h3>${esc(t('Consumption over time','Zużycie w czasie'))}</h3><div class="analysis-switch">${button('view','chart',t('Chart','Wykres'),options.view !== 'data')}${button('view','data',t('Data','Dane'),options.view === 'data')}</div></div>
       <p data-analysis-series-legend><span class="analysis-series-current">${esc(currentLabel)}</span> · <span class="analysis-series-baseline">${esc(baselineLabel)}</span>${series.common?' · '+esc(t('Selected amounts can differ from whole-household energy. Unmatched intervals retain household bars; their common comparison value is unavailable.','Wybrane ilości mogą różnić się od energii całego gospodarstwa. Bez dopasowania pozostaje słupek gospodarstwa; brak wartości wspólnego porównania.')):''}</p>
-      ${zoneLegend}${options.view === 'data'?table(t('Measured intervals · usage cost without fixed fees','Przedziały pomiarowe · koszt zużycia bez opłat stałych'),[t('Period','Okres'),currentLabel+' kWh',t('Household usage cost','Koszt zużycia gospodarstwa'),baselineLabel+' kWh',t('Real baseline intervals','Rzeczywiste przedziały odniesienia'),...(series.common?[t('Whole household kWh','Całe gospodarstwo kWh')]:[]),...(hasZones?[t('Tariff zones in this interval','Strefy taryfy w przedziale')]:[])],rows,'','data-analysis-bin'):`<div class="analysis-chart-scroll"><div class="analysis-chart" style="--analysis-point-count:${Math.max(1,points.length)}" role="group" aria-label="${esc(t('Current and baseline consumption, select a point for values','Bieżące zużycie i odniesienie, wybierz punkt, aby odczytać wartości'))}">${points.map(p=>`<button type="button" class="analysis-point${p.visualCurrent==null?' analysis-missing':''}" data-analysis-action="point" data-analysis-value="${p.index}" aria-pressed="${String(options.selected)===String(p.index)}" aria-label="${esc(pointText(p))}"><span class="analysis-column analysis-series-current" aria-hidden="true" ${columnZones.get(p.index)?` data-analysis-column-zone="${esc(columnZones.get(p.index).key)}"`:''} style="height:${width(p.visualCurrent,max)*1.68}px${columnZones.get(p.index)?';background:'+columnZones.get(p.index).color:options.section==='comparison'?'':';background:var(--secondary-text-color,#718096)'}"></span>${p.marker?`<span data-analysis-marker class="analysis-baseline-line analysis-series-baseline" aria-label="${esc(pointText(p))}" style="bottom:${40+width(p.marker.baseline,max)*1.68}px"></span>`:''}<span class="analysis-point-label"${axisLabels.has(p.index)&&!majorTicks.has(p.index)?' data-analysis-axis-minor':''} aria-hidden="true">${esc(axisLabels.get(p.index)||'')}</span></button>`).join('')}</div></div>`}
+      ${zoneLegend}${options.view === 'data'?table(t('Measured intervals · usage cost without fixed fees','Przedziały pomiarowe · koszt zużycia bez opłat stałych'),[t('Period','Okres'),currentLabel+' kWh',t('Household usage cost','Koszt zużycia gospodarstwa'),baselineLabel+' kWh',t('Real baseline intervals','Rzeczywiste przedziały odniesienia'),...(series.common?[t('Whole household kWh','Całe gospodarstwo kWh')]:[]),...(hasZones?[t('Tariff zones in this interval','Strefy taryfy w przedziale')]:[])],rows,'','data-analysis-bin'):`<div class="analysis-chart-scroll"><div class="analysis-chart" style="--analysis-point-count:${Math.max(1,points.length)}" role="group" aria-label="${esc(t('Current and baseline consumption, select a point for values','Bieżące zużycie i odniesienie, wybierz punkt, aby odczytać wartości'))}">${points.map(p=>`<button type="button" class="analysis-point${p.visualCurrent==null?' analysis-missing':''}" data-analysis-action="point" data-analysis-value="${p.index}" aria-pressed="${String(options.selected)===String(p.index)}" aria-label="${esc(pointText(p))}"><span class="analysis-column analysis-series-current" aria-hidden="true" ${columnZones.get(p.index)?` data-analysis-column-zone="${esc(columnZones.get(p.index).key)}"`:''} style="height:${width(p.visualCurrent,max)*1.68}px${columnZones.get(p.index)?';background:'+columnZones.get(p.index).color:options.section==='comparison'?'':';background:var(--secondary-text-color,var(--hat-unmeasured, var(--_hat-unmeasured)))'}"></span>${p.marker?`<span data-analysis-marker class="analysis-baseline-line analysis-series-baseline" aria-label="${esc(pointText(p))}" style="bottom:${40+width(p.marker.baseline,max)*1.68}px"></span>`:''}<span class="analysis-point-label"${axisLabels.has(p.index)&&!majorTicks.has(p.index)?' data-analysis-axis-minor':''} aria-hidden="true">${esc(axisLabels.get(p.index)||'')}</span></button>`).join('')}</div></div>`}
       ${!points.length?`<p role="status">${esc(unknown())}</p>`:''}${selection}${note}<p class="analysis-note">${esc(t('Fixed fees apply once to the household period. Missing measurements are not zero.','Opłaty stałe dotyczą jednokrotnie całego okresu gospodarstwa. Brak pomiaru nie oznacza zera.'))}</p></section>`;
   };
   const groupsView = (snapshot,level,options={}) => {
@@ -2895,11 +3012,11 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const flow=flowMarkup(snapshot,rows,colors);
     const groupCurrency=typeof groups?.currency==='string'&&/^[A-Z]{3}$/.test(groups.currency)&&
       groups.currency===snapshot.totals?.currency&&['gross','net'].includes(groups.price_basis)&&groups.price_basis===snapshot.totals?.price_basis?groups.currency:null;
-    const groupMoney=value=>groupCurrency?money(value,groupCurrency):unknown();
+    const groupMoney=(value,brief=false)=>groupCurrency?(brief?briefMoney(value,groupCurrency):money(value,groupCurrency)):unknown();
     const details=table(t('Group measurements and usage costs','Pomiary grup i koszty zużycia'),[t('Group','Grupa'),'kWh',t('Usage cost','Koszt zużycia'),t('Coverage','Pokrycie')],rows.map(({label,row})=>[esc(label),esc(quantity(row.kwh)),esc(groupMoney(row.usage_cost)),esc(coverage(row.coverage))]))+
       `<p class="analysis-note">${esc(t('Assignments follow the current Home Assistant registry. No room and unmeasured energy are separate. Group costs exclude household fixed fees.','Przypisania pochodzą z aktualnego rejestru Home Assistant. Bez pokoju i Niezmierzone są osobnymi pozycjami. Koszty grup nie obejmują opłat stałych gospodarstwa.'))}</p>`;
     return `<section data-analysis-groups><h3>${esc(t('Energy flow — from and to','Przepływ energii — skąd i dokąd'))}</h3>${options.view==='data'?'':flow.markup}<div${options.view==='data'?'':' class="analysis-group-summary"'}><div><h4>${esc(t('Selected groups · share of household energy','Wybrane grupy · udział energii gospodarstwa'))}</h4>
-      <ol class="analysis-ranking" data-analysis-ranking>${rows.map(({id,label,row})=>`<li data-analysis-rank-id="${esc(id)}" class="${id==='unmeasured'?'analysis-unmeasured':''}"><div><strong><i class="analysis-flow-swatch ${id==='unmeasured'?'analysis-hatched':'rank-'+(colors.get(id)??4)}" aria-hidden="true"></i>${esc(label)}</strong><span>${esc(options.view==='data'?quantity(row.kwh):briefEnergy(row.kwh))} · <span data-analysis-rank-share>${esc(flow.groupReady?percentage(shareGeometry(row.kwh,snapshot.totals?.kwh)):unknown())}</span> · ${esc(groupMoney(row.usage_cost))}</span></div><div class="analysis-track" aria-hidden="true"><span class="analysis-rank rank-${colors.get(id)??4}" style="width:${width(row.kwh,max)}%"></span></div></li>`).join('')}</ol>
+      <ol class="analysis-ranking" data-analysis-ranking>${rows.map(({id,label,row})=>`<li data-analysis-rank-id="${esc(id)}" class="${id==='unmeasured'?'analysis-unmeasured':''}"><div><strong><i class="analysis-flow-swatch ${id==='unmeasured'?'analysis-hatched':'rank-'+(colors.get(id)??4)}" aria-hidden="true"></i>${esc(label)}</strong><span>${esc(options.view==='data'?quantity(row.kwh):briefEnergy(row.kwh))} · <span data-analysis-rank-share>${esc(flow.groupReady?(options.view==='data'?percentage(shareGeometry(row.kwh,snapshot.totals?.kwh)):briefPercent(shareGeometry(row.kwh,snapshot.totals?.kwh))):unknown())}</span> · ${esc(groupMoney(row.usage_cost,options.view!=='data'))}</span></div><div class="analysis-track" aria-hidden="true"><span class="analysis-rank rank-${colors.get(id)??4}" style="width:${width(row.kwh,max)}%"></span></div></li>`).join('')}</ol>
       ${!rows.length?`<p>${esc(unknown())}</p>`:''}${options.view==='data'?'':`<details data-analysis-unmeasured-details><summary>${esc(t('Unmeasured energy explained','Co oznacza energia niezmierzona'))}</summary>`}<p class="analysis-note" data-analysis-unmeasured-explanation>${esc(groups?.energy_domain==='grid_import'?t('Unmeasured = grid import − sum of disjoint measured device amounts. Parent residuals and children are counted once. This is not the same as devices with no room. Fixed fees belong only to the household.','Niezmierzone = import z sieci − suma rozłącznych ilości zmierzonych urządzeń. Reszty urządzeń nadrzędnych i dzieci liczone są raz. To osobna pozycja od urządzeń bez pokoju. Opłaty stałe dotyczą tylko gospodarstwa.'):t('Unmeasured energy is separate from devices with no room. An import remainder is unavailable for this energy source.','Energia niezmierzona jest osobna od urządzeń bez pokoju. Dla tego źródła nie można podać reszty importu.'))}</p>
       ${options.view==='data'?'':'</details>'}</div>
       ${periodZonesMarkup(snapshot)}</div>
@@ -2916,6 +3033,9 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   ].filter(Boolean).join(' · ');
   const ratesView = (snapshot,options={}) => {
     const total=snapshot.totals || {}, groups=snapshot.groups || {}, data=options.view==='data';
+    const summaryMoney=(value,currency,signed=false)=>data?money(value,currency,signed):briefMoney(value,currency,signed);
+    const summaryRate=(value,currency)=>data?money(value,currency):briefRate(value,currency);
+    const summaryEnergy=value=>data?quantity(value):briefEnergy(value);
     if (nativeFacts(snapshot)) return `<section class="analysis-rate76" data-analysis-rates><h3>${esc(t('Rates and costs','Stawki i koszty'))}</h3>${nativeDetails(snapshot)}</section>`;
     const currencyKnown=typeof total.currency==='string'&&/^[A-Z]{3}$/.test(total.currency)&&['gross','net'].includes(total.price_basis);
     const positive=value=>valid(value)&&compare(value,'0')>=0;
@@ -2924,8 +3044,8 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     // producer values passed directly to the shared formatter, never added here.
     const costReady=currencyKnown&&total.measurement_complete===true&&total.pricing_complete===true&&total.components_complete===true&&
       positive(total.total_cost)&&componentKeys.every(key=>positive(total[key])&&compare(total[key],total.total_cost)<=0);
-    const componentLegend=componentKeys.map(key=>`<li><span class="analysis-rate76-swatch analysis-rate76-${key}" aria-hidden="true"></span><span>${esc(costLabels[key])}: <strong>${esc(money(total[key],total.currency))}</strong></span></li>`).join('');
-    const costGraphic=!data&&costReady?`<div class="analysis-rate76-track" aria-hidden="true">${componentKeys.map(key=>`<span class="analysis-rate76-${key}" data-analysis-rate76-bar style="width:${width(total[key],Number(total.total_cost))}%" title="${esc(costLabels[key]+': '+money(total[key],total.currency))}"></span>`).join('')}</div>`:'';
+    const componentLegend=componentKeys.map(key=>`<li><span class="analysis-rate76-swatch analysis-rate76-${key}" aria-hidden="true"></span><span>${esc(costLabels[key])}: <strong>${esc(summaryMoney(total[key],total.currency))}</strong></span></li>`).join('');
+    const costGraphic=!data&&costReady?`<div class="analysis-rate76-track" aria-hidden="true">${componentKeys.map(key=>`<span class="analysis-rate76-${key}" data-analysis-rate76-bar style="width:${width(total[key],Number(total.total_cost))}%" title="${esc(costLabels[key]+': '+summaryMoney(total[key],total.currency))}"></span>`).join('')}</div>`:'';
     const visibleRates=(snapshot.rates || []).map(rate=>{
       const profile=rate.profile || {},zones=profile.zones || [],legacy=rate.rate_semantics==='legacy_combined';
       // Optional rates78 producer contract. Reject the whole projection on any
@@ -2937,15 +3057,15 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
         new Set(combined.map(row=>row.zone_id)).size===zones.length;
       const combinedRates=new Map(combinedValid?combined.map(row=>[row.zone_id,row.usage_rate]):[]);
       const clock=profile.clock?.mode==='fixed'?t('Fixed UTC offset','Stałe przesunięcie UTC')+': '+quantity(profile.clock.offsetMinutes,'min',true):profile.clock?.mode==='civil'?t('Civil tariff clock','Czas lokalny taryfy'):unknown();
-      const monthly=Object.entries(feeLabels).filter(([key])=>Object.hasOwn(rate.fixed_monthly || {},key)).map(([key,label])=>`<li>${esc(label)}: <strong>${esc(money(rate.fixed_monthly[key],rate.currency))}</strong> / ${esc(t('month','miesiąc'))}</li>`);
-      if(rate.legacy_combined_monthly!=null)monthly.push(`<li>${esc(t('Legacy combined monthly fee','Dawna łączna opłata miesięczna'))}: <strong>${esc(money(rate.legacy_combined_monthly,rate.currency))}</strong> / ${esc(t('month','miesiąc'))}</li>`);
-      const dynamic=(profile.dynamic?.intervals || []).map(row=>[esc(`${dateTime(row.from)} – ${dateTime(row.to)}`),esc(money(row.energyRate,rate.currency)),esc(money(row.variableRate,rate.currency))]);
+      const monthly=Object.entries(feeLabels).filter(([key])=>Object.hasOwn(rate.fixed_monthly || {},key)).map(([key,label])=>`<li>${esc(label)}: <strong>${esc(summaryMoney(rate.fixed_monthly[key],rate.currency))}</strong> / ${esc(t('month','miesiąc'))}</li>`);
+      if(rate.legacy_combined_monthly!=null)monthly.push(`<li>${esc(t('Legacy combined monthly fee','Dawna łączna opłata miesięczna'))}: <strong>${esc(summaryMoney(rate.legacy_combined_monthly,rate.currency))}</strong> / ${esc(t('month','miesiąc'))}</li>`);
+      const dynamic=(profile.dynamic?.intervals || []).map(row=>[esc(`${dateTime(row.from)} – ${dateTime(row.to)}`),esc(summaryRate(row.energyRate,rate.currency)),esc(summaryRate(row.variableRate,rate.currency))]);
       return `<article class="analysis-rate76-card" data-analysis-rate76-version="${esc(rate.version_id)}"><h4>${esc(t('Rates effective from','Stawki obowiązujące od'))} ${esc(date(rate.valid_from))}${rate.valid_to?' – '+esc(date(rate.valid_to)):''}</h4>
         <p class="analysis-rate76-meta">${esc(rate.currency || unknown())} · ${esc(basis(rate.price_basis))} · ${esc(profile.timezone || unknown())} · ${esc(clock)}</p>
         <ul class="analysis-rate76-rate-list">${zones.map(zone=>{
           const rules=[...(profile.rules || []).filter(rule=>rule.zone===zone.id).map(rule=>ruleText(rule)),...(profile.exceptions || []).filter(rule=>rule.zone===zone.id).map(rule=>t('Exception','Wyjątek')+': '+ruleText(rule))];
           if(zone.id===profile.defaultZone)rules.push(t('Default outside matching rules','Domyślna poza pasującymi regułami'));
-          return `<li><strong>${esc(zone.label || t('Unnamed zone','Strefa bez nazwy'))}</strong><div class="analysis-rate76-schedule">${rules.length?rules.map(rule=>`<p>${esc(rule)}</p>`).join(''):esc(unknown())}</div><dl class="analysis-rate76-rate-values"><div><dt>${esc(legacy?t('Combined usage / kWh','Łączna stawka zużycia / kWh'):t('Energy / kWh','Energia / kWh'))}</dt><dd>${esc(money(zone.energyRate,rate.currency))}</dd></div><div><dt>${esc(t('Distribution / kWh','Dystrybucja / kWh'))}</dt><dd>${esc(legacy?unknown():money(zone.variableRate,rate.currency))}</dd></div><div><dt>${esc(t('Total / kWh','Razem / kWh'))}</dt><dd data-analysis-rate76-total="${esc(zone.id)}">${esc(money(combinedRates.get(zone.id),rate.currency))}</dd></div></dl></li>`;
+          return `<li><strong>${esc(zone.label || t('Unnamed zone','Strefa bez nazwy'))}</strong><div class="analysis-rate76-schedule">${rules.length?rules.map(rule=>`<p>${esc(rule)}</p>`).join(''):esc(unknown())}</div><dl class="analysis-rate76-rate-values"><div><dt>${esc(legacy?t('Combined usage / kWh','Łączna stawka zużycia / kWh'):t('Energy / kWh','Energia / kWh'))}</dt><dd>${esc(summaryRate(zone.energyRate,rate.currency))}</dd></div><div><dt>${esc(t('Distribution / kWh','Dystrybucja / kWh'))}</dt><dd>${esc(legacy?unknown():summaryRate(zone.variableRate,rate.currency))}</dd></div><div><dt>${esc(t('Total / kWh','Razem / kWh'))}</dt><dd data-analysis-rate76-total="${esc(zone.id)}">${esc(summaryRate(combinedRates.get(zone.id),rate.currency))}</dd></div></dl></li>`;
         }).join('')}</ul>
         ${!zones.length?`<p>${esc(unknown())}</p>`:''}
         ${dynamic.length?table(t('Dynamic rate intervals','Przedziały stawek dynamicznych'),[t('Period','Okres'),t('Energy / kWh','Energia / kWh'),t('Distribution / kWh','Dystrybucja / kWh')],dynamic,'class="analysis-rate76-table"'):''}
@@ -2968,18 +3088,18 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const proof=periodZoneProof(snapshot,periodWindow(snapshot));
     const zoneReady=proof?.status==='ready'&&currencyKnown&&positive(total.usage_cost)&&proof.zones.every(zone=>zone.complete&&positive(zone.usage_cost)&&compare(zone.usage_cost,total.usage_cost)<=0);
     const zoneDetails=proof?zoneEntries(snapshot,snapshot.period_summary,{period:true}):null;
-    const zoneGraphic=!data&&zoneReady?`<div class="analysis-rate76-track" aria-hidden="true">${proof.zones.map(zone=>`<span data-analysis-rate76-bar style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)};width:${width(zone.usage_cost,Number(total.usage_cost))}%" title="${esc(zone.label+': '+money(zone.usage_cost,proof.currency))}"></span>`).join('')}</div>`:'';
+    const zoneGraphic=!data&&zoneReady?`<div class="analysis-rate76-track" aria-hidden="true">${proof.zones.map(zone=>`<span data-analysis-rate76-bar style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)};width:${width(zone.usage_cost,Number(total.usage_cost))}%" title="${esc(zone.label+': '+summaryMoney(zone.usage_cost,proof.currency))}"></span>`).join('')}</div>`:'';
     const zoneRows=proof?.zones.map(zone=>{
       const rate=(snapshot.rates || []).find(row=>row.version_id===zone.version_id),complete=proof.status==='ready'&&zone.complete;
-      const known=[[t('Known energy cost','Znany koszt energii'),'energy_cost'],[t('Known distribution cost','Znany koszt dystrybucji'),'variable_cost'],[t('Known legacy usage cost','Znany dawny koszt zużycia'),'legacy_combined_cost']].map(([label,key])=>`${label}: ${money(zone.known_costs[key],proof.currency)}`).join(' · ');
-      return `<li data-analysis-rate76-zone="${esc(zone.version_id+'|'+zone.zone_id)}"><span class="analysis-rate76-swatch" style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)}" aria-hidden="true"></span><div><strong>${esc(zone.label)}</strong><span class="analysis-rate76-meta"> · ${esc(t('Rates from','Stawki od'))} ${esc(rate?date(rate.valid_from):unknown())}</span><p>${esc(complete?quantity(zone.kwh):t('Recorded','Zarejestrowano')+': '+quantity(zone.recorded_kwh))} · <strong>${esc(money(complete?zone.usage_cost:null,proof.currency))}</strong></p>${!complete?`<p class="analysis-rate76-meta">${esc(known)}</p>`:''}</div></li>`;
+      const known=[[t('Known energy cost','Znany koszt energii'),'energy_cost'],[t('Known distribution cost','Znany koszt dystrybucji'),'variable_cost'],[t('Known legacy usage cost','Znany dawny koszt zużycia'),'legacy_combined_cost']].map(([label,key])=>`${label}: ${summaryMoney(zone.known_costs[key],proof.currency)}`).join(' · ');
+      return `<li data-analysis-rate76-zone="${esc(zone.version_id+'|'+zone.zone_id)}"><span class="analysis-rate76-swatch" style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)}" aria-hidden="true"></span><div><strong>${esc(zone.label)}</strong><span class="analysis-rate76-meta"> · ${esc(t('Rates from','Stawki od'))} ${esc(rate?date(rate.valid_from):unknown())}</span><p>${esc(complete?summaryEnergy(zone.kwh):t('Recorded','Zarejestrowano')+': '+summaryEnergy(zone.recorded_kwh))} · <strong>${esc(summaryMoney(complete?zone.usage_cost:null,proof.currency))}</strong></p>${!complete?`<p class="analysis-rate76-meta">${esc(known)}</p>`:''}</div></li>`;
     }).join('') || '';
     const level=['areas','floors','devices'].includes(options.level)?options.level:'areas';
     const groupRows=rowsFor(groups,level).sort((a,b)=>valid(a.row.usage_cost)&&valid(b.row.usage_cost)?compare(b.row.usage_cost,a.row.usage_cost):valid(a.row.usage_cost)?-1:valid(b.row.usage_cost)?1:0);
     const groupCurrency=currencyKnown&&groups.currency===total.currency&&groups.price_basis===total.price_basis;
     const groupMax=maximum(groupRows.filter(({row})=>positive(row.usage_cost)).map(({row})=>row.usage_cost));
     const groupTitle=level==='devices'?t('Cost by device','Koszt według urządzeń'):level==='floors'?t('Cost by floor','Koszt według pięter'):t('Cost by room','Koszt według pokoi');
-    const ranked=groupRows.map(({id,label,row})=>`<li data-analysis-rate76-group="${esc(id)}"${id==='unmeasured'?' class="analysis-rate76-unmeasured"':''}><div class="analysis-rate76-rank-value"><strong>${esc(label)}</strong><strong>${esc(money(row.usage_cost,groups.currency))}</strong></div>${!data&&groupCurrency&&row.measurement_complete===true&&positive(row.usage_cost)?`<div class="analysis-rate76-track" aria-hidden="true"><span data-analysis-rate76-bar style="background:${zoneColor('group-'+level,id)};width:${width(row.usage_cost,groupMax)}%"></span></div>`:''}<p class="analysis-rate76-meta">${esc(data?quantity(row.kwh):briefEnergy(row.kwh))} · ${esc(coverage(row.coverage))}</p></li>`).join('');
+    const ranked=groupRows.map(({id,label,row})=>`<li data-analysis-rate76-group="${esc(id)}"${id==='unmeasured'?' class="analysis-rate76-unmeasured"':''}><div class="analysis-rate76-rank-value"><strong>${esc(label)}</strong><strong>${esc(summaryMoney(row.usage_cost,groups.currency))}</strong></div>${!data&&groupCurrency&&row.measurement_complete===true&&positive(row.usage_cost)?`<div class="analysis-rate76-track" aria-hidden="true"><span data-analysis-rate76-bar style="background:${zoneColor('group-'+level,id)};width:${width(row.usage_cost,groupMax)}%"></span></div>`:''}<p class="analysis-rate76-meta">${esc(data?quantity(row.kwh):briefEnergy(row.kwh))} · ${esc(coverage(row.coverage))}</p></li>`).join('');
     const groupValues=table(t('Group measurements and usage costs','Pomiary grup i koszty zużycia'),[t('Group','Grupa'),'kWh',t('Usage cost','Koszt zużycia')],groupRows.map(({label,row})=>[esc(label),esc(quantity(row.kwh)),esc(money(row.usage_cost,groups.currency))]));
     const alternativeRows=(snapshot.alternatives || []).filter(row=>row.tariff_id!==snapshot.active_tariff_id);
     const comparable=row=>row.comparable===true&&currencyKnown&&row.currency===total.currency&&row.price_basis===total.price_basis;
@@ -2987,7 +3107,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const costTable=table(t('Household cost for selected period','Koszt gospodarstwa za wybrany okres'),[t('Component','Składnik'),t('Cost','Koszt')],Object.entries(costLabels).map(([key,label])=>[esc(label),esc(money(total[key],total.currency))]),'data-analysis-cost-components class="analysis-rate76-table"');
     return `<section class="analysis-rate76" data-analysis-rates><div class="analysis-rate76-heading"><h3>${esc(t('Rates and costs','Stawki i koszty'))}</h3><div class="analysis-switch">${button('view','chart',t('Chart','Wykres'),!data)}${button('view','data',t('Data','Dane'),data)}</div></div>
       <div class="analysis-rate76-current" data-analysis-rate76-current>${visibleRates || `<p>${esc(unknown())}</p>`}</div>
-      <div class="analysis-rate76-layout"><div><section class="analysis-rate76-card" data-analysis-rate76-cost><h4>${esc(t('Household cost for selected period','Koszt gospodarstwa za wybrany okres'))}</h4><p><strong>${esc(money(total.total_cost,total.currency))}</strong> · ${esc(t('Effective price','Cena efektywna'))}: ${esc(money(total.effective_price,total.currency))}${valid(total.effective_price)?'/kWh':''}</p>
+      <div class="analysis-rate76-layout"><div><section class="analysis-rate76-card" data-analysis-rate76-cost><h4>${esc(t('Household cost for selected period','Koszt gospodarstwa za wybrany okres'))}</h4><p><strong>${esc(summaryMoney(total.total_cost,total.currency))}</strong> · ${esc(t('Effective price','Cena efektywna'))}: ${esc(summaryRate(total.effective_price,total.currency))}${valid(total.effective_price)?'/kWh':''}</p>
         ${costGraphic}<ul class="analysis-rate76-legend">${componentLegend}</ul>
         ${!costReady?`<p class="analysis-rate76-meta">${esc(t('A complete positive cost breakdown is unavailable. Available amounts retain their signs.','Pełne dodatnie rozbicie kosztu jest niedostępne. Dostępne kwoty zachowują swój znak.'))}</p>`:compare(total.total_cost,'0')===0?`<p class="analysis-rate76-meta">${esc(t('Zero cost','Koszt zerowy'))}</p>`:''}
         ${data?costTable:`<details class="analysis-rate76-history"><summary>${esc(t('Exact cost components','Dokładne składniki kosztu'))}</summary>${costTable}</details>`}
@@ -2996,7 +3116,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
         ${proof?`<ul class="analysis-rate76-zone-list">${zoneRows}</ul>${proof.status!=='ready'?`<p class="analysis-rate76-meta">${esc(proof.status==='partial'?t('Incomplete period · recorded energy and known costs only','Niepełny okres · tylko zarejestrowana energia i znane koszty'):t('No tariff cost data for this period','Brak kosztów taryfy za ten okres'))}</p>`:''}`:`<p>${esc(t('No data: matching whole-period zone costs are unavailable.','Brak danych: brak zgodnych kosztów stref za cały okres.'))}</p>`}
         ${zoneDetails?`<details class="analysis-rate76-history"><summary>${esc(t('Zone coverage and provenance','Pokrycie i pochodzenie stref'))}</summary><p>${esc(zoneDetails.note)}</p><ul>${zoneDetails.entries.map(entry=>`<li>${esc(entry.text)}</li>`).join('')}</ul></details>`:''}</section></div>
       <section class="analysis-rate76-card" data-analysis-rate76-groups><h4>${esc(groupTitle)}</h4><p class="analysis-rate76-meta">${esc(groups.currency || unknown())} · ${esc(basis(groups.price_basis))}</p><ol class="analysis-rate76-rank-list">${ranked}</ol>${data?'':`<details data-analysis-rate76-group-values><summary>${esc(t('Group measurements and costs','Pomiary i koszty grup'))}</summary>${groupValues}</details>`}${!groupRows.length?`<p>${esc(unknown())}</p>`:''}<p class="analysis-rate76-meta">${esc(t('Group costs exclude household fixed fees. No room and unmeasured energy are separate. Bars rank known nonnegative costs in the same currency and basis.','Koszty grup nie obejmują opłat stałych gospodarstwa. Bez pokoju i Niezmierzone to osobne pozycje. Paski porównują znane nieujemne koszty w tej samej walucie i podstawie.'))}</p></section></div>
-      <section><h4>${esc(t('Same measured energy in alternative tariffs · no activation','Ta sama zmierzona energia w innych taryfach · bez aktywacji'))}</h4><div class="analysis-rate76-alternatives">${alternativeRows.map(row=>`<article class="analysis-rate76-card" data-analysis-rate76-alternative><strong>${esc(row.tariff_name || t('Unnamed tariff','Taryfa bez nazwy'))}</strong><p>${esc(quantity(row.kwh))} · <strong>${esc(money(row.total_cost,row.currency))}</strong> · ${esc(basis(row.price_basis))}</p><p>${esc(comparable(row)?t('Difference','Różnica')+': '+money(row.delta_cost,row.currency,true):t('No comparable difference','Brak porównywalnej różnicy'))}</p><p class="analysis-rate76-meta">${esc(t('Same measured energy · no activation','Ta sama zmierzona energia · bez aktywacji'))}</p></article>`).join('') || `<p>${esc(t('No alternative tariff comparison available','Brak porównania alternatywnej taryfy'))}</p>`}</div>
+      <section><h4>${esc(t('Same measured energy in alternative tariffs · no activation','Ta sama zmierzona energia w innych taryfach · bez aktywacji'))}</h4><div class="analysis-rate76-alternatives">${alternativeRows.map(row=>`<article class="analysis-rate76-card" data-analysis-rate76-alternative><strong>${esc(row.tariff_name || t('Unnamed tariff','Taryfa bez nazwy'))}</strong><p>${esc(summaryEnergy(row.kwh))} · <strong>${esc(summaryMoney(row.total_cost,row.currency))}</strong> · ${esc(basis(row.price_basis))}</p><p>${esc(comparable(row)?t('Difference','Różnica')+': '+summaryMoney(row.delta_cost,row.currency,true):t('No comparable difference','Brak porównywalnej różnicy'))}</p><p class="analysis-rate76-meta">${esc(t('Same measured energy · no activation','Ta sama zmierzona energia · bez aktywacji'))}</p></article>`).join('') || `<p>${esc(t('No alternative tariff comparison available','Brak porównania alternatywnej taryfy'))}</p>`}</div>
       ${alternativeRows.length?`<details class="analysis-rate76-history"><summary>${esc(t('Alternative tariff values','Wartości alternatywnych taryf'))}</summary>${table(t('Same measured energy in alternative tariffs · no activation','Ta sama zmierzona energia w innych taryfach · bez aktywacji'),[t('Tariff','Taryfa'),'kWh',t('Total cost','Koszt całkowity'),t('Delta','Różnica')],alternatives)}</details>`:''}</section>
       <details class="analysis-rate76-history" data-analysis-rate-history><summary>${esc(t('Rates, schedules and history','Stawki, godziny i historia'))}</summary>${versions || `<p>${esc(unknown())}</p>`}</details>
       <p class="analysis-rate76-meta">${esc(t('Fixed fees apply once to the household period. Alternatives use the same measurements.','Opłaty stałe dotyczą jednokrotnie całego okresu gospodarstwa. Alternatywy korzystają z tych samych pomiarów.'))}</p></section>`;
@@ -3034,27 +3154,27 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
       <label>${esc(t('Calendar date','Data kalendarzowa'))}<input type="date" data-analysis-action="anchor" data-analysis-value="${esc(anchor)}" value="${esc(anchor)}"></label>
       ${select('comparison',t('Compare with','Porównaj z'),allowed.map(key=>[key,comparisons[key]]),kind)}</div></details></div>`;
     return `<div class="energy-analysis-v53"><div class="analysis-period-controls"><div class="analysis-switch" role="group" aria-label="${esc(t('Period','Okres'))}">${periods.map(([value,label])=>button('period',value,label,period.kind===value)).join('')}</div><p class="analysis-period">${esc(range(period))} · ${esc(ui.timeZone)} · ${esc(coverage(snapshot.coverage))}</p></div>
-      ${section==='overview'?tiles(snapshot,true)+nativeDetails(snapshot):''}${section==='rates'?filters+ratesView(snapshot,options):section==='comparison'?comparisonView(snapshot,options,kind)+filters:chart(snapshot,options)+filters+groupsView(snapshot,level,options)}
+      ${section==='overview'?tiles(snapshot,true,options.view==='data')+nativeDetails(snapshot):''}${section==='rates'?filters+ratesView(snapshot,options):section==='comparison'?comparisonView(snapshot,options,kind)+filters:chart(snapshot,options)+filters+groupsView(snapshot,level,options)}
       <details data-analysis-source-details><summary>${esc(t('Source and time details','Źródło i szczegóły czasu'))}</summary><p>${esc(t('Measurement calendar','Kalendarz pomiarów'))}: ${esc(period.timezone||unknown())}</p><p>UTC: ${esc(period.start)} – ${esc(period.end)}</p></details></div>`;
   };
   const styles = () => `
 
-.energy-analysis-v53 .analysis-rate76{font-size:14px;line-height:1.45;min-width:0;--analysis-rate76-energy:#287fd1;--analysis-rate76-distribution:#8754b3;--analysis-rate76-fixed:#64748b;--analysis-rate76-legacy:#238782}
-.energy-analysis-v53 .analysis-rate76-meta{font-size:12px;color:var(--secondary-text-color);overflow-wrap:anywhere}
+.energy-analysis-v53 .analysis-rate76{font-size:14px;line-height:20px;min-width:0;--analysis-rate76-energy:var(--hat-s1, var(--_hat-s1));--analysis-rate76-distribution:var(--hat-d2, var(--_hat-d2));--analysis-rate76-fixed:var(--hat-text-2, var(--_hat-text-2));--analysis-rate76-legacy:var(--hat-s3, var(--_hat-s3))}
+.energy-analysis-v53 .analysis-rate76-meta{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2));overflow-wrap:anywhere}
 .energy-analysis-v53 .analysis-rate76-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
-.energy-analysis-v53 .analysis-rate76-card{min-width:0;border:1px solid var(--divider-color);border-radius:10px;background:var(--card-background-color);padding:12px;overflow-wrap:anywhere}
+.energy-analysis-v53 .analysis-rate76-card{min-width:0;border:1px solid var(--hat-border, var(--_hat-border));border-radius:var(--hat-radius, var(--_hat-radius));background:var(--hat-card, var(--_hat-card));padding:12px;overflow-wrap:anywhere}
 .energy-analysis-v53 .analysis-rate76-card h4{margin-top:0}
 .energy-analysis-v53 .analysis-rate76-current{display:grid;gap:12px}
 .energy-analysis-v53 .analysis-rate76-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}
 .energy-analysis-v53 .analysis-rate76-layout>div{min-width:0}
 .energy-analysis-v53 .analysis-rate76-rate-list,.energy-analysis-v53 .analysis-rate76-monthly,.energy-analysis-v53 .analysis-rate76-legend,.energy-analysis-v53 .analysis-rate76-zone-list,.energy-analysis-v53 .analysis-rate76-rank-list{list-style:none;padding:0;margin:8px 0}
-.energy-analysis-v53 .analysis-rate76-rate-list>li{display:grid;grid-template-columns:minmax(80px,.6fr) minmax(0,1.2fr) minmax(0,1.2fr);gap:12px;align-items:start;padding:10px 0;border-top:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-rate76-rate-list>li{display:grid;grid-template-columns:minmax(80px,.6fr) minmax(0,1.2fr) minmax(0,1.2fr);gap:12px;align-items:start;padding:12px 0;border-top:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-rate76-schedule p{margin:0 0 4px}
 .energy-analysis-v53 .analysis-rate76-rate-values{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0;font-variant-numeric:tabular-nums}
-.energy-analysis-v53 .analysis-rate76-rate-values dt{font-size:12px;color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-rate76-rate-values dt{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-rate76-rate-values dd{font-weight:600;margin:4px 0 0}
 .energy-analysis-v53 .analysis-rate76-monthly{display:flex;flex-wrap:wrap;gap:8px 16px}
-.energy-analysis-v53 .analysis-rate76-track{display:flex;height:14px;min-width:0;max-width:100%;background:var(--secondary-background-color);border-radius:4px;overflow:hidden;margin:10px 0}
+.energy-analysis-v53 .analysis-rate76-track{display:flex;height:14px;min-width:0;max-width:100%;background:var(--hat-chip, var(--_hat-chip));border-radius:4px;overflow:hidden;margin:10px 0}
 .energy-analysis-v53 .analysis-rate76-track>span{display:block;min-width:0;height:100%;flex-shrink:0}
 .energy-analysis-v53 .analysis-rate76-energy_cost{background:var(--analysis-rate76-energy)}
 .energy-analysis-v53 .analysis-rate76-variable_cost{background:var(--analysis-rate76-distribution)}
@@ -3062,25 +3182,24 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
 .energy-analysis-v53 .analysis-rate76-legacy_combined_cost{background:var(--analysis-rate76-legacy)}
 .energy-analysis-v53 .analysis-rate76-legend{display:flex;flex-wrap:wrap;gap:8px 16px}
 .energy-analysis-v53 .analysis-rate76-legend>li,.energy-analysis-v53 .analysis-rate76-zone-list>li{display:flex;align-items:baseline;gap:6px;min-width:0}
-.energy-analysis-v53 .analysis-rate76-zone-list>li{padding:8px 0;border-bottom:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-rate76-zone-list>li{padding:8px 0;border-bottom:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-rate76-swatch{display:inline-block;width:10px;height:10px;flex:0 0 10px;border-radius:2px}
-.energy-analysis-v53 .analysis-rate76-rank-list>li{padding:10px 0;border-bottom:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-rate76-rank-list>li{padding:12px 0;border-bottom:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-rate76-rank-value{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;font-variant-numeric:tabular-nums}
-.energy-analysis-v53 .analysis-rate76-unmeasured .analysis-rate76-track>span{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--secondary-text-color) 3px,var(--secondary-text-color) 4px)!important;border:1px solid var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-rate76-unmeasured .analysis-rate76-track>span{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 4px)!important;border:1px solid var(--hat-unmeasured, var(--_hat-unmeasured))}
 .energy-analysis-v53 .analysis-rate76-alternatives{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px}
-.energy-analysis-v53 .analysis-rate76-history{border-top:1px solid var(--divider-color);margin-top:12px}
+.energy-analysis-v53 .analysis-rate76-history{border-top:1px solid var(--hat-border, var(--_hat-border));margin-top:12px}
 .energy-analysis-v53 .analysis-rate76-history .analysis-table-wrap{overflow:visible}
 .energy-analysis-v53 .analysis-rate76-history table,.energy-analysis-v53 .analysis-rate76-table{table-layout:fixed;width:100%;overflow-wrap:anywhere}
-:host(.bento-dark) .energy-analysis-v53 .analysis-rate76{--analysis-rate76-energy:#3987e5;--analysis-rate76-distribution:#a696ea;--analysis-rate76-fixed:#94a3b8;--analysis-rate76-legacy:#41a69f}
-@container energy-analysis (max-width:600px){.energy-analysis-v53 .analysis-rate76-layout{grid-template-columns:minmax(0,1fr);gap:0}.energy-analysis-v53 .analysis-rate76-rate-list>li{grid-template-columns:minmax(0,1fr);gap:6px}.energy-analysis-v53 .analysis-rate76-card{padding:10px}.energy-analysis-v53 .analysis-rate76-rate-values{gap:8px}.energy-analysis-v53 .analysis-rate76-history th,.energy-analysis-v53 .analysis-rate76-history td{padding:8px 4px}}
-.energy-analysis-v53{font-family:var(--paper-font-body1_-_font-family,inherit);font-size:14px;line-height:1.45;color:var(--primary-text-color);min-width:0;max-width:100%;width:100%;overflow-wrap:anywhere;container-type:inline-size;container-name:energy-analysis}
+@container energy-analysis (max-width:600px){.energy-analysis-v53 .analysis-rate76-layout{grid-template-columns:minmax(0,1fr);gap:0}.energy-analysis-v53 .analysis-rate76-rate-list>li{grid-template-columns:minmax(0,1fr);gap:6px}.energy-analysis-v53 .analysis-rate76-card{padding:12px}.energy-analysis-v53 .analysis-rate76-rate-values{gap:8px}.energy-analysis-v53 .analysis-rate76-history th,.energy-analysis-v53 .analysis-rate76-history td{padding:8px 4px}}
+.energy-analysis-v53{font-family:var(--hat-font, var(--_hat-font));font-size:14px;line-height:20px;color:var(--hat-text, var(--_hat-text));min-width:0;max-width:100%;width:100%;overflow-wrap:anywhere;container-type:inline-size;container-name:energy-analysis}
 .energy-analysis-v53 *{box-sizing:border-box}
 .energy-analysis-v53 h3,.energy-analysis-v53 h4{font-size:1em;margin:12px 0 8px}
 .energy-analysis-v53 p{margin:8px 0}
 .energy-analysis-v53 section{min-width:0;margin-block:12px}
 .energy-analysis-v53 .analysis-switch,.energy-analysis-v53 .analysis-section-title,.energy-analysis-v53 .analysis-period-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .energy-analysis-v53 .analysis-period-controls{justify-content:space-between}
-.energy-analysis-v53 .analysis-period{font-size:12px;color:var(--secondary-text-color);margin:4px 0}
+.energy-analysis-v53 .analysis-period{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2));margin:4px 0}
 .energy-analysis-v53 .analysis-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:12px;align-items:end;margin-block:16px}
 .energy-analysis-v53 .analysis-section-title{justify-content:space-between}
 .energy-analysis-v53 .analysis-calendar-fields{display:grid;gap:12px;padding-block:8px}
@@ -3088,75 +3207,76 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
 .energy-analysis-v53 [data-analysis-calendar-options] summary{min-height:44px}
 .energy-analysis-v53 label{display:flex;flex-direction:column;gap:4px;max-width:100%;min-width:0;font-size:12px}
 .energy-analysis-v53 .analysis-controls select,.energy-analysis-v53 .analysis-controls input{width:100%;min-width:0;font-size:14px}
-.energy-analysis-v53 button,.energy-analysis-v53 select,.energy-analysis-v53 input{font:inherit;color:var(--primary-text-color);background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;min-height:44px;min-width:44px;padding:8px;max-width:100%}
+.energy-analysis-v53 button,.energy-analysis-v53 select,.energy-analysis-v53 input{font:inherit;color:var(--hat-text, var(--_hat-text));background:var(--hat-card, var(--_hat-card));border:1px solid var(--hat-border, var(--_hat-border));border-radius:8px;min-height:44px;min-width:44px;padding:8px;max-width:100%}
 .energy-analysis-v53 button{cursor:pointer;white-space:normal}
-.energy-analysis-v53 button[aria-pressed="true"]{border-color:var(--primary-color);box-shadow:inset 0 0 0 1px var(--primary-color)}
-.energy-analysis-v53 button:focus-visible,.energy-analysis-v53 select:focus-visible,.energy-analysis-v53 input:focus-visible,.energy-analysis-v53 summary:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+.energy-analysis-v53 button[aria-pressed="true"]{border-color:var(--hat-primary, var(--_hat-primary));box-shadow:inset 0 0 0 1px var(--hat-primary, var(--_hat-primary))}
+.energy-analysis-v53 button:focus-visible,.energy-analysis-v53 select:focus-visible,.energy-analysis-v53 input:focus-visible,.energy-analysis-v53 summary:focus-visible{outline:2px solid var(--hat-primary, var(--_hat-primary));outline-offset:2px}
 .energy-analysis-v53 summary{min-height:44px;padding:12px 0;cursor:pointer}
 .energy-analysis-v53 .analysis-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}
-.energy-analysis-v53 .analysis-tile{min-width:0;border:1px solid var(--divider-color);border-radius:10px;padding:10px 12px;background:var(--card-background-color);box-shadow:none}
+.energy-analysis-v53 .analysis-tile{min-width:0;border:1px solid var(--hat-border, var(--_hat-border));border-radius:var(--hat-radius, var(--_hat-radius));padding:12px 16px;background:var(--hat-card, var(--_hat-card));box-shadow:none}
 .energy-analysis-v53 .analysis-tile span,.energy-analysis-v53 .analysis-tile strong{display:block}
-.energy-analysis-v53 .analysis-tile span{font-size:12px;color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-tile span{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-tile strong{font-size:1.35em;margin-top:4px;font-variant-numeric:tabular-nums}
 .energy-analysis-v53 .analysis-period-zones{list-style:none;margin:8px 0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:8px}
-.energy-analysis-v53 .analysis-period-zones li{min-width:0;display:grid;gap:4px;padding:8px 10px;border:1px solid var(--divider-color);border-radius:8px}
-.energy-analysis-v53 .analysis-period-zones li>span:last-child{font-size:12px;color:var(--secondary-text-color)}
-.energy-analysis-v53 [data-analysis-period-summary-details]{border-top:1px solid var(--divider-color);margin-top:8px}
-.energy-analysis-v53 .analysis-note{color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-period-zones li{min-width:0;display:grid;gap:4px;padding:8px 10px;border:1px solid var(--hat-border, var(--_hat-border));border-radius:8px}
+.energy-analysis-v53 .analysis-period-zones li>span:last-child{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
+.energy-analysis-v53 [data-analysis-period-summary-details]{border-top:1px solid var(--hat-border, var(--_hat-border));margin-top:8px}
+.energy-analysis-v53 .analysis-note{color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-table-wrap{overflow:auto;max-width:100%}
 .energy-analysis-v53 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;text-align:start}
 .energy-analysis-v53 caption{text-align:start;font-weight:600;padding:8px 0}
-.energy-analysis-v53 th,.energy-analysis-v53 td{padding:10px 8px;border-bottom:1px solid var(--divider-color);vertical-align:top;text-align:start}
+.energy-analysis-v53 th,.energy-analysis-v53 td{padding:12px 8px;border-bottom:1px solid var(--hat-border, var(--_hat-border));vertical-align:top;text-align:start}
 .energy-analysis-v53 th{font-weight:600}
 .energy-analysis-v53 .analysis-chart-scroll{min-width:0;max-width:100%;width:100%;overflow:visible;padding:4px 2px}
 .energy-analysis-v53 .analysis-chart{display:grid;grid-template-columns:repeat(var(--analysis-point-count),minmax(0,1fr));align-items:stretch;height:212px;min-width:0;max-width:100%;width:100%;gap:2px}
 .energy-analysis-v53 .analysis-point{position:relative;display:flex;align-items:flex-end;justify-content:center;min-width:0;max-width:100%;width:100%;height:212px;padding:0 0 40px;border:0;border-radius:0;background:transparent;touch-action:manipulation}
 .energy-analysis-v53 .analysis-point:focus-visible{outline-offset:0;z-index:1}
-.energy-analysis-v53 .analysis-point[aria-pressed="true"]{box-shadow:inset 0 0 0 1px var(--primary-color)}
-.energy-analysis-v53 .analysis-column{display:block;width:100%;max-height:168px;background:var(--energy-grid-consumption-color,#287fd1);border-radius:3px 3px 0 0;min-height:1px}
-.energy-analysis-v53 .analysis-baseline-line{display:block;position:absolute;inset-inline:0;height:0;border-top:3px dashed #8754b3;pointer-events:none}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-current:before{content:"● ";color:var(--secondary-text-color,#718096)}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-baseline:before{content:"━ ";color:#8754b3}\n.energy-analysis-v53 [data-analysis-baseline-range]{display:inline-block}\n.energy-analysis-v53 .analysis-point-label{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);width:max-content;font-size:12px;line-height:1.2}
+.energy-analysis-v53 .analysis-point[aria-pressed="true"]{box-shadow:inset 0 0 0 1px var(--hat-primary, var(--_hat-primary))}
+.energy-analysis-v53 .analysis-column{display:block;width:100%;max-height:168px;background:var(--energy-grid-consumption-color,var(--hat-s1, var(--_hat-s1)));border-radius:3px 3px 0 0;min-height:1px}
+.energy-analysis-v53 .analysis-baseline-line{display:block;position:absolute;inset-inline:0;height:0;border-top:3px dashed var(--hat-d2, var(--_hat-d2));pointer-events:none}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-current:before{content:"● ";color:var(--secondary-text-color,var(--hat-unmeasured, var(--_hat-unmeasured)))}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-baseline:before{content:"━ ";color:var(--hat-d2, var(--_hat-d2))}\n.energy-analysis-v53 [data-analysis-baseline-range]{display:inline-block}\n.energy-analysis-v53 .analysis-point-label{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);width:max-content;font-size:12px;line-height:16px}
 .energy-analysis-v53 .analysis-point:first-child .analysis-point-label{left:0;transform:none}
 .energy-analysis-v53 .analysis-point:last-child .analysis-point-label{left:auto;right:0;transform:none}
-.energy-analysis-v53 .analysis-missing{background:repeating-linear-gradient(135deg,transparent,transparent 5px,var(--divider-color) 5px,var(--divider-color) 6px)}
+.energy-analysis-v53 .analysis-missing{background:repeating-linear-gradient(135deg,transparent,transparent 5px,var(--hat-border, var(--_hat-border)) 5px,var(--hat-border, var(--_hat-border)) 6px)}
 .energy-analysis-v53 .analysis-flow{display:grid;grid-template-columns:minmax(120px,.3fr) minmax(0,1fr);gap:16px;align-items:start}
-.energy-analysis-v53 .analysis-flow-source{display:flex;flex-direction:column;gap:4px;padding:12px;border-inline-start:4px solid var(--energy-grid-consumption-color,#287fd1);background:var(--secondary-background-color);border-radius:8px;min-width:0}
-.energy-analysis-v53 .analysis-flow-source>span:first-child{font-size:12px;color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-flow-source{display:flex;flex-direction:column;gap:4px;padding:12px;border-inline-start:4px solid var(--energy-grid-consumption-color,var(--hat-s1, var(--_hat-s1)));background:var(--hat-chip, var(--_hat-chip));border-radius:8px;min-width:0}
+.energy-analysis-v53 .analysis-flow-source>span:first-child{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-flow-destination{min-width:0}
 .energy-analysis-v53 .analysis-flow-destination h4{margin-top:0}
-.energy-analysis-v53 [data-analysis-group-details],.energy-analysis-v53 [data-analysis-rate-history],.energy-analysis-v53 [data-analysis-fee-details],.energy-analysis-v53 [data-analysis-source-details]{border-top:1px solid var(--divider-color);margin-top:12px}
+.energy-analysis-v53 [data-analysis-group-details],.energy-analysis-v53 [data-analysis-rate-history],.energy-analysis-v53 [data-analysis-fee-details],.energy-analysis-v53 [data-analysis-source-details]{border-top:1px solid var(--hat-border, var(--_hat-border));margin-top:12px}
 .energy-analysis-v53 .analysis-ranking,.energy-analysis-v53 .analysis-deltas{list-style:none;margin:0;padding:0}
-.energy-analysis-v53 .analysis-ranking li,.energy-analysis-v53 .analysis-deltas li{padding:8px 0;border-bottom:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-ranking li,.energy-analysis-v53 .analysis-deltas li{padding:8px 0;border-bottom:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-ranking li>div:first-child,.energy-analysis-v53 .analysis-deltas li>div:first-child{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px}
-.energy-analysis-v53 .analysis-track,.energy-analysis-v53 .analysis-delta-track{height:8px;background:var(--secondary-background-color);border-radius:3px;margin-top:6px;position:relative}
-.energy-analysis-v53 .analysis-rank{display:block;height:100%;background:var(--energy-device-consumption-color,#df6635)}
-.energy-analysis-v53 .rank-0{background:var(--analysis-rank-0,#eb6834)}.energy-analysis-v53 .rank-1{background:var(--analysis-rank-1,#6250d6)}.energy-analysis-v53 .rank-2{background:var(--analysis-rank-2,#e87ba4)}.energy-analysis-v53 .rank-3{background:var(--analysis-rank-3,#eda100)}.energy-analysis-v53 .rank-4{background:var(--analysis-rank-4,#718096)}
-:host(.bento-dark) .energy-analysis-v53 .rank-0{background:#d95926}:host(.bento-dark) .energy-analysis-v53 .rank-1{background:#9085e9}:host(.bento-dark) .energy-analysis-v53 .rank-2{background:#d55181}:host(.bento-dark) .energy-analysis-v53 .rank-3{background:#c98500}
-.energy-analysis-v53 .analysis-unmeasured .analysis-rank{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--secondary-text-color) 3px,var(--secondary-text-color) 4px);border:1px solid var(--secondary-text-color)}
-.energy-analysis-v53 .analysis-delta-track:before{content:'';position:absolute;left:50%;height:100%;border-left:1px solid var(--secondary-text-color)}
-.energy-analysis-v53 .analysis-decrease{position:absolute;right:50%;height:100%;background:#287fd1}
-.energy-analysis-v53 .analysis-increase{position:absolute;left:50%;height:100%;background:#cf4040}
+.energy-analysis-v53 .analysis-track,.energy-analysis-v53 .analysis-delta-track{height:8px;background:var(--hat-chip, var(--_hat-chip));border-radius:999px;margin-top:8px;position:relative}
+.energy-analysis-v53 .analysis-rank{display:block;height:100%;background:var(--energy-device-consumption-color,var(--hat-d1, var(--_hat-d1)))}
+.energy-analysis-v53 .rank-0{background:var(--analysis-rank-0,var(--hat-d1, var(--_hat-d1)))}.energy-analysis-v53 .rank-1{background:var(--analysis-rank-1,var(--hat-d2, var(--_hat-d2)))}.energy-analysis-v53 .rank-2{background:var(--analysis-rank-2,var(--hat-d3, var(--_hat-d3)))}.energy-analysis-v53 .rank-3{background:var(--analysis-rank-3,var(--hat-d4, var(--_hat-d4)))}.energy-analysis-v53 .rank-4{background:var(--analysis-rank-4,var(--hat-unmeasured, var(--_hat-unmeasured)))}
+.energy-analysis-v53 .analysis-unmeasured .analysis-rank{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 4px);border:1px solid var(--hat-unmeasured, var(--_hat-unmeasured))}
+.energy-analysis-v53 .analysis-delta-track:before{content:'';position:absolute;left:50%;height:100%;border-left:1px solid var(--hat-text-2, var(--_hat-text-2))}
+.energy-analysis-v53 .analysis-decrease{position:absolute;right:50%;height:100%;background:var(--hat-s1, var(--_hat-s1))}
+.energy-analysis-v53 .analysis-increase{position:absolute;left:50%;height:100%;background:var(--hat-crit, var(--_hat-crit))}
 
-.energy-analysis-v53{--analysis-zone-cheap:#1baf7a;--analysis-zone-expensive:#2a78d6;--analysis-rank-0:#eb6834;--analysis-rank-1:#6250d6;--analysis-rank-2:#e87ba4;--analysis-rank-3:#eda100;--analysis-rank-4:#718096}
-:host(.bento-dark) .energy-analysis-v53{--analysis-zone-cheap:#199e70;--analysis-zone-expensive:#3987e5;--analysis-rank-0:#d95926;--analysis-rank-1:#9085e9;--analysis-rank-2:#d55181;--analysis-rank-3:#c98500}
-.energy-analysis-v53 .analysis-group-summary{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:20px;align-items:start}
+.energy-analysis-v53{--analysis-zone-cheap:var(--hat-zone-cheap, var(--_hat-zone-cheap));--analysis-zone-expensive:var(--hat-zone-exp, var(--_hat-zone-exp));--analysis-rank-0:var(--hat-d1, var(--_hat-d1));--analysis-rank-1:var(--hat-d2, var(--_hat-d2));--analysis-rank-2:var(--hat-d3, var(--_hat-d3));--analysis-rank-3:var(--hat-d4, var(--_hat-d4));--analysis-rank-4:var(--hat-unmeasured, var(--_hat-unmeasured))}
+.energy-analysis-v53 .analysis-group-summary{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:24px;align-items:start}
 .energy-analysis-v53 .analysis-group-summary>div{min-width:0}
 .energy-analysis-v53 .analysis-sankey-wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr) minmax(0,1fr);align-items:center;gap:12px}
-.energy-analysis-v53 .analysis-sankey{display:block;width:100%;height:250px;color:var(--primary-text-color)}
-.energy-analysis-v53 [data-analysis-flow-side]>path{stroke:var(--primary-text-color);stroke-width:.3}
+.energy-analysis-v53 .analysis-sankey{display:block;width:100%;height:250px;color:var(--hat-text, var(--_hat-text))}
+.energy-analysis-v53 [data-analysis-flow-side]>path{stroke:var(--hat-text, var(--_hat-text));stroke-width:.3}
 .energy-analysis-v53 .analysis-household{text-align:center;font-weight:600}
 .energy-analysis-v53 .analysis-flow-labels{list-style:none;padding:0;margin:0;min-width:0;display:grid;gap:12px}
 .energy-analysis-v53 .analysis-flow-labels li{min-width:0;display:flex;align-items:baseline;gap:6px}
-.energy-analysis-v53 .analysis-flow-swatch{display:inline-block;flex:none;width:12px;height:12px;margin-inline-end:5px;border:1px solid var(--primary-text-color);border-radius:2px;vertical-align:baseline}
-.energy-analysis-v53 .analysis-composition{display:flex;height:16px;max-width:100%;border:1px solid var(--primary-text-color);border-radius:4px;overflow:hidden}
-.energy-analysis-v53 .analysis-composition>span{height:100%;min-width:0;border-inline-end:1px solid var(--primary-text-color)}
-.energy-analysis-v53 .analysis-hatched{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--primary-text-color) 3px,var(--primary-text-color) 4px)}
+.energy-analysis-v53 .analysis-flow-swatch{display:inline-block;flex:none;width:12px;height:12px;margin-inline-end:5px;border:1px solid var(--hat-text, var(--_hat-text));border-radius:2px;vertical-align:baseline}
+.energy-analysis-v53 .analysis-composition{display:flex;height:16px;max-width:100%;border:1px solid var(--hat-text, var(--_hat-text));border-radius:4px;overflow:hidden}
+.energy-analysis-v53 .analysis-composition>span{height:100%;min-width:0;border-inline-end:1px solid var(--hat-text, var(--_hat-text))}
+.energy-analysis-v53 .analysis-hatched{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--hat-text, var(--_hat-text)) 3px,var(--hat-text, var(--_hat-text)) 4px)}
 .energy-analysis-v53 .analysis-zone-legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px}
 .energy-analysis-v53 .analysis-mobile-composition{display:none}
 @container energy-analysis (max-width:600px){.energy-analysis-v53 .analysis-group-summary{grid-template-columns:minmax(0,1fr);gap:8px}.energy-analysis-v53 .analysis-sankey{display:none}.energy-analysis-v53 .analysis-sankey-wrap{display:none}.energy-analysis-v53 .analysis-mobile-composition{display:block}.energy-analysis-v53 .analysis-flow-labels{display:flex;flex-wrap:wrap;gap:6px 12px;margin-block:8px}}
 @container energy-analysis (max-width:480px){.energy-analysis-v53 [data-analysis-axis-minor]{visibility:hidden}.energy-analysis-v53 .analysis-flow{grid-template-columns:minmax(0,1fr);gap:12px}.energy-analysis-v53 .analysis-flow-source{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:6px 12px}.energy-analysis-v53 .analysis-period-controls{align-items:flex-start}.energy-analysis-v53 th,.energy-analysis-v53 td{padding:8px 4px}.energy-analysis-v53 .analysis-switch{gap:4px}}
-@container energy-analysis (max-width:360px){.energy-analysis-v53 .analysis-controls{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.energy-analysis-v53 .analysis-controls>label:last-child{grid-column:1/-1}.energy-analysis-v53 .analysis-chart{gap:1px}.energy-analysis-v53 .analysis-tile{padding:10px}.energy-analysis-v53 .analysis-ranking li>div:first-child{display:grid;gap:2px}.energy-analysis-v53 .analysis-tile strong{font-size:1.2em}}
+@container energy-analysis (max-width:360px){.energy-analysis-v53 .analysis-controls{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.energy-analysis-v53 .analysis-controls>label:last-child{grid-column:1/-1}.energy-analysis-v53 .analysis-chart{gap:1px}.energy-analysis-v53 .analysis-tile{padding:12px}.energy-analysis-v53 .analysis-ranking li>div:first-child{display:grid;gap:2px}.energy-analysis-v53 .analysis-tile strong{font-size:1.2em}}
 /* Mobile keeps two primary readings and a compact secondary pair. No values are hidden. */
 @container energy-analysis (max-width:480px){.energy-analysis-v53 .analysis-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.energy-analysis-v53 .analysis-tile-secondary{padding:6px 10px;border:0;border-radius:0;background:transparent}.energy-analysis-v53 .analysis-tile-secondary strong{font-size:14px;margin-top:2px}.energy-analysis-v53 .analysis-tile-secondary span{font-size:12px}}
+
+.energy-analysis-v53 :is(button,select,input){font:14px/20px var(--hat-font, var(--_hat-font))}
+.energy-analysis-v53 :is(label,.analysis-period,.analysis-rate76-meta,.analysis-zone-legend,.analysis-point-label){font-size:12px;line-height:16px}
 `;
   return {markup,styles};
 }
@@ -3801,18 +3921,18 @@ this._installTariffConsumerV3();
 .patterns-measured button:disabled { opacity:.55; }
 .patterns-measured [data-pattern-plot] { width:100%; min-width:0; }
 .patterns-measured svg { display:block; max-width:100%; }
-.patterns-measured svg text { fill:var(--bento-text,var(--primary-text-color)); font:14px system-ui,sans-serif; }
+.patterns-measured svg text { fill:var(--bento-text,var(--primary-text-color)); font:14px/20px var(--hat-font, var(--_hat-font)); }
 .patterns-measured [data-pattern-detail] { padding:12px; border:1px solid var(--bento-border); border-radius:8px; background:var(--bento-primary-light); }
 .patterns-measured summary { min-height:44px; cursor:pointer; padding:8px 0; box-sizing:border-box; }
 .patterns-table { max-width:100%; overflow:auto; margin:12px 0; }
 .patterns-table table { border-collapse:collapse; width:100%; font-size:14px; }
-.patterns-table th,.patterns-table td { text-align:left; padding:10px; border-bottom:1px solid var(--bento-border); vertical-align:top; }
+.patterns-table th,.patterns-table td { text-align:left; padding:12px; border-bottom:1px solid var(--bento-border); vertical-align:top; }
 .patterns-table caption { text-align:left; padding:8px; }
 .patterns-table small { font-size:14px; }
 @container measured-patterns (max-width:500px) { .patterns-controls label { flex-basis:100%; } }
 
 /* Card-owned support footer; never depends on or mutates another component. */
-.donate-section[data-source="own-card"] { margin:24px 0 4px; padding:18px 20px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:14px; border:1px solid var(--bento-border); border-radius:var(--bento-radius-sm); background:var(--bento-primary-light); color:var(--bento-text); }
+.donate-section[data-source="own-card"] { margin:24px 0 4px; padding:16px 24px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:16px; border:1px solid var(--bento-border); border-radius:var(--bento-radius-sm); background:var(--bento-primary-light); color:var(--bento-text); }
 .donate-section[data-source="own-card"] .donate-text { display:flex; flex-direction:column; gap:4px; flex:1; min-width:220px; }
 .donate-section[data-source="own-card"] .donate-buttons { display:flex; flex-wrap:wrap; gap:8px; }
 .donate-section[data-source="own-card"] a { color:var(--bento-primary); font-weight:700; text-decoration:none; }
@@ -3824,58 +3944,29 @@ this._installTariffConsumerV3();
 :host {
   color-scheme: light;
   container-type: inline-size;
-  --bento-primary: #1d4ed8;
-  --bento-on-primary: #fff;
-  --bento-primary-hover: #2563EB;
-  --bento-primary-light: rgba(59, 130, 246, 0.08);
-  --bento-success: #10B981;
-  --bento-success-light: rgba(16, 185, 129, 0.08);
-  --bento-error: #EF4444;
-  --bento-error-light: rgba(239, 68, 68, 0.08);
-  --bento-warning: #F59E0B;
-  --bento-warning-light: rgba(245, 158, 11, 0.08);
-  --bento-bg: #F8FAFC;
-  --bento-card: #FFFFFF;
-  --bento-border: #E2E8F0;
-  --bento-text: #1E293B;
-  --bento-text-secondary: #64748B;
-  --bento-text-muted: #94A3B8;
-  --bento-radius-xs: 6px;
-  --bento-radius-sm: 10px;
-  --bento-radius-md: 16px;
-  --bento-shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
-  --bento-shadow-md: 0 4px 12px rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.04);
-  --bento-shadow-lg: 0 8px 25px rgba(0,0,0,0.06), 0 4px 10px rgba(0,0,0,0.04);
-  --bento-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+
+  font-family: var(--hat-font, var(--_hat-font));
 }
 :host(.bento-dark) {
   color-scheme: dark;
-  --bento-primary: #a5b4fc;
-  --bento-on-primary: #111827;
-  --bento-bg: var(--primary-background-color, #1a1a2e);
-  --bento-card: var(--card-background-color, #16213e);
-  --bento-text: var(--primary-text-color, #e2e8f0);
-  --bento-text-secondary: var(--secondary-text-color, #94a3b8);
-  --bento-text-muted: var(--disabled-text-color, #64748b);
-  --bento-border: var(--divider-color, #334155);
+
 }
 
 /* Card */
 .card, .ha-card, ha-card, .main-card, .exporter-card, .security-card, .reports-card, .storage-card, .chore-card, .cry-card, .backup-card, .network-card, .sentence-card, .energy-card, .panel-card {
-  background: var(--bento-card) !important;
-  border: 1px solid var(--bento-border) !important;
-  border-radius: var(--bento-radius-md) !important;
-  box-shadow: var(--bento-shadow-sm) !important;
-  font-family: 'Inter', sans-serif !important;
-  color: var(--bento-text) !important;
+  background: var(--bento-card);
+  border: 1px solid var(--bento-border);
+  border-radius: var(--bento-radius-md);
+  box-shadow: var(--bento-shadow-sm);
+  font-family: var(--hat-font, var(--_hat-font));
+  color: var(--bento-text);
   overflow: hidden;
 }
 
 /* Headers */
 .card-header, .header, .card-title, h1, h2, h3 {
-  color: var(--bento-text) !important;
-  font-family: 'Inter', sans-serif !important;
+  color: var(--bento-text);
+  font-family: var(--hat-font, var(--_hat-font));
 }
 .card-header, .header {
   border-bottom: 1px solid var(--bento-border) !important;
@@ -3889,17 +3980,17 @@ this._installTariffConsumerV3();
   gap: 4px;
   border-bottom: 2px solid var(--bento-border);
   padding: 0 4px;
-  margin-bottom: 20px;
+  margin-bottom: 24px;
   overflow-x: auto;
 }
 .tab, .tab-btn, .tab-button {
-  padding: 10px 18px;
+  padding: 12px 16px;
   border: none;
   background: transparent;
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--hat-font, var(--_hat-font));
   color: var(--bento-text-secondary);
   border-bottom: 2px solid transparent;
   margin-bottom: -2px;
@@ -3925,46 +4016,46 @@ this._installTariffConsumerV3();
 
 /* Buttons */
 button, .btn, .action-btn {
-  font-family: 'Inter', sans-serif;
-  font-size: 13px;
+  font-family: var(--hat-font, var(--_hat-font));
+  font-size: 14px;
   font-weight: 500;
   border-radius: var(--bento-radius-xs);
   transition: var(--bento-transition);
   cursor: pointer;
 }
 button.active, .btn.active, .btn-primary, .action-btn.active {
-  background: var(--bento-primary) !important;
-  color: var(--bento-on-primary) !important;
-  border-color: var(--bento-primary) !important;
+  background: var(--bento-primary);
+  color: var(--bento-on-primary);
+  border-color: var(--bento-primary);
   box-shadow: 0 2px 8px rgba(59, 130, 246, 0.25);
 }
 
 /* Status badges */
 .badge, .status-badge, .tag, .chip {
-  padding: 4px 10px;
+  padding: 4px 12px;
   border-radius: 20px;
   font-size:12px;
   font-weight: 600;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--hat-font, var(--_hat-font));
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
-.badge-success, .status-ok, .status-good { background: var(--bento-success-light); color: var(--bento-success); }
-.badge-error, .status-error, .status-critical { background: var(--bento-error-light); color: var(--bento-error); }
-.badge-warning, .status-warning { background: var(--bento-warning-light); color: var(--bento-warning); }
+.badge-success, .status-ok, .status-good { background: var(--bento-success-light); color: var(--hat-good-text, var(--_hat-good-text)); }
+.badge-error, .status-error, .status-critical { background: var(--bento-error-light); color: var(--hat-crit-text, var(--_hat-crit-text)); }
+.badge-warning, .status-warning { background: var(--bento-warning-light); color: var(--hat-warn-text, var(--_hat-warn-text)); }
 .badge-info, .status-info { background: var(--bento-primary-light); color: var(--bento-primary); }
 
 /* Tables */
-table { width: 100%; border-collapse: separate; border-spacing: 0; font-family: 'Inter', sans-serif; }
-th { background: var(--bento-bg); color: var(--bento-text-secondary); font-size:12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 10px 14px; text-align: left; border-bottom: 2px solid var(--bento-border); }
-td { padding: 12px 14px; border-bottom: 1px solid var(--bento-border); color: var(--bento-text); font-size: 13px; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; font-family: var(--hat-font, var(--_hat-font)); }
+th { background: var(--bento-bg); color: var(--bento-text-secondary); font-size:12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; padding: 12px 16px; text-align: left; border-bottom: 2px solid var(--bento-border); }
+td { padding: 12px 16px; border-bottom: 1px solid var(--bento-border); color: var(--bento-text); font-size: 14px; }
 tr:hover td { background: var(--bento-primary-light); }
 tr:last-child td { border-bottom: none; }
 
 /* Inputs & selects */
 input, select, textarea {
-  font-family: 'Inter', sans-serif;
-  font-size: 13px;
+  font-family: var(--hat-font, var(--_hat-font));
+  font-size: 14px;
   padding: 8px 12px;
   border: 1.5px solid var(--bento-border);
   border-radius: var(--bento-radius-xs);
@@ -3987,7 +4078,7 @@ input:focus, select:focus, textarea:focus {
   transition: var(--bento-transition);
 }
 .stat-card:hover, .stat:hover, .metric-card:hover { box-shadow: var(--bento-shadow-md); transform: translateY(-1px); }
-.stat-value, .metric-value, .stat-number { font-size: 28px; font-weight: 700; color: var(--bento-text); font-family: 'Inter', sans-serif; }
+.stat-value, .metric-value, .stat-number { font-size: 28px; font-weight: 700; color: var(--bento-text); font-family: var(--hat-font, var(--_hat-font)); }
 .stat-label, .metric-label, .stat-title { font-size: 12px; font-weight: 500; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: 0.5px; }
 
 /* Canvas override (prevent Bento CSS from distorting charts) */
@@ -3995,7 +4086,7 @@ canvas {
   max-width: 100% !important;
   height: auto !important;
   width: auto !important;
-  border: none !important;
+  border: none;
 }
 
 /* Pagination */
@@ -4004,26 +4095,26 @@ canvas {
   justify-content: center;
   align-items: center;
   gap: 8px;
-  margin-top: 20px;
+  margin-top: 24px;
   padding: 16px 0;
   border-top: 1px solid var(--bento-border);
 }
 .pagination-btn, .pag-btn {
-  padding: 8px 14px;
+  padding: 8px 16px;
   border: 1.5px solid var(--bento-border);
   background: var(--bento-card);
   color: var(--bento-text);
   border-radius: var(--bento-radius-xs);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--hat-font, var(--_hat-font));
   transition: var(--bento-transition);
 }
 .pagination-btn:hover:not(:disabled), .pag-btn:hover:not(:disabled) { background: var(--bento-primary); color: white; border-color: var(--bento-primary); }
 .pagination-btn:disabled, .pag-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.pagination-info, .pag-info { font-size: 13px; color: var(--bento-text-secondary); font-weight: 500; padding: 0 8px; }
-.page-size-select { padding: 6px 10px; border: 1.5px solid var(--bento-border); border-radius: var(--bento-radius-xs); font-size: 12px; font-family: 'Inter', sans-serif; }
+.pagination-info, .pag-info { font-size: 14px; color: var(--bento-text-secondary); font-weight: 500; padding: 0 8px; }
+.page-size-select { padding: 8px 12px; border: 1.5px solid var(--bento-border); border-radius: var(--bento-radius-xs); font-size: 12px; font-family: var(--hat-font, var(--_hat-font)); }
 
 /* Empty state */
 .empty-state, .no-data, .no-results {
@@ -4042,14 +4133,14 @@ canvas {
 /* ===== END BENTO LIGHT MODE ===== */
 
         :host {
-          --text-color: var(--primary-text-color, #000);
-          --secondary-text: var(--secondary-text-color, #666);
-          --bg-color: var(--card-background-color, #fff);
-          --primary: var(--primary-color, #3498db);
-          --divider: var(--divider-color, #e0e0e0);
-          --success: #4caf50;
-          --warning: #ff9800;
-          --danger: #f44336;
+          --text-color: var(--hat-text, var(--_hat-text));
+          --secondary-text: var(--hat-text-2, var(--_hat-text-2));
+          --bg-color: var(--hat-card, var(--_hat-card));
+          --primary: var(--hat-primary, var(--_hat-primary));
+          --divider: var(--hat-border, var(--_hat-border));
+          --success: var(--hat-good-text, var(--_hat-good-text));
+          --warning: var(--hat-warn-text, var(--_hat-warn-text));
+          --danger: var(--hat-crit-text, var(--_hat-crit-text));
         }
 
         * {
@@ -4061,7 +4152,7 @@ canvas {
           border-radius: 8px;
           box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
           padding: 16px;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+          font-family: var(--hat-font, var(--_hat-font));
         }
 
         .card-title {
@@ -4081,7 +4172,7 @@ canvas {
           display: flex;
           gap: 8px;
           border-bottom: 1px solid var(--divider);
-          margin-bottom: 20px;
+          margin-bottom: 24px;
           flex-wrap: wrap;
         }
 
@@ -4120,7 +4211,7 @@ canvas {
           display: grid;
           grid-template-columns: repeat(5, minmax(0, 1fr));
           gap: 12px;
-          margin-bottom: 20px;
+          margin-bottom: 24px;
         }
 
         .summary-card {
@@ -4162,7 +4253,7 @@ canvas {
           background: rgba(0, 0, 0, 0.02);
           border-radius: 8px;
           padding: 12px;
-          margin-bottom: 20px;
+          margin-bottom: 24px;
           border: 1px solid var(--divider);
         }
 
@@ -4190,7 +4281,7 @@ canvas {
 
         .stats-row {
           display: flex;
-          gap: 20px;
+          gap: 24px;
           margin: 16px 0;
           padding: 12px;
           background: rgba(0, 0, 0, 0.02);
@@ -4284,7 +4375,7 @@ canvas {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
           gap: 16px;
-          margin-bottom: 20px;
+          margin-bottom: 24px;
         }
 
         .comparison-card {
@@ -4407,7 +4498,7 @@ canvas {
   }
 
   th, td {
-    padding: 10px 10px;
+    padding: 12px 12px;
     font-size: 12px;
   }
 
@@ -4441,6 +4532,67 @@ canvas {
 .patterns-table th:first-child { min-width:140px; }
 .patterns-table td,.patterns-table th { overflow-wrap:anywhere; }
 .patterns-table[data-pattern-control="table"] td,.patterns-table[data-pattern-control="table"] th { overflow-wrap:normal; word-break:normal; }
+
+/* Spec 5.3 full-view bridge; shared UI supplies defaults after vendoring. */
+:host {
+  --bento-primary: var(--hat-primary, var(--_hat-primary));
+  --bento-on-primary: var(--hat-on-primary, var(--_hat-on-primary));
+  --bento-primary-hover: color-mix(in srgb, var(--hat-primary-fill, var(--_hat-primary-fill)) 90%, var(--hat-text, var(--_hat-text)));
+  --bento-primary-light: color-mix(in srgb, var(--hat-primary, var(--_hat-primary)) 8%, transparent);
+  --bento-success: var(--hat-good, var(--_hat-good));
+  --bento-error: var(--hat-crit, var(--_hat-crit));
+  --bento-warning: var(--hat-warn, var(--_hat-warn));
+  --bento-bg: var(--hat-bg, var(--_hat-bg));
+  --bento-card: var(--hat-card, var(--_hat-card));
+  --bento-border: var(--hat-border, var(--_hat-border));
+  --bento-text: var(--hat-text, var(--_hat-text));
+  --bento-text-secondary: var(--hat-text-2, var(--_hat-text-2));
+  --bento-text-muted: var(--hat-text-2, var(--_hat-text-2));
+  --bento-radius-xs: var(--hat-radius, var(--_hat-radius));
+  --bento-radius-sm: var(--hat-radius, var(--_hat-radius));
+  --bento-radius-md: var(--hat-radius, var(--_hat-radius));
+  --bento-radius: var(--hat-radius, var(--_hat-radius));
+  --bento-shadow-sm: var(--ha-card-box-shadow, none);
+  --bento-shadow-md: var(--ha-card-box-shadow, none);
+  --bento-shadow-lg: var(--ha-card-box-shadow, none);
+  --bento-transition: var(--hat-motion,150ms ease);
+  --bento-success-light: color-mix(in srgb, var(--hat-good, var(--_hat-good)) 8%, transparent);
+  --bento-error-light: color-mix(in srgb, var(--hat-crit, var(--_hat-crit)) 8%, transparent);
+  --bento-warning-light: color-mix(in srgb, var(--hat-warn, var(--_hat-warn)) 8%, transparent);
+  --energy-value-blue: var(--hat-primary, var(--_hat-primary));
+  --energy-value-amber: var(--hat-warn-text, var(--_hat-warn-text));
+  --energy-value-green: var(--hat-good-text, var(--_hat-good-text));
+  --energy-value-red: var(--hat-crit-text, var(--_hat-crit-text));
+  --energy-value-neutral: var(--hat-text-2, var(--_hat-text-2));
+  --energy-value-purple: var(--hat-d2, var(--_hat-d2));
+  --energy-success-button: var(--hat-primary-fill, var(--_hat-primary-fill));
+  font-family:var(--hat-font, var(--_hat-font));font-size:14px;line-height:20px;color:var(--hat-text, var(--_hat-text));
+}
+
+:is(.card,.card-container,.panel-root,ha-card,.stat,.stat-card) { border-radius:var(--hat-radius, var(--_hat-radius));box-shadow:var(--ha-card-box-shadow,none); }
+:is(button,.btn,.tab,.tab-btn,.tab-button,input,select,textarea) { font-family:var(--hat-font, var(--_hat-font));font-size:14px;line-height:20px; }
+:is(.btn-primary,button.active,.btn.active,.action-btn.active) { background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary));border-color:var(--hat-primary-fill, var(--_hat-primary-fill));box-shadow:none; }
+:is(.btn-primary,button.active,.btn.active,.action-btn.active):hover { background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary));filter:brightness(.96); }
+.btn-ok { background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary));border-color:var(--hat-primary-fill, var(--_hat-primary-fill)); }
+:is(.badge,.status-badge,.tag,.chip,.trend-badge) { min-height:24px;box-sizing:border-box;border:1px solid currentColor;border-radius:999px;background:transparent;font-size:12px;line-height:16px;text-transform:none;letter-spacing:normal; }
+:is(.badge-success,.badge-ok,.status-ok,.status-good,.trend-down) { color:var(--hat-good-text, var(--_hat-good-text)); }
+:is(.badge-error,.badge-er,.status-error,.status-critical,.trend-up) { color:var(--hat-crit-text, var(--_hat-crit-text)); }
+:is(.badge-warning,.badge-wa,.status-warning) { color:var(--hat-warn-text, var(--_hat-warn-text)); }
+:is(.stat-value,.metric-value,.stat-number) { font-weight:600;line-height:34px;font-variant-numeric:tabular-nums; }
+:is(.stat-label,.stat-sub,.header-sub,.panel-subtitle,.pagination-info,.pag-info) { font-size:12px;line-height:16px;color:var(--hat-text-2, var(--_hat-text-2)); }
+:is(.card,.card-container,.panel-root) a { color:var(--hat-primary, var(--_hat-primary));text-underline-offset:2px; }
+:is(.insights-measured,.patterns-measured) svg text { font-family:var(--hat-font, var(--_hat-font)); }
+:is(.insights-measured,.patterns-measured) { line-height:20px; }
+:is(.card,.card-container,.panel-root) :is(button,input,select,summary,a):focus-visible { outline:2px solid var(--hat-primary, var(--_hat-primary));outline-offset:2px; }
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none;transition:none; } }
+
+:is(.header-title,.panel-title){font-size:16px;line-height:22px;font-weight:600}
+
+:is(.card,.card-container,.panel-root) td{font-size:14px;line-height:20px}
+
+.step-num{background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary))}
+
+${this._getTariffHostV3().ui().css}
 </style>
     `;
   }
@@ -5932,14 +6084,14 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     } finally { this._syncDashboardPlacementV53(); }
   };
   Card.prototype.getGridOptions = function() {
-    if (simple(this)) return variant(this._config) === 'tile' ? {columns:6,rows:1,min_columns:6,min_rows:1} : {columns:12,rows:4,min_columns:6,min_rows:2,max_rows:4};
+    if (simple(this)) return variant(this._config) === 'tile' ? {columns:6,rows:1,min_columns:6} : {columns:12,rows:'auto',min_columns:6};
     return {columns:variant(this._config || {}) === 'legacy' ? 6 : 12,min_columns:3,min_rows:variant(this._config || {}) === 'legacy' ? 2 : 3};
   };
   const originalSize = Card.prototype.getCardSize;
   Card.prototype.getCardSize = function() { return simple(this) ? (variant(this._config) === 'tile' ? 1 : 4) : variant(this._config || {}) === 'legacy' && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
-  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-value-green:#166534;--energy-value-red:#b91c1c;--energy-value-neutral:#475569;--energy-value-purple:#6d28d9;--energy-success-button:#166534;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
-:host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-value-green:#86efac;--energy-value-red:#fca5a5;--energy-value-neutral:#cbd5e1;--energy-value-purple:#c4b5fd;--energy-success-button:#166534;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
-.stat,.stat-card{background:var(--energy-kpi-tone)!important}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)!important}
+  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--bento-primary-hover:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--bento-on-primary:var(--hat-on-primary,var(--_hat-on-primary,#fff));--bento-text-muted:var(--hat-text-2,var(--secondary-text-color,#4b5563));--energy-value-blue:var(--hat-text,var(--primary-text-color,#111827));--energy-value-amber:var(--hat-warn-text,var(--_hat-warn-text,#a16207));--energy-value-green:var(--hat-good-text,var(--_hat-good-text,#15803d));--energy-value-red:var(--hat-crit-text,var(--_hat-crit-text,#b91c1c));--energy-value-neutral:var(--hat-text-2,var(--secondary-text-color,#4b5563));--energy-value-purple:var(--hat-d2,var(--_hat-d2,#6250d6));--energy-success-button:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--energy-kpi-tone:var(--hat-chip,var(--secondary-background-color,#f3f4f6));--energy-kpi-tone-alt:var(--energy-kpi-tone)}
+:host(.bento-dark){color-scheme:dark}
+.stat,.stat-card{background:var(--energy-kpi-tone)}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)}
 .btn-primary,button.btn-primary{color:var(--bento-on-primary)}
 .ht-tariff-v3 [data-status=success]{color:var(--energy-value-green)}.ht-tariff-v3 [data-status=error]{color:var(--energy-value-red)}.ht-tariff-v3 [data-status=partial],.ht-tariff-v3 [data-status=unconfirmed]{color:var(--energy-value-amber)}
  [data-energy-options-help], [data-energy-compact]{box-sizing:border-box;padding:16px;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border-radius:12px;font-size:14px;overflow-wrap:anywhere} [data-energy-options-help] summary, [data-energy-expand]{min-height:44px;box-sizing:border-box;padding:12px;cursor:pointer} [data-energy-compact] dl{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin:12px 0} [data-energy-compact] dt{font-size:13px;color:var(--secondary-text-color,#50545b)} [data-energy-compact] dd{margin:0 0 12px;font-weight:600;font-size:18px} [data-energy-expand]{color:var(--primary-text-color,#202124);background:var(--secondary-background-color,#eee);border:1px solid var(--divider-color,#888);border-radius:8px;font:inherit} [data-energy-options-help] summary:focus-visible,[data-energy-expand]:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}
@@ -5947,8 +6099,32 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]{flex:1 1 100%;width:100%}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer>summary{min-height:44px;padding:12px 8px;font-size:14px}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]>p{margin:0 0 8px}`;
-  const simpleStyle = `:host{display:block;min-width:0;--energy-simple-cheap:#1baf7a;--energy-simple-expensive:#2a78d6}:host(.bento-dark){--energy-simple-cheap:#199e70;--energy-simple-expensive:#3987e5} [data-energy-simple]{box-sizing:border-box;display:grid;gap:8px;padding:12px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);font-size:14px;min-width:0;overflow-wrap:anywhere} [data-energy-simple] h2,[data-energy-simple] p{margin:0;font-size:14px;line-height:20px} [data-energy-simple] h2{display:flex;align-items:center;gap:8px} [data-energy-simple] ha-icon{color:var(--primary-color);flex-shrink:0} [data-energy-primary]{font-size:24px;line-height:32px;font-weight:600} [data-energy-secondary]{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;line-height:18px} [data-energy-simple] button,[data-energy-back]{min-height:44px;min-width:44px;padding:8px 12px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit;font-size:14px;cursor:pointer} [data-energy-simple] button:focus-visible,[data-energy-back]:focus-visible{outline:3px solid var(--primary-color);outline-offset:2px} [data-energy-simple=tile]{grid-template-columns:minmax(0,1fr) auto;gap:4px;padding:4px 6px;min-height:56px} [data-energy-simple=tile] h2{font-size:14px;min-width:0} [data-energy-simple=tile] [data-energy-name],[data-energy-simple=tile] [data-energy-primary]{overflow:hidden;white-space:nowrap;text-overflow:ellipsis} [data-energy-simple=tile] [data-energy-primary]{font-size:12px;line-height:16px} [data-energy-simple=tile] button{grid-column:2;grid-row:1 / 3;width:44px;height:44px;align-self:center;padding:8px;font-size:24px;line-height:24px} [data-energy-simple=tile] ha-icon{--mdc-icon-size:20px} [data-energy-simple=compact]{grid-template-columns:minmax(0,1fr) auto;gap:6px 8px} [data-energy-simple=compact] h2,[data-energy-simple=compact] [data-energy-secondary],[data-energy-simple=compact] [data-energy-zone-wrapper],[data-energy-simple=compact] button{grid-column:1 / -1} [data-energy-simple=compact] [data-energy-primary]{grid-column:1;grid-row:2} [data-energy-simple=compact] [data-energy-primary-label]{grid-column:2;grid-row:2;align-self:center;font-size:12px;line-height:18px} [data-energy-zone-wrapper] p{font-size:12px;line-height:16px;margin:0 0 4px} [data-energy-zonebar]{position:relative;height:10px;overflow:hidden;border:1px solid var(--divider-color);border-radius:4px;background:var(--disabled-color,var(--secondary-background-color))} [data-energy-zonebar] span{position:absolute;inset-block:0} [data-energy-zone=cheap]{background:var(--energy-simple-cheap)} [data-energy-zone=expensive]{background:var(--energy-simple-expensive)} [data-energy-zone=mixed]{background:var(--info-color,var(--primary-color))} [data-energy-zone=unknown]{background:var(--disabled-color,var(--secondary-background-color))}`;
+  const simpleStyle = `:host{display:block;min-width:0;container-type:inline-size;container-name:energy-simple-card;--energy-simple-cheap:var(--hat-zone-cheap,var(--_hat-zone-cheap,#1baf7a));--energy-simple-expensive:var(--hat-zone-exp,var(--_hat-zone-exp,#2a78d6))}
+:host(.bento-dark){--energy-simple-cheap:var(--hat-zone-cheap,#199e70);--energy-simple-expensive:var(--hat-zone-exp,#3987e5)}
+[data-energy-simple]{box-sizing:border-box;display:grid;gap:8px;min-width:0;color:var(--primary-text-color);font-size:14px;cursor:pointer}
+[data-energy-simple] h2,[data-energy-simple] p{margin:0} [data-energy-simple] h2{font-size:16px;line-height:22px;font-weight:600;min-width:0} [data-energy-name]{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-energy-simple] ha-icon{display:flex;align-items:center;justify-content:center;flex:none;width:36px;height:36px;border-radius:50%;--mdc-icon-size:20px;color:var(--primary-color);background:color-mix(in srgb,currentColor 14%,transparent)}
+[data-energy-heading]{display:flex;align-items:center;gap:12px;min-width:0} [data-energy-heading-text]{flex:1;min-width:0}
+[data-energy-primary-label]{font-size:12px;line-height:16px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-energy-primary]{font-size:28px;line-height:34px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums} [data-energy-unit]{font-size:14px;line-height:20px;font-weight:400;letter-spacing:normal;color:var(--secondary-text-color)}
+[data-energy-simple] button,[data-energy-back]{min-height:44px;min-width:44px;padding:8px 12px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit;font-size:14px;cursor:pointer}
+[data-energy-simple]:focus-visible,[data-energy-simple] button:focus-visible,[data-energy-back]:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+[data-energy-simple=tile]{height:56px;grid-template-columns:36px minmax(0,1fr);column-gap:12px;row-gap:0;align-items:center;padding:0 8px 0 12px}
+[data-energy-report-status][data-energy-simple=tile]{grid-template-columns:36px minmax(0,1fr) auto} [data-energy-simple=tile] [data-energy-heading]{display:contents} [data-energy-simple=tile] h2{font-size:14px;line-height:20px;font-weight:500}
+[data-energy-simple=tile] [data-energy-primary]{font-size:12px;line-height:16px;font-weight:400;letter-spacing:normal;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-energy-state-short]{display:none} [data-energy-simple=tile] button{position:relative;height:36px;min-height:36px;min-width:36px;padding:0 10px;border:0;border-radius:999px} [data-energy-simple=tile] button:after{content:'';position:absolute;inset:-4px}
+[data-energy-simple=compact]{padding:12px 16px 16px;max-height:248px;overflow:hidden} [data-energy-values]{display:flex;align-items:baseline;gap:8px;min-width:0} [data-energy-cost]{font-size:20px;line-height:26px;font-weight:600;font-variant-numeric:tabular-nums} [data-energy-comparison]{margin-inline-start:auto;max-width:46%;font-size:12px;line-height:16px;text-align:end;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--secondary-text-color)}
+[data-energy-report-status] [data-energy-cost]{font-size:12px;line-height:16px;font-weight:400} [data-energy-report-status] [data-energy-comparison]{margin:0;max-width:none;text-align:start} [data-energy-secondary]{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;line-height:16px} [data-energy-zone-wrapper] p{font-size:12px;line-height:16px;margin:0 0 4px}
+[data-energy-zonebar]{position:relative;height:28px;overflow:hidden;border:1px solid var(--divider-color);border-radius:4px;background:var(--disabled-color,var(--secondary-background-color))} [data-energy-zonebar] span{position:absolute;bottom:0;box-sizing:border-box;border-inline-end:1px solid var(--ha-card-background,var(--card-background-color))}[data-energy-measurement=unknown]{height:100%;background:transparent!important;border:1px dashed var(--secondary-text-color)}[data-energy-zone-axis]{display:flex;justify-content:space-between;font-size:12px;line-height:16px;color:var(--secondary-text-color)} [data-energy-zone=cheap]{background:var(--energy-simple-cheap)} [data-energy-zone=expensive]{background:var(--energy-simple-expensive)} [data-energy-zone=mixed]{background:var(--info-color,var(--primary-color))} [data-energy-zone=unknown]{background:var(--disabled-color,var(--secondary-background-color))}
+[data-energy-zone-legend]{display:flex;gap:12px;flex-wrap:wrap;color:var(--secondary-text-color);font-size:12px;line-height:16px} [data-energy-zone-legend] span:before{content:'';display:inline-block;width:8px;height:8px;margin-inline-end:4px;background:var(--disabled-color)} [data-energy-zone-legend] [data-zone=cheap]:before{background:var(--energy-simple-cheap)} [data-energy-zone-legend] [data-zone=expensive]:before{background:var(--energy-simple-expensive)}`;
+  const canOpen = host => {
+    const config = host._config || {};
+    if (!host.isConnected || host.preview === true || host._hass?.user?.is_active === false || !simple(host)) return false;
+    const guard = host._getTariffHostV3().guard, token = guard.snapshot();
+    return guard.available(token) && guard.current(token) && (config.tap_target !== 'more-info' || !!host._hass?.states?.[config.entity]);
+  };
   const open = host => {
+    if (!canOpen(host)) return;
     const config = host._config || {};
     if (config.tap_target === 'energy') {
       // Fixed HA route only: configuration cannot supply a URL.
@@ -6038,7 +6214,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       const fields = Object.fromEntries(parts.map(part => [part.type,part.value]));
       if (`${fields.year}-${fields.month}-${fields.day}` !== day(p.local_start)) return null;
     } catch (_) { return null; }
-    return {percent:c.percent,cutoff:p.end};
+    return {percent:c.percent,cutoff:p.end,baseline:c.baseline_kwh};
   };
   const paintZoneBar = (bar, analysis, host, format) => {
     if (!bar) return;
@@ -6048,7 +6224,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const p = analysis?.period, chart = analysis?.chart, window = analysis?.period_summary?.window;
     const start = Date.parse(p?.start), end = Date.parse(p?.calendar_end), observed = Date.parse(p?.end);
     const rows = chart?.bins;
-    const note = t(host,'Tariff zones for the calendar day; unconfirmed intervals are neutral.','Strefy taryfy w dniu kalendarzowym; niepotwierdzone odcinki są neutralne.');
+    const note = t(host,'Measured day energy with tariff zones; missing measurements are not zero.','Zmierzona energia doby w strefach taryfy; brak pomiaru nie oznacza zera.');
     const descriptions = [];
     bar.setAttribute('aria-label',`${note} ${unknown}`);
     // Position/width are time geometry only. Never sum bins, quantities or costs.
@@ -6056,6 +6232,9 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
         !Number.isFinite(observed) || observed > end || window?.start !== p.start || window?.end !== p.end || window?.timezone !== p.timezone ||
         chart?.timezone !== p.timezone || chart?.status !== 'ready' || chart.coverage_kind !== 'complete_household_hours' || chart.fixed_fee_scope !== 'household_period_only' ||
         !Array.isArray(rows) || rows.length > 48) return;
+    const measured = row => row.complete === true && row.expected_seconds === (row.to-row.from)/1000 && row.measured_seconds === row.expected_seconds &&
+      (typeof row.kwh === 'number' || typeof row.kwh === 'string' && row.kwh.trim() !== '') && Number.isFinite(Number(row.kwh)) && Number(row.kwh) >= 0 && String(row.recorded_kwh) === String(row.kwh);
+    const maximum = Math.max(0,...rows.filter(measured).map(row=>Number(row.kwh)));
     let last = start;
     for (const row of rows) {
       if (!Number.isFinite(row.from) || !Number.isFinite(row.to) || row.to <= row.from || row.from < last || row.from < start || row.to > observed ||
@@ -6071,10 +6250,13 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
         z.reconciles_recorded_kwh === true && z.reconciles_known_costs === true && zone?.complete === true && zone.measured_seconds === row.measured_seconds &&
         z.currency === row.currency && z.price_basis === row.price_basis && String(zone.kwh) === String(row.kwh) && String(row.recorded_kwh) === String(row.kwh) &&
         String(zone.recorded_kwh) === String(row.kwh) && Object.hasOwn(names,classification);
+      const known = measured(row);
       const label = proven ? names[classification] : unknown;
-      const description = `${format.pointLabel(row.start)}–${format.pointLabel(row.end)}: ${label}`;
+      const description = `${format.pointLabel(row.start)}–${format.pointLabel(row.end)}: ${known ? format.number(row.kwh,{minimumFractionDigits:1,maximumFractionDigits:1}) + ' kWh' : unknown} · ${label}`;
       const segment = document.createElement('span');
       segment.dataset.energyZone = proven ? classification : 'unknown';
+      segment.dataset.energyMeasurement = known ? 'ready' : 'unknown';
+      if (known) segment.style.height = `${maximum > 0 ? 100*Number(row.kwh)/maximum : 0}%`;
       segment.style.left = `${100*(row.from-start)/(end-start)}%`;
       segment.style.width = `${100*(row.to-row.from)/(end-start)}%`;
       segment.title = description; segment.setAttribute('aria-hidden','true');
@@ -6083,29 +6265,18 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     bar.setAttribute('aria-label',[note,...descriptions,observed < end ? t(host,'Remaining time: Unknown','Pozostały czas: brak danych') : ''].filter(Boolean).join(' '));
   };
   const compactActionsStyle = '[data-energy-simple=compact] [data-energy-actions]{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}[data-energy-simple=compact] [data-energy-actions] button{flex:1 1 120px;min-width:0}';
-  const reportStatusStyle = '[data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}[data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:8em;font-size:12px;line-height:18px}';
-  // Six native HA columns can be only183px wide at a390px viewport.
-  // Stack the primary label and use the full line for secondary facts.
-  const narrowSimpleStyle = `:host{container-type:inline-size;container-name:energy-simple-card}
-  [data-energy-tariff-tile] [data-energy-tile-zone]{display:none}
-  @container energy-simple-card (max-width:180px){
-    [data-energy-tariff-tile] [data-energy-name],[data-energy-tariff-tile] [data-energy-tile-current]{display:none}
-    [data-energy-tariff-tile] h2{gap:4px}
-    [data-energy-tariff-tile] h2 ha-icon{--mdc-icon-size:16px}
-    [data-energy-tariff-tile] [data-energy-tile-zone]{display:inline;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  const reportStatusStyle = '[data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}';
+  const narrowSimpleStyle = `@container energy-simple-card (max-width:279px){
+    [data-energy-state-long]{display:none} [data-energy-state-short]{display:inline}
+  }
+  @container energy-simple-card (max-width:219px){
+    [data-energy-simple=tile] button{display:none}
   }
   @container energy-simple-card (max-width:320px){
-    [data-energy-simple=compact]{grid-template-columns:minmax(0,1fr);gap:4px;padding:8px}
-    [data-energy-simple=compact] h2{min-width:0;line-height:18px}
-    [data-energy-simple=compact] [data-energy-name]{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-    [data-energy-simple=compact] [data-energy-primary]{grid-column:1;grid-row:2;font-size:22px;line-height:28px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-    [data-energy-simple=compact] [data-energy-primary-label]{grid-column:1;grid-row:3;justify-self:start;line-height:16px}
-    [data-energy-simple=compact] [data-energy-secondary]{display:grid;gap:0;font-size:12px;line-height:16px}
+    [data-energy-values]{flex-wrap:wrap} [data-energy-comparison]{max-width:100%;flex-basis:100%;text-align:start;margin-inline-start:0}
     [data-energy-report-status][data-energy-simple=compact]{padding:6px;gap:2px}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:none;line-height:16px}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions]{flex-wrap:nowrap}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions] button{flex:1 1 0;min-width:44px;padding-inline:4px}
+    [data-energy-report-status] [data-energy-actions]{flex-wrap:nowrap}
+    [data-energy-report-status] [data-energy-actions] button{flex:1 1 0;min-width:44px;padding-inline:4px}
   }`;
 
   const emailStatusFor = host => host._emailStatusV100 ||= (() => {
@@ -6178,7 +6349,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const recipients = attempt?.recipient_count !== null && attempt?.recipient_count !== undefined ? format.number(attempt.recipient_count) : unknown;
     const numeric = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '') && Number.isFinite(Number(value));
     const total = analysis?.totals, elapsed = elapsedComparison(analysis);
-    const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${format.number(total.kwh,{maximumFractionDigits:2})} kWh` : unknown;
+    const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${format.number(total.kwh,{minimumFractionDigits:1,maximumFractionDigits:1})} kWh` : unknown;
     const native = !analysis?.active_tariff_id && analysis?.native_pricing?.source === 'ha_energy' && analysis?.native_pricing?.schema === 1 ? analysis.native_pricing.period_cost : null;
     const nativeReady = native?.status === 'ready' && native.coverage?.complete === true && numeric(native.amount) && /^[A-Z]{3}$/.test(native.currency || '');
     const bookReady = total?.pricing_complete === true && numeric(total.usage_cost) && /^[A-Z]{3}$/.test(total.currency || '');
@@ -6197,10 +6368,20 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span>${tariffTile ? '<span data-energy-tile-zone></span>' : ''}</h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
+      root.innerHTML = `<style>${host._getTariffHostV3().ui().css}${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><ha-card data-energy-simple="${mode}" role="button" tabindex="0"${!email ? ' data-energy-open' : ''}><div data-energy-heading><ha-icon aria-hidden="true"></ha-icon><div data-energy-heading-text><h2><span data-energy-name></span></h2>${mode === 'compact' ? '<p data-energy-primary-label></p>' : '<div data-energy-primary role="status"></div>'}</div></div>${mode === 'compact' ? email ? '<div data-energy-primary role="status"></div><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : '<div data-energy-values><div data-energy-primary role="status"></div><span data-energy-cost></span><span data-energy-comparison></span></div><div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div><div data-energy-zone-axis></div><div data-energy-zone-legend></div></div>' : ''}${email ? mode === 'compact' ? '<div data-energy-actions><button type="button" data-energy-open></button></div>' : '<button type="button" data-energy-open></button>' : ''}</ha-card>`;
       section = root.querySelector('[data-energy-simple]');
-      section.querySelector('button').addEventListener('click', () => open(host));
-      section.querySelector('button').addEventListener('keydown', event => {
+      section.addEventListener('click', event => {
+        if (event.target.closest?.('button,a,input,select,textarea')) return;
+        open(host);
+      });
+      section.addEventListener('keydown', event => {
+        if (event.target !== section || !['Enter',' '].includes(event.key)) return;
+        event.preventDefault();
+        if (!event.repeat) open(host);
+      });
+      const openButton = section.querySelector('[data-energy-open]');
+      openButton?.addEventListener('click', () => open(host));
+      openButton?.addEventListener('keydown', event => {
         if (['Enter',' '].includes(event.key) && !event.repeat) { event.preventDefault(); event.currentTarget.click(); }
       });
     }
@@ -6223,46 +6404,77 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       send.disabled = grant.execute !== true || reportState.busy || host._getTariffHostV3().guard.occupied();
     }
     const icon = section.querySelector('ha-icon');
-    icon.setAttribute('icon', email ? 'mdi:email-outline' : 'mdi:lightning-bolt');
+    icon.setAttribute('icon', email ? 'mdi:email-fast-outline' : 'mdi:lightning-bolt');
     const tone = snapshot?.status !== 'unavailable' && snapshot?.current?.available === true ? snapshot.current.zone_class : null;
     icon.style.color = {cheap:'var(--energy-simple-cheap)',expensive:'var(--energy-simple-expensive)',mixed:'var(--warning-color,var(--primary-color))'}[tone] || 'var(--primary-color)';
-    section.querySelector('[data-energy-name]').textContent = config.title ?? title;
-    section.querySelector('[data-energy-name]').title = config.title ?? title;
+    const surfaceName = config.title && config.title !== title ? config.title : email ? t(host,'Energy report','Raport energii') : mode === 'compact' ? t(host,'Energy today','Energia dziś') : t(host,'Energy','Energia');
+    section.querySelector('[data-energy-name]').textContent = surfaceName;
+    section.querySelector('[data-energy-name]').title = surfaceName;
     const primary = section.querySelector('[data-energy-primary]');
     const shortReport = report?.schedule_state === 'enabled' && report.next_report_at ? `${format.date(report.next_report_at,true)} · ${format.clock(report.next_report_at)}` : unknown;
-    if (tariffTile) {
-      let current = primary.querySelector('[data-energy-tile-current]');
-      let clock = primary.querySelector('[data-energy-tile-next]');
-      if (!current || !clock) {
-        current = document.createElement('span'); current.dataset.energyTileCurrent = '';
-        clock = document.createElement('span'); clock.dataset.energyTileNext = '';
-        primary.replaceChildren(current,clock);
+    if (mode === 'tile') {
+      let long = primary.querySelector('[data-energy-state-long]'), short = primary.querySelector('[data-energy-state-short]');
+      if (!long || !short) {
+        long = document.createElement('span'); long.dataset.energyStateLong = '';
+        short = document.createElement('span'); short.dataset.energyStateShort = '';
+        primary.replaceChildren(long,short);
       }
-      current.textContent = `${zone} · `;
-      clock.textContent = nextKnown ? format.clock(next.start) || unknown : nextLabel;
-      section.querySelector('[data-energy-tile-zone]').textContent = zone;
-      section.querySelector('h2').setAttribute('aria-label',`${config.title ?? title} · ${zone}`);
-      section.querySelector('h2').title = config.title ?? title;
-    } else primary.textContent = email ? mode === 'tile' ? shortReport : nextReport : energy;
+      const nextShort = nextKnown ? `${t(host,'Cheap from','Tania od')} ${format.clock(next.start) || unknown}` : nextLabel;
+      long.textContent = email ? shortReport : `${zone} · ${nextShort}`;
+      short.textContent = email ? shortReport : nextShort;
+    } else if (email) primary.textContent = nextReport;
+    else {
+      primary.replaceChildren(document.createTextNode(total?.measurement_complete !== false && numeric(total?.kwh) ? format.number(total.kwh,{minimumFractionDigits:1,maximumFractionDigits:1}) + ' ' : unknown));
+      if (energy !== unknown) { const unit = document.createElement('span'); unit.dataset.energyUnit = ''; unit.textContent = 'kWh'; primary.append(unit); }
+    }
     primary.title = email ? `${t(host,'Scheduled report','Zaplanowany raport')}: ${nextReport}` : mode === 'tile' ? `${zone} · ${nextKnown ? t(host,'Cheap from','Tania od') + ' ' : ''}${nextLabel}` : primary.textContent;
     primary.setAttribute('aria-label',primary.title);
     if (mode === 'compact') {
-      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Scheduled report','Zaplanowany raport') : t(host,'Energy today','Energia dziś');
-      section.querySelector('[data-energy-cost]').textContent = email ? `${t(host,'Last attempt','Ostatnia próba')}: ${lastAttempt}` : `${!bookReady && nativeReady ? t(host,'Cost recorded in HA','Koszt zapisany w HA') : t(host,'Usage cost','Koszt zużycia')}: ${money}`;
+      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Scheduled report','Zaplanowany raport') : analysis?.period?.end ? `${t(host,'Through','Do')} ${format.clock(analysis.period.end) || unknown}` : unknown;
+      section.querySelector('[data-energy-cost]').textContent = email ? `${t(host,'Last attempt','Ostatnia próba')}: ${lastAttempt}` : money;
       const costLine = section.querySelector('[data-energy-cost]');
-      costLine.title = !email && !bookReady && nativeReady ? `${costLine.textContent}. ${t(host,'Source: Home Assistant Energy. Cost breakdown and fixed fees are unknown; this is not a complete bill.','Źródło: Home Assistant Energy. Rozbicie kosztu i opłaty stałe są nieznane; to nie jest pełny rachunek.')}` : costLine.textContent;
+      if (!email && money !== unknown) {
+        const currency = bookReady ? total.currency : native.currency;
+        costLine.replaceChildren(document.createTextNode(money.slice(0,-currency.length)));
+        const unit = document.createElement('span'); unit.dataset.energyUnit = ''; unit.textContent = currency; costLine.append(unit);
+      }
+      costLine.title = !email && !bookReady && nativeReady ? `${t(host,'Cost recorded in HA','Koszt zapisany w HA')}: ${costLine.textContent}. ${t(host,'Source: Home Assistant Energy. Cost breakdown and fixed fees are unknown; this is not a complete bill.','Źródło: Home Assistant Energy. Rozbicie kosztu i opłaty stałe są nieznane; to nie jest pełny rachunek.')}` : email ? costLine.textContent : `${t(host,'Usage cost','Koszt zużycia')}: ${money}`;
       costLine.setAttribute('aria-label',costLine.title);
-      section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : `${comparisonName}: ${difference}`;
+      section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : elapsed ? `${difference} ${comparisonName}${numeric(elapsed.baseline) ? ` (${format.number(elapsed.baseline,{minimumFractionDigits:1,maximumFractionDigits:1})} kWh)` : ''}` : `${comparisonName}: ${difference}`;
       const caption = section.querySelector('[data-energy-zone-caption]');
-      if (caption) caption.textContent = t(host,'Day tariff zones','Strefy taryfy w ciągu dnia');
+      if (caption) caption.textContent = t(host,'Measured day energy','Zmierzona energia w ciągu dnia');
       paintZoneBar(section.querySelector('[data-energy-zonebar]'),analysis,host,format);
+      const comparison = section.querySelector('[data-energy-comparison]');
+      comparison.title = comparison.textContent;
+      const axis = section.querySelector('[data-energy-zone-axis]');
+      if (axis) {
+        axis.replaceChildren();
+        const start = Date.parse(analysis?.period?.start), end = Date.parse(analysis?.period?.calendar_end);
+        if (Number.isFinite(start) && Number.isFinite(end) && end > start) for (const instant of [start,start+(end-start)/2,end]) {
+          const point = document.createElement('span'); point.textContent = format.clock(new Date(instant).toISOString()) || unknown; axis.append(point);
+        }
+      }
+      const legend = section.querySelector('[data-energy-zone-legend]');
+      if (legend) {
+        legend.replaceChildren();
+        for (const [zone,label] of [['cheap',t(host,'Cheap','Tania')],['expensive',t(host,'Expensive','Droga')],['unknown',unknown]]) {
+          const item = document.createElement('span'); item.dataset.zone = zone; item.textContent = label; legend.append(item);
+        }
+      }
     }
-    const button = section.querySelector('button');
-    button.textContent = mode === 'tile' ? '›' : t(host,'Open','Otwórz');
-    button.setAttribute('aria-label', `${t(host,'Open','Otwórz')} ${config.title ?? title}`);
-    button.disabled = config.tap_target === 'more-info' && !host._hass?.states?.[config.entity];
+    const available = canOpen(host);
+    section.setAttribute('aria-disabled',String(!available));
+    section.tabIndex = available ? 0 : -1;
+    section.setAttribute('aria-label',[surfaceName,primary.title,section.querySelector('[data-energy-cost]')?.getAttribute('aria-label'),section.querySelector('[data-energy-comparison]')?.textContent].filter(Boolean).join('. '));
+    const button = section.querySelector('[data-energy-open]');
+    if (button) {
+      button.textContent = mode === 'tile' ? '✉' : t(host,'Open','Otwórz');
+      button.setAttribute('aria-label',`${t(host,'Open','Otwórz')} ${surfaceName}`);
+      button.disabled = !available;
+    }
   };
   // Simple surfaces do not run the full cards' discovery/config/schedule paths.
+  Card.prototype._applyThemeV150 = function() { this._getTariffHostV3().ui().applyTheme(this); };
   const hassDescriptor = Object.getOwnPropertyDescriptor(Card.prototype,'hass');
   if (hassDescriptor?.set) Object.defineProperty(Card.prototype,'hass',{...hassDescriptor,set(value) {
     try {
@@ -6277,14 +6489,14 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       this.classList.toggle('bento-dark',value?.themes?.darkMode === true);
       this._tariffHostController?.guard.observe();
       this._render();
-    } finally { this._syncDashboardPlacementV53(); }
+    } finally { this._syncDashboardPlacementV53(); this._applyThemeV150(); }
   }});
   const connected = Card.prototype.connectedCallback;
   Card.prototype.connectedCallback = function() {
     try {
       if (!simple(this) && this.preview !== true) return connected?.call(this);
       this._tariffHostController?.guard.resume(); this._render();
-    } finally { this._syncDashboardPlacementV53(); }
+    } finally { this._syncDashboardPlacementV53(); this._applyThemeV150(); }
   };
   for (const method of ['_repriceTariffV3','_syncAnalysisV53']) {
     const original = Card.prototype[method]; if (!original) continue;
@@ -6344,7 +6556,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     this._applyCardOptionsV5();
     if (restoreBack) this.shadowRoot.querySelector('[data-energy-back]')?.focus({preventScroll:true});
     return result;
-    } finally { this._syncDashboardPlacementV53(); }
+    } finally { this._syncDashboardPlacementV53(); this._applyThemeV150(); }
   };
   Card.prototype._applyCardOptionsV5 = function() {
     this._syncDashboardPlacementV53();
@@ -6814,7 +7026,7 @@ createFormatUi.forHass = hass => {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=100e5e0bfabf2780b4e5930917eeb27b787b530b21561ae467a50da399a4fec2
+      // HA_TARIFF_V3_START sha256=d1552bb6e7ff4d3c915647ef75b2d43e349e9937829833402aeda9c93c153cd1
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -6835,20 +7047,126 @@ function createUiV3({ language = 'en' } = {}) {
     const result = status(value);
     return `<span class="ht-result-state ht-result-state--${result.code}" data-result-state="${result.code}"><span aria-hidden="true">${result.icon}</span> ${result.label}</span>`;
   };
+  const parseColor = value => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    const hex = /^#([a-f0-9]{3}|[a-f0-9]{6})$/i.exec(text);
+    if (hex) return (hex[1].length === 3 ? [...hex[1]].map(c=>c+c).join('') : hex[1]).match(/../g).map(c=>parseInt(c,16));
+    const rgb = /^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*1(?:\.0+)?)?\s*\)$/i.exec(text);
+    return rgb ? rgb.slice(1,4).map(c=>Math.min(255,Math.round(Number(c)))) : null;
+  };
+  const hexColor = rgb => '#' + rgb.map(c=>c.toString(16).padStart(2,'0')).join('');
+  const luminance = rgb => rgb.map(c=>c/255).map(c=>c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4)
+    .reduce((sum,c,i)=>sum+c*[.2126,.7152,.0722][i],0);
+  const ratio = (a,b) => (Math.max(luminance(a),luminance(b))+.05)/(Math.min(luminance(a),luminance(b))+.05);
+  const primaryColors = (value, {dark = false} = {}) => {
+    const original = parseColor(value) || parseColor(dark ? '#818cf8' : '#2563eb');
+    const white = [255,255,255], ink = [15,23,42];
+    const foreground = ratio(original,white) >= ratio(original,ink) ? white : ink;
+    const target = foreground === white ? 0 : 255;
+    let fill = original;
+    // The nearest 5% step keeps a supplied theme color when it is readable.
+    for (let step=1; ratio(fill,foreground)<4.5 && step<=20; step++)
+      fill = original.map(c=>Math.round(c+(target-c)*step*.05));
+    return {fill:hexColor(fill),foreground:hexColor(foreground),contrast:ratio(fill,foreground)};
+  };
+  const applyTheme = host => {
+    const view = host?.ownerDocument?.defaultView;
+    if (!host?.isConnected || !view?.getComputedStyle) return null;
+    const raw = view.getComputedStyle(host).getPropertyValue('--primary-color').trim();
+    let resolved = raw;
+    // Resolve ordinary named colors through the browser without a persistent node.
+    if (raw && !parseColor(raw) && !raw.includes('var(') && raw !== 'transparent' && view.CSS?.supports?.('color',raw)) {
+      const probe = host.ownerDocument.createElement('span');
+      probe.style.display = 'none'; probe.style.color = raw;
+      host.append(probe);
+      try { resolved = view.getComputedStyle(probe).color; } finally { probe.remove(); }
+    }
+    const result = primaryColors(resolved,{dark:host.classList.contains('bento-dark') || host.classList.contains('hat-dark')});
+    for (const [key,value] of [['--hat-primary-fill-computed',result.fill],['--hat-on-primary-computed',result.foreground]])
+      if (host.style.getPropertyValue(key) !== value) host.style.setProperty(key,value);
+    return result;
+  };
+  // v5.3: public tokens stay inheritable; private defaults follow the HA dark flag.
   const css = `
-.ht-result-state { display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid currentColor;border-radius:6px;font-size:12px;line-height:1.4;white-space:normal; }
-.ht-result-state--success { color:#237b3d;background:rgba(35,123,61,.10); }
-.ht-result-state--partial { color:#966400;background:rgba(150,100,0,.10); }
-.ht-result-state--unconfirmed { color:#ad5200;background:rgba(173,82,0,.10); }
-.ht-result-state--error { color:#c32b2b;background:rgba(195,43,43,.10); }
-.ht-result-state--not_checked,.ht-result-state--no_data { color:var(--secondary-text-color,#666);background:transparent; }
+:host, .hat {
+  color-scheme: light;
+  /* powierzchnie i tekst — z motywu HA, w nawiasie wartość domyślna */
+  --_hat-bg:       var(--primary-background-color, #f3f4f6);
+  --_hat-card:     var(--ha-card-background, var(--card-background-color, #ffffff));
+  --_hat-chip:     var(--secondary-background-color, #f3f4f6);
+  --_hat-border:   var(--ha-card-border-color, var(--divider-color, #e5e7eb));
+  --_hat-text:     var(--primary-text-color, #111827);
+  --_hat-text-2:   var(--secondary-text-color, #4b5563);
+  --_hat-text-3:   var(--hat-text-3-theme, #6b7280);   /* tylko na tle karty; ≥ 12 px */
+  --_hat-grid:     color-mix(in srgb, var(--hat-text, var(--_hat-text)) 6%, var(--hat-card, var(--_hat-card)));
+  --_hat-radius:   var(--ha-card-border-radius, 12px);
+
+  /* Computed values supplied by the host when available; literals are explicit fallback colors, not dynamic contrast. */
+  --_hat-primary:      var(--primary-color, #2563eb);
+  --_hat-primary-fill: var(--hat-primary-fill-computed, #2563eb);
+  --_hat-on-primary:   var(--hat-on-primary-computed, #ffffff);
+
+  /* stany: wypełnienie (≥ 3:1) i tekst (≥ 4,5:1) */
+  --_hat-good: #0ca30c;  --_hat-good-text: #15803d;
+  --_hat-warn: #fab219;  --_hat-warn-text: #a16207;
+  --_hat-crit: #d03b3b;  --_hat-crit-text: #b91c1c;
+
+  /* serie (W23) */
+  --_hat-s1: #2a78d6; --_hat-s2: #eb6834; --_hat-s3: #1baf7a; --_hat-s4: #eda100; --_hat-s5: #e87ba4;
+  --_hat-zone-cheap: #1baf7a; --_hat-zone-exp: #2a78d6;
+  --_hat-d1: #eb6834; --_hat-d2: #6250d6; --_hat-d3: #e87ba4; --_hat-d4: #eda100;
+  --_hat-unmeasured: #9ca3af;
+
+  /* typografia (W16: treść ≥ 14, metadane ≥ 12, wersaliki ≥ 11) */
+  --_hat-font: var(--ha-font-family-body, Roboto, Inter, system-ui, sans-serif);
+  --_hat-fs-display: 28px;  --_hat-fs-number2: 20px;  --_hat-fs-title: 16px;
+  --_hat-fs-body: 14px;     --_hat-fs-meta: 12px;     --_hat-fs-caps: 11px;
+  --_hat-fw-regular: 400;   --_hat-fw-medium: 500;    --_hat-fw-bold: 600;
+
+  /* odstępy (siatka 4 px) i rozmiary */
+  --_hat-space-1: 4px; --_hat-space-2: 8px; --_hat-space-3: 12px; --_hat-space-4: 16px; --_hat-space-5: 24px;
+  --_hat-icon-lg: 36px; --_hat-icon-lg-glyph: 20px;   /* nagłówek, kafelek */
+  --_hat-icon-md: 28px; --_hat-icon-md-glyph: 16px;   /* wiersz, launcher */
+  --_hat-icon-sm: 24px; --_hat-icon-sm-glyph: 14px;   /* odznaka */
+  --_hat-tint: 18%;                                   /* tło ikony = akcent 18 % */
+  --_hat-pill-h: 32px;  --_hat-pill-h-mini: 28px;  --_hat-target: 44px;
+  --_hat-row-h: 56px;   --_hat-gap: 8px;           /* siatka Sections HA */
+  --_hat-motion: 150ms ease;
+  font-family: var(--hat-font, var(--_hat-font));
+  color: var(--hat-text, var(--_hat-text));
+}
+
+/* ---------- 2. Tokeny: ciemny (hass.themes.darkMode → klasa .hat-dark) ---------- */
+:host(.hat-dark), :host(.bento-dark), .hat.hat-dark {
+  --_hat-bg:     var(--primary-background-color, #111214);
+  --_hat-card:   var(--ha-card-background, var(--card-background-color, #1c1c1e));
+  --_hat-chip:   var(--secondary-background-color, #26272b);
+  --_hat-border: var(--ha-card-border-color, var(--divider-color, #2e2f33));
+  --_hat-text:   var(--primary-text-color, #e5e7eb);
+  --_hat-text-2: var(--secondary-text-color, #a1a1aa);
+  --_hat-text-3: var(--hat-text-3-theme, #8b8b93);
+  --_hat-primary-fill: var(--hat-primary-fill-computed, #818cf8);
+  --_hat-on-primary:   var(--hat-on-primary-computed, #0f172a);
+  --_hat-good: #22c55e;  --_hat-good-text: #22c55e;
+  --_hat-warn: #fab219;  --_hat-warn-text: #fab219;
+  --_hat-crit: #e05252;  --_hat-crit-text: #f87171;
+  --_hat-s1: #3987e5; --_hat-s2: #d95926; --_hat-s3: #199e70; --_hat-s4: #c98500; --_hat-s5: #d55181;
+  --_hat-zone-cheap: #199e70; --_hat-zone-exp: #3987e5;
+  --_hat-d1: #d95926; --_hat-d2: #9085e9; --_hat-d3: #d55181; --_hat-d4: #c98500;
+  --_hat-unmeasured: #6b7280;
+  color-scheme: dark;
+}
+
+
+
+.ht-result-state { display:inline-flex;align-items:center;gap:var(--hat-space-1,4px);min-height:24px;padding:0 10px;border:1px solid currentColor;border-radius:999px;font-size:var(--hat-fs-meta,12px);font-weight:600;line-height:16px;white-space:normal;background:transparent; }
+.ht-result-state--success { color:var(--hat-good-text, var(--_hat-good-text)); }
+.ht-result-state--partial,.ht-result-state--unconfirmed { color:var(--hat-warn-text, var(--_hat-warn-text)); }
+.ht-result-state--error { color:var(--hat-crit-text, var(--_hat-crit-text)); }
+.ht-result-state--not_checked,.ht-result-state--no_data { color:var(--hat-text-2, var(--_hat-text-2)); }
 .ht-result-state--no_data { border-style:dashed; }
-:host(.bento-dark) .ht-result-state--success { color:#81cf99; }
-:host(.bento-dark) .ht-result-state--partial { color:#efd080; }
-:host(.bento-dark) .ht-result-state--unconfirmed { color:#ffb97b; }
-:host(.bento-dark) .ht-result-state--error { color:#ff9999; }
 `;
-  return { status, statusHtml, css };
+  return { status, statusHtml, css, primaryColors, applyTheme };
 }
 // Node tests use the canonical factory; this line is excluded from runtime copies.
 
@@ -8664,7 +8982,18 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     ? `${signed && !String(value).startsWith('-') && /[1-9]/.test(String(value).split(/[eE]/)[0]) ? '+' : ''}${number(value)}${unit === '%' ? '' : ' '}${unit}` : unknown();
   const money = (value, currency, signed = false) => quantity(value, currency || t('currency unknown','waluta nieznana'), signed);
   // Presentation only: exact server values remain in Data and named details.
-  const briefEnergy=value=>valid(value)?`${number(value,{maximumSignificantDigits:6})} kWh`:unknown();
+  const briefNumber=(value,places,minimum=places,signed=false)=>{
+    if(!valid(value))return unknown();
+    const options={minimumFractionDigits:minimum,maximumFractionDigits:places};
+    const shown=number(value,options),direction=compare(value,'0');
+    if(direction && shown.replace(/^[-+−]/,'')===number('0',options))
+      return (direction<0?'>−':'<')+number('0.'+'0'.repeat(places-1)+'1',options);
+    return (signed&&direction>0?'+':'')+shown;
+  };
+  const briefEnergy=(value,signed=false)=>valid(value)?`${briefNumber(value,1,1,signed)} kWh`:unknown();
+  const briefMoney=(value,currency,signed=false)=>valid(value)?`${briefNumber(value,2,2,signed)} ${pl&&currency==='PLN'?'zł':currency||t('currency unknown','waluta nieznana')}`:unknown();
+  const briefRate=(value,currency)=>valid(value)?`${briefNumber(value,4,2)} ${pl&&currency==='PLN'?'zł':currency||t('currency unknown','waluta nieznana')}`:unknown();
+  const briefPercent=value=>valid(value)?ui.number(value,{style:'percent',maximumFractionDigits:0}).replace(/\s+(?=%)/g,''):unknown();
   const dateTime = value => {
     // Dynamic tariffs allow epoch milliseconds as well as ISO instants.
     if (typeof value === 'number') {
@@ -8764,20 +9093,20 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     });
     return ui.clock(peak.start,ui.timeZone!==snapshot.period?.timezone || repeated);
   };
-  const tiles = (snapshot, overview=false) => {
+  const tiles = (snapshot, overview=false, data=false) => {
     const total=snapshot.totals || {}, supplied=overview&&Object.hasOwn(snapshot,'period_summary'), native=nativeComplete(snapshot);
     const base=[
-      [t('Consumption','Zużycie'),quantity(total.kwh)], [native?nativeCostLabel():t('Cost','Koszt'),native?nativeMoney(native):money(total.total_cost,total.currency)],
-      native ? [t('Source','Źródło'),'Home Assistant Energy'] : [t('Effective price','Cena efektywna'),money(total.effective_price,total.currency) + (valid(total.effective_price) ? '/kWh' : '')],
+      [t('Consumption','Zużycie'),data?quantity(total.kwh):briefEnergy(total.kwh)], [native?nativeCostLabel():t('Cost','Koszt'),native?nativeMoney(native):data?money(total.total_cost,total.currency):briefMoney(total.total_cost,total.currency)],
+      native ? [t('Source','Źródło'),'Home Assistant Energy'] : [t('Effective price','Cena efektywna'),(data?money(total.effective_price,total.currency):briefRate(total.effective_price,total.currency)) + (valid(total.effective_price) ? '/kWh' : '')],
       [t('Measurement coverage','Pokrycie pomiarów'),coverage(snapshot.coverage)]
     ];
     if(!supplied)return `<div class="analysis-tiles">${base.map(([label,value],index)=>`<div class="analysis-tile ${index<2?'analysis-tile-primary':'analysis-tile-secondary'}"><span>${esc(label)}</span><strong>${esc(value)}</strong>${index===0?`<span data-analysis-kpi-comparison>${esc(kpiComparison(snapshot))}</span>`:''}</div>`).join('')}</div>`;
     const frame=periodWindow(snapshot),share=shareProof(snapshot,frame),peak=peakProof(snapshot,frame);
     const knownPeak=peak&&peak.kwh!==null,localPeak=knownPeak&&peak.reason!=='measurement_timezone_unavailable',partialPeak=peak&&(peak.status==='partial'||knownPeak&&!snapshot.totals?.measurement_complete);
-    const shareNote=share?.reason==='zero_total_kwh'?t('No share for a zero energy total','Brak udziału przy zerowym zużyciu'):share?.status==='ready'?quantity(share.known_cheap_kwh):t('Full-period share unavailable','Brak udziału za cały okres');
+    const shareNote=share?.reason==='zero_total_kwh'?t('No share for a zero energy total','Brak udziału przy zerowym zużyciu'):share?.status==='ready'?(data?quantity(share.known_cheap_kwh):briefEnergy(share.known_cheap_kwh)):t('Full-period share unavailable','Brak udziału za cały okres');
     return `<div class="analysis-tiles">${base.slice(0,2).map(([label,value],index)=>`<div class="analysis-tile analysis-tile-primary"><span>${esc(label)}</span><strong>${esc(value)}</strong>${index===0?`<span data-analysis-kpi-comparison>${esc(kpiComparison(snapshot))}</span>`:''}${index===1?`<span>${esc(base[2][0])}: ${esc(base[2][1])}</span>`:''}</div>`).join('')}
-      <div class="analysis-tile analysis-tile-secondary" data-analysis-cheap-share><span>${esc(t('Cheap-zone share','Udział taniej strefy'))}</span><strong>${esc(share?.status==='ready'?percentage(share.ratio):unknown())}</strong><span>${esc(shareNote)}</span></div>
-      <div class="analysis-tile analysis-tile-secondary" data-analysis-peak${knownPeak?` data-analysis-peak-id="${esc(peak.id)}"`:''}><span>${esc(partialPeak?t('Highest observed hour','Najwyższe zarejestrowane zużycie'):t('Highest hour','Godzina szczytu'))}</span><strong>${esc(localPeak?peakClock(snapshot,peak)||unknown():unknown())}</strong><span>${esc(knownPeak?quantity(peak.kwh)+(localPeak?' · '+date(peak.start):''):unknown())}</span>${partialPeak?`<span>${esc(t('Incomplete period','Niepełny okres'))}</span>`:''}${peak?.reason==='measurement_timezone_unavailable'?`<span>${esc(t('Measurement time zone unavailable','Brak strefy czasu pomiarów'))}</span>`:''}</div></div>`;
+      <div class="analysis-tile analysis-tile-secondary" data-analysis-cheap-share><span>${esc(t('Cheap-zone share','Udział taniej strefy'))}</span><strong>${esc(share?.status==='ready'?(data?percentage(share.ratio):briefPercent(share.ratio)):unknown())}</strong><span>${esc(shareNote)}</span></div>
+      <div class="analysis-tile analysis-tile-secondary" data-analysis-peak${knownPeak?` data-analysis-peak-id="${esc(peak.id)}"`:''}><span>${esc(partialPeak?t('Highest observed hour','Najwyższe zarejestrowane zużycie'):t('Highest hour','Godzina szczytu'))}</span><strong>${esc(localPeak?peakClock(snapshot,peak)||unknown():unknown())}</strong><span>${esc(knownPeak?(data?quantity(peak.kwh):briefEnergy(peak.kwh))+(localPeak?' · '+date(peak.start):''):unknown())}</span>${partialPeak?`<span>${esc(t('Incomplete period','Niepełny okres'))}</span>`:''}${peak?.reason==='measurement_timezone_unavailable'?`<span>${esc(t('Measurement time zone unavailable','Brak strefy czasu pomiarów'))}</span>`:''}</div></div>`;
   };
   const baselineNote = () => `<p data-analysis-baseline="unknown">${esc(t('No matching comparison is available for these intervals.','Brak dopasowanego porównania dla tych przedziałów.'))}</p>`;
   const instant = value => {
@@ -8861,10 +9190,10 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   const zoneColor=(version,zone,snapshot)=>{
     const rates=(snapshot?.rates||[]).filter(rate=>rate.version_id===version);
     const matches=rates.length===1?rates[0].profile?.zones?.filter(row=>row.id===zone)||[]:[];
-    if(matches.length===1&&matches[0].classification==='cheap')return 'var(--analysis-zone-cheap,#1baf7a)';
-    if(matches.length===1&&matches[0].classification==='expensive')return 'var(--analysis-zone-expensive,#2a78d6)';
+    if(matches.length===1&&matches[0].classification==='cheap')return 'var(--analysis-zone-cheap,var(--hat-zone-cheap, var(--_hat-zone-cheap)))';
+    if(matches.length===1&&matches[0].classification==='expensive')return 'var(--analysis-zone-expensive,var(--hat-zone-exp, var(--_hat-zone-exp)))';
     let hash=0;for(const char of JSON.stringify([version,zone]))hash=(hash*31+char.charCodeAt(0))>>>0;
-    return ['#287fd1','#8754b3','#c76428','#bc447b','#238782','#92821a','#64748b','#a54444'][hash%8];
+    return ['var(--hat-s1, var(--_hat-s1))','var(--hat-d2, var(--_hat-d2))','var(--hat-s2, var(--_hat-s2))','var(--hat-s5, var(--_hat-s5))','var(--hat-s3, var(--_hat-s3))','var(--hat-s4, var(--_hat-s4))','var(--hat-unmeasured, var(--_hat-unmeasured))','var(--hat-crit, var(--_hat-crit))'][hash%8];
   };
   const zoneEntries=(snapshot,row,{period=false}={})=>{
     const proof=zoneProof(row,{period});if(!proof)return null;
@@ -9030,7 +9359,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const destinations=groupReady?rows.filter(({row})=>compare(row.kwh,'0')>0).map(({id,label,row})=>({id,label,kwh:row.kwh,color:id==='unmeasured'?null:`var(--analysis-rank-${colors.get(id)??4})`})):[];
     const sources=source?source.zones.filter(zone=>compare(zone.kwh,'0')>0).map(zone=>({id:zone.version_id+'|'+zone.zone_id,label:zone.label,kwh:zone.kwh,color:zoneColor(zone.version_id,zone.zone_id,snapshot)})):[];
     const swatch=item=>`<i class="analysis-flow-swatch${item.color?'':' analysis-hatched'}" aria-hidden="true"${item.color?` style="background:${item.color}"`:''}></i>`;
-    const legend=items=>`<ul class="analysis-flow-labels">${items.map(item=>`<li>${swatch(item)}<span>${esc(item.label)} · ${esc(briefEnergy(item.kwh))} · ${esc(percentage(shareGeometry(item.kwh,total)))}</span></li>`).join('')}</ul>`;
+    const legend=items=>`<ul class="analysis-flow-labels">${items.map(item=>`<li>${swatch(item)}<span>${esc(item.label)} · ${esc(briefEnergy(item.kwh))} · ${esc(briefPercent(shareGeometry(item.kwh,total)))}</span></li>`).join('')}</ul>`;
     const bar=(side,items,ready)=>ready&&positive?`<div class="analysis-composition" data-analysis-composition="${side}" aria-hidden="true">${items.map(item=>`<span data-analysis-segment class="${item.color?'':'analysis-hatched'}" style="width:${shareGeometry(item.kwh,total)*100}%;${item.color?'background:'+item.color:''}"></span>`).join('')}</div>`:`<p class="analysis-note">${esc(positive?unknown():nonnegative(total)&&compare(total,'0')===0?t('No energy recorded in this period.','W tym okresie zarejestrowano zerowe zużycie.'):unknown())}</p>`;
     let diagram='';
     if(groupReady&&source&&positive){
@@ -9078,7 +9407,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const note=series.markers.size?`<p data-analysis-baseline="${series.reconciles?'ready':'partial'}">${esc(series.reconciles?t('Comparison covers the displayed intervals.','Porównanie obejmuje wyświetlone przedziały.'):t('Comparison is available for selected intervals only; it does not cover the whole period.','Porównanie obejmuje wybrane przedziały, ale nie cały okres.'))}</p>`:baselineNote();
     return `<section data-analysis-chart><div class="analysis-section-title"><h3>${esc(t('Consumption over time','Zużycie w czasie'))}</h3><div class="analysis-switch">${button('view','chart',t('Chart','Wykres'),options.view !== 'data')}${button('view','data',t('Data','Dane'),options.view === 'data')}</div></div>
       <p data-analysis-series-legend><span class="analysis-series-current">${esc(currentLabel)}</span> · <span class="analysis-series-baseline">${esc(baselineLabel)}</span>${series.common?' · '+esc(t('Selected amounts can differ from whole-household energy. Unmatched intervals retain household bars; their common comparison value is unavailable.','Wybrane ilości mogą różnić się od energii całego gospodarstwa. Bez dopasowania pozostaje słupek gospodarstwa; brak wartości wspólnego porównania.')):''}</p>
-      ${zoneLegend}${options.view === 'data'?table(t('Measured intervals · usage cost without fixed fees','Przedziały pomiarowe · koszt zużycia bez opłat stałych'),[t('Period','Okres'),currentLabel+' kWh',t('Household usage cost','Koszt zużycia gospodarstwa'),baselineLabel+' kWh',t('Real baseline intervals','Rzeczywiste przedziały odniesienia'),...(series.common?[t('Whole household kWh','Całe gospodarstwo kWh')]:[]),...(hasZones?[t('Tariff zones in this interval','Strefy taryfy w przedziale')]:[])],rows,'','data-analysis-bin'):`<div class="analysis-chart-scroll"><div class="analysis-chart" style="--analysis-point-count:${Math.max(1,points.length)}" role="group" aria-label="${esc(t('Current and baseline consumption, select a point for values','Bieżące zużycie i odniesienie, wybierz punkt, aby odczytać wartości'))}">${points.map(p=>`<button type="button" class="analysis-point${p.visualCurrent==null?' analysis-missing':''}" data-analysis-action="point" data-analysis-value="${p.index}" aria-pressed="${String(options.selected)===String(p.index)}" aria-label="${esc(pointText(p))}"><span class="analysis-column analysis-series-current" aria-hidden="true" ${columnZones.get(p.index)?` data-analysis-column-zone="${esc(columnZones.get(p.index).key)}"`:''} style="height:${width(p.visualCurrent,max)*1.68}px${columnZones.get(p.index)?';background:'+columnZones.get(p.index).color:options.section==='comparison'?'':';background:var(--secondary-text-color,#718096)'}"></span>${p.marker?`<span data-analysis-marker class="analysis-baseline-line analysis-series-baseline" aria-label="${esc(pointText(p))}" style="bottom:${40+width(p.marker.baseline,max)*1.68}px"></span>`:''}<span class="analysis-point-label"${axisLabels.has(p.index)&&!majorTicks.has(p.index)?' data-analysis-axis-minor':''} aria-hidden="true">${esc(axisLabels.get(p.index)||'')}</span></button>`).join('')}</div></div>`}
+      ${zoneLegend}${options.view === 'data'?table(t('Measured intervals · usage cost without fixed fees','Przedziały pomiarowe · koszt zużycia bez opłat stałych'),[t('Period','Okres'),currentLabel+' kWh',t('Household usage cost','Koszt zużycia gospodarstwa'),baselineLabel+' kWh',t('Real baseline intervals','Rzeczywiste przedziały odniesienia'),...(series.common?[t('Whole household kWh','Całe gospodarstwo kWh')]:[]),...(hasZones?[t('Tariff zones in this interval','Strefy taryfy w przedziale')]:[])],rows,'','data-analysis-bin'):`<div class="analysis-chart-scroll"><div class="analysis-chart" style="--analysis-point-count:${Math.max(1,points.length)}" role="group" aria-label="${esc(t('Current and baseline consumption, select a point for values','Bieżące zużycie i odniesienie, wybierz punkt, aby odczytać wartości'))}">${points.map(p=>`<button type="button" class="analysis-point${p.visualCurrent==null?' analysis-missing':''}" data-analysis-action="point" data-analysis-value="${p.index}" aria-pressed="${String(options.selected)===String(p.index)}" aria-label="${esc(pointText(p))}"><span class="analysis-column analysis-series-current" aria-hidden="true" ${columnZones.get(p.index)?` data-analysis-column-zone="${esc(columnZones.get(p.index).key)}"`:''} style="height:${width(p.visualCurrent,max)*1.68}px${columnZones.get(p.index)?';background:'+columnZones.get(p.index).color:options.section==='comparison'?'':';background:var(--secondary-text-color,var(--hat-unmeasured, var(--_hat-unmeasured)))'}"></span>${p.marker?`<span data-analysis-marker class="analysis-baseline-line analysis-series-baseline" aria-label="${esc(pointText(p))}" style="bottom:${40+width(p.marker.baseline,max)*1.68}px"></span>`:''}<span class="analysis-point-label"${axisLabels.has(p.index)&&!majorTicks.has(p.index)?' data-analysis-axis-minor':''} aria-hidden="true">${esc(axisLabels.get(p.index)||'')}</span></button>`).join('')}</div></div>`}
       ${!points.length?`<p role="status">${esc(unknown())}</p>`:''}${selection}${note}<p class="analysis-note">${esc(t('Fixed fees apply once to the household period. Missing measurements are not zero.','Opłaty stałe dotyczą jednokrotnie całego okresu gospodarstwa. Brak pomiaru nie oznacza zera.'))}</p></section>`;
   };
   const groupsView = (snapshot,level,options={}) => {
@@ -9089,11 +9418,11 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const flow=flowMarkup(snapshot,rows,colors);
     const groupCurrency=typeof groups?.currency==='string'&&/^[A-Z]{3}$/.test(groups.currency)&&
       groups.currency===snapshot.totals?.currency&&['gross','net'].includes(groups.price_basis)&&groups.price_basis===snapshot.totals?.price_basis?groups.currency:null;
-    const groupMoney=value=>groupCurrency?money(value,groupCurrency):unknown();
+    const groupMoney=(value,brief=false)=>groupCurrency?(brief?briefMoney(value,groupCurrency):money(value,groupCurrency)):unknown();
     const details=table(t('Group measurements and usage costs','Pomiary grup i koszty zużycia'),[t('Group','Grupa'),'kWh',t('Usage cost','Koszt zużycia'),t('Coverage','Pokrycie')],rows.map(({label,row})=>[esc(label),esc(quantity(row.kwh)),esc(groupMoney(row.usage_cost)),esc(coverage(row.coverage))]))+
       `<p class="analysis-note">${esc(t('Assignments follow the current Home Assistant registry. No room and unmeasured energy are separate. Group costs exclude household fixed fees.','Przypisania pochodzą z aktualnego rejestru Home Assistant. Bez pokoju i Niezmierzone są osobnymi pozycjami. Koszty grup nie obejmują opłat stałych gospodarstwa.'))}</p>`;
     return `<section data-analysis-groups><h3>${esc(t('Energy flow — from and to','Przepływ energii — skąd i dokąd'))}</h3>${options.view==='data'?'':flow.markup}<div${options.view==='data'?'':' class="analysis-group-summary"'}><div><h4>${esc(t('Selected groups · share of household energy','Wybrane grupy · udział energii gospodarstwa'))}</h4>
-      <ol class="analysis-ranking" data-analysis-ranking>${rows.map(({id,label,row})=>`<li data-analysis-rank-id="${esc(id)}" class="${id==='unmeasured'?'analysis-unmeasured':''}"><div><strong><i class="analysis-flow-swatch ${id==='unmeasured'?'analysis-hatched':'rank-'+(colors.get(id)??4)}" aria-hidden="true"></i>${esc(label)}</strong><span>${esc(options.view==='data'?quantity(row.kwh):briefEnergy(row.kwh))} · <span data-analysis-rank-share>${esc(flow.groupReady?percentage(shareGeometry(row.kwh,snapshot.totals?.kwh)):unknown())}</span> · ${esc(groupMoney(row.usage_cost))}</span></div><div class="analysis-track" aria-hidden="true"><span class="analysis-rank rank-${colors.get(id)??4}" style="width:${width(row.kwh,max)}%"></span></div></li>`).join('')}</ol>
+      <ol class="analysis-ranking" data-analysis-ranking>${rows.map(({id,label,row})=>`<li data-analysis-rank-id="${esc(id)}" class="${id==='unmeasured'?'analysis-unmeasured':''}"><div><strong><i class="analysis-flow-swatch ${id==='unmeasured'?'analysis-hatched':'rank-'+(colors.get(id)??4)}" aria-hidden="true"></i>${esc(label)}</strong><span>${esc(options.view==='data'?quantity(row.kwh):briefEnergy(row.kwh))} · <span data-analysis-rank-share>${esc(flow.groupReady?(options.view==='data'?percentage(shareGeometry(row.kwh,snapshot.totals?.kwh)):briefPercent(shareGeometry(row.kwh,snapshot.totals?.kwh))):unknown())}</span> · ${esc(groupMoney(row.usage_cost,options.view!=='data'))}</span></div><div class="analysis-track" aria-hidden="true"><span class="analysis-rank rank-${colors.get(id)??4}" style="width:${width(row.kwh,max)}%"></span></div></li>`).join('')}</ol>
       ${!rows.length?`<p>${esc(unknown())}</p>`:''}${options.view==='data'?'':`<details data-analysis-unmeasured-details><summary>${esc(t('Unmeasured energy explained','Co oznacza energia niezmierzona'))}</summary>`}<p class="analysis-note" data-analysis-unmeasured-explanation>${esc(groups?.energy_domain==='grid_import'?t('Unmeasured = grid import − sum of disjoint measured device amounts. Parent residuals and children are counted once. This is not the same as devices with no room. Fixed fees belong only to the household.','Niezmierzone = import z sieci − suma rozłącznych ilości zmierzonych urządzeń. Reszty urządzeń nadrzędnych i dzieci liczone są raz. To osobna pozycja od urządzeń bez pokoju. Opłaty stałe dotyczą tylko gospodarstwa.'):t('Unmeasured energy is separate from devices with no room. An import remainder is unavailable for this energy source.','Energia niezmierzona jest osobna od urządzeń bez pokoju. Dla tego źródła nie można podać reszty importu.'))}</p>
       ${options.view==='data'?'':'</details>'}</div>
       ${periodZonesMarkup(snapshot)}</div>
@@ -9110,6 +9439,9 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   ].filter(Boolean).join(' · ');
   const ratesView = (snapshot,options={}) => {
     const total=snapshot.totals || {}, groups=snapshot.groups || {}, data=options.view==='data';
+    const summaryMoney=(value,currency,signed=false)=>data?money(value,currency,signed):briefMoney(value,currency,signed);
+    const summaryRate=(value,currency)=>data?money(value,currency):briefRate(value,currency);
+    const summaryEnergy=value=>data?quantity(value):briefEnergy(value);
     if (nativeFacts(snapshot)) return `<section class="analysis-rate76" data-analysis-rates><h3>${esc(t('Rates and costs','Stawki i koszty'))}</h3>${nativeDetails(snapshot)}</section>`;
     const currencyKnown=typeof total.currency==='string'&&/^[A-Z]{3}$/.test(total.currency)&&['gross','net'].includes(total.price_basis);
     const positive=value=>valid(value)&&compare(value,'0')>=0;
@@ -9118,8 +9450,8 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     // producer values passed directly to the shared formatter, never added here.
     const costReady=currencyKnown&&total.measurement_complete===true&&total.pricing_complete===true&&total.components_complete===true&&
       positive(total.total_cost)&&componentKeys.every(key=>positive(total[key])&&compare(total[key],total.total_cost)<=0);
-    const componentLegend=componentKeys.map(key=>`<li><span class="analysis-rate76-swatch analysis-rate76-${key}" aria-hidden="true"></span><span>${esc(costLabels[key])}: <strong>${esc(money(total[key],total.currency))}</strong></span></li>`).join('');
-    const costGraphic=!data&&costReady?`<div class="analysis-rate76-track" aria-hidden="true">${componentKeys.map(key=>`<span class="analysis-rate76-${key}" data-analysis-rate76-bar style="width:${width(total[key],Number(total.total_cost))}%" title="${esc(costLabels[key]+': '+money(total[key],total.currency))}"></span>`).join('')}</div>`:'';
+    const componentLegend=componentKeys.map(key=>`<li><span class="analysis-rate76-swatch analysis-rate76-${key}" aria-hidden="true"></span><span>${esc(costLabels[key])}: <strong>${esc(summaryMoney(total[key],total.currency))}</strong></span></li>`).join('');
+    const costGraphic=!data&&costReady?`<div class="analysis-rate76-track" aria-hidden="true">${componentKeys.map(key=>`<span class="analysis-rate76-${key}" data-analysis-rate76-bar style="width:${width(total[key],Number(total.total_cost))}%" title="${esc(costLabels[key]+': '+summaryMoney(total[key],total.currency))}"></span>`).join('')}</div>`:'';
     const visibleRates=(snapshot.rates || []).map(rate=>{
       const profile=rate.profile || {},zones=profile.zones || [],legacy=rate.rate_semantics==='legacy_combined';
       // Optional rates78 producer contract. Reject the whole projection on any
@@ -9131,15 +9463,15 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
         new Set(combined.map(row=>row.zone_id)).size===zones.length;
       const combinedRates=new Map(combinedValid?combined.map(row=>[row.zone_id,row.usage_rate]):[]);
       const clock=profile.clock?.mode==='fixed'?t('Fixed UTC offset','Stałe przesunięcie UTC')+': '+quantity(profile.clock.offsetMinutes,'min',true):profile.clock?.mode==='civil'?t('Civil tariff clock','Czas lokalny taryfy'):unknown();
-      const monthly=Object.entries(feeLabels).filter(([key])=>Object.hasOwn(rate.fixed_monthly || {},key)).map(([key,label])=>`<li>${esc(label)}: <strong>${esc(money(rate.fixed_monthly[key],rate.currency))}</strong> / ${esc(t('month','miesiąc'))}</li>`);
-      if(rate.legacy_combined_monthly!=null)monthly.push(`<li>${esc(t('Legacy combined monthly fee','Dawna łączna opłata miesięczna'))}: <strong>${esc(money(rate.legacy_combined_monthly,rate.currency))}</strong> / ${esc(t('month','miesiąc'))}</li>`);
-      const dynamic=(profile.dynamic?.intervals || []).map(row=>[esc(`${dateTime(row.from)} – ${dateTime(row.to)}`),esc(money(row.energyRate,rate.currency)),esc(money(row.variableRate,rate.currency))]);
+      const monthly=Object.entries(feeLabels).filter(([key])=>Object.hasOwn(rate.fixed_monthly || {},key)).map(([key,label])=>`<li>${esc(label)}: <strong>${esc(summaryMoney(rate.fixed_monthly[key],rate.currency))}</strong> / ${esc(t('month','miesiąc'))}</li>`);
+      if(rate.legacy_combined_monthly!=null)monthly.push(`<li>${esc(t('Legacy combined monthly fee','Dawna łączna opłata miesięczna'))}: <strong>${esc(summaryMoney(rate.legacy_combined_monthly,rate.currency))}</strong> / ${esc(t('month','miesiąc'))}</li>`);
+      const dynamic=(profile.dynamic?.intervals || []).map(row=>[esc(`${dateTime(row.from)} – ${dateTime(row.to)}`),esc(summaryRate(row.energyRate,rate.currency)),esc(summaryRate(row.variableRate,rate.currency))]);
       return `<article class="analysis-rate76-card" data-analysis-rate76-version="${esc(rate.version_id)}"><h4>${esc(t('Rates effective from','Stawki obowiązujące od'))} ${esc(date(rate.valid_from))}${rate.valid_to?' – '+esc(date(rate.valid_to)):''}</h4>
         <p class="analysis-rate76-meta">${esc(rate.currency || unknown())} · ${esc(basis(rate.price_basis))} · ${esc(profile.timezone || unknown())} · ${esc(clock)}</p>
         <ul class="analysis-rate76-rate-list">${zones.map(zone=>{
           const rules=[...(profile.rules || []).filter(rule=>rule.zone===zone.id).map(rule=>ruleText(rule)),...(profile.exceptions || []).filter(rule=>rule.zone===zone.id).map(rule=>t('Exception','Wyjątek')+': '+ruleText(rule))];
           if(zone.id===profile.defaultZone)rules.push(t('Default outside matching rules','Domyślna poza pasującymi regułami'));
-          return `<li><strong>${esc(zone.label || t('Unnamed zone','Strefa bez nazwy'))}</strong><div class="analysis-rate76-schedule">${rules.length?rules.map(rule=>`<p>${esc(rule)}</p>`).join(''):esc(unknown())}</div><dl class="analysis-rate76-rate-values"><div><dt>${esc(legacy?t('Combined usage / kWh','Łączna stawka zużycia / kWh'):t('Energy / kWh','Energia / kWh'))}</dt><dd>${esc(money(zone.energyRate,rate.currency))}</dd></div><div><dt>${esc(t('Distribution / kWh','Dystrybucja / kWh'))}</dt><dd>${esc(legacy?unknown():money(zone.variableRate,rate.currency))}</dd></div><div><dt>${esc(t('Total / kWh','Razem / kWh'))}</dt><dd data-analysis-rate76-total="${esc(zone.id)}">${esc(money(combinedRates.get(zone.id),rate.currency))}</dd></div></dl></li>`;
+          return `<li><strong>${esc(zone.label || t('Unnamed zone','Strefa bez nazwy'))}</strong><div class="analysis-rate76-schedule">${rules.length?rules.map(rule=>`<p>${esc(rule)}</p>`).join(''):esc(unknown())}</div><dl class="analysis-rate76-rate-values"><div><dt>${esc(legacy?t('Combined usage / kWh','Łączna stawka zużycia / kWh'):t('Energy / kWh','Energia / kWh'))}</dt><dd>${esc(summaryRate(zone.energyRate,rate.currency))}</dd></div><div><dt>${esc(t('Distribution / kWh','Dystrybucja / kWh'))}</dt><dd>${esc(legacy?unknown():summaryRate(zone.variableRate,rate.currency))}</dd></div><div><dt>${esc(t('Total / kWh','Razem / kWh'))}</dt><dd data-analysis-rate76-total="${esc(zone.id)}">${esc(summaryRate(combinedRates.get(zone.id),rate.currency))}</dd></div></dl></li>`;
         }).join('')}</ul>
         ${!zones.length?`<p>${esc(unknown())}</p>`:''}
         ${dynamic.length?table(t('Dynamic rate intervals','Przedziały stawek dynamicznych'),[t('Period','Okres'),t('Energy / kWh','Energia / kWh'),t('Distribution / kWh','Dystrybucja / kWh')],dynamic,'class="analysis-rate76-table"'):''}
@@ -9162,18 +9494,18 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const proof=periodZoneProof(snapshot,periodWindow(snapshot));
     const zoneReady=proof?.status==='ready'&&currencyKnown&&positive(total.usage_cost)&&proof.zones.every(zone=>zone.complete&&positive(zone.usage_cost)&&compare(zone.usage_cost,total.usage_cost)<=0);
     const zoneDetails=proof?zoneEntries(snapshot,snapshot.period_summary,{period:true}):null;
-    const zoneGraphic=!data&&zoneReady?`<div class="analysis-rate76-track" aria-hidden="true">${proof.zones.map(zone=>`<span data-analysis-rate76-bar style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)};width:${width(zone.usage_cost,Number(total.usage_cost))}%" title="${esc(zone.label+': '+money(zone.usage_cost,proof.currency))}"></span>`).join('')}</div>`:'';
+    const zoneGraphic=!data&&zoneReady?`<div class="analysis-rate76-track" aria-hidden="true">${proof.zones.map(zone=>`<span data-analysis-rate76-bar style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)};width:${width(zone.usage_cost,Number(total.usage_cost))}%" title="${esc(zone.label+': '+summaryMoney(zone.usage_cost,proof.currency))}"></span>`).join('')}</div>`:'';
     const zoneRows=proof?.zones.map(zone=>{
       const rate=(snapshot.rates || []).find(row=>row.version_id===zone.version_id),complete=proof.status==='ready'&&zone.complete;
-      const known=[[t('Known energy cost','Znany koszt energii'),'energy_cost'],[t('Known distribution cost','Znany koszt dystrybucji'),'variable_cost'],[t('Known legacy usage cost','Znany dawny koszt zużycia'),'legacy_combined_cost']].map(([label,key])=>`${label}: ${money(zone.known_costs[key],proof.currency)}`).join(' · ');
-      return `<li data-analysis-rate76-zone="${esc(zone.version_id+'|'+zone.zone_id)}"><span class="analysis-rate76-swatch" style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)}" aria-hidden="true"></span><div><strong>${esc(zone.label)}</strong><span class="analysis-rate76-meta"> · ${esc(t('Rates from','Stawki od'))} ${esc(rate?date(rate.valid_from):unknown())}</span><p>${esc(complete?quantity(zone.kwh):t('Recorded','Zarejestrowano')+': '+quantity(zone.recorded_kwh))} · <strong>${esc(money(complete?zone.usage_cost:null,proof.currency))}</strong></p>${!complete?`<p class="analysis-rate76-meta">${esc(known)}</p>`:''}</div></li>`;
+      const known=[[t('Known energy cost','Znany koszt energii'),'energy_cost'],[t('Known distribution cost','Znany koszt dystrybucji'),'variable_cost'],[t('Known legacy usage cost','Znany dawny koszt zużycia'),'legacy_combined_cost']].map(([label,key])=>`${label}: ${summaryMoney(zone.known_costs[key],proof.currency)}`).join(' · ');
+      return `<li data-analysis-rate76-zone="${esc(zone.version_id+'|'+zone.zone_id)}"><span class="analysis-rate76-swatch" style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)}" aria-hidden="true"></span><div><strong>${esc(zone.label)}</strong><span class="analysis-rate76-meta"> · ${esc(t('Rates from','Stawki od'))} ${esc(rate?date(rate.valid_from):unknown())}</span><p>${esc(complete?summaryEnergy(zone.kwh):t('Recorded','Zarejestrowano')+': '+summaryEnergy(zone.recorded_kwh))} · <strong>${esc(summaryMoney(complete?zone.usage_cost:null,proof.currency))}</strong></p>${!complete?`<p class="analysis-rate76-meta">${esc(known)}</p>`:''}</div></li>`;
     }).join('') || '';
     const level=['areas','floors','devices'].includes(options.level)?options.level:'areas';
     const groupRows=rowsFor(groups,level).sort((a,b)=>valid(a.row.usage_cost)&&valid(b.row.usage_cost)?compare(b.row.usage_cost,a.row.usage_cost):valid(a.row.usage_cost)?-1:valid(b.row.usage_cost)?1:0);
     const groupCurrency=currencyKnown&&groups.currency===total.currency&&groups.price_basis===total.price_basis;
     const groupMax=maximum(groupRows.filter(({row})=>positive(row.usage_cost)).map(({row})=>row.usage_cost));
     const groupTitle=level==='devices'?t('Cost by device','Koszt według urządzeń'):level==='floors'?t('Cost by floor','Koszt według pięter'):t('Cost by room','Koszt według pokoi');
-    const ranked=groupRows.map(({id,label,row})=>`<li data-analysis-rate76-group="${esc(id)}"${id==='unmeasured'?' class="analysis-rate76-unmeasured"':''}><div class="analysis-rate76-rank-value"><strong>${esc(label)}</strong><strong>${esc(money(row.usage_cost,groups.currency))}</strong></div>${!data&&groupCurrency&&row.measurement_complete===true&&positive(row.usage_cost)?`<div class="analysis-rate76-track" aria-hidden="true"><span data-analysis-rate76-bar style="background:${zoneColor('group-'+level,id)};width:${width(row.usage_cost,groupMax)}%"></span></div>`:''}<p class="analysis-rate76-meta">${esc(data?quantity(row.kwh):briefEnergy(row.kwh))} · ${esc(coverage(row.coverage))}</p></li>`).join('');
+    const ranked=groupRows.map(({id,label,row})=>`<li data-analysis-rate76-group="${esc(id)}"${id==='unmeasured'?' class="analysis-rate76-unmeasured"':''}><div class="analysis-rate76-rank-value"><strong>${esc(label)}</strong><strong>${esc(summaryMoney(row.usage_cost,groups.currency))}</strong></div>${!data&&groupCurrency&&row.measurement_complete===true&&positive(row.usage_cost)?`<div class="analysis-rate76-track" aria-hidden="true"><span data-analysis-rate76-bar style="background:${zoneColor('group-'+level,id)};width:${width(row.usage_cost,groupMax)}%"></span></div>`:''}<p class="analysis-rate76-meta">${esc(data?quantity(row.kwh):briefEnergy(row.kwh))} · ${esc(coverage(row.coverage))}</p></li>`).join('');
     const groupValues=table(t('Group measurements and usage costs','Pomiary grup i koszty zużycia'),[t('Group','Grupa'),'kWh',t('Usage cost','Koszt zużycia')],groupRows.map(({label,row})=>[esc(label),esc(quantity(row.kwh)),esc(money(row.usage_cost,groups.currency))]));
     const alternativeRows=(snapshot.alternatives || []).filter(row=>row.tariff_id!==snapshot.active_tariff_id);
     const comparable=row=>row.comparable===true&&currencyKnown&&row.currency===total.currency&&row.price_basis===total.price_basis;
@@ -9181,7 +9513,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const costTable=table(t('Household cost for selected period','Koszt gospodarstwa za wybrany okres'),[t('Component','Składnik'),t('Cost','Koszt')],Object.entries(costLabels).map(([key,label])=>[esc(label),esc(money(total[key],total.currency))]),'data-analysis-cost-components class="analysis-rate76-table"');
     return `<section class="analysis-rate76" data-analysis-rates><div class="analysis-rate76-heading"><h3>${esc(t('Rates and costs','Stawki i koszty'))}</h3><div class="analysis-switch">${button('view','chart',t('Chart','Wykres'),!data)}${button('view','data',t('Data','Dane'),data)}</div></div>
       <div class="analysis-rate76-current" data-analysis-rate76-current>${visibleRates || `<p>${esc(unknown())}</p>`}</div>
-      <div class="analysis-rate76-layout"><div><section class="analysis-rate76-card" data-analysis-rate76-cost><h4>${esc(t('Household cost for selected period','Koszt gospodarstwa za wybrany okres'))}</h4><p><strong>${esc(money(total.total_cost,total.currency))}</strong> · ${esc(t('Effective price','Cena efektywna'))}: ${esc(money(total.effective_price,total.currency))}${valid(total.effective_price)?'/kWh':''}</p>
+      <div class="analysis-rate76-layout"><div><section class="analysis-rate76-card" data-analysis-rate76-cost><h4>${esc(t('Household cost for selected period','Koszt gospodarstwa za wybrany okres'))}</h4><p><strong>${esc(summaryMoney(total.total_cost,total.currency))}</strong> · ${esc(t('Effective price','Cena efektywna'))}: ${esc(summaryRate(total.effective_price,total.currency))}${valid(total.effective_price)?'/kWh':''}</p>
         ${costGraphic}<ul class="analysis-rate76-legend">${componentLegend}</ul>
         ${!costReady?`<p class="analysis-rate76-meta">${esc(t('A complete positive cost breakdown is unavailable. Available amounts retain their signs.','Pełne dodatnie rozbicie kosztu jest niedostępne. Dostępne kwoty zachowują swój znak.'))}</p>`:compare(total.total_cost,'0')===0?`<p class="analysis-rate76-meta">${esc(t('Zero cost','Koszt zerowy'))}</p>`:''}
         ${data?costTable:`<details class="analysis-rate76-history"><summary>${esc(t('Exact cost components','Dokładne składniki kosztu'))}</summary>${costTable}</details>`}
@@ -9190,7 +9522,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
         ${proof?`<ul class="analysis-rate76-zone-list">${zoneRows}</ul>${proof.status!=='ready'?`<p class="analysis-rate76-meta">${esc(proof.status==='partial'?t('Incomplete period · recorded energy and known costs only','Niepełny okres · tylko zarejestrowana energia i znane koszty'):t('No tariff cost data for this period','Brak kosztów taryfy za ten okres'))}</p>`:''}`:`<p>${esc(t('No data: matching whole-period zone costs are unavailable.','Brak danych: brak zgodnych kosztów stref za cały okres.'))}</p>`}
         ${zoneDetails?`<details class="analysis-rate76-history"><summary>${esc(t('Zone coverage and provenance','Pokrycie i pochodzenie stref'))}</summary><p>${esc(zoneDetails.note)}</p><ul>${zoneDetails.entries.map(entry=>`<li>${esc(entry.text)}</li>`).join('')}</ul></details>`:''}</section></div>
       <section class="analysis-rate76-card" data-analysis-rate76-groups><h4>${esc(groupTitle)}</h4><p class="analysis-rate76-meta">${esc(groups.currency || unknown())} · ${esc(basis(groups.price_basis))}</p><ol class="analysis-rate76-rank-list">${ranked}</ol>${data?'':`<details data-analysis-rate76-group-values><summary>${esc(t('Group measurements and costs','Pomiary i koszty grup'))}</summary>${groupValues}</details>`}${!groupRows.length?`<p>${esc(unknown())}</p>`:''}<p class="analysis-rate76-meta">${esc(t('Group costs exclude household fixed fees. No room and unmeasured energy are separate. Bars rank known nonnegative costs in the same currency and basis.','Koszty grup nie obejmują opłat stałych gospodarstwa. Bez pokoju i Niezmierzone to osobne pozycje. Paski porównują znane nieujemne koszty w tej samej walucie i podstawie.'))}</p></section></div>
-      <section><h4>${esc(t('Same measured energy in alternative tariffs · no activation','Ta sama zmierzona energia w innych taryfach · bez aktywacji'))}</h4><div class="analysis-rate76-alternatives">${alternativeRows.map(row=>`<article class="analysis-rate76-card" data-analysis-rate76-alternative><strong>${esc(row.tariff_name || t('Unnamed tariff','Taryfa bez nazwy'))}</strong><p>${esc(quantity(row.kwh))} · <strong>${esc(money(row.total_cost,row.currency))}</strong> · ${esc(basis(row.price_basis))}</p><p>${esc(comparable(row)?t('Difference','Różnica')+': '+money(row.delta_cost,row.currency,true):t('No comparable difference','Brak porównywalnej różnicy'))}</p><p class="analysis-rate76-meta">${esc(t('Same measured energy · no activation','Ta sama zmierzona energia · bez aktywacji'))}</p></article>`).join('') || `<p>${esc(t('No alternative tariff comparison available','Brak porównania alternatywnej taryfy'))}</p>`}</div>
+      <section><h4>${esc(t('Same measured energy in alternative tariffs · no activation','Ta sama zmierzona energia w innych taryfach · bez aktywacji'))}</h4><div class="analysis-rate76-alternatives">${alternativeRows.map(row=>`<article class="analysis-rate76-card" data-analysis-rate76-alternative><strong>${esc(row.tariff_name || t('Unnamed tariff','Taryfa bez nazwy'))}</strong><p>${esc(summaryEnergy(row.kwh))} · <strong>${esc(summaryMoney(row.total_cost,row.currency))}</strong> · ${esc(basis(row.price_basis))}</p><p>${esc(comparable(row)?t('Difference','Różnica')+': '+summaryMoney(row.delta_cost,row.currency,true):t('No comparable difference','Brak porównywalnej różnicy'))}</p><p class="analysis-rate76-meta">${esc(t('Same measured energy · no activation','Ta sama zmierzona energia · bez aktywacji'))}</p></article>`).join('') || `<p>${esc(t('No alternative tariff comparison available','Brak porównania alternatywnej taryfy'))}</p>`}</div>
       ${alternativeRows.length?`<details class="analysis-rate76-history"><summary>${esc(t('Alternative tariff values','Wartości alternatywnych taryf'))}</summary>${table(t('Same measured energy in alternative tariffs · no activation','Ta sama zmierzona energia w innych taryfach · bez aktywacji'),[t('Tariff','Taryfa'),'kWh',t('Total cost','Koszt całkowity'),t('Delta','Różnica')],alternatives)}</details>`:''}</section>
       <details class="analysis-rate76-history" data-analysis-rate-history><summary>${esc(t('Rates, schedules and history','Stawki, godziny i historia'))}</summary>${versions || `<p>${esc(unknown())}</p>`}</details>
       <p class="analysis-rate76-meta">${esc(t('Fixed fees apply once to the household period. Alternatives use the same measurements.','Opłaty stałe dotyczą jednokrotnie całego okresu gospodarstwa. Alternatywy korzystają z tych samych pomiarów.'))}</p></section>`;
@@ -9228,27 +9560,27 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
       <label>${esc(t('Calendar date','Data kalendarzowa'))}<input type="date" data-analysis-action="anchor" data-analysis-value="${esc(anchor)}" value="${esc(anchor)}"></label>
       ${select('comparison',t('Compare with','Porównaj z'),allowed.map(key=>[key,comparisons[key]]),kind)}</div></details></div>`;
     return `<div class="energy-analysis-v53"><div class="analysis-period-controls"><div class="analysis-switch" role="group" aria-label="${esc(t('Period','Okres'))}">${periods.map(([value,label])=>button('period',value,label,period.kind===value)).join('')}</div><p class="analysis-period">${esc(range(period))} · ${esc(ui.timeZone)} · ${esc(coverage(snapshot.coverage))}</p></div>
-      ${section==='overview'?tiles(snapshot,true)+nativeDetails(snapshot):''}${section==='rates'?filters+ratesView(snapshot,options):section==='comparison'?comparisonView(snapshot,options,kind)+filters:chart(snapshot,options)+filters+groupsView(snapshot,level,options)}
+      ${section==='overview'?tiles(snapshot,true,options.view==='data')+nativeDetails(snapshot):''}${section==='rates'?filters+ratesView(snapshot,options):section==='comparison'?comparisonView(snapshot,options,kind)+filters:chart(snapshot,options)+filters+groupsView(snapshot,level,options)}
       <details data-analysis-source-details><summary>${esc(t('Source and time details','Źródło i szczegóły czasu'))}</summary><p>${esc(t('Measurement calendar','Kalendarz pomiarów'))}: ${esc(period.timezone||unknown())}</p><p>UTC: ${esc(period.start)} – ${esc(period.end)}</p></details></div>`;
   };
   const styles = () => `
 
-.energy-analysis-v53 .analysis-rate76{font-size:14px;line-height:1.45;min-width:0;--analysis-rate76-energy:#287fd1;--analysis-rate76-distribution:#8754b3;--analysis-rate76-fixed:#64748b;--analysis-rate76-legacy:#238782}
-.energy-analysis-v53 .analysis-rate76-meta{font-size:12px;color:var(--secondary-text-color);overflow-wrap:anywhere}
+.energy-analysis-v53 .analysis-rate76{font-size:14px;line-height:20px;min-width:0;--analysis-rate76-energy:var(--hat-s1, var(--_hat-s1));--analysis-rate76-distribution:var(--hat-d2, var(--_hat-d2));--analysis-rate76-fixed:var(--hat-text-2, var(--_hat-text-2));--analysis-rate76-legacy:var(--hat-s3, var(--_hat-s3))}
+.energy-analysis-v53 .analysis-rate76-meta{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2));overflow-wrap:anywhere}
 .energy-analysis-v53 .analysis-rate76-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
-.energy-analysis-v53 .analysis-rate76-card{min-width:0;border:1px solid var(--divider-color);border-radius:10px;background:var(--card-background-color);padding:12px;overflow-wrap:anywhere}
+.energy-analysis-v53 .analysis-rate76-card{min-width:0;border:1px solid var(--hat-border, var(--_hat-border));border-radius:var(--hat-radius, var(--_hat-radius));background:var(--hat-card, var(--_hat-card));padding:12px;overflow-wrap:anywhere}
 .energy-analysis-v53 .analysis-rate76-card h4{margin-top:0}
 .energy-analysis-v53 .analysis-rate76-current{display:grid;gap:12px}
 .energy-analysis-v53 .analysis-rate76-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}
 .energy-analysis-v53 .analysis-rate76-layout>div{min-width:0}
 .energy-analysis-v53 .analysis-rate76-rate-list,.energy-analysis-v53 .analysis-rate76-monthly,.energy-analysis-v53 .analysis-rate76-legend,.energy-analysis-v53 .analysis-rate76-zone-list,.energy-analysis-v53 .analysis-rate76-rank-list{list-style:none;padding:0;margin:8px 0}
-.energy-analysis-v53 .analysis-rate76-rate-list>li{display:grid;grid-template-columns:minmax(80px,.6fr) minmax(0,1.2fr) minmax(0,1.2fr);gap:12px;align-items:start;padding:10px 0;border-top:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-rate76-rate-list>li{display:grid;grid-template-columns:minmax(80px,.6fr) minmax(0,1.2fr) minmax(0,1.2fr);gap:12px;align-items:start;padding:12px 0;border-top:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-rate76-schedule p{margin:0 0 4px}
 .energy-analysis-v53 .analysis-rate76-rate-values{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0;font-variant-numeric:tabular-nums}
-.energy-analysis-v53 .analysis-rate76-rate-values dt{font-size:12px;color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-rate76-rate-values dt{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-rate76-rate-values dd{font-weight:600;margin:4px 0 0}
 .energy-analysis-v53 .analysis-rate76-monthly{display:flex;flex-wrap:wrap;gap:8px 16px}
-.energy-analysis-v53 .analysis-rate76-track{display:flex;height:14px;min-width:0;max-width:100%;background:var(--secondary-background-color);border-radius:4px;overflow:hidden;margin:10px 0}
+.energy-analysis-v53 .analysis-rate76-track{display:flex;height:14px;min-width:0;max-width:100%;background:var(--hat-chip, var(--_hat-chip));border-radius:4px;overflow:hidden;margin:10px 0}
 .energy-analysis-v53 .analysis-rate76-track>span{display:block;min-width:0;height:100%;flex-shrink:0}
 .energy-analysis-v53 .analysis-rate76-energy_cost{background:var(--analysis-rate76-energy)}
 .energy-analysis-v53 .analysis-rate76-variable_cost{background:var(--analysis-rate76-distribution)}
@@ -9256,25 +9588,24 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
 .energy-analysis-v53 .analysis-rate76-legacy_combined_cost{background:var(--analysis-rate76-legacy)}
 .energy-analysis-v53 .analysis-rate76-legend{display:flex;flex-wrap:wrap;gap:8px 16px}
 .energy-analysis-v53 .analysis-rate76-legend>li,.energy-analysis-v53 .analysis-rate76-zone-list>li{display:flex;align-items:baseline;gap:6px;min-width:0}
-.energy-analysis-v53 .analysis-rate76-zone-list>li{padding:8px 0;border-bottom:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-rate76-zone-list>li{padding:8px 0;border-bottom:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-rate76-swatch{display:inline-block;width:10px;height:10px;flex:0 0 10px;border-radius:2px}
-.energy-analysis-v53 .analysis-rate76-rank-list>li{padding:10px 0;border-bottom:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-rate76-rank-list>li{padding:12px 0;border-bottom:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-rate76-rank-value{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;font-variant-numeric:tabular-nums}
-.energy-analysis-v53 .analysis-rate76-unmeasured .analysis-rate76-track>span{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--secondary-text-color) 3px,var(--secondary-text-color) 4px)!important;border:1px solid var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-rate76-unmeasured .analysis-rate76-track>span{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 4px)!important;border:1px solid var(--hat-unmeasured, var(--_hat-unmeasured))}
 .energy-analysis-v53 .analysis-rate76-alternatives{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px}
-.energy-analysis-v53 .analysis-rate76-history{border-top:1px solid var(--divider-color);margin-top:12px}
+.energy-analysis-v53 .analysis-rate76-history{border-top:1px solid var(--hat-border, var(--_hat-border));margin-top:12px}
 .energy-analysis-v53 .analysis-rate76-history .analysis-table-wrap{overflow:visible}
 .energy-analysis-v53 .analysis-rate76-history table,.energy-analysis-v53 .analysis-rate76-table{table-layout:fixed;width:100%;overflow-wrap:anywhere}
-:host(.bento-dark) .energy-analysis-v53 .analysis-rate76{--analysis-rate76-energy:#3987e5;--analysis-rate76-distribution:#a696ea;--analysis-rate76-fixed:#94a3b8;--analysis-rate76-legacy:#41a69f}
-@container energy-analysis (max-width:600px){.energy-analysis-v53 .analysis-rate76-layout{grid-template-columns:minmax(0,1fr);gap:0}.energy-analysis-v53 .analysis-rate76-rate-list>li{grid-template-columns:minmax(0,1fr);gap:6px}.energy-analysis-v53 .analysis-rate76-card{padding:10px}.energy-analysis-v53 .analysis-rate76-rate-values{gap:8px}.energy-analysis-v53 .analysis-rate76-history th,.energy-analysis-v53 .analysis-rate76-history td{padding:8px 4px}}
-.energy-analysis-v53{font-family:var(--paper-font-body1_-_font-family,inherit);font-size:14px;line-height:1.45;color:var(--primary-text-color);min-width:0;max-width:100%;width:100%;overflow-wrap:anywhere;container-type:inline-size;container-name:energy-analysis}
+@container energy-analysis (max-width:600px){.energy-analysis-v53 .analysis-rate76-layout{grid-template-columns:minmax(0,1fr);gap:0}.energy-analysis-v53 .analysis-rate76-rate-list>li{grid-template-columns:minmax(0,1fr);gap:6px}.energy-analysis-v53 .analysis-rate76-card{padding:12px}.energy-analysis-v53 .analysis-rate76-rate-values{gap:8px}.energy-analysis-v53 .analysis-rate76-history th,.energy-analysis-v53 .analysis-rate76-history td{padding:8px 4px}}
+.energy-analysis-v53{font-family:var(--hat-font, var(--_hat-font));font-size:14px;line-height:20px;color:var(--hat-text, var(--_hat-text));min-width:0;max-width:100%;width:100%;overflow-wrap:anywhere;container-type:inline-size;container-name:energy-analysis}
 .energy-analysis-v53 *{box-sizing:border-box}
 .energy-analysis-v53 h3,.energy-analysis-v53 h4{font-size:1em;margin:12px 0 8px}
 .energy-analysis-v53 p{margin:8px 0}
 .energy-analysis-v53 section{min-width:0;margin-block:12px}
 .energy-analysis-v53 .analysis-switch,.energy-analysis-v53 .analysis-section-title,.energy-analysis-v53 .analysis-period-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .energy-analysis-v53 .analysis-period-controls{justify-content:space-between}
-.energy-analysis-v53 .analysis-period{font-size:12px;color:var(--secondary-text-color);margin:4px 0}
+.energy-analysis-v53 .analysis-period{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2));margin:4px 0}
 .energy-analysis-v53 .analysis-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:12px;align-items:end;margin-block:16px}
 .energy-analysis-v53 .analysis-section-title{justify-content:space-between}
 .energy-analysis-v53 .analysis-calendar-fields{display:grid;gap:12px;padding-block:8px}
@@ -9282,75 +9613,76 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
 .energy-analysis-v53 [data-analysis-calendar-options] summary{min-height:44px}
 .energy-analysis-v53 label{display:flex;flex-direction:column;gap:4px;max-width:100%;min-width:0;font-size:12px}
 .energy-analysis-v53 .analysis-controls select,.energy-analysis-v53 .analysis-controls input{width:100%;min-width:0;font-size:14px}
-.energy-analysis-v53 button,.energy-analysis-v53 select,.energy-analysis-v53 input{font:inherit;color:var(--primary-text-color);background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;min-height:44px;min-width:44px;padding:8px;max-width:100%}
+.energy-analysis-v53 button,.energy-analysis-v53 select,.energy-analysis-v53 input{font:inherit;color:var(--hat-text, var(--_hat-text));background:var(--hat-card, var(--_hat-card));border:1px solid var(--hat-border, var(--_hat-border));border-radius:8px;min-height:44px;min-width:44px;padding:8px;max-width:100%}
 .energy-analysis-v53 button{cursor:pointer;white-space:normal}
-.energy-analysis-v53 button[aria-pressed="true"]{border-color:var(--primary-color);box-shadow:inset 0 0 0 1px var(--primary-color)}
-.energy-analysis-v53 button:focus-visible,.energy-analysis-v53 select:focus-visible,.energy-analysis-v53 input:focus-visible,.energy-analysis-v53 summary:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+.energy-analysis-v53 button[aria-pressed="true"]{border-color:var(--hat-primary, var(--_hat-primary));box-shadow:inset 0 0 0 1px var(--hat-primary, var(--_hat-primary))}
+.energy-analysis-v53 button:focus-visible,.energy-analysis-v53 select:focus-visible,.energy-analysis-v53 input:focus-visible,.energy-analysis-v53 summary:focus-visible{outline:2px solid var(--hat-primary, var(--_hat-primary));outline-offset:2px}
 .energy-analysis-v53 summary{min-height:44px;padding:12px 0;cursor:pointer}
 .energy-analysis-v53 .analysis-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}
-.energy-analysis-v53 .analysis-tile{min-width:0;border:1px solid var(--divider-color);border-radius:10px;padding:10px 12px;background:var(--card-background-color);box-shadow:none}
+.energy-analysis-v53 .analysis-tile{min-width:0;border:1px solid var(--hat-border, var(--_hat-border));border-radius:var(--hat-radius, var(--_hat-radius));padding:12px 16px;background:var(--hat-card, var(--_hat-card));box-shadow:none}
 .energy-analysis-v53 .analysis-tile span,.energy-analysis-v53 .analysis-tile strong{display:block}
-.energy-analysis-v53 .analysis-tile span{font-size:12px;color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-tile span{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-tile strong{font-size:1.35em;margin-top:4px;font-variant-numeric:tabular-nums}
 .energy-analysis-v53 .analysis-period-zones{list-style:none;margin:8px 0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:8px}
-.energy-analysis-v53 .analysis-period-zones li{min-width:0;display:grid;gap:4px;padding:8px 10px;border:1px solid var(--divider-color);border-radius:8px}
-.energy-analysis-v53 .analysis-period-zones li>span:last-child{font-size:12px;color:var(--secondary-text-color)}
-.energy-analysis-v53 [data-analysis-period-summary-details]{border-top:1px solid var(--divider-color);margin-top:8px}
-.energy-analysis-v53 .analysis-note{color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-period-zones li{min-width:0;display:grid;gap:4px;padding:8px 10px;border:1px solid var(--hat-border, var(--_hat-border));border-radius:8px}
+.energy-analysis-v53 .analysis-period-zones li>span:last-child{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
+.energy-analysis-v53 [data-analysis-period-summary-details]{border-top:1px solid var(--hat-border, var(--_hat-border));margin-top:8px}
+.energy-analysis-v53 .analysis-note{color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-table-wrap{overflow:auto;max-width:100%}
 .energy-analysis-v53 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;text-align:start}
 .energy-analysis-v53 caption{text-align:start;font-weight:600;padding:8px 0}
-.energy-analysis-v53 th,.energy-analysis-v53 td{padding:10px 8px;border-bottom:1px solid var(--divider-color);vertical-align:top;text-align:start}
+.energy-analysis-v53 th,.energy-analysis-v53 td{padding:12px 8px;border-bottom:1px solid var(--hat-border, var(--_hat-border));vertical-align:top;text-align:start}
 .energy-analysis-v53 th{font-weight:600}
 .energy-analysis-v53 .analysis-chart-scroll{min-width:0;max-width:100%;width:100%;overflow:visible;padding:4px 2px}
 .energy-analysis-v53 .analysis-chart{display:grid;grid-template-columns:repeat(var(--analysis-point-count),minmax(0,1fr));align-items:stretch;height:212px;min-width:0;max-width:100%;width:100%;gap:2px}
 .energy-analysis-v53 .analysis-point{position:relative;display:flex;align-items:flex-end;justify-content:center;min-width:0;max-width:100%;width:100%;height:212px;padding:0 0 40px;border:0;border-radius:0;background:transparent;touch-action:manipulation}
 .energy-analysis-v53 .analysis-point:focus-visible{outline-offset:0;z-index:1}
-.energy-analysis-v53 .analysis-point[aria-pressed="true"]{box-shadow:inset 0 0 0 1px var(--primary-color)}
-.energy-analysis-v53 .analysis-column{display:block;width:100%;max-height:168px;background:var(--energy-grid-consumption-color,#287fd1);border-radius:3px 3px 0 0;min-height:1px}
-.energy-analysis-v53 .analysis-baseline-line{display:block;position:absolute;inset-inline:0;height:0;border-top:3px dashed #8754b3;pointer-events:none}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-current:before{content:"● ";color:var(--secondary-text-color,#718096)}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-baseline:before{content:"━ ";color:#8754b3}\n.energy-analysis-v53 [data-analysis-baseline-range]{display:inline-block}\n.energy-analysis-v53 .analysis-point-label{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);width:max-content;font-size:12px;line-height:1.2}
+.energy-analysis-v53 .analysis-point[aria-pressed="true"]{box-shadow:inset 0 0 0 1px var(--hat-primary, var(--_hat-primary))}
+.energy-analysis-v53 .analysis-column{display:block;width:100%;max-height:168px;background:var(--energy-grid-consumption-color,var(--hat-s1, var(--_hat-s1)));border-radius:3px 3px 0 0;min-height:1px}
+.energy-analysis-v53 .analysis-baseline-line{display:block;position:absolute;inset-inline:0;height:0;border-top:3px dashed var(--hat-d2, var(--_hat-d2));pointer-events:none}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-current:before{content:"● ";color:var(--secondary-text-color,var(--hat-unmeasured, var(--_hat-unmeasured)))}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-baseline:before{content:"━ ";color:var(--hat-d2, var(--_hat-d2))}\n.energy-analysis-v53 [data-analysis-baseline-range]{display:inline-block}\n.energy-analysis-v53 .analysis-point-label{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);width:max-content;font-size:12px;line-height:16px}
 .energy-analysis-v53 .analysis-point:first-child .analysis-point-label{left:0;transform:none}
 .energy-analysis-v53 .analysis-point:last-child .analysis-point-label{left:auto;right:0;transform:none}
-.energy-analysis-v53 .analysis-missing{background:repeating-linear-gradient(135deg,transparent,transparent 5px,var(--divider-color) 5px,var(--divider-color) 6px)}
+.energy-analysis-v53 .analysis-missing{background:repeating-linear-gradient(135deg,transparent,transparent 5px,var(--hat-border, var(--_hat-border)) 5px,var(--hat-border, var(--_hat-border)) 6px)}
 .energy-analysis-v53 .analysis-flow{display:grid;grid-template-columns:minmax(120px,.3fr) minmax(0,1fr);gap:16px;align-items:start}
-.energy-analysis-v53 .analysis-flow-source{display:flex;flex-direction:column;gap:4px;padding:12px;border-inline-start:4px solid var(--energy-grid-consumption-color,#287fd1);background:var(--secondary-background-color);border-radius:8px;min-width:0}
-.energy-analysis-v53 .analysis-flow-source>span:first-child{font-size:12px;color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-flow-source{display:flex;flex-direction:column;gap:4px;padding:12px;border-inline-start:4px solid var(--energy-grid-consumption-color,var(--hat-s1, var(--_hat-s1)));background:var(--hat-chip, var(--_hat-chip));border-radius:8px;min-width:0}
+.energy-analysis-v53 .analysis-flow-source>span:first-child{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-flow-destination{min-width:0}
 .energy-analysis-v53 .analysis-flow-destination h4{margin-top:0}
-.energy-analysis-v53 [data-analysis-group-details],.energy-analysis-v53 [data-analysis-rate-history],.energy-analysis-v53 [data-analysis-fee-details],.energy-analysis-v53 [data-analysis-source-details]{border-top:1px solid var(--divider-color);margin-top:12px}
+.energy-analysis-v53 [data-analysis-group-details],.energy-analysis-v53 [data-analysis-rate-history],.energy-analysis-v53 [data-analysis-fee-details],.energy-analysis-v53 [data-analysis-source-details]{border-top:1px solid var(--hat-border, var(--_hat-border));margin-top:12px}
 .energy-analysis-v53 .analysis-ranking,.energy-analysis-v53 .analysis-deltas{list-style:none;margin:0;padding:0}
-.energy-analysis-v53 .analysis-ranking li,.energy-analysis-v53 .analysis-deltas li{padding:8px 0;border-bottom:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-ranking li,.energy-analysis-v53 .analysis-deltas li{padding:8px 0;border-bottom:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-ranking li>div:first-child,.energy-analysis-v53 .analysis-deltas li>div:first-child{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px}
-.energy-analysis-v53 .analysis-track,.energy-analysis-v53 .analysis-delta-track{height:8px;background:var(--secondary-background-color);border-radius:3px;margin-top:6px;position:relative}
-.energy-analysis-v53 .analysis-rank{display:block;height:100%;background:var(--energy-device-consumption-color,#df6635)}
-.energy-analysis-v53 .rank-0{background:var(--analysis-rank-0,#eb6834)}.energy-analysis-v53 .rank-1{background:var(--analysis-rank-1,#6250d6)}.energy-analysis-v53 .rank-2{background:var(--analysis-rank-2,#e87ba4)}.energy-analysis-v53 .rank-3{background:var(--analysis-rank-3,#eda100)}.energy-analysis-v53 .rank-4{background:var(--analysis-rank-4,#718096)}
-:host(.bento-dark) .energy-analysis-v53 .rank-0{background:#d95926}:host(.bento-dark) .energy-analysis-v53 .rank-1{background:#9085e9}:host(.bento-dark) .energy-analysis-v53 .rank-2{background:#d55181}:host(.bento-dark) .energy-analysis-v53 .rank-3{background:#c98500}
-.energy-analysis-v53 .analysis-unmeasured .analysis-rank{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--secondary-text-color) 3px,var(--secondary-text-color) 4px);border:1px solid var(--secondary-text-color)}
-.energy-analysis-v53 .analysis-delta-track:before{content:'';position:absolute;left:50%;height:100%;border-left:1px solid var(--secondary-text-color)}
-.energy-analysis-v53 .analysis-decrease{position:absolute;right:50%;height:100%;background:#287fd1}
-.energy-analysis-v53 .analysis-increase{position:absolute;left:50%;height:100%;background:#cf4040}
+.energy-analysis-v53 .analysis-track,.energy-analysis-v53 .analysis-delta-track{height:8px;background:var(--hat-chip, var(--_hat-chip));border-radius:999px;margin-top:8px;position:relative}
+.energy-analysis-v53 .analysis-rank{display:block;height:100%;background:var(--energy-device-consumption-color,var(--hat-d1, var(--_hat-d1)))}
+.energy-analysis-v53 .rank-0{background:var(--analysis-rank-0,var(--hat-d1, var(--_hat-d1)))}.energy-analysis-v53 .rank-1{background:var(--analysis-rank-1,var(--hat-d2, var(--_hat-d2)))}.energy-analysis-v53 .rank-2{background:var(--analysis-rank-2,var(--hat-d3, var(--_hat-d3)))}.energy-analysis-v53 .rank-3{background:var(--analysis-rank-3,var(--hat-d4, var(--_hat-d4)))}.energy-analysis-v53 .rank-4{background:var(--analysis-rank-4,var(--hat-unmeasured, var(--_hat-unmeasured)))}
+.energy-analysis-v53 .analysis-unmeasured .analysis-rank{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 4px);border:1px solid var(--hat-unmeasured, var(--_hat-unmeasured))}
+.energy-analysis-v53 .analysis-delta-track:before{content:'';position:absolute;left:50%;height:100%;border-left:1px solid var(--hat-text-2, var(--_hat-text-2))}
+.energy-analysis-v53 .analysis-decrease{position:absolute;right:50%;height:100%;background:var(--hat-s1, var(--_hat-s1))}
+.energy-analysis-v53 .analysis-increase{position:absolute;left:50%;height:100%;background:var(--hat-crit, var(--_hat-crit))}
 
-.energy-analysis-v53{--analysis-zone-cheap:#1baf7a;--analysis-zone-expensive:#2a78d6;--analysis-rank-0:#eb6834;--analysis-rank-1:#6250d6;--analysis-rank-2:#e87ba4;--analysis-rank-3:#eda100;--analysis-rank-4:#718096}
-:host(.bento-dark) .energy-analysis-v53{--analysis-zone-cheap:#199e70;--analysis-zone-expensive:#3987e5;--analysis-rank-0:#d95926;--analysis-rank-1:#9085e9;--analysis-rank-2:#d55181;--analysis-rank-3:#c98500}
-.energy-analysis-v53 .analysis-group-summary{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:20px;align-items:start}
+.energy-analysis-v53{--analysis-zone-cheap:var(--hat-zone-cheap, var(--_hat-zone-cheap));--analysis-zone-expensive:var(--hat-zone-exp, var(--_hat-zone-exp));--analysis-rank-0:var(--hat-d1, var(--_hat-d1));--analysis-rank-1:var(--hat-d2, var(--_hat-d2));--analysis-rank-2:var(--hat-d3, var(--_hat-d3));--analysis-rank-3:var(--hat-d4, var(--_hat-d4));--analysis-rank-4:var(--hat-unmeasured, var(--_hat-unmeasured))}
+.energy-analysis-v53 .analysis-group-summary{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:24px;align-items:start}
 .energy-analysis-v53 .analysis-group-summary>div{min-width:0}
 .energy-analysis-v53 .analysis-sankey-wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr) minmax(0,1fr);align-items:center;gap:12px}
-.energy-analysis-v53 .analysis-sankey{display:block;width:100%;height:250px;color:var(--primary-text-color)}
-.energy-analysis-v53 [data-analysis-flow-side]>path{stroke:var(--primary-text-color);stroke-width:.3}
+.energy-analysis-v53 .analysis-sankey{display:block;width:100%;height:250px;color:var(--hat-text, var(--_hat-text))}
+.energy-analysis-v53 [data-analysis-flow-side]>path{stroke:var(--hat-text, var(--_hat-text));stroke-width:.3}
 .energy-analysis-v53 .analysis-household{text-align:center;font-weight:600}
 .energy-analysis-v53 .analysis-flow-labels{list-style:none;padding:0;margin:0;min-width:0;display:grid;gap:12px}
 .energy-analysis-v53 .analysis-flow-labels li{min-width:0;display:flex;align-items:baseline;gap:6px}
-.energy-analysis-v53 .analysis-flow-swatch{display:inline-block;flex:none;width:12px;height:12px;margin-inline-end:5px;border:1px solid var(--primary-text-color);border-radius:2px;vertical-align:baseline}
-.energy-analysis-v53 .analysis-composition{display:flex;height:16px;max-width:100%;border:1px solid var(--primary-text-color);border-radius:4px;overflow:hidden}
-.energy-analysis-v53 .analysis-composition>span{height:100%;min-width:0;border-inline-end:1px solid var(--primary-text-color)}
-.energy-analysis-v53 .analysis-hatched{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--primary-text-color) 3px,var(--primary-text-color) 4px)}
+.energy-analysis-v53 .analysis-flow-swatch{display:inline-block;flex:none;width:12px;height:12px;margin-inline-end:5px;border:1px solid var(--hat-text, var(--_hat-text));border-radius:2px;vertical-align:baseline}
+.energy-analysis-v53 .analysis-composition{display:flex;height:16px;max-width:100%;border:1px solid var(--hat-text, var(--_hat-text));border-radius:4px;overflow:hidden}
+.energy-analysis-v53 .analysis-composition>span{height:100%;min-width:0;border-inline-end:1px solid var(--hat-text, var(--_hat-text))}
+.energy-analysis-v53 .analysis-hatched{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--hat-text, var(--_hat-text)) 3px,var(--hat-text, var(--_hat-text)) 4px)}
 .energy-analysis-v53 .analysis-zone-legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px}
 .energy-analysis-v53 .analysis-mobile-composition{display:none}
 @container energy-analysis (max-width:600px){.energy-analysis-v53 .analysis-group-summary{grid-template-columns:minmax(0,1fr);gap:8px}.energy-analysis-v53 .analysis-sankey{display:none}.energy-analysis-v53 .analysis-sankey-wrap{display:none}.energy-analysis-v53 .analysis-mobile-composition{display:block}.energy-analysis-v53 .analysis-flow-labels{display:flex;flex-wrap:wrap;gap:6px 12px;margin-block:8px}}
 @container energy-analysis (max-width:480px){.energy-analysis-v53 [data-analysis-axis-minor]{visibility:hidden}.energy-analysis-v53 .analysis-flow{grid-template-columns:minmax(0,1fr);gap:12px}.energy-analysis-v53 .analysis-flow-source{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:6px 12px}.energy-analysis-v53 .analysis-period-controls{align-items:flex-start}.energy-analysis-v53 th,.energy-analysis-v53 td{padding:8px 4px}.energy-analysis-v53 .analysis-switch{gap:4px}}
-@container energy-analysis (max-width:360px){.energy-analysis-v53 .analysis-controls{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.energy-analysis-v53 .analysis-controls>label:last-child{grid-column:1/-1}.energy-analysis-v53 .analysis-chart{gap:1px}.energy-analysis-v53 .analysis-tile{padding:10px}.energy-analysis-v53 .analysis-ranking li>div:first-child{display:grid;gap:2px}.energy-analysis-v53 .analysis-tile strong{font-size:1.2em}}
+@container energy-analysis (max-width:360px){.energy-analysis-v53 .analysis-controls{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.energy-analysis-v53 .analysis-controls>label:last-child{grid-column:1/-1}.energy-analysis-v53 .analysis-chart{gap:1px}.energy-analysis-v53 .analysis-tile{padding:12px}.energy-analysis-v53 .analysis-ranking li>div:first-child{display:grid;gap:2px}.energy-analysis-v53 .analysis-tile strong{font-size:1.2em}}
 /* Mobile keeps two primary readings and a compact secondary pair. No values are hidden. */
 @container energy-analysis (max-width:480px){.energy-analysis-v53 .analysis-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.energy-analysis-v53 .analysis-tile-secondary{padding:6px 10px;border:0;border-radius:0;background:transparent}.energy-analysis-v53 .analysis-tile-secondary strong{font-size:14px;margin-top:2px}.energy-analysis-v53 .analysis-tile-secondary span{font-size:12px}}
+
+.energy-analysis-v53 :is(button,select,input){font:14px/20px var(--hat-font, var(--_hat-font))}
+.energy-analysis-v53 :is(label,.analysis-period,.analysis-rate76-meta,.analysis-zone-legend,.analysis-point-label){font-size:12px;line-height:16px}
 `;
   return {markup,styles};
 }
@@ -10505,81 +10837,45 @@ this._installTariffConsumerV3();
       return `
         <style>${LOCAL_BENTO_CSS}
 
-          .insights-measured{margin:18px 0;padding:18px;border:1px solid var(--bento-border);border-radius:var(--bento-radius);background:var(--bento-card);min-width:0;color:var(--bento-text)}
-          .insights-measured h3{margin:0 0 12px;font-size:18px}.insights-measured p{line-height:1.55;overflow-wrap:anywhere;font-size:13px}
+          .insights-measured{margin:16px 0;padding:16px;border:1px solid var(--bento-border);border-radius:var(--bento-radius);background:var(--bento-card);min-width:0;color:var(--bento-text)}
+          .insights-measured h3{margin:0 0 12px;font-size:18px}.insights-measured p{line-height:1.55;overflow-wrap:anywhere;font-size:14px}
           .insights-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin:12px 0}.insights-controls>span{align-self:center}
-          .insights-measured label{display:flex;flex-direction:column;gap:6px;min-width:0;font-size:13px;flex:1}
-          .insights-measured button,.insights-measured select,.insights-measured input{min-width:44px;min-height:44px;max-width:100%;padding:10px 12px;border:1px solid var(--bento-border);border-radius:8px;background:var(--bento-card);color:var(--bento-text);font:inherit;box-sizing:border-box}
+          .insights-measured label{display:flex;flex-direction:column;gap:8px;min-width:0;font-size:14px;flex:1}
+          .insights-measured button,.insights-measured select,.insights-measured input{min-width:44px;min-height:44px;max-width:100%;padding:12px 12px;border:1px solid var(--bento-border);border-radius:8px;background:var(--bento-card);color:var(--bento-text);font:inherit;box-sizing:border-box}
           .insights-measured button{white-space:normal;cursor:pointer}.insights-measured button:disabled{opacity:.55;cursor:default}.insights-measured button[aria-pressed=true]{border-color:var(--bento-primary);background:var(--bento-primary-light)}
           .insights-measured :is(button,select,input,summary,a):focus-visible{outline:3px solid var(--bento-primary);outline-offset:2px}
           .insights-measured a{display:inline-flex;align-items:center;min-height:44px;color:var(--bento-primary)}
-          .insights-measured svg{display:block;max-width:100%;touch-action:pan-y}.insights-measured svg text{fill:var(--bento-text-secondary);font:12px system-ui}
-          .insights-data-row,.insights-device,.insights-point-detail{padding:14px;margin:10px 0;border:1px solid var(--bento-border);border-radius:10px;overflow-wrap:anywhere;min-width:0}
+          .insights-measured svg{display:block;max-width:100%;touch-action:pan-y}.insights-measured svg text{fill:var(--bento-text-secondary);font:12px/16px var(--hat-font, var(--_hat-font))}
+          .insights-data-row,.insights-device,.insights-point-detail{padding:16px;margin:12px 0;border:1px solid var(--bento-border);border-radius:10px;overflow-wrap:anywhere;min-width:0}
           .insights-point-detail{background:var(--bento-primary-light)}.insights-device-heading{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:12px;align-items:baseline}.insights-device-heading span{font-weight:650;font-variant-numeric:tabular-nums}
-          .insights-measured summary{min-height:44px;cursor:pointer;padding:12px 0}.insights-measured dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:8px 16px;font-size:13px;line-height:1.5}.insights-measured dd{margin:0}.insights-measured dt{color:var(--bento-text-secondary)}
-          @container energy-card (max-width:500px){.insights-measured{padding:12px}.insights-controls label{flex-basis:100%}.insights-device-heading{grid-template-columns:minmax(0,1fr)}.insights-measured dl{grid-template-columns:minmax(0,1fr)}.insights-measured dt{margin-top:6px}}
-
+          .insights-measured summary{min-height:44px;cursor:pointer;padding:12px 0}.insights-measured dl{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr);gap:8px 16px;font-size:14px;line-height:1.5}.insights-measured dd{margin:0}.insights-measured dt{color:var(--bento-text-secondary)}
+          @container energy-card (max-width:500px){.insights-measured{padding:12px}.insights-controls label{flex-basis:100%}.insights-device-heading{grid-template-columns:minmax(0,1fr)}.insights-measured dl{grid-template-columns:minmax(0,1fr)}.insights-measured dt{margin-top:8px}}
 
           * { box-sizing: border-box; }
-
 
   /* ===== BENTO DESIGN SYSTEM (local fallback) ===== */
 
   :host {
-    --bento-primary: #3B82F6;
-    --bento-primary-hover: #2563EB;
-    --bento-primary-light: rgba(59, 130, 246, 0.08);
-    --bento-success: #10B981;
-    --bento-success-light: rgba(16, 185, 129, 0.08);
-    --bento-error: #EF4444;
-    --bento-error-light: rgba(239, 68, 68, 0.08);
-    --bento-warning: #F59E0B;
-    --bento-warning-light: rgba(245, 158, 11, 0.08);
-    --bento-bg: var(--primary-background-color, #F8FAFC);
-    --bento-card: var(--card-background-color, #FFFFFF);
-    --bento-border: var(--divider-color, #E2E8F0);
-    --bento-text: var(--primary-text-color, #1E293B);
-    --bento-text-secondary: var(--secondary-text-color, #64748B);
-    --bento-text-muted: var(--disabled-text-color, #94A3B8);
-    --bento-radius-xs: 6px;
-    --bento-radius-sm: 10px;
-    --bento-radius-md: 16px;
-    --bento-shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
-    --bento-shadow-md: 0 4px 12px rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.04);
-    --bento-shadow-lg: 0 8px 25px rgba(0,0,0,0.06), 0 4px 10px rgba(0,0,0,0.04);
-    --bento-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  :host {
-            font-family: 'Inter', sans-serif;
+            font-family: var(--hat-font, var(--_hat-font));
             display: block;
             background: var(--bento-bg);
             color: var(--bento-text);
           }
 
-  :host(.bento-dark) {
-      --bento-bg: var(--primary-background-color, #1a1a2e);
-      --bento-card: var(--card-background-color, #16213e);
-      --bento-text: var(--primary-text-color, #e2e8f0);
-      --bento-text-secondary: var(--secondary-text-color, #94a3b8);
-      --bento-border: var(--divider-color, #334155);
-      --bento-shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
-      --bento-shadow-md: 0 4px 12px rgba(0,0,0,0.4);
-    }
           @keyframes fadeSlideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
           @keyframes spin { to { transform: rotate(360deg); } }
           .panel-root { display: flex; flex-direction: column; height: 100%; background: var(--bento-bg); border-radius: var(--bento-radius-md); overflow: hidden; }
           .panel-header { padding: 24px 24px 16px; border-bottom: 1px solid var(--bento-border); background: var(--bento-card); border-radius: var(--bento-radius-md) var(--bento-radius-md) 0 0; }
-          .panel-title { font-size: 17px; font-weight: 700; color: var(--bento-text); margin: 0; display: flex; align-items: center; gap: 10px; }
+          .panel-title { font-size: 17px; font-weight: 700; color: var(--bento-text); margin: 0; display: flex; align-items: center; gap: 12px; }
           .panel-title-icon { font-size: 24px; }
           .tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--bento-border); padding: 0 24px; background: var(--bento-card); overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--bento-border) transparent; }
           .tabs::-webkit-scrollbar { height: 4px; }
           .tabs::-webkit-scrollbar-track { background: transparent; }
           .tabs::-webkit-scrollbar-thumb { background: var(--bento-border); border-radius: 4px; }
-          .tab-btn { padding: 8px 16px; border: none; background: transparent; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--bento-text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; white-space: nowrap; font-family: 'Inter', sans-serif; border-radius: 0; }
+          .tab-btn { padding: 8px 16px; border: none; background: transparent; cursor: pointer; font-size: 14px; font-weight: 500; color: var(--bento-text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; white-space: nowrap; font-family: var(--hat-font, var(--_hat-font)); border-radius: 0; }
           .tab-btn:hover { color: var(--bento-primary); background: var(--bento-primary-light); }
           .tab-btn.active { color: var(--bento-primary); border-bottom-color: var(--bento-primary); font-weight: 600; }
-          .panel-body { flex: 1; overflow-y: auto; padding: 20px; animation: fadeSlideIn 0.3s ease-out; }
+          .panel-body { flex: 1; overflow-y: auto; padding: 24px; animation: fadeSlideIn 0.3s ease-out; }
           .stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 16px; }
           .stat-card { background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 16px; text-align: center; min-width: 0; overflow: hidden; box-shadow: var(--bento-shadow-sm); }
           .stat-card:hover { box-shadow: var(--bento-shadow-md); }
@@ -10587,32 +10883,32 @@ this._installTariffConsumerV3();
           .stat-value { font-size: 24px; font-weight: 700; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; line-height: 1.2; }
           .stat-value.highlight { color: var(--bento-primary); }
           .stat-sub { font-size:12px; color: var(--bento-text-secondary); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-          .recommendation { background: var(--bento-primary-light); border: 1px solid rgba(59,130,246,.2); border-radius: var(--bento-radius-sm); padding: 14px 16px; font-size: 13px; color: var(--bento-text); margin-bottom: 16px; display: flex; align-items: flex-start; gap: 10px; }
+          .recommendation { background: var(--bento-primary-light); border: 1px solid rgba(59,130,246,.2); border-radius: var(--bento-radius-sm); padding: 16px 16px; font-size: 14px; color: var(--bento-text); margin-bottom: 16px; display: flex; align-items: flex-start; gap: 12px; }
           .recommendation-icon { font-size: 18px; flex-shrink: 0; }
-          .trend-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size:12px; font-weight: 600; }
+          .trend-badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 12px; border-radius: 20px; font-size:12px; font-weight: 600; }
           .trend-up { background: var(--bento-error-light); color: var(--energy-value-red,#b91c1c); }
           .trend-down { background: var(--bento-success-light); color: var(--energy-value-green,#166534); }
           .trend-neutral { background: rgba(158,158,158,.15); color: var(--energy-value-neutral,#475569); }
-          .section-title { font-size: 13px; font-weight: 600; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .5px; margin: 16px 0 8px; }
+          .section-title { font-size: 14px; font-weight: 600; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .5px; margin: 16px 0 8px; }
           .device-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 16px; }
-          .device-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--bento-radius-xs); transition: background .15s; }
+          .device-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--bento-radius-xs); transition: background .15s; }
           .device-row:hover { background: var(--bento-primary-light); }
           .device-rank { font-size:12px; font-weight: 700; color: var(--bento-primary); width: 24px; flex-shrink: 0; text-align: center; }
-          .device-name { font-size: 13px; font-weight: 500; flex: 1; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+          .device-name { font-size: 14px; font-weight: 500; flex: 1; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
           .device-bar-wrap { width: 70px; height: 6px; background: var(--bento-border); border-radius: 4px; overflow: hidden; flex-shrink: 0; }
           .device-bar { height: 100%; background: var(--bento-primary); border-radius: 4px; transition: width .4s; }
           .device-value { font-size: 12px; font-weight: 600; color: var(--bento-primary); flex-shrink: 0; min-width: 70px; text-align: right; }
           .chart-container { position: relative; height: 240px; margin-bottom: 12px; background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 16px; box-shadow: var(--bento-shadow-md); }
           canvas { max-width: 100%; display: block; }
           .chart-label { text-align: center; font-size: 12px; color: var(--bento-text-secondary); margin-top: 8px; }
-          .tips-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 16px; }
-          .tip-card { background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 14px; font-size: 14px; line-height: 1.5; color: var(--bento-text); box-shadow: var(--bento-shadow-md); }
+          .tips-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; margin-top: 16px; }
+          .tip-card { background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 16px; font-size: 14px; line-height: 1.5; color: var(--bento-text); box-shadow: var(--bento-shadow-md); }
           .tip-card strong { color: var(--bento-text); display: block; margin-bottom: 4px; font-size: 14px; }
           .loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 24px; gap: 16px; color: var(--bento-text-secondary); font-size: 14px; }
           .spinner { width: 32px; height: 32px; border: 3px solid var(--bento-border); border-top-color: var(--bento-primary); border-radius: 50%; animation: spin 0.8s linear infinite; }
-          .error-msg { padding: 16px; background: var(--bento-error-light); border-left: 4px solid var(--bento-error); border-radius: var(--bento-radius-xs); font-size: 13px; color: var(--energy-value-red,#b91c1c); }
-          .no-sensors { padding: 40px 24px; text-align: center; color: var(--bento-text-secondary); font-size: 13px; }
-          button { font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500; border-radius: var(--bento-radius-xs); transition: all .2s; cursor: pointer; border: none; padding: 8px 14px; background: var(--bento-primary); color: var(--bento-on-primary,#fff); }
+          .error-msg { padding: 16px; background: var(--bento-error-light); border-left: 4px solid var(--bento-error); border-radius: var(--bento-radius-xs); font-size: 14px; color: var(--energy-value-red,#b91c1c); }
+          .no-sensors { padding: 40px 24px; text-align: center; color: var(--bento-text-secondary); font-size: 14px; }
+          button { font-family: var(--hat-font, var(--_hat-font)); font-size: 14px; font-weight: 500; border-radius: var(--bento-radius-xs); transition: all .2s; cursor: pointer; border: none; padding: 8px 16px; background: var(--bento-primary); color: var(--bento-on-primary,#fff); }
           button:hover { background: var(--bento-primary-hover); }
           .refresh-btn { background: transparent; color: var(--bento-text-secondary); padding: 4px; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; }
           .refresh-btn:hover { color: var(--bento-primary); background: var(--bento-primary-light); }
@@ -10624,7 +10920,7 @@ this._installTariffConsumerV3();
             .panel-header { padding: 16px; }
             .stats-grid { grid-template-columns: repeat(2, 1fr) !important; }
             .tabs { flex-wrap: wrap; gap: 4px; padding: 0 16px; }
-            .tab-btn { min-width: auto; font-size: 12px; padding: 6px 10px; }
+            .tab-btn { min-width: auto; font-size: 12px; padding: 8px 12px; }
             .device-list { overflow-x: auto; }
             .chart-container canvas { max-height: 200px; }
             .tip-card { padding: 12px; }
@@ -10638,7 +10934,68 @@ this._installTariffConsumerV3();
             .stats-grid { grid-template-columns: 1fr !important; }
           }
 
-  </style>
+
+/* Spec 5.3 full-view bridge; shared UI supplies defaults after vendoring. */
+:host {
+  --bento-primary: var(--hat-primary, var(--_hat-primary));
+  --bento-on-primary: var(--hat-on-primary, var(--_hat-on-primary));
+  --bento-primary-hover: color-mix(in srgb, var(--hat-primary-fill, var(--_hat-primary-fill)) 90%, var(--hat-text, var(--_hat-text)));
+  --bento-primary-light: color-mix(in srgb, var(--hat-primary, var(--_hat-primary)) 8%, transparent);
+  --bento-success: var(--hat-good, var(--_hat-good));
+  --bento-error: var(--hat-crit, var(--_hat-crit));
+  --bento-warning: var(--hat-warn, var(--_hat-warn));
+  --bento-bg: var(--hat-bg, var(--_hat-bg));
+  --bento-card: var(--hat-card, var(--_hat-card));
+  --bento-border: var(--hat-border, var(--_hat-border));
+  --bento-text: var(--hat-text, var(--_hat-text));
+  --bento-text-secondary: var(--hat-text-2, var(--_hat-text-2));
+  --bento-text-muted: var(--hat-text-2, var(--_hat-text-2));
+  --bento-radius-xs: var(--hat-radius, var(--_hat-radius));
+  --bento-radius-sm: var(--hat-radius, var(--_hat-radius));
+  --bento-radius-md: var(--hat-radius, var(--_hat-radius));
+  --bento-radius: var(--hat-radius, var(--_hat-radius));
+  --bento-shadow-sm: var(--ha-card-box-shadow, none);
+  --bento-shadow-md: var(--ha-card-box-shadow, none);
+  --bento-shadow-lg: var(--ha-card-box-shadow, none);
+  --bento-transition: var(--hat-motion,150ms ease);
+  --bento-success-light: color-mix(in srgb, var(--hat-good, var(--_hat-good)) 8%, transparent);
+  --bento-error-light: color-mix(in srgb, var(--hat-crit, var(--_hat-crit)) 8%, transparent);
+  --bento-warning-light: color-mix(in srgb, var(--hat-warn, var(--_hat-warn)) 8%, transparent);
+  --energy-value-blue: var(--hat-primary, var(--_hat-primary));
+  --energy-value-amber: var(--hat-warn-text, var(--_hat-warn-text));
+  --energy-value-green: var(--hat-good-text, var(--_hat-good-text));
+  --energy-value-red: var(--hat-crit-text, var(--_hat-crit-text));
+  --energy-value-neutral: var(--hat-text-2, var(--_hat-text-2));
+  --energy-value-purple: var(--hat-d2, var(--_hat-d2));
+  --energy-success-button: var(--hat-primary-fill, var(--_hat-primary-fill));
+  font-family:var(--hat-font, var(--_hat-font));font-size:14px;line-height:20px;color:var(--hat-text, var(--_hat-text));
+}
+
+:is(.card,.card-container,.panel-root,ha-card,.stat,.stat-card) { border-radius:var(--hat-radius, var(--_hat-radius));box-shadow:var(--ha-card-box-shadow,none); }
+:is(button,.btn,.tab,.tab-btn,.tab-button,input,select,textarea) { font-family:var(--hat-font, var(--_hat-font));font-size:14px;line-height:20px; }
+:is(.btn-primary,button.active,.btn.active,.action-btn.active) { background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary));border-color:var(--hat-primary-fill, var(--_hat-primary-fill));box-shadow:none; }
+:is(.btn-primary,button.active,.btn.active,.action-btn.active):hover { background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary));filter:brightness(.96); }
+.btn-ok { background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary));border-color:var(--hat-primary-fill, var(--_hat-primary-fill)); }
+:is(.badge,.status-badge,.tag,.chip,.trend-badge) { min-height:24px;box-sizing:border-box;border:1px solid currentColor;border-radius:999px;background:transparent;font-size:12px;line-height:16px;text-transform:none;letter-spacing:normal; }
+:is(.badge-success,.badge-ok,.status-ok,.status-good,.trend-down) { color:var(--hat-good-text, var(--_hat-good-text)); }
+:is(.badge-error,.badge-er,.status-error,.status-critical,.trend-up) { color:var(--hat-crit-text, var(--_hat-crit-text)); }
+:is(.badge-warning,.badge-wa,.status-warning) { color:var(--hat-warn-text, var(--_hat-warn-text)); }
+:is(.stat-value,.metric-value,.stat-number) { font-weight:600;line-height:34px;font-variant-numeric:tabular-nums; }
+:is(.stat-label,.stat-sub,.header-sub,.panel-subtitle,.pagination-info,.pag-info) { font-size:12px;line-height:16px;color:var(--hat-text-2, var(--_hat-text-2)); }
+:is(.card,.card-container,.panel-root) a { color:var(--hat-primary, var(--_hat-primary));text-underline-offset:2px; }
+:is(.insights-measured,.patterns-measured) svg text { font-family:var(--hat-font, var(--_hat-font)); }
+:is(.insights-measured,.patterns-measured) { line-height:20px; }
+:is(.card,.card-container,.panel-root) :is(button,input,select,summary,a):focus-visible { outline:2px solid var(--hat-primary, var(--_hat-primary));outline-offset:2px; }
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none;transition:none; } }
+
+:is(.header-title,.panel-title){font-size:16px;line-height:22px;font-weight:600}
+
+:is(.card,.card-container,.panel-root) td{font-size:14px;line-height:20px}
+
+.step-num{background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary))}
+
+${this._getTariffHostV3().ui().css}
+</style>
       `;
     }
 
@@ -11553,14 +11910,14 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     } finally { this._syncDashboardPlacementV53(); }
   };
   Card.prototype.getGridOptions = function() {
-    if (simple(this)) return variant(this._config) === 'tile' ? {columns:6,rows:1,min_columns:6,min_rows:1} : {columns:12,rows:4,min_columns:6,min_rows:2,max_rows:4};
+    if (simple(this)) return variant(this._config) === 'tile' ? {columns:6,rows:1,min_columns:6} : {columns:12,rows:'auto',min_columns:6};
     return {columns:variant(this._config || {}) === 'legacy' ? 6 : 12,min_columns:3,min_rows:variant(this._config || {}) === 'legacy' ? 2 : 3};
   };
   const originalSize = Card.prototype.getCardSize;
   Card.prototype.getCardSize = function() { return simple(this) ? (variant(this._config) === 'tile' ? 1 : 4) : variant(this._config || {}) === 'legacy' && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
-  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-value-green:#166534;--energy-value-red:#b91c1c;--energy-value-neutral:#475569;--energy-value-purple:#6d28d9;--energy-success-button:#166534;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
-:host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-value-green:#86efac;--energy-value-red:#fca5a5;--energy-value-neutral:#cbd5e1;--energy-value-purple:#c4b5fd;--energy-success-button:#166534;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
-.stat,.stat-card{background:var(--energy-kpi-tone)!important}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)!important}
+  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--bento-primary-hover:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--bento-on-primary:var(--hat-on-primary,var(--_hat-on-primary,#fff));--bento-text-muted:var(--hat-text-2,var(--secondary-text-color,#4b5563));--energy-value-blue:var(--hat-text,var(--primary-text-color,#111827));--energy-value-amber:var(--hat-warn-text,var(--_hat-warn-text,#a16207));--energy-value-green:var(--hat-good-text,var(--_hat-good-text,#15803d));--energy-value-red:var(--hat-crit-text,var(--_hat-crit-text,#b91c1c));--energy-value-neutral:var(--hat-text-2,var(--secondary-text-color,#4b5563));--energy-value-purple:var(--hat-d2,var(--_hat-d2,#6250d6));--energy-success-button:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--energy-kpi-tone:var(--hat-chip,var(--secondary-background-color,#f3f4f6));--energy-kpi-tone-alt:var(--energy-kpi-tone)}
+:host(.bento-dark){color-scheme:dark}
+.stat,.stat-card{background:var(--energy-kpi-tone)}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)}
 .btn-primary,button.btn-primary{color:var(--bento-on-primary)}
 .ht-tariff-v3 [data-status=success]{color:var(--energy-value-green)}.ht-tariff-v3 [data-status=error]{color:var(--energy-value-red)}.ht-tariff-v3 [data-status=partial],.ht-tariff-v3 [data-status=unconfirmed]{color:var(--energy-value-amber)}
  [data-energy-options-help], [data-energy-compact]{box-sizing:border-box;padding:16px;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border-radius:12px;font-size:14px;overflow-wrap:anywhere} [data-energy-options-help] summary, [data-energy-expand]{min-height:44px;box-sizing:border-box;padding:12px;cursor:pointer} [data-energy-compact] dl{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin:12px 0} [data-energy-compact] dt{font-size:13px;color:var(--secondary-text-color,#50545b)} [data-energy-compact] dd{margin:0 0 12px;font-weight:600;font-size:18px} [data-energy-expand]{color:var(--primary-text-color,#202124);background:var(--secondary-background-color,#eee);border:1px solid var(--divider-color,#888);border-radius:8px;font:inherit} [data-energy-options-help] summary:focus-visible,[data-energy-expand]:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}
@@ -11568,8 +11925,32 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]{flex:1 1 100%;width:100%}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer>summary{min-height:44px;padding:12px 8px;font-size:14px}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]>p{margin:0 0 8px}`;
-  const simpleStyle = `:host{display:block;min-width:0;--energy-simple-cheap:#1baf7a;--energy-simple-expensive:#2a78d6}:host(.bento-dark){--energy-simple-cheap:#199e70;--energy-simple-expensive:#3987e5} [data-energy-simple]{box-sizing:border-box;display:grid;gap:8px;padding:12px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);font-size:14px;min-width:0;overflow-wrap:anywhere} [data-energy-simple] h2,[data-energy-simple] p{margin:0;font-size:14px;line-height:20px} [data-energy-simple] h2{display:flex;align-items:center;gap:8px} [data-energy-simple] ha-icon{color:var(--primary-color);flex-shrink:0} [data-energy-primary]{font-size:24px;line-height:32px;font-weight:600} [data-energy-secondary]{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;line-height:18px} [data-energy-simple] button,[data-energy-back]{min-height:44px;min-width:44px;padding:8px 12px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit;font-size:14px;cursor:pointer} [data-energy-simple] button:focus-visible,[data-energy-back]:focus-visible{outline:3px solid var(--primary-color);outline-offset:2px} [data-energy-simple=tile]{grid-template-columns:minmax(0,1fr) auto;gap:4px;padding:4px 6px;min-height:56px} [data-energy-simple=tile] h2{font-size:14px;min-width:0} [data-energy-simple=tile] [data-energy-name],[data-energy-simple=tile] [data-energy-primary]{overflow:hidden;white-space:nowrap;text-overflow:ellipsis} [data-energy-simple=tile] [data-energy-primary]{font-size:12px;line-height:16px} [data-energy-simple=tile] button{grid-column:2;grid-row:1 / 3;width:44px;height:44px;align-self:center;padding:8px;font-size:24px;line-height:24px} [data-energy-simple=tile] ha-icon{--mdc-icon-size:20px} [data-energy-simple=compact]{grid-template-columns:minmax(0,1fr) auto;gap:6px 8px} [data-energy-simple=compact] h2,[data-energy-simple=compact] [data-energy-secondary],[data-energy-simple=compact] [data-energy-zone-wrapper],[data-energy-simple=compact] button{grid-column:1 / -1} [data-energy-simple=compact] [data-energy-primary]{grid-column:1;grid-row:2} [data-energy-simple=compact] [data-energy-primary-label]{grid-column:2;grid-row:2;align-self:center;font-size:12px;line-height:18px} [data-energy-zone-wrapper] p{font-size:12px;line-height:16px;margin:0 0 4px} [data-energy-zonebar]{position:relative;height:10px;overflow:hidden;border:1px solid var(--divider-color);border-radius:4px;background:var(--disabled-color,var(--secondary-background-color))} [data-energy-zonebar] span{position:absolute;inset-block:0} [data-energy-zone=cheap]{background:var(--energy-simple-cheap)} [data-energy-zone=expensive]{background:var(--energy-simple-expensive)} [data-energy-zone=mixed]{background:var(--info-color,var(--primary-color))} [data-energy-zone=unknown]{background:var(--disabled-color,var(--secondary-background-color))}`;
+  const simpleStyle = `:host{display:block;min-width:0;container-type:inline-size;container-name:energy-simple-card;--energy-simple-cheap:var(--hat-zone-cheap,var(--_hat-zone-cheap,#1baf7a));--energy-simple-expensive:var(--hat-zone-exp,var(--_hat-zone-exp,#2a78d6))}
+:host(.bento-dark){--energy-simple-cheap:var(--hat-zone-cheap,#199e70);--energy-simple-expensive:var(--hat-zone-exp,#3987e5)}
+[data-energy-simple]{box-sizing:border-box;display:grid;gap:8px;min-width:0;color:var(--primary-text-color);font-size:14px;cursor:pointer}
+[data-energy-simple] h2,[data-energy-simple] p{margin:0} [data-energy-simple] h2{font-size:16px;line-height:22px;font-weight:600;min-width:0} [data-energy-name]{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-energy-simple] ha-icon{display:flex;align-items:center;justify-content:center;flex:none;width:36px;height:36px;border-radius:50%;--mdc-icon-size:20px;color:var(--primary-color);background:color-mix(in srgb,currentColor 14%,transparent)}
+[data-energy-heading]{display:flex;align-items:center;gap:12px;min-width:0} [data-energy-heading-text]{flex:1;min-width:0}
+[data-energy-primary-label]{font-size:12px;line-height:16px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-energy-primary]{font-size:28px;line-height:34px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums} [data-energy-unit]{font-size:14px;line-height:20px;font-weight:400;letter-spacing:normal;color:var(--secondary-text-color)}
+[data-energy-simple] button,[data-energy-back]{min-height:44px;min-width:44px;padding:8px 12px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit;font-size:14px;cursor:pointer}
+[data-energy-simple]:focus-visible,[data-energy-simple] button:focus-visible,[data-energy-back]:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+[data-energy-simple=tile]{height:56px;grid-template-columns:36px minmax(0,1fr);column-gap:12px;row-gap:0;align-items:center;padding:0 8px 0 12px}
+[data-energy-report-status][data-energy-simple=tile]{grid-template-columns:36px minmax(0,1fr) auto} [data-energy-simple=tile] [data-energy-heading]{display:contents} [data-energy-simple=tile] h2{font-size:14px;line-height:20px;font-weight:500}
+[data-energy-simple=tile] [data-energy-primary]{font-size:12px;line-height:16px;font-weight:400;letter-spacing:normal;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-energy-state-short]{display:none} [data-energy-simple=tile] button{position:relative;height:36px;min-height:36px;min-width:36px;padding:0 10px;border:0;border-radius:999px} [data-energy-simple=tile] button:after{content:'';position:absolute;inset:-4px}
+[data-energy-simple=compact]{padding:12px 16px 16px;max-height:248px;overflow:hidden} [data-energy-values]{display:flex;align-items:baseline;gap:8px;min-width:0} [data-energy-cost]{font-size:20px;line-height:26px;font-weight:600;font-variant-numeric:tabular-nums} [data-energy-comparison]{margin-inline-start:auto;max-width:46%;font-size:12px;line-height:16px;text-align:end;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--secondary-text-color)}
+[data-energy-report-status] [data-energy-cost]{font-size:12px;line-height:16px;font-weight:400} [data-energy-report-status] [data-energy-comparison]{margin:0;max-width:none;text-align:start} [data-energy-secondary]{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;line-height:16px} [data-energy-zone-wrapper] p{font-size:12px;line-height:16px;margin:0 0 4px}
+[data-energy-zonebar]{position:relative;height:28px;overflow:hidden;border:1px solid var(--divider-color);border-radius:4px;background:var(--disabled-color,var(--secondary-background-color))} [data-energy-zonebar] span{position:absolute;bottom:0;box-sizing:border-box;border-inline-end:1px solid var(--ha-card-background,var(--card-background-color))}[data-energy-measurement=unknown]{height:100%;background:transparent!important;border:1px dashed var(--secondary-text-color)}[data-energy-zone-axis]{display:flex;justify-content:space-between;font-size:12px;line-height:16px;color:var(--secondary-text-color)} [data-energy-zone=cheap]{background:var(--energy-simple-cheap)} [data-energy-zone=expensive]{background:var(--energy-simple-expensive)} [data-energy-zone=mixed]{background:var(--info-color,var(--primary-color))} [data-energy-zone=unknown]{background:var(--disabled-color,var(--secondary-background-color))}
+[data-energy-zone-legend]{display:flex;gap:12px;flex-wrap:wrap;color:var(--secondary-text-color);font-size:12px;line-height:16px} [data-energy-zone-legend] span:before{content:'';display:inline-block;width:8px;height:8px;margin-inline-end:4px;background:var(--disabled-color)} [data-energy-zone-legend] [data-zone=cheap]:before{background:var(--energy-simple-cheap)} [data-energy-zone-legend] [data-zone=expensive]:before{background:var(--energy-simple-expensive)}`;
+  const canOpen = host => {
+    const config = host._config || {};
+    if (!host.isConnected || host.preview === true || host._hass?.user?.is_active === false || !simple(host)) return false;
+    const guard = host._getTariffHostV3().guard, token = guard.snapshot();
+    return guard.available(token) && guard.current(token) && (config.tap_target !== 'more-info' || !!host._hass?.states?.[config.entity]);
+  };
   const open = host => {
+    if (!canOpen(host)) return;
     const config = host._config || {};
     if (config.tap_target === 'energy') {
       // Fixed HA route only: configuration cannot supply a URL.
@@ -11659,7 +12040,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       const fields = Object.fromEntries(parts.map(part => [part.type,part.value]));
       if (`${fields.year}-${fields.month}-${fields.day}` !== day(p.local_start)) return null;
     } catch (_) { return null; }
-    return {percent:c.percent,cutoff:p.end};
+    return {percent:c.percent,cutoff:p.end,baseline:c.baseline_kwh};
   };
   const paintZoneBar = (bar, analysis, host, format) => {
     if (!bar) return;
@@ -11669,7 +12050,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const p = analysis?.period, chart = analysis?.chart, window = analysis?.period_summary?.window;
     const start = Date.parse(p?.start), end = Date.parse(p?.calendar_end), observed = Date.parse(p?.end);
     const rows = chart?.bins;
-    const note = t(host,'Tariff zones for the calendar day; unconfirmed intervals are neutral.','Strefy taryfy w dniu kalendarzowym; niepotwierdzone odcinki są neutralne.');
+    const note = t(host,'Measured day energy with tariff zones; missing measurements are not zero.','Zmierzona energia doby w strefach taryfy; brak pomiaru nie oznacza zera.');
     const descriptions = [];
     bar.setAttribute('aria-label',`${note} ${unknown}`);
     // Position/width are time geometry only. Never sum bins, quantities or costs.
@@ -11677,6 +12058,9 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
         !Number.isFinite(observed) || observed > end || window?.start !== p.start || window?.end !== p.end || window?.timezone !== p.timezone ||
         chart?.timezone !== p.timezone || chart?.status !== 'ready' || chart.coverage_kind !== 'complete_household_hours' || chart.fixed_fee_scope !== 'household_period_only' ||
         !Array.isArray(rows) || rows.length > 48) return;
+    const measured = row => row.complete === true && row.expected_seconds === (row.to-row.from)/1000 && row.measured_seconds === row.expected_seconds &&
+      (typeof row.kwh === 'number' || typeof row.kwh === 'string' && row.kwh.trim() !== '') && Number.isFinite(Number(row.kwh)) && Number(row.kwh) >= 0 && String(row.recorded_kwh) === String(row.kwh);
+    const maximum = Math.max(0,...rows.filter(measured).map(row=>Number(row.kwh)));
     let last = start;
     for (const row of rows) {
       if (!Number.isFinite(row.from) || !Number.isFinite(row.to) || row.to <= row.from || row.from < last || row.from < start || row.to > observed ||
@@ -11692,10 +12076,13 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
         z.reconciles_recorded_kwh === true && z.reconciles_known_costs === true && zone?.complete === true && zone.measured_seconds === row.measured_seconds &&
         z.currency === row.currency && z.price_basis === row.price_basis && String(zone.kwh) === String(row.kwh) && String(row.recorded_kwh) === String(row.kwh) &&
         String(zone.recorded_kwh) === String(row.kwh) && Object.hasOwn(names,classification);
+      const known = measured(row);
       const label = proven ? names[classification] : unknown;
-      const description = `${format.pointLabel(row.start)}–${format.pointLabel(row.end)}: ${label}`;
+      const description = `${format.pointLabel(row.start)}–${format.pointLabel(row.end)}: ${known ? format.number(row.kwh,{minimumFractionDigits:1,maximumFractionDigits:1}) + ' kWh' : unknown} · ${label}`;
       const segment = document.createElement('span');
       segment.dataset.energyZone = proven ? classification : 'unknown';
+      segment.dataset.energyMeasurement = known ? 'ready' : 'unknown';
+      if (known) segment.style.height = `${maximum > 0 ? 100*Number(row.kwh)/maximum : 0}%`;
       segment.style.left = `${100*(row.from-start)/(end-start)}%`;
       segment.style.width = `${100*(row.to-row.from)/(end-start)}%`;
       segment.title = description; segment.setAttribute('aria-hidden','true');
@@ -11704,29 +12091,18 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     bar.setAttribute('aria-label',[note,...descriptions,observed < end ? t(host,'Remaining time: Unknown','Pozostały czas: brak danych') : ''].filter(Boolean).join(' '));
   };
   const compactActionsStyle = '[data-energy-simple=compact] [data-energy-actions]{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}[data-energy-simple=compact] [data-energy-actions] button{flex:1 1 120px;min-width:0}';
-  const reportStatusStyle = '[data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}[data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:8em;font-size:12px;line-height:18px}';
-  // Six native HA columns can be only183px wide at a390px viewport.
-  // Stack the primary label and use the full line for secondary facts.
-  const narrowSimpleStyle = `:host{container-type:inline-size;container-name:energy-simple-card}
-  [data-energy-tariff-tile] [data-energy-tile-zone]{display:none}
-  @container energy-simple-card (max-width:180px){
-    [data-energy-tariff-tile] [data-energy-name],[data-energy-tariff-tile] [data-energy-tile-current]{display:none}
-    [data-energy-tariff-tile] h2{gap:4px}
-    [data-energy-tariff-tile] h2 ha-icon{--mdc-icon-size:16px}
-    [data-energy-tariff-tile] [data-energy-tile-zone]{display:inline;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  const reportStatusStyle = '[data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}';
+  const narrowSimpleStyle = `@container energy-simple-card (max-width:279px){
+    [data-energy-state-long]{display:none} [data-energy-state-short]{display:inline}
+  }
+  @container energy-simple-card (max-width:219px){
+    [data-energy-simple=tile] button{display:none}
   }
   @container energy-simple-card (max-width:320px){
-    [data-energy-simple=compact]{grid-template-columns:minmax(0,1fr);gap:4px;padding:8px}
-    [data-energy-simple=compact] h2{min-width:0;line-height:18px}
-    [data-energy-simple=compact] [data-energy-name]{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-    [data-energy-simple=compact] [data-energy-primary]{grid-column:1;grid-row:2;font-size:22px;line-height:28px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-    [data-energy-simple=compact] [data-energy-primary-label]{grid-column:1;grid-row:3;justify-self:start;line-height:16px}
-    [data-energy-simple=compact] [data-energy-secondary]{display:grid;gap:0;font-size:12px;line-height:16px}
+    [data-energy-values]{flex-wrap:wrap} [data-energy-comparison]{max-width:100%;flex-basis:100%;text-align:start;margin-inline-start:0}
     [data-energy-report-status][data-energy-simple=compact]{padding:6px;gap:2px}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:none;line-height:16px}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions]{flex-wrap:nowrap}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions] button{flex:1 1 0;min-width:44px;padding-inline:4px}
+    [data-energy-report-status] [data-energy-actions]{flex-wrap:nowrap}
+    [data-energy-report-status] [data-energy-actions] button{flex:1 1 0;min-width:44px;padding-inline:4px}
   }`;
 
   const emailStatusFor = host => host._emailStatusV100 ||= (() => {
@@ -11799,7 +12175,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const recipients = attempt?.recipient_count !== null && attempt?.recipient_count !== undefined ? format.number(attempt.recipient_count) : unknown;
     const numeric = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '') && Number.isFinite(Number(value));
     const total = analysis?.totals, elapsed = elapsedComparison(analysis);
-    const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${format.number(total.kwh,{maximumFractionDigits:2})} kWh` : unknown;
+    const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${format.number(total.kwh,{minimumFractionDigits:1,maximumFractionDigits:1})} kWh` : unknown;
     const native = !analysis?.active_tariff_id && analysis?.native_pricing?.source === 'ha_energy' && analysis?.native_pricing?.schema === 1 ? analysis.native_pricing.period_cost : null;
     const nativeReady = native?.status === 'ready' && native.coverage?.complete === true && numeric(native.amount) && /^[A-Z]{3}$/.test(native.currency || '');
     const bookReady = total?.pricing_complete === true && numeric(total.usage_cost) && /^[A-Z]{3}$/.test(total.currency || '');
@@ -11818,10 +12194,20 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span>${tariffTile ? '<span data-energy-tile-zone></span>' : ''}</h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
+      root.innerHTML = `<style>${host._getTariffHostV3().ui().css}${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><ha-card data-energy-simple="${mode}" role="button" tabindex="0"${!email ? ' data-energy-open' : ''}><div data-energy-heading><ha-icon aria-hidden="true"></ha-icon><div data-energy-heading-text><h2><span data-energy-name></span></h2>${mode === 'compact' ? '<p data-energy-primary-label></p>' : '<div data-energy-primary role="status"></div>'}</div></div>${mode === 'compact' ? email ? '<div data-energy-primary role="status"></div><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : '<div data-energy-values><div data-energy-primary role="status"></div><span data-energy-cost></span><span data-energy-comparison></span></div><div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div><div data-energy-zone-axis></div><div data-energy-zone-legend></div></div>' : ''}${email ? mode === 'compact' ? '<div data-energy-actions><button type="button" data-energy-open></button></div>' : '<button type="button" data-energy-open></button>' : ''}</ha-card>`;
       section = root.querySelector('[data-energy-simple]');
-      section.querySelector('button').addEventListener('click', () => open(host));
-      section.querySelector('button').addEventListener('keydown', event => {
+      section.addEventListener('click', event => {
+        if (event.target.closest?.('button,a,input,select,textarea')) return;
+        open(host);
+      });
+      section.addEventListener('keydown', event => {
+        if (event.target !== section || !['Enter',' '].includes(event.key)) return;
+        event.preventDefault();
+        if (!event.repeat) open(host);
+      });
+      const openButton = section.querySelector('[data-energy-open]');
+      openButton?.addEventListener('click', () => open(host));
+      openButton?.addEventListener('keydown', event => {
         if (['Enter',' '].includes(event.key) && !event.repeat) { event.preventDefault(); event.currentTarget.click(); }
       });
     }
@@ -11844,46 +12230,77 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       send.disabled = grant.execute !== true || reportState.busy || host._getTariffHostV3().guard.occupied();
     }
     const icon = section.querySelector('ha-icon');
-    icon.setAttribute('icon', email ? 'mdi:email-outline' : 'mdi:lightning-bolt');
+    icon.setAttribute('icon', email ? 'mdi:email-fast-outline' : 'mdi:lightning-bolt');
     const tone = snapshot?.status !== 'unavailable' && snapshot?.current?.available === true ? snapshot.current.zone_class : null;
     icon.style.color = {cheap:'var(--energy-simple-cheap)',expensive:'var(--energy-simple-expensive)',mixed:'var(--warning-color,var(--primary-color))'}[tone] || 'var(--primary-color)';
-    section.querySelector('[data-energy-name]').textContent = config.title ?? title;
-    section.querySelector('[data-energy-name]').title = config.title ?? title;
+    const surfaceName = config.title && config.title !== title ? config.title : email ? t(host,'Energy report','Raport energii') : mode === 'compact' ? t(host,'Energy today','Energia dziś') : t(host,'Energy','Energia');
+    section.querySelector('[data-energy-name]').textContent = surfaceName;
+    section.querySelector('[data-energy-name]').title = surfaceName;
     const primary = section.querySelector('[data-energy-primary]');
     const shortReport = report?.schedule_state === 'enabled' && report.next_report_at ? `${format.date(report.next_report_at,true)} · ${format.clock(report.next_report_at)}` : unknown;
-    if (tariffTile) {
-      let current = primary.querySelector('[data-energy-tile-current]');
-      let clock = primary.querySelector('[data-energy-tile-next]');
-      if (!current || !clock) {
-        current = document.createElement('span'); current.dataset.energyTileCurrent = '';
-        clock = document.createElement('span'); clock.dataset.energyTileNext = '';
-        primary.replaceChildren(current,clock);
+    if (mode === 'tile') {
+      let long = primary.querySelector('[data-energy-state-long]'), short = primary.querySelector('[data-energy-state-short]');
+      if (!long || !short) {
+        long = document.createElement('span'); long.dataset.energyStateLong = '';
+        short = document.createElement('span'); short.dataset.energyStateShort = '';
+        primary.replaceChildren(long,short);
       }
-      current.textContent = `${zone} · `;
-      clock.textContent = nextKnown ? format.clock(next.start) || unknown : nextLabel;
-      section.querySelector('[data-energy-tile-zone]').textContent = zone;
-      section.querySelector('h2').setAttribute('aria-label',`${config.title ?? title} · ${zone}`);
-      section.querySelector('h2').title = config.title ?? title;
-    } else primary.textContent = email ? mode === 'tile' ? shortReport : nextReport : energy;
+      const nextShort = nextKnown ? `${t(host,'Cheap from','Tania od')} ${format.clock(next.start) || unknown}` : nextLabel;
+      long.textContent = email ? shortReport : `${zone} · ${nextShort}`;
+      short.textContent = email ? shortReport : nextShort;
+    } else if (email) primary.textContent = nextReport;
+    else {
+      primary.replaceChildren(document.createTextNode(total?.measurement_complete !== false && numeric(total?.kwh) ? format.number(total.kwh,{minimumFractionDigits:1,maximumFractionDigits:1}) + ' ' : unknown));
+      if (energy !== unknown) { const unit = document.createElement('span'); unit.dataset.energyUnit = ''; unit.textContent = 'kWh'; primary.append(unit); }
+    }
     primary.title = email ? `${t(host,'Scheduled report','Zaplanowany raport')}: ${nextReport}` : mode === 'tile' ? `${zone} · ${nextKnown ? t(host,'Cheap from','Tania od') + ' ' : ''}${nextLabel}` : primary.textContent;
     primary.setAttribute('aria-label',primary.title);
     if (mode === 'compact') {
-      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Scheduled report','Zaplanowany raport') : t(host,'Energy today','Energia dziś');
-      section.querySelector('[data-energy-cost]').textContent = email ? `${t(host,'Last attempt','Ostatnia próba')}: ${lastAttempt}` : `${!bookReady && nativeReady ? t(host,'Cost recorded in HA','Koszt zapisany w HA') : t(host,'Usage cost','Koszt zużycia')}: ${money}`;
+      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Scheduled report','Zaplanowany raport') : analysis?.period?.end ? `${t(host,'Through','Do')} ${format.clock(analysis.period.end) || unknown}` : unknown;
+      section.querySelector('[data-energy-cost]').textContent = email ? `${t(host,'Last attempt','Ostatnia próba')}: ${lastAttempt}` : money;
       const costLine = section.querySelector('[data-energy-cost]');
-      costLine.title = !email && !bookReady && nativeReady ? `${costLine.textContent}. ${t(host,'Source: Home Assistant Energy. Cost breakdown and fixed fees are unknown; this is not a complete bill.','Źródło: Home Assistant Energy. Rozbicie kosztu i opłaty stałe są nieznane; to nie jest pełny rachunek.')}` : costLine.textContent;
+      if (!email && money !== unknown) {
+        const currency = bookReady ? total.currency : native.currency;
+        costLine.replaceChildren(document.createTextNode(money.slice(0,-currency.length)));
+        const unit = document.createElement('span'); unit.dataset.energyUnit = ''; unit.textContent = currency; costLine.append(unit);
+      }
+      costLine.title = !email && !bookReady && nativeReady ? `${t(host,'Cost recorded in HA','Koszt zapisany w HA')}: ${costLine.textContent}. ${t(host,'Source: Home Assistant Energy. Cost breakdown and fixed fees are unknown; this is not a complete bill.','Źródło: Home Assistant Energy. Rozbicie kosztu i opłaty stałe są nieznane; to nie jest pełny rachunek.')}` : email ? costLine.textContent : `${t(host,'Usage cost','Koszt zużycia')}: ${money}`;
       costLine.setAttribute('aria-label',costLine.title);
-      section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : `${comparisonName}: ${difference}`;
+      section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : elapsed ? `${difference} ${comparisonName}${numeric(elapsed.baseline) ? ` (${format.number(elapsed.baseline,{minimumFractionDigits:1,maximumFractionDigits:1})} kWh)` : ''}` : `${comparisonName}: ${difference}`;
       const caption = section.querySelector('[data-energy-zone-caption]');
-      if (caption) caption.textContent = t(host,'Day tariff zones','Strefy taryfy w ciągu dnia');
+      if (caption) caption.textContent = t(host,'Measured day energy','Zmierzona energia w ciągu dnia');
       paintZoneBar(section.querySelector('[data-energy-zonebar]'),analysis,host,format);
+      const comparison = section.querySelector('[data-energy-comparison]');
+      comparison.title = comparison.textContent;
+      const axis = section.querySelector('[data-energy-zone-axis]');
+      if (axis) {
+        axis.replaceChildren();
+        const start = Date.parse(analysis?.period?.start), end = Date.parse(analysis?.period?.calendar_end);
+        if (Number.isFinite(start) && Number.isFinite(end) && end > start) for (const instant of [start,start+(end-start)/2,end]) {
+          const point = document.createElement('span'); point.textContent = format.clock(new Date(instant).toISOString()) || unknown; axis.append(point);
+        }
+      }
+      const legend = section.querySelector('[data-energy-zone-legend]');
+      if (legend) {
+        legend.replaceChildren();
+        for (const [zone,label] of [['cheap',t(host,'Cheap','Tania')],['expensive',t(host,'Expensive','Droga')],['unknown',unknown]]) {
+          const item = document.createElement('span'); item.dataset.zone = zone; item.textContent = label; legend.append(item);
+        }
+      }
     }
-    const button = section.querySelector('button');
-    button.textContent = mode === 'tile' ? '›' : t(host,'Open','Otwórz');
-    button.setAttribute('aria-label', `${t(host,'Open','Otwórz')} ${config.title ?? title}`);
-    button.disabled = config.tap_target === 'more-info' && !host._hass?.states?.[config.entity];
+    const available = canOpen(host);
+    section.setAttribute('aria-disabled',String(!available));
+    section.tabIndex = available ? 0 : -1;
+    section.setAttribute('aria-label',[surfaceName,primary.title,section.querySelector('[data-energy-cost]')?.getAttribute('aria-label'),section.querySelector('[data-energy-comparison]')?.textContent].filter(Boolean).join('. '));
+    const button = section.querySelector('[data-energy-open]');
+    if (button) {
+      button.textContent = mode === 'tile' ? '✉' : t(host,'Open','Otwórz');
+      button.setAttribute('aria-label',`${t(host,'Open','Otwórz')} ${surfaceName}`);
+      button.disabled = !available;
+    }
   };
   // Simple surfaces do not run the full cards' discovery/config/schedule paths.
+  Card.prototype._applyThemeV150 = function() { this._getTariffHostV3().ui().applyTheme(this); };
   const hassDescriptor = Object.getOwnPropertyDescriptor(Card.prototype,'hass');
   if (hassDescriptor?.set) Object.defineProperty(Card.prototype,'hass',{...hassDescriptor,set(value) {
     try {
@@ -11898,14 +12315,14 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       this.classList.toggle('bento-dark',value?.themes?.darkMode === true);
       this._tariffHostController?.guard.observe();
       this._render();
-    } finally { this._syncDashboardPlacementV53(); }
+    } finally { this._syncDashboardPlacementV53(); this._applyThemeV150(); }
   }});
   const connected = Card.prototype.connectedCallback;
   Card.prototype.connectedCallback = function() {
     try {
       if (!simple(this) && this.preview !== true) return connected?.call(this);
       this._tariffHostController?.guard.resume(); this._render();
-    } finally { this._syncDashboardPlacementV53(); }
+    } finally { this._syncDashboardPlacementV53(); this._applyThemeV150(); }
   };
   for (const method of ['_repriceTariffV3','_syncAnalysisV53']) {
     const original = Card.prototype[method]; if (!original) continue;
@@ -11965,7 +12382,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     this._applyCardOptionsV5();
     if (restoreBack) this.shadowRoot.querySelector('[data-energy-back]')?.focus({preventScroll:true});
     return result;
-    } finally { this._syncDashboardPlacementV53(); }
+    } finally { this._syncDashboardPlacementV53(); this._applyThemeV150(); }
   };
   Card.prototype._applyCardOptionsV5 = function() {
     this._syncDashboardPlacementV53();
@@ -13486,7 +13903,7 @@ function createFeatureAccessV53({card, guard}) {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=100e5e0bfabf2780b4e5930917eeb27b787b530b21561ae467a50da399a4fec2
+      // HA_TARIFF_V3_START sha256=d1552bb6e7ff4d3c915647ef75b2d43e349e9937829833402aeda9c93c153cd1
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -13507,20 +13924,126 @@ function createUiV3({ language = 'en' } = {}) {
     const result = status(value);
     return `<span class="ht-result-state ht-result-state--${result.code}" data-result-state="${result.code}"><span aria-hidden="true">${result.icon}</span> ${result.label}</span>`;
   };
+  const parseColor = value => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    const hex = /^#([a-f0-9]{3}|[a-f0-9]{6})$/i.exec(text);
+    if (hex) return (hex[1].length === 3 ? [...hex[1]].map(c=>c+c).join('') : hex[1]).match(/../g).map(c=>parseInt(c,16));
+    const rgb = /^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*1(?:\.0+)?)?\s*\)$/i.exec(text);
+    return rgb ? rgb.slice(1,4).map(c=>Math.min(255,Math.round(Number(c)))) : null;
+  };
+  const hexColor = rgb => '#' + rgb.map(c=>c.toString(16).padStart(2,'0')).join('');
+  const luminance = rgb => rgb.map(c=>c/255).map(c=>c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4)
+    .reduce((sum,c,i)=>sum+c*[.2126,.7152,.0722][i],0);
+  const ratio = (a,b) => (Math.max(luminance(a),luminance(b))+.05)/(Math.min(luminance(a),luminance(b))+.05);
+  const primaryColors = (value, {dark = false} = {}) => {
+    const original = parseColor(value) || parseColor(dark ? '#818cf8' : '#2563eb');
+    const white = [255,255,255], ink = [15,23,42];
+    const foreground = ratio(original,white) >= ratio(original,ink) ? white : ink;
+    const target = foreground === white ? 0 : 255;
+    let fill = original;
+    // The nearest 5% step keeps a supplied theme color when it is readable.
+    for (let step=1; ratio(fill,foreground)<4.5 && step<=20; step++)
+      fill = original.map(c=>Math.round(c+(target-c)*step*.05));
+    return {fill:hexColor(fill),foreground:hexColor(foreground),contrast:ratio(fill,foreground)};
+  };
+  const applyTheme = host => {
+    const view = host?.ownerDocument?.defaultView;
+    if (!host?.isConnected || !view?.getComputedStyle) return null;
+    const raw = view.getComputedStyle(host).getPropertyValue('--primary-color').trim();
+    let resolved = raw;
+    // Resolve ordinary named colors through the browser without a persistent node.
+    if (raw && !parseColor(raw) && !raw.includes('var(') && raw !== 'transparent' && view.CSS?.supports?.('color',raw)) {
+      const probe = host.ownerDocument.createElement('span');
+      probe.style.display = 'none'; probe.style.color = raw;
+      host.append(probe);
+      try { resolved = view.getComputedStyle(probe).color; } finally { probe.remove(); }
+    }
+    const result = primaryColors(resolved,{dark:host.classList.contains('bento-dark') || host.classList.contains('hat-dark')});
+    for (const [key,value] of [['--hat-primary-fill-computed',result.fill],['--hat-on-primary-computed',result.foreground]])
+      if (host.style.getPropertyValue(key) !== value) host.style.setProperty(key,value);
+    return result;
+  };
+  // v5.3: public tokens stay inheritable; private defaults follow the HA dark flag.
   const css = `
-.ht-result-state { display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid currentColor;border-radius:6px;font-size:12px;line-height:1.4;white-space:normal; }
-.ht-result-state--success { color:#237b3d;background:rgba(35,123,61,.10); }
-.ht-result-state--partial { color:#966400;background:rgba(150,100,0,.10); }
-.ht-result-state--unconfirmed { color:#ad5200;background:rgba(173,82,0,.10); }
-.ht-result-state--error { color:#c32b2b;background:rgba(195,43,43,.10); }
-.ht-result-state--not_checked,.ht-result-state--no_data { color:var(--secondary-text-color,#666);background:transparent; }
+:host, .hat {
+  color-scheme: light;
+  /* powierzchnie i tekst — z motywu HA, w nawiasie wartość domyślna */
+  --_hat-bg:       var(--primary-background-color, #f3f4f6);
+  --_hat-card:     var(--ha-card-background, var(--card-background-color, #ffffff));
+  --_hat-chip:     var(--secondary-background-color, #f3f4f6);
+  --_hat-border:   var(--ha-card-border-color, var(--divider-color, #e5e7eb));
+  --_hat-text:     var(--primary-text-color, #111827);
+  --_hat-text-2:   var(--secondary-text-color, #4b5563);
+  --_hat-text-3:   var(--hat-text-3-theme, #6b7280);   /* tylko na tle karty; ≥ 12 px */
+  --_hat-grid:     color-mix(in srgb, var(--hat-text, var(--_hat-text)) 6%, var(--hat-card, var(--_hat-card)));
+  --_hat-radius:   var(--ha-card-border-radius, 12px);
+
+  /* Computed values supplied by the host when available; literals are explicit fallback colors, not dynamic contrast. */
+  --_hat-primary:      var(--primary-color, #2563eb);
+  --_hat-primary-fill: var(--hat-primary-fill-computed, #2563eb);
+  --_hat-on-primary:   var(--hat-on-primary-computed, #ffffff);
+
+  /* stany: wypełnienie (≥ 3:1) i tekst (≥ 4,5:1) */
+  --_hat-good: #0ca30c;  --_hat-good-text: #15803d;
+  --_hat-warn: #fab219;  --_hat-warn-text: #a16207;
+  --_hat-crit: #d03b3b;  --_hat-crit-text: #b91c1c;
+
+  /* serie (W23) */
+  --_hat-s1: #2a78d6; --_hat-s2: #eb6834; --_hat-s3: #1baf7a; --_hat-s4: #eda100; --_hat-s5: #e87ba4;
+  --_hat-zone-cheap: #1baf7a; --_hat-zone-exp: #2a78d6;
+  --_hat-d1: #eb6834; --_hat-d2: #6250d6; --_hat-d3: #e87ba4; --_hat-d4: #eda100;
+  --_hat-unmeasured: #9ca3af;
+
+  /* typografia (W16: treść ≥ 14, metadane ≥ 12, wersaliki ≥ 11) */
+  --_hat-font: var(--ha-font-family-body, Roboto, Inter, system-ui, sans-serif);
+  --_hat-fs-display: 28px;  --_hat-fs-number2: 20px;  --_hat-fs-title: 16px;
+  --_hat-fs-body: 14px;     --_hat-fs-meta: 12px;     --_hat-fs-caps: 11px;
+  --_hat-fw-regular: 400;   --_hat-fw-medium: 500;    --_hat-fw-bold: 600;
+
+  /* odstępy (siatka 4 px) i rozmiary */
+  --_hat-space-1: 4px; --_hat-space-2: 8px; --_hat-space-3: 12px; --_hat-space-4: 16px; --_hat-space-5: 24px;
+  --_hat-icon-lg: 36px; --_hat-icon-lg-glyph: 20px;   /* nagłówek, kafelek */
+  --_hat-icon-md: 28px; --_hat-icon-md-glyph: 16px;   /* wiersz, launcher */
+  --_hat-icon-sm: 24px; --_hat-icon-sm-glyph: 14px;   /* odznaka */
+  --_hat-tint: 18%;                                   /* tło ikony = akcent 18 % */
+  --_hat-pill-h: 32px;  --_hat-pill-h-mini: 28px;  --_hat-target: 44px;
+  --_hat-row-h: 56px;   --_hat-gap: 8px;           /* siatka Sections HA */
+  --_hat-motion: 150ms ease;
+  font-family: var(--hat-font, var(--_hat-font));
+  color: var(--hat-text, var(--_hat-text));
+}
+
+/* ---------- 2. Tokeny: ciemny (hass.themes.darkMode → klasa .hat-dark) ---------- */
+:host(.hat-dark), :host(.bento-dark), .hat.hat-dark {
+  --_hat-bg:     var(--primary-background-color, #111214);
+  --_hat-card:   var(--ha-card-background, var(--card-background-color, #1c1c1e));
+  --_hat-chip:   var(--secondary-background-color, #26272b);
+  --_hat-border: var(--ha-card-border-color, var(--divider-color, #2e2f33));
+  --_hat-text:   var(--primary-text-color, #e5e7eb);
+  --_hat-text-2: var(--secondary-text-color, #a1a1aa);
+  --_hat-text-3: var(--hat-text-3-theme, #8b8b93);
+  --_hat-primary-fill: var(--hat-primary-fill-computed, #818cf8);
+  --_hat-on-primary:   var(--hat-on-primary-computed, #0f172a);
+  --_hat-good: #22c55e;  --_hat-good-text: #22c55e;
+  --_hat-warn: #fab219;  --_hat-warn-text: #fab219;
+  --_hat-crit: #e05252;  --_hat-crit-text: #f87171;
+  --_hat-s1: #3987e5; --_hat-s2: #d95926; --_hat-s3: #199e70; --_hat-s4: #c98500; --_hat-s5: #d55181;
+  --_hat-zone-cheap: #199e70; --_hat-zone-exp: #3987e5;
+  --_hat-d1: #d95926; --_hat-d2: #9085e9; --_hat-d3: #d55181; --_hat-d4: #c98500;
+  --_hat-unmeasured: #6b7280;
+  color-scheme: dark;
+}
+
+
+
+.ht-result-state { display:inline-flex;align-items:center;gap:var(--hat-space-1,4px);min-height:24px;padding:0 10px;border:1px solid currentColor;border-radius:999px;font-size:var(--hat-fs-meta,12px);font-weight:600;line-height:16px;white-space:normal;background:transparent; }
+.ht-result-state--success { color:var(--hat-good-text, var(--_hat-good-text)); }
+.ht-result-state--partial,.ht-result-state--unconfirmed { color:var(--hat-warn-text, var(--_hat-warn-text)); }
+.ht-result-state--error { color:var(--hat-crit-text, var(--_hat-crit-text)); }
+.ht-result-state--not_checked,.ht-result-state--no_data { color:var(--hat-text-2, var(--_hat-text-2)); }
 .ht-result-state--no_data { border-style:dashed; }
-:host(.bento-dark) .ht-result-state--success { color:#81cf99; }
-:host(.bento-dark) .ht-result-state--partial { color:#efd080; }
-:host(.bento-dark) .ht-result-state--unconfirmed { color:#ffb97b; }
-:host(.bento-dark) .ht-result-state--error { color:#ff9999; }
 `;
-  return { status, statusHtml, css };
+  return { status, statusHtml, css, primaryColors, applyTheme };
 }
 // Node tests use the canonical factory; this line is excluded from runtime copies.
 
@@ -15336,7 +15859,18 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     ? `${signed && !String(value).startsWith('-') && /[1-9]/.test(String(value).split(/[eE]/)[0]) ? '+' : ''}${number(value)}${unit === '%' ? '' : ' '}${unit}` : unknown();
   const money = (value, currency, signed = false) => quantity(value, currency || t('currency unknown','waluta nieznana'), signed);
   // Presentation only: exact server values remain in Data and named details.
-  const briefEnergy=value=>valid(value)?`${number(value,{maximumSignificantDigits:6})} kWh`:unknown();
+  const briefNumber=(value,places,minimum=places,signed=false)=>{
+    if(!valid(value))return unknown();
+    const options={minimumFractionDigits:minimum,maximumFractionDigits:places};
+    const shown=number(value,options),direction=compare(value,'0');
+    if(direction && shown.replace(/^[-+−]/,'')===number('0',options))
+      return (direction<0?'>−':'<')+number('0.'+'0'.repeat(places-1)+'1',options);
+    return (signed&&direction>0?'+':'')+shown;
+  };
+  const briefEnergy=(value,signed=false)=>valid(value)?`${briefNumber(value,1,1,signed)} kWh`:unknown();
+  const briefMoney=(value,currency,signed=false)=>valid(value)?`${briefNumber(value,2,2,signed)} ${pl&&currency==='PLN'?'zł':currency||t('currency unknown','waluta nieznana')}`:unknown();
+  const briefRate=(value,currency)=>valid(value)?`${briefNumber(value,4,2)} ${pl&&currency==='PLN'?'zł':currency||t('currency unknown','waluta nieznana')}`:unknown();
+  const briefPercent=value=>valid(value)?ui.number(value,{style:'percent',maximumFractionDigits:0}).replace(/\s+(?=%)/g,''):unknown();
   const dateTime = value => {
     // Dynamic tariffs allow epoch milliseconds as well as ISO instants.
     if (typeof value === 'number') {
@@ -15436,20 +15970,20 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     });
     return ui.clock(peak.start,ui.timeZone!==snapshot.period?.timezone || repeated);
   };
-  const tiles = (snapshot, overview=false) => {
+  const tiles = (snapshot, overview=false, data=false) => {
     const total=snapshot.totals || {}, supplied=overview&&Object.hasOwn(snapshot,'period_summary'), native=nativeComplete(snapshot);
     const base=[
-      [t('Consumption','Zużycie'),quantity(total.kwh)], [native?nativeCostLabel():t('Cost','Koszt'),native?nativeMoney(native):money(total.total_cost,total.currency)],
-      native ? [t('Source','Źródło'),'Home Assistant Energy'] : [t('Effective price','Cena efektywna'),money(total.effective_price,total.currency) + (valid(total.effective_price) ? '/kWh' : '')],
+      [t('Consumption','Zużycie'),data?quantity(total.kwh):briefEnergy(total.kwh)], [native?nativeCostLabel():t('Cost','Koszt'),native?nativeMoney(native):data?money(total.total_cost,total.currency):briefMoney(total.total_cost,total.currency)],
+      native ? [t('Source','Źródło'),'Home Assistant Energy'] : [t('Effective price','Cena efektywna'),(data?money(total.effective_price,total.currency):briefRate(total.effective_price,total.currency)) + (valid(total.effective_price) ? '/kWh' : '')],
       [t('Measurement coverage','Pokrycie pomiarów'),coverage(snapshot.coverage)]
     ];
     if(!supplied)return `<div class="analysis-tiles">${base.map(([label,value],index)=>`<div class="analysis-tile ${index<2?'analysis-tile-primary':'analysis-tile-secondary'}"><span>${esc(label)}</span><strong>${esc(value)}</strong>${index===0?`<span data-analysis-kpi-comparison>${esc(kpiComparison(snapshot))}</span>`:''}</div>`).join('')}</div>`;
     const frame=periodWindow(snapshot),share=shareProof(snapshot,frame),peak=peakProof(snapshot,frame);
     const knownPeak=peak&&peak.kwh!==null,localPeak=knownPeak&&peak.reason!=='measurement_timezone_unavailable',partialPeak=peak&&(peak.status==='partial'||knownPeak&&!snapshot.totals?.measurement_complete);
-    const shareNote=share?.reason==='zero_total_kwh'?t('No share for a zero energy total','Brak udziału przy zerowym zużyciu'):share?.status==='ready'?quantity(share.known_cheap_kwh):t('Full-period share unavailable','Brak udziału za cały okres');
+    const shareNote=share?.reason==='zero_total_kwh'?t('No share for a zero energy total','Brak udziału przy zerowym zużyciu'):share?.status==='ready'?(data?quantity(share.known_cheap_kwh):briefEnergy(share.known_cheap_kwh)):t('Full-period share unavailable','Brak udziału za cały okres');
     return `<div class="analysis-tiles">${base.slice(0,2).map(([label,value],index)=>`<div class="analysis-tile analysis-tile-primary"><span>${esc(label)}</span><strong>${esc(value)}</strong>${index===0?`<span data-analysis-kpi-comparison>${esc(kpiComparison(snapshot))}</span>`:''}${index===1?`<span>${esc(base[2][0])}: ${esc(base[2][1])}</span>`:''}</div>`).join('')}
-      <div class="analysis-tile analysis-tile-secondary" data-analysis-cheap-share><span>${esc(t('Cheap-zone share','Udział taniej strefy'))}</span><strong>${esc(share?.status==='ready'?percentage(share.ratio):unknown())}</strong><span>${esc(shareNote)}</span></div>
-      <div class="analysis-tile analysis-tile-secondary" data-analysis-peak${knownPeak?` data-analysis-peak-id="${esc(peak.id)}"`:''}><span>${esc(partialPeak?t('Highest observed hour','Najwyższe zarejestrowane zużycie'):t('Highest hour','Godzina szczytu'))}</span><strong>${esc(localPeak?peakClock(snapshot,peak)||unknown():unknown())}</strong><span>${esc(knownPeak?quantity(peak.kwh)+(localPeak?' · '+date(peak.start):''):unknown())}</span>${partialPeak?`<span>${esc(t('Incomplete period','Niepełny okres'))}</span>`:''}${peak?.reason==='measurement_timezone_unavailable'?`<span>${esc(t('Measurement time zone unavailable','Brak strefy czasu pomiarów'))}</span>`:''}</div></div>`;
+      <div class="analysis-tile analysis-tile-secondary" data-analysis-cheap-share><span>${esc(t('Cheap-zone share','Udział taniej strefy'))}</span><strong>${esc(share?.status==='ready'?(data?percentage(share.ratio):briefPercent(share.ratio)):unknown())}</strong><span>${esc(shareNote)}</span></div>
+      <div class="analysis-tile analysis-tile-secondary" data-analysis-peak${knownPeak?` data-analysis-peak-id="${esc(peak.id)}"`:''}><span>${esc(partialPeak?t('Highest observed hour','Najwyższe zarejestrowane zużycie'):t('Highest hour','Godzina szczytu'))}</span><strong>${esc(localPeak?peakClock(snapshot,peak)||unknown():unknown())}</strong><span>${esc(knownPeak?(data?quantity(peak.kwh):briefEnergy(peak.kwh))+(localPeak?' · '+date(peak.start):''):unknown())}</span>${partialPeak?`<span>${esc(t('Incomplete period','Niepełny okres'))}</span>`:''}${peak?.reason==='measurement_timezone_unavailable'?`<span>${esc(t('Measurement time zone unavailable','Brak strefy czasu pomiarów'))}</span>`:''}</div></div>`;
   };
   const baselineNote = () => `<p data-analysis-baseline="unknown">${esc(t('No matching comparison is available for these intervals.','Brak dopasowanego porównania dla tych przedziałów.'))}</p>`;
   const instant = value => {
@@ -15533,10 +16067,10 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   const zoneColor=(version,zone,snapshot)=>{
     const rates=(snapshot?.rates||[]).filter(rate=>rate.version_id===version);
     const matches=rates.length===1?rates[0].profile?.zones?.filter(row=>row.id===zone)||[]:[];
-    if(matches.length===1&&matches[0].classification==='cheap')return 'var(--analysis-zone-cheap,#1baf7a)';
-    if(matches.length===1&&matches[0].classification==='expensive')return 'var(--analysis-zone-expensive,#2a78d6)';
+    if(matches.length===1&&matches[0].classification==='cheap')return 'var(--analysis-zone-cheap,var(--hat-zone-cheap, var(--_hat-zone-cheap)))';
+    if(matches.length===1&&matches[0].classification==='expensive')return 'var(--analysis-zone-expensive,var(--hat-zone-exp, var(--_hat-zone-exp)))';
     let hash=0;for(const char of JSON.stringify([version,zone]))hash=(hash*31+char.charCodeAt(0))>>>0;
-    return ['#287fd1','#8754b3','#c76428','#bc447b','#238782','#92821a','#64748b','#a54444'][hash%8];
+    return ['var(--hat-s1, var(--_hat-s1))','var(--hat-d2, var(--_hat-d2))','var(--hat-s2, var(--_hat-s2))','var(--hat-s5, var(--_hat-s5))','var(--hat-s3, var(--_hat-s3))','var(--hat-s4, var(--_hat-s4))','var(--hat-unmeasured, var(--_hat-unmeasured))','var(--hat-crit, var(--_hat-crit))'][hash%8];
   };
   const zoneEntries=(snapshot,row,{period=false}={})=>{
     const proof=zoneProof(row,{period});if(!proof)return null;
@@ -15702,7 +16236,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const destinations=groupReady?rows.filter(({row})=>compare(row.kwh,'0')>0).map(({id,label,row})=>({id,label,kwh:row.kwh,color:id==='unmeasured'?null:`var(--analysis-rank-${colors.get(id)??4})`})):[];
     const sources=source?source.zones.filter(zone=>compare(zone.kwh,'0')>0).map(zone=>({id:zone.version_id+'|'+zone.zone_id,label:zone.label,kwh:zone.kwh,color:zoneColor(zone.version_id,zone.zone_id,snapshot)})):[];
     const swatch=item=>`<i class="analysis-flow-swatch${item.color?'':' analysis-hatched'}" aria-hidden="true"${item.color?` style="background:${item.color}"`:''}></i>`;
-    const legend=items=>`<ul class="analysis-flow-labels">${items.map(item=>`<li>${swatch(item)}<span>${esc(item.label)} · ${esc(briefEnergy(item.kwh))} · ${esc(percentage(shareGeometry(item.kwh,total)))}</span></li>`).join('')}</ul>`;
+    const legend=items=>`<ul class="analysis-flow-labels">${items.map(item=>`<li>${swatch(item)}<span>${esc(item.label)} · ${esc(briefEnergy(item.kwh))} · ${esc(briefPercent(shareGeometry(item.kwh,total)))}</span></li>`).join('')}</ul>`;
     const bar=(side,items,ready)=>ready&&positive?`<div class="analysis-composition" data-analysis-composition="${side}" aria-hidden="true">${items.map(item=>`<span data-analysis-segment class="${item.color?'':'analysis-hatched'}" style="width:${shareGeometry(item.kwh,total)*100}%;${item.color?'background:'+item.color:''}"></span>`).join('')}</div>`:`<p class="analysis-note">${esc(positive?unknown():nonnegative(total)&&compare(total,'0')===0?t('No energy recorded in this period.','W tym okresie zarejestrowano zerowe zużycie.'):unknown())}</p>`;
     let diagram='';
     if(groupReady&&source&&positive){
@@ -15750,7 +16284,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const note=series.markers.size?`<p data-analysis-baseline="${series.reconciles?'ready':'partial'}">${esc(series.reconciles?t('Comparison covers the displayed intervals.','Porównanie obejmuje wyświetlone przedziały.'):t('Comparison is available for selected intervals only; it does not cover the whole period.','Porównanie obejmuje wybrane przedziały, ale nie cały okres.'))}</p>`:baselineNote();
     return `<section data-analysis-chart><div class="analysis-section-title"><h3>${esc(t('Consumption over time','Zużycie w czasie'))}</h3><div class="analysis-switch">${button('view','chart',t('Chart','Wykres'),options.view !== 'data')}${button('view','data',t('Data','Dane'),options.view === 'data')}</div></div>
       <p data-analysis-series-legend><span class="analysis-series-current">${esc(currentLabel)}</span> · <span class="analysis-series-baseline">${esc(baselineLabel)}</span>${series.common?' · '+esc(t('Selected amounts can differ from whole-household energy. Unmatched intervals retain household bars; their common comparison value is unavailable.','Wybrane ilości mogą różnić się od energii całego gospodarstwa. Bez dopasowania pozostaje słupek gospodarstwa; brak wartości wspólnego porównania.')):''}</p>
-      ${zoneLegend}${options.view === 'data'?table(t('Measured intervals · usage cost without fixed fees','Przedziały pomiarowe · koszt zużycia bez opłat stałych'),[t('Period','Okres'),currentLabel+' kWh',t('Household usage cost','Koszt zużycia gospodarstwa'),baselineLabel+' kWh',t('Real baseline intervals','Rzeczywiste przedziały odniesienia'),...(series.common?[t('Whole household kWh','Całe gospodarstwo kWh')]:[]),...(hasZones?[t('Tariff zones in this interval','Strefy taryfy w przedziale')]:[])],rows,'','data-analysis-bin'):`<div class="analysis-chart-scroll"><div class="analysis-chart" style="--analysis-point-count:${Math.max(1,points.length)}" role="group" aria-label="${esc(t('Current and baseline consumption, select a point for values','Bieżące zużycie i odniesienie, wybierz punkt, aby odczytać wartości'))}">${points.map(p=>`<button type="button" class="analysis-point${p.visualCurrent==null?' analysis-missing':''}" data-analysis-action="point" data-analysis-value="${p.index}" aria-pressed="${String(options.selected)===String(p.index)}" aria-label="${esc(pointText(p))}"><span class="analysis-column analysis-series-current" aria-hidden="true" ${columnZones.get(p.index)?` data-analysis-column-zone="${esc(columnZones.get(p.index).key)}"`:''} style="height:${width(p.visualCurrent,max)*1.68}px${columnZones.get(p.index)?';background:'+columnZones.get(p.index).color:options.section==='comparison'?'':';background:var(--secondary-text-color,#718096)'}"></span>${p.marker?`<span data-analysis-marker class="analysis-baseline-line analysis-series-baseline" aria-label="${esc(pointText(p))}" style="bottom:${40+width(p.marker.baseline,max)*1.68}px"></span>`:''}<span class="analysis-point-label"${axisLabels.has(p.index)&&!majorTicks.has(p.index)?' data-analysis-axis-minor':''} aria-hidden="true">${esc(axisLabels.get(p.index)||'')}</span></button>`).join('')}</div></div>`}
+      ${zoneLegend}${options.view === 'data'?table(t('Measured intervals · usage cost without fixed fees','Przedziały pomiarowe · koszt zużycia bez opłat stałych'),[t('Period','Okres'),currentLabel+' kWh',t('Household usage cost','Koszt zużycia gospodarstwa'),baselineLabel+' kWh',t('Real baseline intervals','Rzeczywiste przedziały odniesienia'),...(series.common?[t('Whole household kWh','Całe gospodarstwo kWh')]:[]),...(hasZones?[t('Tariff zones in this interval','Strefy taryfy w przedziale')]:[])],rows,'','data-analysis-bin'):`<div class="analysis-chart-scroll"><div class="analysis-chart" style="--analysis-point-count:${Math.max(1,points.length)}" role="group" aria-label="${esc(t('Current and baseline consumption, select a point for values','Bieżące zużycie i odniesienie, wybierz punkt, aby odczytać wartości'))}">${points.map(p=>`<button type="button" class="analysis-point${p.visualCurrent==null?' analysis-missing':''}" data-analysis-action="point" data-analysis-value="${p.index}" aria-pressed="${String(options.selected)===String(p.index)}" aria-label="${esc(pointText(p))}"><span class="analysis-column analysis-series-current" aria-hidden="true" ${columnZones.get(p.index)?` data-analysis-column-zone="${esc(columnZones.get(p.index).key)}"`:''} style="height:${width(p.visualCurrent,max)*1.68}px${columnZones.get(p.index)?';background:'+columnZones.get(p.index).color:options.section==='comparison'?'':';background:var(--secondary-text-color,var(--hat-unmeasured, var(--_hat-unmeasured)))'}"></span>${p.marker?`<span data-analysis-marker class="analysis-baseline-line analysis-series-baseline" aria-label="${esc(pointText(p))}" style="bottom:${40+width(p.marker.baseline,max)*1.68}px"></span>`:''}<span class="analysis-point-label"${axisLabels.has(p.index)&&!majorTicks.has(p.index)?' data-analysis-axis-minor':''} aria-hidden="true">${esc(axisLabels.get(p.index)||'')}</span></button>`).join('')}</div></div>`}
       ${!points.length?`<p role="status">${esc(unknown())}</p>`:''}${selection}${note}<p class="analysis-note">${esc(t('Fixed fees apply once to the household period. Missing measurements are not zero.','Opłaty stałe dotyczą jednokrotnie całego okresu gospodarstwa. Brak pomiaru nie oznacza zera.'))}</p></section>`;
   };
   const groupsView = (snapshot,level,options={}) => {
@@ -15761,11 +16295,11 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const flow=flowMarkup(snapshot,rows,colors);
     const groupCurrency=typeof groups?.currency==='string'&&/^[A-Z]{3}$/.test(groups.currency)&&
       groups.currency===snapshot.totals?.currency&&['gross','net'].includes(groups.price_basis)&&groups.price_basis===snapshot.totals?.price_basis?groups.currency:null;
-    const groupMoney=value=>groupCurrency?money(value,groupCurrency):unknown();
+    const groupMoney=(value,brief=false)=>groupCurrency?(brief?briefMoney(value,groupCurrency):money(value,groupCurrency)):unknown();
     const details=table(t('Group measurements and usage costs','Pomiary grup i koszty zużycia'),[t('Group','Grupa'),'kWh',t('Usage cost','Koszt zużycia'),t('Coverage','Pokrycie')],rows.map(({label,row})=>[esc(label),esc(quantity(row.kwh)),esc(groupMoney(row.usage_cost)),esc(coverage(row.coverage))]))+
       `<p class="analysis-note">${esc(t('Assignments follow the current Home Assistant registry. No room and unmeasured energy are separate. Group costs exclude household fixed fees.','Przypisania pochodzą z aktualnego rejestru Home Assistant. Bez pokoju i Niezmierzone są osobnymi pozycjami. Koszty grup nie obejmują opłat stałych gospodarstwa.'))}</p>`;
     return `<section data-analysis-groups><h3>${esc(t('Energy flow — from and to','Przepływ energii — skąd i dokąd'))}</h3>${options.view==='data'?'':flow.markup}<div${options.view==='data'?'':' class="analysis-group-summary"'}><div><h4>${esc(t('Selected groups · share of household energy','Wybrane grupy · udział energii gospodarstwa'))}</h4>
-      <ol class="analysis-ranking" data-analysis-ranking>${rows.map(({id,label,row})=>`<li data-analysis-rank-id="${esc(id)}" class="${id==='unmeasured'?'analysis-unmeasured':''}"><div><strong><i class="analysis-flow-swatch ${id==='unmeasured'?'analysis-hatched':'rank-'+(colors.get(id)??4)}" aria-hidden="true"></i>${esc(label)}</strong><span>${esc(options.view==='data'?quantity(row.kwh):briefEnergy(row.kwh))} · <span data-analysis-rank-share>${esc(flow.groupReady?percentage(shareGeometry(row.kwh,snapshot.totals?.kwh)):unknown())}</span> · ${esc(groupMoney(row.usage_cost))}</span></div><div class="analysis-track" aria-hidden="true"><span class="analysis-rank rank-${colors.get(id)??4}" style="width:${width(row.kwh,max)}%"></span></div></li>`).join('')}</ol>
+      <ol class="analysis-ranking" data-analysis-ranking>${rows.map(({id,label,row})=>`<li data-analysis-rank-id="${esc(id)}" class="${id==='unmeasured'?'analysis-unmeasured':''}"><div><strong><i class="analysis-flow-swatch ${id==='unmeasured'?'analysis-hatched':'rank-'+(colors.get(id)??4)}" aria-hidden="true"></i>${esc(label)}</strong><span>${esc(options.view==='data'?quantity(row.kwh):briefEnergy(row.kwh))} · <span data-analysis-rank-share>${esc(flow.groupReady?(options.view==='data'?percentage(shareGeometry(row.kwh,snapshot.totals?.kwh)):briefPercent(shareGeometry(row.kwh,snapshot.totals?.kwh))):unknown())}</span> · ${esc(groupMoney(row.usage_cost,options.view!=='data'))}</span></div><div class="analysis-track" aria-hidden="true"><span class="analysis-rank rank-${colors.get(id)??4}" style="width:${width(row.kwh,max)}%"></span></div></li>`).join('')}</ol>
       ${!rows.length?`<p>${esc(unknown())}</p>`:''}${options.view==='data'?'':`<details data-analysis-unmeasured-details><summary>${esc(t('Unmeasured energy explained','Co oznacza energia niezmierzona'))}</summary>`}<p class="analysis-note" data-analysis-unmeasured-explanation>${esc(groups?.energy_domain==='grid_import'?t('Unmeasured = grid import − sum of disjoint measured device amounts. Parent residuals and children are counted once. This is not the same as devices with no room. Fixed fees belong only to the household.','Niezmierzone = import z sieci − suma rozłącznych ilości zmierzonych urządzeń. Reszty urządzeń nadrzędnych i dzieci liczone są raz. To osobna pozycja od urządzeń bez pokoju. Opłaty stałe dotyczą tylko gospodarstwa.'):t('Unmeasured energy is separate from devices with no room. An import remainder is unavailable for this energy source.','Energia niezmierzona jest osobna od urządzeń bez pokoju. Dla tego źródła nie można podać reszty importu.'))}</p>
       ${options.view==='data'?'':'</details>'}</div>
       ${periodZonesMarkup(snapshot)}</div>
@@ -15782,6 +16316,9 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   ].filter(Boolean).join(' · ');
   const ratesView = (snapshot,options={}) => {
     const total=snapshot.totals || {}, groups=snapshot.groups || {}, data=options.view==='data';
+    const summaryMoney=(value,currency,signed=false)=>data?money(value,currency,signed):briefMoney(value,currency,signed);
+    const summaryRate=(value,currency)=>data?money(value,currency):briefRate(value,currency);
+    const summaryEnergy=value=>data?quantity(value):briefEnergy(value);
     if (nativeFacts(snapshot)) return `<section class="analysis-rate76" data-analysis-rates><h3>${esc(t('Rates and costs','Stawki i koszty'))}</h3>${nativeDetails(snapshot)}</section>`;
     const currencyKnown=typeof total.currency==='string'&&/^[A-Z]{3}$/.test(total.currency)&&['gross','net'].includes(total.price_basis);
     const positive=value=>valid(value)&&compare(value,'0')>=0;
@@ -15790,8 +16327,8 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     // producer values passed directly to the shared formatter, never added here.
     const costReady=currencyKnown&&total.measurement_complete===true&&total.pricing_complete===true&&total.components_complete===true&&
       positive(total.total_cost)&&componentKeys.every(key=>positive(total[key])&&compare(total[key],total.total_cost)<=0);
-    const componentLegend=componentKeys.map(key=>`<li><span class="analysis-rate76-swatch analysis-rate76-${key}" aria-hidden="true"></span><span>${esc(costLabels[key])}: <strong>${esc(money(total[key],total.currency))}</strong></span></li>`).join('');
-    const costGraphic=!data&&costReady?`<div class="analysis-rate76-track" aria-hidden="true">${componentKeys.map(key=>`<span class="analysis-rate76-${key}" data-analysis-rate76-bar style="width:${width(total[key],Number(total.total_cost))}%" title="${esc(costLabels[key]+': '+money(total[key],total.currency))}"></span>`).join('')}</div>`:'';
+    const componentLegend=componentKeys.map(key=>`<li><span class="analysis-rate76-swatch analysis-rate76-${key}" aria-hidden="true"></span><span>${esc(costLabels[key])}: <strong>${esc(summaryMoney(total[key],total.currency))}</strong></span></li>`).join('');
+    const costGraphic=!data&&costReady?`<div class="analysis-rate76-track" aria-hidden="true">${componentKeys.map(key=>`<span class="analysis-rate76-${key}" data-analysis-rate76-bar style="width:${width(total[key],Number(total.total_cost))}%" title="${esc(costLabels[key]+': '+summaryMoney(total[key],total.currency))}"></span>`).join('')}</div>`:'';
     const visibleRates=(snapshot.rates || []).map(rate=>{
       const profile=rate.profile || {},zones=profile.zones || [],legacy=rate.rate_semantics==='legacy_combined';
       // Optional rates78 producer contract. Reject the whole projection on any
@@ -15803,15 +16340,15 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
         new Set(combined.map(row=>row.zone_id)).size===zones.length;
       const combinedRates=new Map(combinedValid?combined.map(row=>[row.zone_id,row.usage_rate]):[]);
       const clock=profile.clock?.mode==='fixed'?t('Fixed UTC offset','Stałe przesunięcie UTC')+': '+quantity(profile.clock.offsetMinutes,'min',true):profile.clock?.mode==='civil'?t('Civil tariff clock','Czas lokalny taryfy'):unknown();
-      const monthly=Object.entries(feeLabels).filter(([key])=>Object.hasOwn(rate.fixed_monthly || {},key)).map(([key,label])=>`<li>${esc(label)}: <strong>${esc(money(rate.fixed_monthly[key],rate.currency))}</strong> / ${esc(t('month','miesiąc'))}</li>`);
-      if(rate.legacy_combined_monthly!=null)monthly.push(`<li>${esc(t('Legacy combined monthly fee','Dawna łączna opłata miesięczna'))}: <strong>${esc(money(rate.legacy_combined_monthly,rate.currency))}</strong> / ${esc(t('month','miesiąc'))}</li>`);
-      const dynamic=(profile.dynamic?.intervals || []).map(row=>[esc(`${dateTime(row.from)} – ${dateTime(row.to)}`),esc(money(row.energyRate,rate.currency)),esc(money(row.variableRate,rate.currency))]);
+      const monthly=Object.entries(feeLabels).filter(([key])=>Object.hasOwn(rate.fixed_monthly || {},key)).map(([key,label])=>`<li>${esc(label)}: <strong>${esc(summaryMoney(rate.fixed_monthly[key],rate.currency))}</strong> / ${esc(t('month','miesiąc'))}</li>`);
+      if(rate.legacy_combined_monthly!=null)monthly.push(`<li>${esc(t('Legacy combined monthly fee','Dawna łączna opłata miesięczna'))}: <strong>${esc(summaryMoney(rate.legacy_combined_monthly,rate.currency))}</strong> / ${esc(t('month','miesiąc'))}</li>`);
+      const dynamic=(profile.dynamic?.intervals || []).map(row=>[esc(`${dateTime(row.from)} – ${dateTime(row.to)}`),esc(summaryRate(row.energyRate,rate.currency)),esc(summaryRate(row.variableRate,rate.currency))]);
       return `<article class="analysis-rate76-card" data-analysis-rate76-version="${esc(rate.version_id)}"><h4>${esc(t('Rates effective from','Stawki obowiązujące od'))} ${esc(date(rate.valid_from))}${rate.valid_to?' – '+esc(date(rate.valid_to)):''}</h4>
         <p class="analysis-rate76-meta">${esc(rate.currency || unknown())} · ${esc(basis(rate.price_basis))} · ${esc(profile.timezone || unknown())} · ${esc(clock)}</p>
         <ul class="analysis-rate76-rate-list">${zones.map(zone=>{
           const rules=[...(profile.rules || []).filter(rule=>rule.zone===zone.id).map(rule=>ruleText(rule)),...(profile.exceptions || []).filter(rule=>rule.zone===zone.id).map(rule=>t('Exception','Wyjątek')+': '+ruleText(rule))];
           if(zone.id===profile.defaultZone)rules.push(t('Default outside matching rules','Domyślna poza pasującymi regułami'));
-          return `<li><strong>${esc(zone.label || t('Unnamed zone','Strefa bez nazwy'))}</strong><div class="analysis-rate76-schedule">${rules.length?rules.map(rule=>`<p>${esc(rule)}</p>`).join(''):esc(unknown())}</div><dl class="analysis-rate76-rate-values"><div><dt>${esc(legacy?t('Combined usage / kWh','Łączna stawka zużycia / kWh'):t('Energy / kWh','Energia / kWh'))}</dt><dd>${esc(money(zone.energyRate,rate.currency))}</dd></div><div><dt>${esc(t('Distribution / kWh','Dystrybucja / kWh'))}</dt><dd>${esc(legacy?unknown():money(zone.variableRate,rate.currency))}</dd></div><div><dt>${esc(t('Total / kWh','Razem / kWh'))}</dt><dd data-analysis-rate76-total="${esc(zone.id)}">${esc(money(combinedRates.get(zone.id),rate.currency))}</dd></div></dl></li>`;
+          return `<li><strong>${esc(zone.label || t('Unnamed zone','Strefa bez nazwy'))}</strong><div class="analysis-rate76-schedule">${rules.length?rules.map(rule=>`<p>${esc(rule)}</p>`).join(''):esc(unknown())}</div><dl class="analysis-rate76-rate-values"><div><dt>${esc(legacy?t('Combined usage / kWh','Łączna stawka zużycia / kWh'):t('Energy / kWh','Energia / kWh'))}</dt><dd>${esc(summaryRate(zone.energyRate,rate.currency))}</dd></div><div><dt>${esc(t('Distribution / kWh','Dystrybucja / kWh'))}</dt><dd>${esc(legacy?unknown():summaryRate(zone.variableRate,rate.currency))}</dd></div><div><dt>${esc(t('Total / kWh','Razem / kWh'))}</dt><dd data-analysis-rate76-total="${esc(zone.id)}">${esc(summaryRate(combinedRates.get(zone.id),rate.currency))}</dd></div></dl></li>`;
         }).join('')}</ul>
         ${!zones.length?`<p>${esc(unknown())}</p>`:''}
         ${dynamic.length?table(t('Dynamic rate intervals','Przedziały stawek dynamicznych'),[t('Period','Okres'),t('Energy / kWh','Energia / kWh'),t('Distribution / kWh','Dystrybucja / kWh')],dynamic,'class="analysis-rate76-table"'):''}
@@ -15834,18 +16371,18 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const proof=periodZoneProof(snapshot,periodWindow(snapshot));
     const zoneReady=proof?.status==='ready'&&currencyKnown&&positive(total.usage_cost)&&proof.zones.every(zone=>zone.complete&&positive(zone.usage_cost)&&compare(zone.usage_cost,total.usage_cost)<=0);
     const zoneDetails=proof?zoneEntries(snapshot,snapshot.period_summary,{period:true}):null;
-    const zoneGraphic=!data&&zoneReady?`<div class="analysis-rate76-track" aria-hidden="true">${proof.zones.map(zone=>`<span data-analysis-rate76-bar style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)};width:${width(zone.usage_cost,Number(total.usage_cost))}%" title="${esc(zone.label+': '+money(zone.usage_cost,proof.currency))}"></span>`).join('')}</div>`:'';
+    const zoneGraphic=!data&&zoneReady?`<div class="analysis-rate76-track" aria-hidden="true">${proof.zones.map(zone=>`<span data-analysis-rate76-bar style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)};width:${width(zone.usage_cost,Number(total.usage_cost))}%" title="${esc(zone.label+': '+summaryMoney(zone.usage_cost,proof.currency))}"></span>`).join('')}</div>`:'';
     const zoneRows=proof?.zones.map(zone=>{
       const rate=(snapshot.rates || []).find(row=>row.version_id===zone.version_id),complete=proof.status==='ready'&&zone.complete;
-      const known=[[t('Known energy cost','Znany koszt energii'),'energy_cost'],[t('Known distribution cost','Znany koszt dystrybucji'),'variable_cost'],[t('Known legacy usage cost','Znany dawny koszt zużycia'),'legacy_combined_cost']].map(([label,key])=>`${label}: ${money(zone.known_costs[key],proof.currency)}`).join(' · ');
-      return `<li data-analysis-rate76-zone="${esc(zone.version_id+'|'+zone.zone_id)}"><span class="analysis-rate76-swatch" style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)}" aria-hidden="true"></span><div><strong>${esc(zone.label)}</strong><span class="analysis-rate76-meta"> · ${esc(t('Rates from','Stawki od'))} ${esc(rate?date(rate.valid_from):unknown())}</span><p>${esc(complete?quantity(zone.kwh):t('Recorded','Zarejestrowano')+': '+quantity(zone.recorded_kwh))} · <strong>${esc(money(complete?zone.usage_cost:null,proof.currency))}</strong></p>${!complete?`<p class="analysis-rate76-meta">${esc(known)}</p>`:''}</div></li>`;
+      const known=[[t('Known energy cost','Znany koszt energii'),'energy_cost'],[t('Known distribution cost','Znany koszt dystrybucji'),'variable_cost'],[t('Known legacy usage cost','Znany dawny koszt zużycia'),'legacy_combined_cost']].map(([label,key])=>`${label}: ${summaryMoney(zone.known_costs[key],proof.currency)}`).join(' · ');
+      return `<li data-analysis-rate76-zone="${esc(zone.version_id+'|'+zone.zone_id)}"><span class="analysis-rate76-swatch" style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)}" aria-hidden="true"></span><div><strong>${esc(zone.label)}</strong><span class="analysis-rate76-meta"> · ${esc(t('Rates from','Stawki od'))} ${esc(rate?date(rate.valid_from):unknown())}</span><p>${esc(complete?summaryEnergy(zone.kwh):t('Recorded','Zarejestrowano')+': '+summaryEnergy(zone.recorded_kwh))} · <strong>${esc(summaryMoney(complete?zone.usage_cost:null,proof.currency))}</strong></p>${!complete?`<p class="analysis-rate76-meta">${esc(known)}</p>`:''}</div></li>`;
     }).join('') || '';
     const level=['areas','floors','devices'].includes(options.level)?options.level:'areas';
     const groupRows=rowsFor(groups,level).sort((a,b)=>valid(a.row.usage_cost)&&valid(b.row.usage_cost)?compare(b.row.usage_cost,a.row.usage_cost):valid(a.row.usage_cost)?-1:valid(b.row.usage_cost)?1:0);
     const groupCurrency=currencyKnown&&groups.currency===total.currency&&groups.price_basis===total.price_basis;
     const groupMax=maximum(groupRows.filter(({row})=>positive(row.usage_cost)).map(({row})=>row.usage_cost));
     const groupTitle=level==='devices'?t('Cost by device','Koszt według urządzeń'):level==='floors'?t('Cost by floor','Koszt według pięter'):t('Cost by room','Koszt według pokoi');
-    const ranked=groupRows.map(({id,label,row})=>`<li data-analysis-rate76-group="${esc(id)}"${id==='unmeasured'?' class="analysis-rate76-unmeasured"':''}><div class="analysis-rate76-rank-value"><strong>${esc(label)}</strong><strong>${esc(money(row.usage_cost,groups.currency))}</strong></div>${!data&&groupCurrency&&row.measurement_complete===true&&positive(row.usage_cost)?`<div class="analysis-rate76-track" aria-hidden="true"><span data-analysis-rate76-bar style="background:${zoneColor('group-'+level,id)};width:${width(row.usage_cost,groupMax)}%"></span></div>`:''}<p class="analysis-rate76-meta">${esc(data?quantity(row.kwh):briefEnergy(row.kwh))} · ${esc(coverage(row.coverage))}</p></li>`).join('');
+    const ranked=groupRows.map(({id,label,row})=>`<li data-analysis-rate76-group="${esc(id)}"${id==='unmeasured'?' class="analysis-rate76-unmeasured"':''}><div class="analysis-rate76-rank-value"><strong>${esc(label)}</strong><strong>${esc(summaryMoney(row.usage_cost,groups.currency))}</strong></div>${!data&&groupCurrency&&row.measurement_complete===true&&positive(row.usage_cost)?`<div class="analysis-rate76-track" aria-hidden="true"><span data-analysis-rate76-bar style="background:${zoneColor('group-'+level,id)};width:${width(row.usage_cost,groupMax)}%"></span></div>`:''}<p class="analysis-rate76-meta">${esc(data?quantity(row.kwh):briefEnergy(row.kwh))} · ${esc(coverage(row.coverage))}</p></li>`).join('');
     const groupValues=table(t('Group measurements and usage costs','Pomiary grup i koszty zużycia'),[t('Group','Grupa'),'kWh',t('Usage cost','Koszt zużycia')],groupRows.map(({label,row})=>[esc(label),esc(quantity(row.kwh)),esc(money(row.usage_cost,groups.currency))]));
     const alternativeRows=(snapshot.alternatives || []).filter(row=>row.tariff_id!==snapshot.active_tariff_id);
     const comparable=row=>row.comparable===true&&currencyKnown&&row.currency===total.currency&&row.price_basis===total.price_basis;
@@ -15853,7 +16390,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const costTable=table(t('Household cost for selected period','Koszt gospodarstwa za wybrany okres'),[t('Component','Składnik'),t('Cost','Koszt')],Object.entries(costLabels).map(([key,label])=>[esc(label),esc(money(total[key],total.currency))]),'data-analysis-cost-components class="analysis-rate76-table"');
     return `<section class="analysis-rate76" data-analysis-rates><div class="analysis-rate76-heading"><h3>${esc(t('Rates and costs','Stawki i koszty'))}</h3><div class="analysis-switch">${button('view','chart',t('Chart','Wykres'),!data)}${button('view','data',t('Data','Dane'),data)}</div></div>
       <div class="analysis-rate76-current" data-analysis-rate76-current>${visibleRates || `<p>${esc(unknown())}</p>`}</div>
-      <div class="analysis-rate76-layout"><div><section class="analysis-rate76-card" data-analysis-rate76-cost><h4>${esc(t('Household cost for selected period','Koszt gospodarstwa za wybrany okres'))}</h4><p><strong>${esc(money(total.total_cost,total.currency))}</strong> · ${esc(t('Effective price','Cena efektywna'))}: ${esc(money(total.effective_price,total.currency))}${valid(total.effective_price)?'/kWh':''}</p>
+      <div class="analysis-rate76-layout"><div><section class="analysis-rate76-card" data-analysis-rate76-cost><h4>${esc(t('Household cost for selected period','Koszt gospodarstwa za wybrany okres'))}</h4><p><strong>${esc(summaryMoney(total.total_cost,total.currency))}</strong> · ${esc(t('Effective price','Cena efektywna'))}: ${esc(summaryRate(total.effective_price,total.currency))}${valid(total.effective_price)?'/kWh':''}</p>
         ${costGraphic}<ul class="analysis-rate76-legend">${componentLegend}</ul>
         ${!costReady?`<p class="analysis-rate76-meta">${esc(t('A complete positive cost breakdown is unavailable. Available amounts retain their signs.','Pełne dodatnie rozbicie kosztu jest niedostępne. Dostępne kwoty zachowują swój znak.'))}</p>`:compare(total.total_cost,'0')===0?`<p class="analysis-rate76-meta">${esc(t('Zero cost','Koszt zerowy'))}</p>`:''}
         ${data?costTable:`<details class="analysis-rate76-history"><summary>${esc(t('Exact cost components','Dokładne składniki kosztu'))}</summary>${costTable}</details>`}
@@ -15862,7 +16399,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
         ${proof?`<ul class="analysis-rate76-zone-list">${zoneRows}</ul>${proof.status!=='ready'?`<p class="analysis-rate76-meta">${esc(proof.status==='partial'?t('Incomplete period · recorded energy and known costs only','Niepełny okres · tylko zarejestrowana energia i znane koszty'):t('No tariff cost data for this period','Brak kosztów taryfy za ten okres'))}</p>`:''}`:`<p>${esc(t('No data: matching whole-period zone costs are unavailable.','Brak danych: brak zgodnych kosztów stref za cały okres.'))}</p>`}
         ${zoneDetails?`<details class="analysis-rate76-history"><summary>${esc(t('Zone coverage and provenance','Pokrycie i pochodzenie stref'))}</summary><p>${esc(zoneDetails.note)}</p><ul>${zoneDetails.entries.map(entry=>`<li>${esc(entry.text)}</li>`).join('')}</ul></details>`:''}</section></div>
       <section class="analysis-rate76-card" data-analysis-rate76-groups><h4>${esc(groupTitle)}</h4><p class="analysis-rate76-meta">${esc(groups.currency || unknown())} · ${esc(basis(groups.price_basis))}</p><ol class="analysis-rate76-rank-list">${ranked}</ol>${data?'':`<details data-analysis-rate76-group-values><summary>${esc(t('Group measurements and costs','Pomiary i koszty grup'))}</summary>${groupValues}</details>`}${!groupRows.length?`<p>${esc(unknown())}</p>`:''}<p class="analysis-rate76-meta">${esc(t('Group costs exclude household fixed fees. No room and unmeasured energy are separate. Bars rank known nonnegative costs in the same currency and basis.','Koszty grup nie obejmują opłat stałych gospodarstwa. Bez pokoju i Niezmierzone to osobne pozycje. Paski porównują znane nieujemne koszty w tej samej walucie i podstawie.'))}</p></section></div>
-      <section><h4>${esc(t('Same measured energy in alternative tariffs · no activation','Ta sama zmierzona energia w innych taryfach · bez aktywacji'))}</h4><div class="analysis-rate76-alternatives">${alternativeRows.map(row=>`<article class="analysis-rate76-card" data-analysis-rate76-alternative><strong>${esc(row.tariff_name || t('Unnamed tariff','Taryfa bez nazwy'))}</strong><p>${esc(quantity(row.kwh))} · <strong>${esc(money(row.total_cost,row.currency))}</strong> · ${esc(basis(row.price_basis))}</p><p>${esc(comparable(row)?t('Difference','Różnica')+': '+money(row.delta_cost,row.currency,true):t('No comparable difference','Brak porównywalnej różnicy'))}</p><p class="analysis-rate76-meta">${esc(t('Same measured energy · no activation','Ta sama zmierzona energia · bez aktywacji'))}</p></article>`).join('') || `<p>${esc(t('No alternative tariff comparison available','Brak porównania alternatywnej taryfy'))}</p>`}</div>
+      <section><h4>${esc(t('Same measured energy in alternative tariffs · no activation','Ta sama zmierzona energia w innych taryfach · bez aktywacji'))}</h4><div class="analysis-rate76-alternatives">${alternativeRows.map(row=>`<article class="analysis-rate76-card" data-analysis-rate76-alternative><strong>${esc(row.tariff_name || t('Unnamed tariff','Taryfa bez nazwy'))}</strong><p>${esc(summaryEnergy(row.kwh))} · <strong>${esc(summaryMoney(row.total_cost,row.currency))}</strong> · ${esc(basis(row.price_basis))}</p><p>${esc(comparable(row)?t('Difference','Różnica')+': '+summaryMoney(row.delta_cost,row.currency,true):t('No comparable difference','Brak porównywalnej różnicy'))}</p><p class="analysis-rate76-meta">${esc(t('Same measured energy · no activation','Ta sama zmierzona energia · bez aktywacji'))}</p></article>`).join('') || `<p>${esc(t('No alternative tariff comparison available','Brak porównania alternatywnej taryfy'))}</p>`}</div>
       ${alternativeRows.length?`<details class="analysis-rate76-history"><summary>${esc(t('Alternative tariff values','Wartości alternatywnych taryf'))}</summary>${table(t('Same measured energy in alternative tariffs · no activation','Ta sama zmierzona energia w innych taryfach · bez aktywacji'),[t('Tariff','Taryfa'),'kWh',t('Total cost','Koszt całkowity'),t('Delta','Różnica')],alternatives)}</details>`:''}</section>
       <details class="analysis-rate76-history" data-analysis-rate-history><summary>${esc(t('Rates, schedules and history','Stawki, godziny i historia'))}</summary>${versions || `<p>${esc(unknown())}</p>`}</details>
       <p class="analysis-rate76-meta">${esc(t('Fixed fees apply once to the household period. Alternatives use the same measurements.','Opłaty stałe dotyczą jednokrotnie całego okresu gospodarstwa. Alternatywy korzystają z tych samych pomiarów.'))}</p></section>`;
@@ -15900,27 +16437,27 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
       <label>${esc(t('Calendar date','Data kalendarzowa'))}<input type="date" data-analysis-action="anchor" data-analysis-value="${esc(anchor)}" value="${esc(anchor)}"></label>
       ${select('comparison',t('Compare with','Porównaj z'),allowed.map(key=>[key,comparisons[key]]),kind)}</div></details></div>`;
     return `<div class="energy-analysis-v53"><div class="analysis-period-controls"><div class="analysis-switch" role="group" aria-label="${esc(t('Period','Okres'))}">${periods.map(([value,label])=>button('period',value,label,period.kind===value)).join('')}</div><p class="analysis-period">${esc(range(period))} · ${esc(ui.timeZone)} · ${esc(coverage(snapshot.coverage))}</p></div>
-      ${section==='overview'?tiles(snapshot,true)+nativeDetails(snapshot):''}${section==='rates'?filters+ratesView(snapshot,options):section==='comparison'?comparisonView(snapshot,options,kind)+filters:chart(snapshot,options)+filters+groupsView(snapshot,level,options)}
+      ${section==='overview'?tiles(snapshot,true,options.view==='data')+nativeDetails(snapshot):''}${section==='rates'?filters+ratesView(snapshot,options):section==='comparison'?comparisonView(snapshot,options,kind)+filters:chart(snapshot,options)+filters+groupsView(snapshot,level,options)}
       <details data-analysis-source-details><summary>${esc(t('Source and time details','Źródło i szczegóły czasu'))}</summary><p>${esc(t('Measurement calendar','Kalendarz pomiarów'))}: ${esc(period.timezone||unknown())}</p><p>UTC: ${esc(period.start)} – ${esc(period.end)}</p></details></div>`;
   };
   const styles = () => `
 
-.energy-analysis-v53 .analysis-rate76{font-size:14px;line-height:1.45;min-width:0;--analysis-rate76-energy:#287fd1;--analysis-rate76-distribution:#8754b3;--analysis-rate76-fixed:#64748b;--analysis-rate76-legacy:#238782}
-.energy-analysis-v53 .analysis-rate76-meta{font-size:12px;color:var(--secondary-text-color);overflow-wrap:anywhere}
+.energy-analysis-v53 .analysis-rate76{font-size:14px;line-height:20px;min-width:0;--analysis-rate76-energy:var(--hat-s1, var(--_hat-s1));--analysis-rate76-distribution:var(--hat-d2, var(--_hat-d2));--analysis-rate76-fixed:var(--hat-text-2, var(--_hat-text-2));--analysis-rate76-legacy:var(--hat-s3, var(--_hat-s3))}
+.energy-analysis-v53 .analysis-rate76-meta{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2));overflow-wrap:anywhere}
 .energy-analysis-v53 .analysis-rate76-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
-.energy-analysis-v53 .analysis-rate76-card{min-width:0;border:1px solid var(--divider-color);border-radius:10px;background:var(--card-background-color);padding:12px;overflow-wrap:anywhere}
+.energy-analysis-v53 .analysis-rate76-card{min-width:0;border:1px solid var(--hat-border, var(--_hat-border));border-radius:var(--hat-radius, var(--_hat-radius));background:var(--hat-card, var(--_hat-card));padding:12px;overflow-wrap:anywhere}
 .energy-analysis-v53 .analysis-rate76-card h4{margin-top:0}
 .energy-analysis-v53 .analysis-rate76-current{display:grid;gap:12px}
 .energy-analysis-v53 .analysis-rate76-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}
 .energy-analysis-v53 .analysis-rate76-layout>div{min-width:0}
 .energy-analysis-v53 .analysis-rate76-rate-list,.energy-analysis-v53 .analysis-rate76-monthly,.energy-analysis-v53 .analysis-rate76-legend,.energy-analysis-v53 .analysis-rate76-zone-list,.energy-analysis-v53 .analysis-rate76-rank-list{list-style:none;padding:0;margin:8px 0}
-.energy-analysis-v53 .analysis-rate76-rate-list>li{display:grid;grid-template-columns:minmax(80px,.6fr) minmax(0,1.2fr) minmax(0,1.2fr);gap:12px;align-items:start;padding:10px 0;border-top:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-rate76-rate-list>li{display:grid;grid-template-columns:minmax(80px,.6fr) minmax(0,1.2fr) minmax(0,1.2fr);gap:12px;align-items:start;padding:12px 0;border-top:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-rate76-schedule p{margin:0 0 4px}
 .energy-analysis-v53 .analysis-rate76-rate-values{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0;font-variant-numeric:tabular-nums}
-.energy-analysis-v53 .analysis-rate76-rate-values dt{font-size:12px;color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-rate76-rate-values dt{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-rate76-rate-values dd{font-weight:600;margin:4px 0 0}
 .energy-analysis-v53 .analysis-rate76-monthly{display:flex;flex-wrap:wrap;gap:8px 16px}
-.energy-analysis-v53 .analysis-rate76-track{display:flex;height:14px;min-width:0;max-width:100%;background:var(--secondary-background-color);border-radius:4px;overflow:hidden;margin:10px 0}
+.energy-analysis-v53 .analysis-rate76-track{display:flex;height:14px;min-width:0;max-width:100%;background:var(--hat-chip, var(--_hat-chip));border-radius:4px;overflow:hidden;margin:10px 0}
 .energy-analysis-v53 .analysis-rate76-track>span{display:block;min-width:0;height:100%;flex-shrink:0}
 .energy-analysis-v53 .analysis-rate76-energy_cost{background:var(--analysis-rate76-energy)}
 .energy-analysis-v53 .analysis-rate76-variable_cost{background:var(--analysis-rate76-distribution)}
@@ -15928,25 +16465,24 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
 .energy-analysis-v53 .analysis-rate76-legacy_combined_cost{background:var(--analysis-rate76-legacy)}
 .energy-analysis-v53 .analysis-rate76-legend{display:flex;flex-wrap:wrap;gap:8px 16px}
 .energy-analysis-v53 .analysis-rate76-legend>li,.energy-analysis-v53 .analysis-rate76-zone-list>li{display:flex;align-items:baseline;gap:6px;min-width:0}
-.energy-analysis-v53 .analysis-rate76-zone-list>li{padding:8px 0;border-bottom:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-rate76-zone-list>li{padding:8px 0;border-bottom:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-rate76-swatch{display:inline-block;width:10px;height:10px;flex:0 0 10px;border-radius:2px}
-.energy-analysis-v53 .analysis-rate76-rank-list>li{padding:10px 0;border-bottom:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-rate76-rank-list>li{padding:12px 0;border-bottom:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-rate76-rank-value{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;font-variant-numeric:tabular-nums}
-.energy-analysis-v53 .analysis-rate76-unmeasured .analysis-rate76-track>span{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--secondary-text-color) 3px,var(--secondary-text-color) 4px)!important;border:1px solid var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-rate76-unmeasured .analysis-rate76-track>span{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 4px)!important;border:1px solid var(--hat-unmeasured, var(--_hat-unmeasured))}
 .energy-analysis-v53 .analysis-rate76-alternatives{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px}
-.energy-analysis-v53 .analysis-rate76-history{border-top:1px solid var(--divider-color);margin-top:12px}
+.energy-analysis-v53 .analysis-rate76-history{border-top:1px solid var(--hat-border, var(--_hat-border));margin-top:12px}
 .energy-analysis-v53 .analysis-rate76-history .analysis-table-wrap{overflow:visible}
 .energy-analysis-v53 .analysis-rate76-history table,.energy-analysis-v53 .analysis-rate76-table{table-layout:fixed;width:100%;overflow-wrap:anywhere}
-:host(.bento-dark) .energy-analysis-v53 .analysis-rate76{--analysis-rate76-energy:#3987e5;--analysis-rate76-distribution:#a696ea;--analysis-rate76-fixed:#94a3b8;--analysis-rate76-legacy:#41a69f}
-@container energy-analysis (max-width:600px){.energy-analysis-v53 .analysis-rate76-layout{grid-template-columns:minmax(0,1fr);gap:0}.energy-analysis-v53 .analysis-rate76-rate-list>li{grid-template-columns:minmax(0,1fr);gap:6px}.energy-analysis-v53 .analysis-rate76-card{padding:10px}.energy-analysis-v53 .analysis-rate76-rate-values{gap:8px}.energy-analysis-v53 .analysis-rate76-history th,.energy-analysis-v53 .analysis-rate76-history td{padding:8px 4px}}
-.energy-analysis-v53{font-family:var(--paper-font-body1_-_font-family,inherit);font-size:14px;line-height:1.45;color:var(--primary-text-color);min-width:0;max-width:100%;width:100%;overflow-wrap:anywhere;container-type:inline-size;container-name:energy-analysis}
+@container energy-analysis (max-width:600px){.energy-analysis-v53 .analysis-rate76-layout{grid-template-columns:minmax(0,1fr);gap:0}.energy-analysis-v53 .analysis-rate76-rate-list>li{grid-template-columns:minmax(0,1fr);gap:6px}.energy-analysis-v53 .analysis-rate76-card{padding:12px}.energy-analysis-v53 .analysis-rate76-rate-values{gap:8px}.energy-analysis-v53 .analysis-rate76-history th,.energy-analysis-v53 .analysis-rate76-history td{padding:8px 4px}}
+.energy-analysis-v53{font-family:var(--hat-font, var(--_hat-font));font-size:14px;line-height:20px;color:var(--hat-text, var(--_hat-text));min-width:0;max-width:100%;width:100%;overflow-wrap:anywhere;container-type:inline-size;container-name:energy-analysis}
 .energy-analysis-v53 *{box-sizing:border-box}
 .energy-analysis-v53 h3,.energy-analysis-v53 h4{font-size:1em;margin:12px 0 8px}
 .energy-analysis-v53 p{margin:8px 0}
 .energy-analysis-v53 section{min-width:0;margin-block:12px}
 .energy-analysis-v53 .analysis-switch,.energy-analysis-v53 .analysis-section-title,.energy-analysis-v53 .analysis-period-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .energy-analysis-v53 .analysis-period-controls{justify-content:space-between}
-.energy-analysis-v53 .analysis-period{font-size:12px;color:var(--secondary-text-color);margin:4px 0}
+.energy-analysis-v53 .analysis-period{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2));margin:4px 0}
 .energy-analysis-v53 .analysis-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:12px;align-items:end;margin-block:16px}
 .energy-analysis-v53 .analysis-section-title{justify-content:space-between}
 .energy-analysis-v53 .analysis-calendar-fields{display:grid;gap:12px;padding-block:8px}
@@ -15954,75 +16490,76 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
 .energy-analysis-v53 [data-analysis-calendar-options] summary{min-height:44px}
 .energy-analysis-v53 label{display:flex;flex-direction:column;gap:4px;max-width:100%;min-width:0;font-size:12px}
 .energy-analysis-v53 .analysis-controls select,.energy-analysis-v53 .analysis-controls input{width:100%;min-width:0;font-size:14px}
-.energy-analysis-v53 button,.energy-analysis-v53 select,.energy-analysis-v53 input{font:inherit;color:var(--primary-text-color);background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;min-height:44px;min-width:44px;padding:8px;max-width:100%}
+.energy-analysis-v53 button,.energy-analysis-v53 select,.energy-analysis-v53 input{font:inherit;color:var(--hat-text, var(--_hat-text));background:var(--hat-card, var(--_hat-card));border:1px solid var(--hat-border, var(--_hat-border));border-radius:8px;min-height:44px;min-width:44px;padding:8px;max-width:100%}
 .energy-analysis-v53 button{cursor:pointer;white-space:normal}
-.energy-analysis-v53 button[aria-pressed="true"]{border-color:var(--primary-color);box-shadow:inset 0 0 0 1px var(--primary-color)}
-.energy-analysis-v53 button:focus-visible,.energy-analysis-v53 select:focus-visible,.energy-analysis-v53 input:focus-visible,.energy-analysis-v53 summary:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+.energy-analysis-v53 button[aria-pressed="true"]{border-color:var(--hat-primary, var(--_hat-primary));box-shadow:inset 0 0 0 1px var(--hat-primary, var(--_hat-primary))}
+.energy-analysis-v53 button:focus-visible,.energy-analysis-v53 select:focus-visible,.energy-analysis-v53 input:focus-visible,.energy-analysis-v53 summary:focus-visible{outline:2px solid var(--hat-primary, var(--_hat-primary));outline-offset:2px}
 .energy-analysis-v53 summary{min-height:44px;padding:12px 0;cursor:pointer}
 .energy-analysis-v53 .analysis-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}
-.energy-analysis-v53 .analysis-tile{min-width:0;border:1px solid var(--divider-color);border-radius:10px;padding:10px 12px;background:var(--card-background-color);box-shadow:none}
+.energy-analysis-v53 .analysis-tile{min-width:0;border:1px solid var(--hat-border, var(--_hat-border));border-radius:var(--hat-radius, var(--_hat-radius));padding:12px 16px;background:var(--hat-card, var(--_hat-card));box-shadow:none}
 .energy-analysis-v53 .analysis-tile span,.energy-analysis-v53 .analysis-tile strong{display:block}
-.energy-analysis-v53 .analysis-tile span{font-size:12px;color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-tile span{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-tile strong{font-size:1.35em;margin-top:4px;font-variant-numeric:tabular-nums}
 .energy-analysis-v53 .analysis-period-zones{list-style:none;margin:8px 0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:8px}
-.energy-analysis-v53 .analysis-period-zones li{min-width:0;display:grid;gap:4px;padding:8px 10px;border:1px solid var(--divider-color);border-radius:8px}
-.energy-analysis-v53 .analysis-period-zones li>span:last-child{font-size:12px;color:var(--secondary-text-color)}
-.energy-analysis-v53 [data-analysis-period-summary-details]{border-top:1px solid var(--divider-color);margin-top:8px}
-.energy-analysis-v53 .analysis-note{color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-period-zones li{min-width:0;display:grid;gap:4px;padding:8px 10px;border:1px solid var(--hat-border, var(--_hat-border));border-radius:8px}
+.energy-analysis-v53 .analysis-period-zones li>span:last-child{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
+.energy-analysis-v53 [data-analysis-period-summary-details]{border-top:1px solid var(--hat-border, var(--_hat-border));margin-top:8px}
+.energy-analysis-v53 .analysis-note{color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-table-wrap{overflow:auto;max-width:100%}
 .energy-analysis-v53 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;text-align:start}
 .energy-analysis-v53 caption{text-align:start;font-weight:600;padding:8px 0}
-.energy-analysis-v53 th,.energy-analysis-v53 td{padding:10px 8px;border-bottom:1px solid var(--divider-color);vertical-align:top;text-align:start}
+.energy-analysis-v53 th,.energy-analysis-v53 td{padding:12px 8px;border-bottom:1px solid var(--hat-border, var(--_hat-border));vertical-align:top;text-align:start}
 .energy-analysis-v53 th{font-weight:600}
 .energy-analysis-v53 .analysis-chart-scroll{min-width:0;max-width:100%;width:100%;overflow:visible;padding:4px 2px}
 .energy-analysis-v53 .analysis-chart{display:grid;grid-template-columns:repeat(var(--analysis-point-count),minmax(0,1fr));align-items:stretch;height:212px;min-width:0;max-width:100%;width:100%;gap:2px}
 .energy-analysis-v53 .analysis-point{position:relative;display:flex;align-items:flex-end;justify-content:center;min-width:0;max-width:100%;width:100%;height:212px;padding:0 0 40px;border:0;border-radius:0;background:transparent;touch-action:manipulation}
 .energy-analysis-v53 .analysis-point:focus-visible{outline-offset:0;z-index:1}
-.energy-analysis-v53 .analysis-point[aria-pressed="true"]{box-shadow:inset 0 0 0 1px var(--primary-color)}
-.energy-analysis-v53 .analysis-column{display:block;width:100%;max-height:168px;background:var(--energy-grid-consumption-color,#287fd1);border-radius:3px 3px 0 0;min-height:1px}
-.energy-analysis-v53 .analysis-baseline-line{display:block;position:absolute;inset-inline:0;height:0;border-top:3px dashed #8754b3;pointer-events:none}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-current:before{content:"● ";color:var(--secondary-text-color,#718096)}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-baseline:before{content:"━ ";color:#8754b3}\n.energy-analysis-v53 [data-analysis-baseline-range]{display:inline-block}\n.energy-analysis-v53 .analysis-point-label{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);width:max-content;font-size:12px;line-height:1.2}
+.energy-analysis-v53 .analysis-point[aria-pressed="true"]{box-shadow:inset 0 0 0 1px var(--hat-primary, var(--_hat-primary))}
+.energy-analysis-v53 .analysis-column{display:block;width:100%;max-height:168px;background:var(--energy-grid-consumption-color,var(--hat-s1, var(--_hat-s1)));border-radius:3px 3px 0 0;min-height:1px}
+.energy-analysis-v53 .analysis-baseline-line{display:block;position:absolute;inset-inline:0;height:0;border-top:3px dashed var(--hat-d2, var(--_hat-d2));pointer-events:none}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-current:before{content:"● ";color:var(--secondary-text-color,var(--hat-unmeasured, var(--_hat-unmeasured)))}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-baseline:before{content:"━ ";color:var(--hat-d2, var(--_hat-d2))}\n.energy-analysis-v53 [data-analysis-baseline-range]{display:inline-block}\n.energy-analysis-v53 .analysis-point-label{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);width:max-content;font-size:12px;line-height:16px}
 .energy-analysis-v53 .analysis-point:first-child .analysis-point-label{left:0;transform:none}
 .energy-analysis-v53 .analysis-point:last-child .analysis-point-label{left:auto;right:0;transform:none}
-.energy-analysis-v53 .analysis-missing{background:repeating-linear-gradient(135deg,transparent,transparent 5px,var(--divider-color) 5px,var(--divider-color) 6px)}
+.energy-analysis-v53 .analysis-missing{background:repeating-linear-gradient(135deg,transparent,transparent 5px,var(--hat-border, var(--_hat-border)) 5px,var(--hat-border, var(--_hat-border)) 6px)}
 .energy-analysis-v53 .analysis-flow{display:grid;grid-template-columns:minmax(120px,.3fr) minmax(0,1fr);gap:16px;align-items:start}
-.energy-analysis-v53 .analysis-flow-source{display:flex;flex-direction:column;gap:4px;padding:12px;border-inline-start:4px solid var(--energy-grid-consumption-color,#287fd1);background:var(--secondary-background-color);border-radius:8px;min-width:0}
-.energy-analysis-v53 .analysis-flow-source>span:first-child{font-size:12px;color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-flow-source{display:flex;flex-direction:column;gap:4px;padding:12px;border-inline-start:4px solid var(--energy-grid-consumption-color,var(--hat-s1, var(--_hat-s1)));background:var(--hat-chip, var(--_hat-chip));border-radius:8px;min-width:0}
+.energy-analysis-v53 .analysis-flow-source>span:first-child{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-flow-destination{min-width:0}
 .energy-analysis-v53 .analysis-flow-destination h4{margin-top:0}
-.energy-analysis-v53 [data-analysis-group-details],.energy-analysis-v53 [data-analysis-rate-history],.energy-analysis-v53 [data-analysis-fee-details],.energy-analysis-v53 [data-analysis-source-details]{border-top:1px solid var(--divider-color);margin-top:12px}
+.energy-analysis-v53 [data-analysis-group-details],.energy-analysis-v53 [data-analysis-rate-history],.energy-analysis-v53 [data-analysis-fee-details],.energy-analysis-v53 [data-analysis-source-details]{border-top:1px solid var(--hat-border, var(--_hat-border));margin-top:12px}
 .energy-analysis-v53 .analysis-ranking,.energy-analysis-v53 .analysis-deltas{list-style:none;margin:0;padding:0}
-.energy-analysis-v53 .analysis-ranking li,.energy-analysis-v53 .analysis-deltas li{padding:8px 0;border-bottom:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-ranking li,.energy-analysis-v53 .analysis-deltas li{padding:8px 0;border-bottom:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-ranking li>div:first-child,.energy-analysis-v53 .analysis-deltas li>div:first-child{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px}
-.energy-analysis-v53 .analysis-track,.energy-analysis-v53 .analysis-delta-track{height:8px;background:var(--secondary-background-color);border-radius:3px;margin-top:6px;position:relative}
-.energy-analysis-v53 .analysis-rank{display:block;height:100%;background:var(--energy-device-consumption-color,#df6635)}
-.energy-analysis-v53 .rank-0{background:var(--analysis-rank-0,#eb6834)}.energy-analysis-v53 .rank-1{background:var(--analysis-rank-1,#6250d6)}.energy-analysis-v53 .rank-2{background:var(--analysis-rank-2,#e87ba4)}.energy-analysis-v53 .rank-3{background:var(--analysis-rank-3,#eda100)}.energy-analysis-v53 .rank-4{background:var(--analysis-rank-4,#718096)}
-:host(.bento-dark) .energy-analysis-v53 .rank-0{background:#d95926}:host(.bento-dark) .energy-analysis-v53 .rank-1{background:#9085e9}:host(.bento-dark) .energy-analysis-v53 .rank-2{background:#d55181}:host(.bento-dark) .energy-analysis-v53 .rank-3{background:#c98500}
-.energy-analysis-v53 .analysis-unmeasured .analysis-rank{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--secondary-text-color) 3px,var(--secondary-text-color) 4px);border:1px solid var(--secondary-text-color)}
-.energy-analysis-v53 .analysis-delta-track:before{content:'';position:absolute;left:50%;height:100%;border-left:1px solid var(--secondary-text-color)}
-.energy-analysis-v53 .analysis-decrease{position:absolute;right:50%;height:100%;background:#287fd1}
-.energy-analysis-v53 .analysis-increase{position:absolute;left:50%;height:100%;background:#cf4040}
+.energy-analysis-v53 .analysis-track,.energy-analysis-v53 .analysis-delta-track{height:8px;background:var(--hat-chip, var(--_hat-chip));border-radius:999px;margin-top:8px;position:relative}
+.energy-analysis-v53 .analysis-rank{display:block;height:100%;background:var(--energy-device-consumption-color,var(--hat-d1, var(--_hat-d1)))}
+.energy-analysis-v53 .rank-0{background:var(--analysis-rank-0,var(--hat-d1, var(--_hat-d1)))}.energy-analysis-v53 .rank-1{background:var(--analysis-rank-1,var(--hat-d2, var(--_hat-d2)))}.energy-analysis-v53 .rank-2{background:var(--analysis-rank-2,var(--hat-d3, var(--_hat-d3)))}.energy-analysis-v53 .rank-3{background:var(--analysis-rank-3,var(--hat-d4, var(--_hat-d4)))}.energy-analysis-v53 .rank-4{background:var(--analysis-rank-4,var(--hat-unmeasured, var(--_hat-unmeasured)))}
+.energy-analysis-v53 .analysis-unmeasured .analysis-rank{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 4px);border:1px solid var(--hat-unmeasured, var(--_hat-unmeasured))}
+.energy-analysis-v53 .analysis-delta-track:before{content:'';position:absolute;left:50%;height:100%;border-left:1px solid var(--hat-text-2, var(--_hat-text-2))}
+.energy-analysis-v53 .analysis-decrease{position:absolute;right:50%;height:100%;background:var(--hat-s1, var(--_hat-s1))}
+.energy-analysis-v53 .analysis-increase{position:absolute;left:50%;height:100%;background:var(--hat-crit, var(--_hat-crit))}
 
-.energy-analysis-v53{--analysis-zone-cheap:#1baf7a;--analysis-zone-expensive:#2a78d6;--analysis-rank-0:#eb6834;--analysis-rank-1:#6250d6;--analysis-rank-2:#e87ba4;--analysis-rank-3:#eda100;--analysis-rank-4:#718096}
-:host(.bento-dark) .energy-analysis-v53{--analysis-zone-cheap:#199e70;--analysis-zone-expensive:#3987e5;--analysis-rank-0:#d95926;--analysis-rank-1:#9085e9;--analysis-rank-2:#d55181;--analysis-rank-3:#c98500}
-.energy-analysis-v53 .analysis-group-summary{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:20px;align-items:start}
+.energy-analysis-v53{--analysis-zone-cheap:var(--hat-zone-cheap, var(--_hat-zone-cheap));--analysis-zone-expensive:var(--hat-zone-exp, var(--_hat-zone-exp));--analysis-rank-0:var(--hat-d1, var(--_hat-d1));--analysis-rank-1:var(--hat-d2, var(--_hat-d2));--analysis-rank-2:var(--hat-d3, var(--_hat-d3));--analysis-rank-3:var(--hat-d4, var(--_hat-d4));--analysis-rank-4:var(--hat-unmeasured, var(--_hat-unmeasured))}
+.energy-analysis-v53 .analysis-group-summary{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:24px;align-items:start}
 .energy-analysis-v53 .analysis-group-summary>div{min-width:0}
 .energy-analysis-v53 .analysis-sankey-wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr) minmax(0,1fr);align-items:center;gap:12px}
-.energy-analysis-v53 .analysis-sankey{display:block;width:100%;height:250px;color:var(--primary-text-color)}
-.energy-analysis-v53 [data-analysis-flow-side]>path{stroke:var(--primary-text-color);stroke-width:.3}
+.energy-analysis-v53 .analysis-sankey{display:block;width:100%;height:250px;color:var(--hat-text, var(--_hat-text))}
+.energy-analysis-v53 [data-analysis-flow-side]>path{stroke:var(--hat-text, var(--_hat-text));stroke-width:.3}
 .energy-analysis-v53 .analysis-household{text-align:center;font-weight:600}
 .energy-analysis-v53 .analysis-flow-labels{list-style:none;padding:0;margin:0;min-width:0;display:grid;gap:12px}
 .energy-analysis-v53 .analysis-flow-labels li{min-width:0;display:flex;align-items:baseline;gap:6px}
-.energy-analysis-v53 .analysis-flow-swatch{display:inline-block;flex:none;width:12px;height:12px;margin-inline-end:5px;border:1px solid var(--primary-text-color);border-radius:2px;vertical-align:baseline}
-.energy-analysis-v53 .analysis-composition{display:flex;height:16px;max-width:100%;border:1px solid var(--primary-text-color);border-radius:4px;overflow:hidden}
-.energy-analysis-v53 .analysis-composition>span{height:100%;min-width:0;border-inline-end:1px solid var(--primary-text-color)}
-.energy-analysis-v53 .analysis-hatched{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--primary-text-color) 3px,var(--primary-text-color) 4px)}
+.energy-analysis-v53 .analysis-flow-swatch{display:inline-block;flex:none;width:12px;height:12px;margin-inline-end:5px;border:1px solid var(--hat-text, var(--_hat-text));border-radius:2px;vertical-align:baseline}
+.energy-analysis-v53 .analysis-composition{display:flex;height:16px;max-width:100%;border:1px solid var(--hat-text, var(--_hat-text));border-radius:4px;overflow:hidden}
+.energy-analysis-v53 .analysis-composition>span{height:100%;min-width:0;border-inline-end:1px solid var(--hat-text, var(--_hat-text))}
+.energy-analysis-v53 .analysis-hatched{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--hat-text, var(--_hat-text)) 3px,var(--hat-text, var(--_hat-text)) 4px)}
 .energy-analysis-v53 .analysis-zone-legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px}
 .energy-analysis-v53 .analysis-mobile-composition{display:none}
 @container energy-analysis (max-width:600px){.energy-analysis-v53 .analysis-group-summary{grid-template-columns:minmax(0,1fr);gap:8px}.energy-analysis-v53 .analysis-sankey{display:none}.energy-analysis-v53 .analysis-sankey-wrap{display:none}.energy-analysis-v53 .analysis-mobile-composition{display:block}.energy-analysis-v53 .analysis-flow-labels{display:flex;flex-wrap:wrap;gap:6px 12px;margin-block:8px}}
 @container energy-analysis (max-width:480px){.energy-analysis-v53 [data-analysis-axis-minor]{visibility:hidden}.energy-analysis-v53 .analysis-flow{grid-template-columns:minmax(0,1fr);gap:12px}.energy-analysis-v53 .analysis-flow-source{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:6px 12px}.energy-analysis-v53 .analysis-period-controls{align-items:flex-start}.energy-analysis-v53 th,.energy-analysis-v53 td{padding:8px 4px}.energy-analysis-v53 .analysis-switch{gap:4px}}
-@container energy-analysis (max-width:360px){.energy-analysis-v53 .analysis-controls{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.energy-analysis-v53 .analysis-controls>label:last-child{grid-column:1/-1}.energy-analysis-v53 .analysis-chart{gap:1px}.energy-analysis-v53 .analysis-tile{padding:10px}.energy-analysis-v53 .analysis-ranking li>div:first-child{display:grid;gap:2px}.energy-analysis-v53 .analysis-tile strong{font-size:1.2em}}
+@container energy-analysis (max-width:360px){.energy-analysis-v53 .analysis-controls{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.energy-analysis-v53 .analysis-controls>label:last-child{grid-column:1/-1}.energy-analysis-v53 .analysis-chart{gap:1px}.energy-analysis-v53 .analysis-tile{padding:12px}.energy-analysis-v53 .analysis-ranking li>div:first-child{display:grid;gap:2px}.energy-analysis-v53 .analysis-tile strong{font-size:1.2em}}
 /* Mobile keeps two primary readings and a compact secondary pair. No values are hidden. */
 @container energy-analysis (max-width:480px){.energy-analysis-v53 .analysis-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.energy-analysis-v53 .analysis-tile-secondary{padding:6px 10px;border:0;border-radius:0;background:transparent}.energy-analysis-v53 .analysis-tile-secondary strong{font-size:14px;margin-top:2px}.energy-analysis-v53 .analysis-tile-secondary span{font-size:12px}}
+
+.energy-analysis-v53 :is(button,select,input){font:14px/20px var(--hat-font, var(--_hat-font))}
+.energy-analysis-v53 :is(label,.analysis-period,.analysis-rate76-meta,.analysis-zone-legend,.analysis-point-label){font-size:12px;line-height:16px}
 `;
   return {markup,styles};
 }
@@ -17087,83 +17624,48 @@ this._installTariffConsumerV3();
       this.shadowRoot.innerHTML = `
         <style>${LOCAL_BENTO_CSS}
 
-
   /* ===== BENTO DESIGN SYSTEM (local fallback) ===== */
 
   :host {
-    --bento-primary: #3B82F6;
-    --bento-primary-hover: #2563EB;
-    --bento-primary-light: rgba(59, 130, 246, 0.08);
-    --bento-success: #10B981;
-    --bento-success-light: rgba(16, 185, 129, 0.08);
-    --bento-error: #EF4444;
-    --bento-error-light: rgba(239, 68, 68, 0.08);
-    --bento-warning: #F59E0B;
-    --bento-warning-light: rgba(245, 158, 11, 0.08);
-    --bento-bg: var(--primary-background-color, #F8FAFC);
-    --bento-card: var(--card-background-color, #FFFFFF);
-    --bento-border: var(--divider-color, #E2E8F0);
-    --bento-text: var(--primary-text-color, #1E293B);
-    --bento-text-secondary: var(--secondary-text-color, #64748B);
-    --bento-text-muted: var(--disabled-text-color, #94A3B8);
-    --bento-radius-xs: 6px;
-    --bento-radius-sm: 10px;
-    --bento-radius-md: 16px;
-    --bento-shadow-sm: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
-    --bento-shadow-md: 0 4px 12px rgba(0,0,0,0.05), 0 2px 4px rgba(0,0,0,0.04);
-    --bento-shadow-lg: 0 8px 25px rgba(0,0,0,0.06), 0 4px 10px rgba(0,0,0,0.04);
-    --bento-transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-
-  :host {
-            font-family: 'Inter', sans-serif;
+            font-family: var(--hat-font, var(--_hat-font));
           }
 
-  :host(.bento-dark) {
-      --bento-bg: var(--primary-background-color, #1a1a2e);
-      --bento-card: var(--card-background-color, #16213e);
-      --bento-text: var(--primary-text-color, #e2e8f0);
-      --bento-text-secondary: var(--secondary-text-color, #94a3b8);
-      --bento-border: var(--divider-color, #334155);
-      --bento-shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
-      --bento-shadow-md: 0 4px 12px rgba(0,0,0,0.4);
-    }
-          .card { container-type: inline-size; container-name: energy-card; background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-md); padding: 20px; box-shadow: var(--bento-shadow-sm); box-sizing: border-box; max-width: 100%; overflow: hidden; }
-          .header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+          .card { container-type: inline-size; container-name: energy-card; background: var(--bento-card); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-md); padding: 24px; box-shadow: var(--bento-shadow-sm); box-sizing: border-box; max-width: 100%; overflow: hidden; }
+          .header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
           .header-icon { font-size: 24px; }
           .header-title { font-size: 17px; font-weight: 700; color: var(--bento-text); }
           .header-sub { font-size: 12px; color: var(--bento-text-secondary); margin-top: 1px; }
-          .tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--bento-border); margin-bottom: 18px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: var(--bento-border) transparent; -webkit-overflow-scrolling: touch; }
+          .tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--bento-border); margin-bottom: 16px; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; scrollbar-color: var(--bento-border) transparent; -webkit-overflow-scrolling: touch; }
           .tabs::-webkit-scrollbar { height: 4px; }
           .tabs::-webkit-scrollbar-track { background: transparent; }
           .tabs::-webkit-scrollbar-thumb { background: var(--bento-border); border-radius: 4px; }
-          .tab-btn { padding: 8px 16px; border: none; background: transparent; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--bento-text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; white-space: nowrap; font-family: 'Inter', sans-serif; border-radius: 0; }
+          .tab-btn { padding: 8px 16px; border: none; background: transparent; cursor: pointer; font-size: 14px; font-weight: 500; color: var(--bento-text-secondary); border-bottom: 2px solid transparent; margin-bottom: -2px; transition: all .2s; white-space: nowrap; font-family: var(--hat-font, var(--_hat-font)); border-radius: 0; }
           .tab-btn:hover { color: var(--bento-primary); background: var(--bento-primary-light); }
           .tab-btn.active { color: var(--bento-primary); border-bottom-color: var(--bento-primary); font-weight: 600; }
-          .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; margin-bottom: 16px; }
-          .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 10px; margin-bottom: 16px; }
+          .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; margin-bottom: 16px; }
+          .grid3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 12px; margin-bottom: 16px; }
           @media (max-width: 768px) { .grid3 { grid-template-columns: repeat(2, 1fr); } }
           @media (max-width: 480px) { .grid3 { grid-template-columns: 1fr; } .grid2 { grid-template-columns: repeat(2, 1fr); } }
-          .stat { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 14px; text-align: center; min-width: 0; overflow: hidden; box-sizing: border-box; }
+          .stat { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 16px; text-align: center; min-width: 0; overflow: hidden; box-sizing: border-box; }
           .stat-value { font-size: 24px; font-weight: 700; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
           .stat-label { font-size:12px; font-weight: 500; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .4px; margin-top: 2px; }
           .stat-sub { font-size:12px; color: var(--bento-text-secondary); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
           .stat-sub.source-coverage { white-space: normal; overflow-wrap: anywhere; }
-          .section-title { font-size: 13px; font-weight: 600; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .5px; margin: 16px 0 8px; }
-          .device-row { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: var(--bento-radius-xs); transition: background .15s; box-sizing: border-box; max-width: 100%; overflow: hidden; }
+          .section-title { font-size: 14px; font-weight: 600; color: var(--bento-text-secondary); text-transform: uppercase; letter-spacing: .5px; margin: 16px 0 8px; }
+          .device-row { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-radius: var(--bento-radius-xs); transition: background .15s; box-sizing: border-box; max-width: 100%; overflow: hidden; }
           .device-row:hover { background: var(--bento-primary-light); }
-          .device-name { flex: 1; font-size: 13px; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+          .device-name { flex: 1; font-size: 14px; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
           .device-val { font-size: 12px; font-weight: 600; color: var(--bento-primary); min-width: 70px; text-align: right; white-space: nowrap; flex-shrink: 0; }
           .device-bar-wrap { flex: 1; background: var(--bento-border); border-radius: 4px; height: 6px; overflow: hidden; }
           .device-bar { height: 100%; background: var(--bento-primary); border-radius: 4px; transition: width .4s; }
-          .schedule-card { border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 14px; margin-bottom: 10px; box-sizing: border-box; max-width: 100%; overflow: hidden; }
+          .schedule-card { border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 16px; margin-bottom: 12px; box-sizing: border-box; max-width: 100%; overflow: hidden; }
           .schedule-card .config-input { box-sizing: border-box; min-width: 0; max-width: 100%; }
           .schedule-card input:not([type="checkbox"]), .schedule-card select { min-height: 44px; min-width: 44px; box-sizing: border-box; }
           .schedule-toggle { display: inline-flex; align-items: center; min-height: 44px; min-width: 44px; gap: 8px; cursor: pointer; }
           .schedule-toggle input[type="checkbox"] { width: 24px; height: 24px; flex: 0 0 24px; margin: 0; }
-          .schedule-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; overflow: hidden; }
+          .schedule-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; overflow: hidden; }
           .schedule-name { font-size: 14px; font-weight: 600; color: var(--bento-text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-          .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 20px; font-size:12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+          .badge { display: inline-flex; align-items: center; gap: 4px; padding: 3px 12px; border-radius: 20px; font-size:12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
           .badge-ok { background: var(--bento-success-light); color: var(--energy-value-green,#166534); }
           .badge-er { background: var(--bento-error-light); color: var(--energy-value-red,#b91c1c); }
           .badge-wa { background: var(--bento-warning-light); color: var(--energy-value-amber,#92400e); }
@@ -17172,40 +17674,40 @@ this._installTariffConsumerV3();
           .schedule-meta { font-size: 12px; color: var(--bento-text-secondary); }
           .schedule-meta span { margin-right: 12px; }
           .btn-row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-          .btn { padding: 8px 16px; border-radius: var(--bento-radius-xs); border: 1.5px solid var(--bento-border); background: var(--bento-card); color: var(--bento-text); font-size: 13px; font-weight: 500; cursor: pointer; font-family: 'Inter', sans-serif; transition: all .2s; }
+          .btn { padding: 8px 16px; border-radius: var(--bento-radius-xs); border: 1.5px solid var(--bento-border); background: var(--bento-card); color: var(--bento-text); font-size: 14px; font-weight: 500; cursor: pointer; font-family: var(--hat-font, var(--_hat-font)); transition: all .2s; }
           .btn:hover { background: var(--bento-bg); }
           .btn:disabled { opacity: .45; cursor: not-allowed; }
-          .btn-primary { background: var(--bento-primary) !important; color: var(--bento-on-primary,#fff) !important; border-color: var(--bento-primary) !important; box-shadow: 0 2px 8px rgba(59,130,246,.3); }
-          .btn-primary:hover { background: var(--bento-primary-hover) !important; }
-          .btn-ok { background: var(--energy-success-button,#166534) !important; color: #fff !important; border-color: var(--energy-success-button,#166534) !important; }
+          .btn-primary { background: var(--bento-primary); color: var(--bento-on-primary,#fff); border-color: var(--bento-primary); box-shadow: 0 2px 8px rgba(59,130,246,.3); }
+          .btn-primary:hover { background: var(--bento-primary-hover); }
+          .btn-ok { background: var(--energy-success-button,#166534); color: #fff; border-color: var(--energy-success-button,#166534); }
           .smtp-section { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
           .smtp-missing { border-color: #f59e0b40; background: #fef3c720; }
           .smtp-header { display: flex; align-items: center; gap: 12px; }
           .smtp-icon { font-size: 24px; }
           .smtp-title { font-weight: 700; font-size: 14px; color: var(--bento-text); }
           .smtp-detail { font-size: 12px; color: var(--bento-text-secondary); margin-top: 2px; }
-          .smtp-detail code { background: var(--bento-border); padding: 1px 6px; border-radius: 4px; font-size:12px; }
-          .smtp-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+          .smtp-detail code { background: var(--bento-border); padding: 1px 8px; border-radius: 4px; font-size:12px; }
+          .smtp-actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; flex-wrap: wrap; }
           .smtp-guide { margin-top: 16px; }
           .guide-title { font-weight: 700; font-size: 14px; margin-bottom: 12px; color: var(--bento-text); }
           .guide-steps { display: flex; flex-direction: column; gap: 16px; }
           .guide-step { display: flex; gap: 12px; }
-          .step-num { flex-shrink: 0; width: 28px; height: 28px; background: var(--bento-primary); color: var(--bento-on-primary,#fff); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 13px; }
-          .guide-step p { margin: 4px 0; font-size: 13px; color: var(--bento-text-secondary); line-height: 1.5; }
+          .step-num { flex-shrink: 0; width: 28px; height: 28px; background: var(--bento-primary); color: var(--bento-on-primary,#fff); border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; }
+          .guide-step p { margin: 4px 0; font-size: 14px; color: var(--bento-text-secondary); line-height: 1.5; }
           .guide-step pre { background: #1e293b; color: #e2e8f0; padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto; line-height: 1.6; white-space: pre; margin: 8px 0; max-width: 100%; box-sizing: border-box; }
           .guide-step a { color: var(--bento-primary); text-decoration: none; }
           .guide-step a:hover { text-decoration: underline; }
-          .guide-alt { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--bento-border); }
+          .guide-alt { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--bento-border); }
           .smtp-table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 8px; }
-          .smtp-table th { background: var(--bento-border); padding: 6px 10px; text-align: left; font-weight: 600; }
-          .smtp-table td { padding: 6px 10px; border-bottom: 1px solid var(--bento-border); }
+          .smtp-table th { background: var(--bento-border); padding: 8px 12px; text-align: left; font-weight: 600; }
+          .smtp-table td { padding: 8px 12px; border-bottom: 1px solid var(--bento-border); }
           .smtp-table tr:hover td { background: var(--bento-border); }
-          .toast { display: none; position: fixed; bottom: 24px; right: 24px; z-index: 9999; background: #1e293b; color: #e2e8f0; padding: 12px 20px; border-radius: var(--bento-radius-sm); font-size: 13px; box-shadow: 0 8px 24px rgba(0,0,0,.3); max-width: 320px; }
+          .toast { display: none; position: fixed; bottom: 24px; right: 24px; z-index: 9999; background: #1e293b; color: #e2e8f0; padding: 12px 24px; border-radius: var(--bento-radius-sm); font-size: 14px; box-shadow: 0 8px 24px rgba(0,0,0,.3); max-width: 320px; }
           .toast.show { display: block; animation: slideUp .3s ease-out; }
           @keyframes slideUp { from { opacity:0; transform: translateY(12px); } to { opacity:1; transform: translateY(0); } }
-          .preview-box { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 16px; font-size: 13px; color: var(--bento-text); max-height: 320px; overflow-y: auto; }
-          .preview-box h3 { font-size: 15px; margin: 0 0 10px; }
-          .preview-box h4 { font-size: 13px; margin: 14px 0 6px; color: var(--bento-text-secondary); }
+          .preview-box { background: var(--bento-bg); border: 1px solid var(--bento-border); border-radius: var(--bento-radius-sm); padding: 16px; font-size: 14px; color: var(--bento-text); max-height: 320px; overflow-y: auto; }
+          .preview-box h3 { font-size: 15px; margin: 0 0 12px; }
+          .preview-box h4 { font-size: 14px; margin: 16px 0 8px; color: var(--bento-text-secondary); }
           .preview-table { width: 100%; border-collapse: collapse; font-size: 12px; }
           .preview-table th { background: var(--bento-border); padding: 5px 8px; text-align: left; font-weight: 600; font-size:12px; }
           .preview-table td { padding: 5px 8px; border-bottom: 1px solid var(--bento-border); }
@@ -17213,38 +17715,38 @@ this._installTariffConsumerV3();
           .trend-up { color: var(--energy-value-red,#b91c1c); }
           .trend-down { color: var(--energy-value-green,#166534); }
           .pagination-row { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 12px 0 4px; }
-          .pagination-btn { padding: 6px 14px; border: 1px solid var(--bento-border); border-radius: var(--bento-radius-xs); background: var(--bento-bg); color: var(--bento-text); font-size: 12px; cursor: pointer; transition: all .15s; }
+          .pagination-btn { padding: 8px 16px; border: 1px solid var(--bento-border); border-radius: var(--bento-radius-xs); background: var(--bento-bg); color: var(--bento-text); font-size: 12px; cursor: pointer; transition: all .15s; }
           .pagination-btn:hover:not([disabled]) { background: var(--bento-primary-light); border-color: var(--bento-primary); color: var(--bento-primary); }
           .pagination-btn[disabled] { opacity: 0.4; cursor: not-allowed; }
           .pagination-info { font-size: 12px; color: var(--bento-text-secondary); }
-          .info-row { display: flex; gap: 6px; align-items: flex-start; padding: 10px; background: var(--bento-primary-light); border-radius: var(--bento-radius-xs); margin-bottom: 12px; font-size: 12px; color: var(--bento-text); }
+          .info-row { display: flex; gap: 8px; align-items: flex-start; padding: 12px; background: var(--bento-primary-light); border-radius: var(--bento-radius-xs); margin-bottom: 12px; font-size: 12px; color: var(--bento-text); }
           .info-warn { background: var(--bento-warning-light); }
           .auto-on { color: var(--energy-value-green,#166534); }
           .auto-off { color: var(--energy-value-red,#b91c1c); }
           .auto-unknown { color: var(--energy-value-amber,#92400e); }
-          .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; margin-right: 6px; vertical-align: middle; }
+          .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid rgba(255,255,255,.3); border-top-color: #fff; border-radius: 50%; animation: spin .6s linear infinite; margin-right: 8px; vertical-align: middle; }
           @keyframes spin { to { transform: rotate(360deg); } }
           .last-sent { font-size:12px; color: var(--bento-text); margin-top: 4px; }
-          .empty-state { text-align: center; padding: 32px 20px; }
+          .empty-state { text-align: center; padding: 32px 24px; }
           .empty-state .big { font-size: 40px; margin-bottom: 12px; }
-          .empty-state .title { font-size: 15px; font-weight: 600; color: var(--bento-text); margin-bottom: 6px; }
-          .empty-state .desc { font-size: 13px; color: var(--bento-text-secondary); line-height: 1.6; max-width: 400px; margin: 0 auto; }
-          .source-badge { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px; border-radius: 10px; font-size:12px; font-weight: 600; margin-left: 6px; }
+          .empty-state .title { font-size: 15px; font-weight: 600; color: var(--bento-text); margin-bottom: 8px; }
+          .empty-state .desc { font-size: 14px; color: var(--bento-text-secondary); line-height: 1.6; max-width: 400px; margin: 0 auto; }
+          .source-badge { display: inline-flex; align-items: center; gap: 3px; padding: 1px 8px; border-radius: 10px; font-size:12px; font-weight: 600; margin-left: 8px; }
           .source-auto { background: rgba(139,92,246,.1); color: var(--energy-value-purple,#6d28d9); }
-          .email-setup { background: var(--bento-warning-light); border: 1px solid rgba(245,158,11,.3); border-radius: var(--bento-radius-sm); padding: 14px; margin-bottom: 16px; }
-          .email-setup-title { font-size: 13px; font-weight: 600; color: var(--bento-text); margin-bottom: 8px; }
+          .email-setup { background: var(--bento-warning-light); border: 1px solid rgba(245,158,11,.3); border-radius: var(--bento-radius-sm); padding: 16px; margin-bottom: 16px; }
+          .email-setup-title { font-size: 14px; font-weight: 600; color: var(--bento-text); margin-bottom: 8px; }
           .email-input-row { display: flex; gap: 8px; align-items: center; }
-          .email-input { flex: 1; padding: 8px 12px; border: 1.5px solid var(--bento-border); border-radius: var(--bento-radius-xs); font-size: 13px; font-family: 'Inter', sans-serif; background: var(--bento-card); color: var(--bento-text); outline: none; }
+          .email-input { flex: 1; padding: 8px 12px; border: 1.5px solid var(--bento-border); border-radius: var(--bento-radius-xs); font-size: 14px; font-family: var(--hat-font, var(--_hat-font)); background: var(--bento-card); color: var(--bento-text); outline: none; }
           .email-input:focus { border-color: var(--bento-primary); box-shadow: 0 0 0 3px var(--bento-primary-light); }
           .email-bar { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px 12px; background: var(--bento-success-light); border-radius: var(--bento-radius-xs); font-size: 12px; color: var(--bento-text); }
-          .email-edit-btn { background: none; border: none; color: var(--bento-primary); cursor: pointer; font-size:12px; padding: 2px 6px; font-family: 'Inter', sans-serif; }
+          .email-edit-btn { background: none; border: none; color: var(--bento-primary); cursor: pointer; font-size:12px; padding: 2px 8px; font-family: var(--hat-font, var(--_hat-font)); }
           .email-edit-btn:hover { text-decoration: underline; }
           .source-manual { background: var(--bento-success-light); color: var(--energy-value-green,#166534); }
-          .config-section { margin-bottom: 20px; }
-          .config-section-title { font-size: 13px; font-weight: 700; color: var(--bento-text); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
-          .device-toggle { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: var(--bento-radius-xs); transition: background .15s; }
+          .config-section { margin-bottom: 24px; }
+          .config-section-title { font-size: 14px; font-weight: 700; color: var(--bento-text); margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+          .device-toggle { display: flex; align-items: center; gap: 12px; padding: 8px 12px; border-radius: var(--bento-radius-xs); transition: background .15s; }
           .device-toggle:hover { background: var(--bento-primary-light); }
-          .device-toggle label { flex: 1; font-size: 13px; color: var(--bento-text); cursor: pointer; display: flex; align-items: center; gap: 8px; }
+          .device-toggle label { flex: 1; font-size: 14px; color: var(--bento-text); cursor: pointer; display: flex; align-items: center; gap: 8px; }
           .device-toggle .dt-val { font-size:12px; color: var(--bento-text-secondary); min-width: 60px; text-align: right; }
           .toggle-switch { position: relative; width: 36px; height: 20px; flex-shrink: 0; }
           .toggle-switch input { opacity: 0; width: 0; height: 0; }
@@ -17254,13 +17756,13 @@ this._installTariffConsumerV3();
           .toggle-switch input:checked + .toggle-slider::before { transform: translateX(16px); }
           .config-input-row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
           .config-input-row label { font-size: 12px; color: var(--bento-text-secondary); min-width: 80px; font-weight: 500; }
-          .config-input { padding: 6px 10px; border: 1.5px solid var(--bento-border); border-radius: var(--bento-radius-xs); font-size: 13px; background: var(--bento-card); color: var(--bento-text); font-family: 'Inter', sans-serif; }
+          .config-input { padding: 8px 12px; border: 1.5px solid var(--bento-border); border-radius: var(--bento-radius-xs); font-size: 14px; background: var(--bento-card); color: var(--bento-text); font-family: var(--hat-font, var(--_hat-font)); }
           .config-input:focus { border-color: var(--bento-primary); outline: none; box-shadow: 0 0 0 3px var(--bento-primary-light); }
           .device-count { font-size:12px; color: var(--bento-text-muted); font-weight: 400; }
           @media (max-width: 768px) {
             .tabs { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; gap: 2px; }
-            .tab-btn { padding: 6px 10px; font-size: 12px; white-space: nowrap; }
-            .card { padding: 14px; }
+            .tab-btn { padding: 8px 12px; font-size: 12px; white-space: nowrap; }
+            .card { padding: 16px; }
             .grid3 { grid-template-columns: repeat(2, 1fr); gap: 8px; }
             .grid2 { grid-template-columns: repeat(2, 1fr); gap: 8px; }
             .stat-value { font-size: 18px; }
@@ -17274,13 +17776,11 @@ this._installTariffConsumerV3();
             .stat-value { font-size: 16px; }
           }
 
-
-
           ${this._getTariffHostV3().ui().css}
           .email-action-result{padding:12px;border:1px solid var(--bento-border);border-radius:10px;margin:12px 0;overflow-wrap:anywhere}
           .email-action-result p{margin:8px 0 0;line-height:1.5}
-          .card a{color:#2563eb;text-underline-offset:2px}
-          :host(.bento-dark) .card a{color:#93c5fd}
+          .card a{color:var(--hat-primary, var(--_hat-primary));text-underline-offset:2px}
+
           :host .ht-result-state--not_checked,:host .ht-result-state--no_data{color:var(--bento-text-secondary,#64748b)}
           .card button,.card select{min-height:44px;min-width:44px;box-sizing:border-box}
           .card :is(button,input,select,[tabindex]):focus-visible{outline:3px solid var(--bento-primary);outline-offset:2px}
@@ -17292,22 +17792,81 @@ this._installTariffConsumerV3();
           .card .tab-btn{white-space:nowrap;overflow-wrap:normal;flex:0 0 auto;min-height:44px;min-width:44px}
           .email-tab-picker{display:none}
           .history-actions{display:flex;flex-wrap:wrap;gap:8px}
-          .history-actions button{padding:10px 14px;border:1px solid var(--bento-border);border-radius:10px;background:var(--bento-card);color:var(--bento-text);font:inherit;cursor:pointer}
+          .history-actions button{padding:12px 16px;border:1px solid var(--bento-border);border-radius:10px;background:var(--bento-card);color:var(--bento-text);font:inherit;cursor:pointer}
           .history-actions button:focus-visible{outline:3px solid var(--bento-primary);outline-offset:2px}
           .attempt-history p{line-height:1.55}.history-records{font-size:14px}
           .attempt-history{overflow-wrap:anywhere;color:var(--bento-text)}
           .history-records{width:100%;border-collapse:collapse}
-          .history-records th,.history-records td{padding:10px;text-align:left;border-bottom:1px solid var(--bento-border);overflow-wrap:anywhere}
+          .history-records th,.history-records td{padding:12px;text-align:left;border-bottom:1px solid var(--bento-border);overflow-wrap:anywhere}
           @container energy-card (max-width:499px){
             .history-records thead{position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden}
             .history-records,.history-records tbody{display:block}
             .history-records tbody tr{display:block;border:1px solid var(--bento-border);border-radius:10px;margin-block:12px;padding:8px}
-            .history-records tbody td{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:10px;border:0;padding:8px}
+            .history-records tbody td{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:12px;border:0;padding:8px}
             .history-records tbody td::before{content:attr(data-label);font-weight:600}
           }
           @container energy-card (max-width:279px){.card .tabs{display:none !important}.email-tab-picker{display:block}.email-tab-picker select{width:100%}}
 
-  </style>
+
+/* Spec 5.3 full-view bridge; shared UI supplies defaults after vendoring. */
+:host {
+  --bento-primary: var(--hat-primary, var(--_hat-primary));
+  --bento-on-primary: var(--hat-on-primary, var(--_hat-on-primary));
+  --bento-primary-hover: color-mix(in srgb, var(--hat-primary-fill, var(--_hat-primary-fill)) 90%, var(--hat-text, var(--_hat-text)));
+  --bento-primary-light: color-mix(in srgb, var(--hat-primary, var(--_hat-primary)) 8%, transparent);
+  --bento-success: var(--hat-good, var(--_hat-good));
+  --bento-error: var(--hat-crit, var(--_hat-crit));
+  --bento-warning: var(--hat-warn, var(--_hat-warn));
+  --bento-bg: var(--hat-bg, var(--_hat-bg));
+  --bento-card: var(--hat-card, var(--_hat-card));
+  --bento-border: var(--hat-border, var(--_hat-border));
+  --bento-text: var(--hat-text, var(--_hat-text));
+  --bento-text-secondary: var(--hat-text-2, var(--_hat-text-2));
+  --bento-text-muted: var(--hat-text-2, var(--_hat-text-2));
+  --bento-radius-xs: var(--hat-radius, var(--_hat-radius));
+  --bento-radius-sm: var(--hat-radius, var(--_hat-radius));
+  --bento-radius-md: var(--hat-radius, var(--_hat-radius));
+  --bento-radius: var(--hat-radius, var(--_hat-radius));
+  --bento-shadow-sm: var(--ha-card-box-shadow, none);
+  --bento-shadow-md: var(--ha-card-box-shadow, none);
+  --bento-shadow-lg: var(--ha-card-box-shadow, none);
+  --bento-transition: var(--hat-motion,150ms ease);
+  --bento-success-light: color-mix(in srgb, var(--hat-good, var(--_hat-good)) 8%, transparent);
+  --bento-error-light: color-mix(in srgb, var(--hat-crit, var(--_hat-crit)) 8%, transparent);
+  --bento-warning-light: color-mix(in srgb, var(--hat-warn, var(--_hat-warn)) 8%, transparent);
+  --energy-value-blue: var(--hat-primary, var(--_hat-primary));
+  --energy-value-amber: var(--hat-warn-text, var(--_hat-warn-text));
+  --energy-value-green: var(--hat-good-text, var(--_hat-good-text));
+  --energy-value-red: var(--hat-crit-text, var(--_hat-crit-text));
+  --energy-value-neutral: var(--hat-text-2, var(--_hat-text-2));
+  --energy-value-purple: var(--hat-d2, var(--_hat-d2));
+  --energy-success-button: var(--hat-primary-fill, var(--_hat-primary-fill));
+  font-family:var(--hat-font, var(--_hat-font));font-size:14px;line-height:20px;color:var(--hat-text, var(--_hat-text));
+}
+
+:is(.card,.card-container,.panel-root,ha-card,.stat,.stat-card) { border-radius:var(--hat-radius, var(--_hat-radius));box-shadow:var(--ha-card-box-shadow,none); }
+:is(button,.btn,.tab,.tab-btn,.tab-button,input,select,textarea) { font-family:var(--hat-font, var(--_hat-font));font-size:14px;line-height:20px; }
+:is(.btn-primary,button.active,.btn.active,.action-btn.active) { background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary));border-color:var(--hat-primary-fill, var(--_hat-primary-fill));box-shadow:none; }
+:is(.btn-primary,button.active,.btn.active,.action-btn.active):hover { background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary));filter:brightness(.96); }
+.btn-ok { background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary));border-color:var(--hat-primary-fill, var(--_hat-primary-fill)); }
+:is(.badge,.status-badge,.tag,.chip,.trend-badge) { min-height:24px;box-sizing:border-box;border:1px solid currentColor;border-radius:999px;background:transparent;font-size:12px;line-height:16px;text-transform:none;letter-spacing:normal; }
+:is(.badge-success,.badge-ok,.status-ok,.status-good,.trend-down) { color:var(--hat-good-text, var(--_hat-good-text)); }
+:is(.badge-error,.badge-er,.status-error,.status-critical,.trend-up) { color:var(--hat-crit-text, var(--_hat-crit-text)); }
+:is(.badge-warning,.badge-wa,.status-warning) { color:var(--hat-warn-text, var(--_hat-warn-text)); }
+:is(.stat-value,.metric-value,.stat-number) { font-weight:600;line-height:34px;font-variant-numeric:tabular-nums; }
+:is(.stat-label,.stat-sub,.header-sub,.panel-subtitle,.pagination-info,.pag-info) { font-size:12px;line-height:16px;color:var(--hat-text-2, var(--_hat-text-2)); }
+:is(.card,.card-container,.panel-root) a { color:var(--hat-primary, var(--_hat-primary));text-underline-offset:2px; }
+:is(.insights-measured,.patterns-measured) svg text { font-family:var(--hat-font, var(--_hat-font)); }
+:is(.insights-measured,.patterns-measured) { line-height:20px; }
+:is(.card,.card-container,.panel-root) :is(button,input,select,summary,a):focus-visible { outline:2px solid var(--hat-primary, var(--_hat-primary));outline-offset:2px; }
+@media (prefers-reduced-motion:reduce) { *,*::before,*::after { animation:none;transition:none; } }
+
+:is(.header-title,.panel-title){font-size:16px;line-height:22px;font-weight:600}
+
+:is(.card,.card-container,.panel-root) td{font-size:14px;line-height:20px}
+
+.step-num{background:var(--hat-primary-fill, var(--_hat-primary-fill));color:var(--hat-on-primary, var(--_hat-on-primary))}
+</style>
 
         <div class="card">
           <div class="header">
@@ -17410,7 +17969,7 @@ this._installTariffConsumerV3();
         const token = this._emailContextToken(), tab = this._activeTab;
         const inputHtml = `<span class="price-inline">
           <span>${_esc(this._tariffCurrency())}</span>
-          <input type="number" id="price-input" aria-label="${L ? 'Cena energii za kWh' : 'Energy price per kWh'}" value="${cur ?? ''}" step="0.01" min="0" style="width:70px;padding:3px 6px;border:1.5px solid var(--bento-primary);border-radius:4px;font-size:12px;background:var(--bento-card);color:var(--bento-text);font-family:'Inter',sans-serif;text-align:center">
+          <input type="number" id="price-input" aria-label="${L ? 'Cena energii za kWh' : 'Energy price per kWh'}" value="${cur ?? ''}" step="0.01" min="0" style="width:70px;padding:3px 6px;border:1.5px solid var(--bento-primary);border-radius:4px;font-size:12px;background:var(--bento-card);color:var(--bento-text);font-family:var(--hat-font, var(--_hat-font));text-align:center">
           <span>/kWh</span>
           <button id="price-save" class="btn btn-primary" style="padding:3px 10px;font-size:12px;margin:0" aria-label="${L ? 'Zapisz' : 'Save'}">\u2714</button>
           <button id="price-cancel" class="btn" style="padding:3px 8px;font-size:12px;margin:0" aria-label="${L ? 'Anuluj' : 'Cancel'}">\u2716</button>
@@ -17873,7 +18432,7 @@ this._installTariffConsumerV3();
           <div class="schedule-meta"><span>\u{1F552} ${timeLabel}</span><span>${recipientInfo}</span></div>
           <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
             <label style="font-size:12px;color:var(--bento-text-secondary);font-weight:500">${L ? 'Godzina' : 'Time'}:</label>
-            <input type="time" id="${timeInputId}" value="${timeValue}" style="padding:5px 10px;border:1.5px solid var(--bento-border);border-radius:var(--bento-radius-xs);font-size:13px;background:var(--bento-card);color:var(--bento-text);font-family:'Inter',sans-serif;">
+            <input type="time" id="${timeInputId}" value="${timeValue}" style="padding:5px 10px;border:1.5px solid var(--bento-border);border-radius:var(--bento-radius-xs);font-size:13px;background:var(--bento-card);color:var(--bento-text);font-family:var(--hat-font, var(--_hat-font));">
             ${extraInputHtml || ''}
           </div>
           <div class="btn-row">
@@ -17907,7 +18466,7 @@ this._installTariffConsumerV3();
           `${weeklyDayLabel} ${L ? 'o' : 'at'} ${sd.weekly_time}`,
           'enable-weekly', 'disable-weekly', 'create-weekly', 'time-weekly', sd.weekly_time,
           `<label style="font-size:12px;color:var(--bento-text-secondary);font-weight:500;margin-left:8px">${L ? 'Dzie\u0144' : 'Day'}:</label>
-           <select id="day-weekly" style="padding:5px 10px;border:1.5px solid var(--bento-border);border-radius:var(--bento-radius-xs);font-size:13px;background:var(--bento-card);color:var(--bento-text);font-family:'Inter',sans-serif">${dayOptions}</select>`
+           <select id="day-weekly" style="padding:5px 10px;border:1.5px solid var(--bento-border);border-radius:var(--bento-radius-xs);font-size:13px;background:var(--bento-card);color:var(--bento-text);font-family:var(--hat-font, var(--_hat-font))">${dayOptions}</select>`
         )}
         ${scheduleCard(
           '\u{1F4C8}', 'Raport miesi\u0119czny', 'Monthly Report', monthlyState,
@@ -19410,14 +19969,14 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     } finally { this._syncDashboardPlacementV53(); }
   };
   Card.prototype.getGridOptions = function() {
-    if (simple(this)) return variant(this._config) === 'tile' ? {columns:6,rows:1,min_columns:6,min_rows:1} : {columns:12,rows:4,min_columns:6,min_rows:2,max_rows:4};
+    if (simple(this)) return variant(this._config) === 'tile' ? {columns:6,rows:1,min_columns:6} : {columns:12,rows:'auto',min_columns:6};
     return {columns:variant(this._config || {}) === 'legacy' ? 6 : 12,min_columns:3,min_rows:variant(this._config || {}) === 'legacy' ? 2 : 3};
   };
   const originalSize = Card.prototype.getCardSize;
   Card.prototype.getCardSize = function() { return simple(this) ? (variant(this._config) === 'tile' ? 1 : 4) : variant(this._config || {}) === 'legacy' && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
-  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-value-green:#166534;--energy-value-red:#b91c1c;--energy-value-neutral:#475569;--energy-value-purple:#6d28d9;--energy-success-button:#166534;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
-:host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-value-green:#86efac;--energy-value-red:#fca5a5;--energy-value-neutral:#cbd5e1;--energy-value-purple:#c4b5fd;--energy-success-button:#166534;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
-.stat,.stat-card{background:var(--energy-kpi-tone)!important}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)!important}
+  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--bento-primary-hover:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--bento-on-primary:var(--hat-on-primary,var(--_hat-on-primary,#fff));--bento-text-muted:var(--hat-text-2,var(--secondary-text-color,#4b5563));--energy-value-blue:var(--hat-text,var(--primary-text-color,#111827));--energy-value-amber:var(--hat-warn-text,var(--_hat-warn-text,#a16207));--energy-value-green:var(--hat-good-text,var(--_hat-good-text,#15803d));--energy-value-red:var(--hat-crit-text,var(--_hat-crit-text,#b91c1c));--energy-value-neutral:var(--hat-text-2,var(--secondary-text-color,#4b5563));--energy-value-purple:var(--hat-d2,var(--_hat-d2,#6250d6));--energy-success-button:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--energy-kpi-tone:var(--hat-chip,var(--secondary-background-color,#f3f4f6));--energy-kpi-tone-alt:var(--energy-kpi-tone)}
+:host(.bento-dark){color-scheme:dark}
+.stat,.stat-card{background:var(--energy-kpi-tone)}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)}
 .btn-primary,button.btn-primary{color:var(--bento-on-primary)}
 .ht-tariff-v3 [data-status=success]{color:var(--energy-value-green)}.ht-tariff-v3 [data-status=error]{color:var(--energy-value-red)}.ht-tariff-v3 [data-status=partial],.ht-tariff-v3 [data-status=unconfirmed]{color:var(--energy-value-amber)}
  [data-energy-options-help], [data-energy-compact]{box-sizing:border-box;padding:16px;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border-radius:12px;font-size:14px;overflow-wrap:anywhere} [data-energy-options-help] summary, [data-energy-expand]{min-height:44px;box-sizing:border-box;padding:12px;cursor:pointer} [data-energy-compact] dl{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin:12px 0} [data-energy-compact] dt{font-size:13px;color:var(--secondary-text-color,#50545b)} [data-energy-compact] dd{margin:0 0 12px;font-weight:600;font-size:18px} [data-energy-expand]{color:var(--primary-text-color,#202124);background:var(--secondary-background-color,#eee);border:1px solid var(--divider-color,#888);border-radius:8px;font:inherit} [data-energy-options-help] summary:focus-visible,[data-energy-expand]:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}
@@ -19425,8 +19984,32 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]{flex:1 1 100%;width:100%}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer>summary{min-height:44px;padding:12px 8px;font-size:14px}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]>p{margin:0 0 8px}`;
-  const simpleStyle = `:host{display:block;min-width:0;--energy-simple-cheap:#1baf7a;--energy-simple-expensive:#2a78d6}:host(.bento-dark){--energy-simple-cheap:#199e70;--energy-simple-expensive:#3987e5} [data-energy-simple]{box-sizing:border-box;display:grid;gap:8px;padding:12px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);font-size:14px;min-width:0;overflow-wrap:anywhere} [data-energy-simple] h2,[data-energy-simple] p{margin:0;font-size:14px;line-height:20px} [data-energy-simple] h2{display:flex;align-items:center;gap:8px} [data-energy-simple] ha-icon{color:var(--primary-color);flex-shrink:0} [data-energy-primary]{font-size:24px;line-height:32px;font-weight:600} [data-energy-secondary]{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;line-height:18px} [data-energy-simple] button,[data-energy-back]{min-height:44px;min-width:44px;padding:8px 12px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit;font-size:14px;cursor:pointer} [data-energy-simple] button:focus-visible,[data-energy-back]:focus-visible{outline:3px solid var(--primary-color);outline-offset:2px} [data-energy-simple=tile]{grid-template-columns:minmax(0,1fr) auto;gap:4px;padding:4px 6px;min-height:56px} [data-energy-simple=tile] h2{font-size:14px;min-width:0} [data-energy-simple=tile] [data-energy-name],[data-energy-simple=tile] [data-energy-primary]{overflow:hidden;white-space:nowrap;text-overflow:ellipsis} [data-energy-simple=tile] [data-energy-primary]{font-size:12px;line-height:16px} [data-energy-simple=tile] button{grid-column:2;grid-row:1 / 3;width:44px;height:44px;align-self:center;padding:8px;font-size:24px;line-height:24px} [data-energy-simple=tile] ha-icon{--mdc-icon-size:20px} [data-energy-simple=compact]{grid-template-columns:minmax(0,1fr) auto;gap:6px 8px} [data-energy-simple=compact] h2,[data-energy-simple=compact] [data-energy-secondary],[data-energy-simple=compact] [data-energy-zone-wrapper],[data-energy-simple=compact] button{grid-column:1 / -1} [data-energy-simple=compact] [data-energy-primary]{grid-column:1;grid-row:2} [data-energy-simple=compact] [data-energy-primary-label]{grid-column:2;grid-row:2;align-self:center;font-size:12px;line-height:18px} [data-energy-zone-wrapper] p{font-size:12px;line-height:16px;margin:0 0 4px} [data-energy-zonebar]{position:relative;height:10px;overflow:hidden;border:1px solid var(--divider-color);border-radius:4px;background:var(--disabled-color,var(--secondary-background-color))} [data-energy-zonebar] span{position:absolute;inset-block:0} [data-energy-zone=cheap]{background:var(--energy-simple-cheap)} [data-energy-zone=expensive]{background:var(--energy-simple-expensive)} [data-energy-zone=mixed]{background:var(--info-color,var(--primary-color))} [data-energy-zone=unknown]{background:var(--disabled-color,var(--secondary-background-color))}`;
+  const simpleStyle = `:host{display:block;min-width:0;container-type:inline-size;container-name:energy-simple-card;--energy-simple-cheap:var(--hat-zone-cheap,var(--_hat-zone-cheap,#1baf7a));--energy-simple-expensive:var(--hat-zone-exp,var(--_hat-zone-exp,#2a78d6))}
+:host(.bento-dark){--energy-simple-cheap:var(--hat-zone-cheap,#199e70);--energy-simple-expensive:var(--hat-zone-exp,#3987e5)}
+[data-energy-simple]{box-sizing:border-box;display:grid;gap:8px;min-width:0;color:var(--primary-text-color);font-size:14px;cursor:pointer}
+[data-energy-simple] h2,[data-energy-simple] p{margin:0} [data-energy-simple] h2{font-size:16px;line-height:22px;font-weight:600;min-width:0} [data-energy-name]{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-energy-simple] ha-icon{display:flex;align-items:center;justify-content:center;flex:none;width:36px;height:36px;border-radius:50%;--mdc-icon-size:20px;color:var(--primary-color);background:color-mix(in srgb,currentColor 14%,transparent)}
+[data-energy-heading]{display:flex;align-items:center;gap:12px;min-width:0} [data-energy-heading-text]{flex:1;min-width:0}
+[data-energy-primary-label]{font-size:12px;line-height:16px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-energy-primary]{font-size:28px;line-height:34px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums} [data-energy-unit]{font-size:14px;line-height:20px;font-weight:400;letter-spacing:normal;color:var(--secondary-text-color)}
+[data-energy-simple] button,[data-energy-back]{min-height:44px;min-width:44px;padding:8px 12px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit;font-size:14px;cursor:pointer}
+[data-energy-simple]:focus-visible,[data-energy-simple] button:focus-visible,[data-energy-back]:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+[data-energy-simple=tile]{height:56px;grid-template-columns:36px minmax(0,1fr);column-gap:12px;row-gap:0;align-items:center;padding:0 8px 0 12px}
+[data-energy-report-status][data-energy-simple=tile]{grid-template-columns:36px minmax(0,1fr) auto} [data-energy-simple=tile] [data-energy-heading]{display:contents} [data-energy-simple=tile] h2{font-size:14px;line-height:20px;font-weight:500}
+[data-energy-simple=tile] [data-energy-primary]{font-size:12px;line-height:16px;font-weight:400;letter-spacing:normal;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-energy-state-short]{display:none} [data-energy-simple=tile] button{position:relative;height:36px;min-height:36px;min-width:36px;padding:0 10px;border:0;border-radius:999px} [data-energy-simple=tile] button:after{content:'';position:absolute;inset:-4px}
+[data-energy-simple=compact]{padding:12px 16px 16px;max-height:248px;overflow:hidden} [data-energy-values]{display:flex;align-items:baseline;gap:8px;min-width:0} [data-energy-cost]{font-size:20px;line-height:26px;font-weight:600;font-variant-numeric:tabular-nums} [data-energy-comparison]{margin-inline-start:auto;max-width:46%;font-size:12px;line-height:16px;text-align:end;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--secondary-text-color)}
+[data-energy-report-status] [data-energy-cost]{font-size:12px;line-height:16px;font-weight:400} [data-energy-report-status] [data-energy-comparison]{margin:0;max-width:none;text-align:start} [data-energy-secondary]{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;line-height:16px} [data-energy-zone-wrapper] p{font-size:12px;line-height:16px;margin:0 0 4px}
+[data-energy-zonebar]{position:relative;height:28px;overflow:hidden;border:1px solid var(--divider-color);border-radius:4px;background:var(--disabled-color,var(--secondary-background-color))} [data-energy-zonebar] span{position:absolute;bottom:0;box-sizing:border-box;border-inline-end:1px solid var(--ha-card-background,var(--card-background-color))}[data-energy-measurement=unknown]{height:100%;background:transparent!important;border:1px dashed var(--secondary-text-color)}[data-energy-zone-axis]{display:flex;justify-content:space-between;font-size:12px;line-height:16px;color:var(--secondary-text-color)} [data-energy-zone=cheap]{background:var(--energy-simple-cheap)} [data-energy-zone=expensive]{background:var(--energy-simple-expensive)} [data-energy-zone=mixed]{background:var(--info-color,var(--primary-color))} [data-energy-zone=unknown]{background:var(--disabled-color,var(--secondary-background-color))}
+[data-energy-zone-legend]{display:flex;gap:12px;flex-wrap:wrap;color:var(--secondary-text-color);font-size:12px;line-height:16px} [data-energy-zone-legend] span:before{content:'';display:inline-block;width:8px;height:8px;margin-inline-end:4px;background:var(--disabled-color)} [data-energy-zone-legend] [data-zone=cheap]:before{background:var(--energy-simple-cheap)} [data-energy-zone-legend] [data-zone=expensive]:before{background:var(--energy-simple-expensive)}`;
+  const canOpen = host => {
+    const config = host._config || {};
+    if (!host.isConnected || host.preview === true || host._hass?.user?.is_active === false || !simple(host)) return false;
+    const guard = host._getTariffHostV3().guard, token = guard.snapshot();
+    return guard.available(token) && guard.current(token) && (config.tap_target !== 'more-info' || !!host._hass?.states?.[config.entity]);
+  };
   const open = host => {
+    if (!canOpen(host)) return;
     const config = host._config || {};
     if (config.tap_target === 'energy') {
       // Fixed HA route only: configuration cannot supply a URL.
@@ -19516,7 +20099,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       const fields = Object.fromEntries(parts.map(part => [part.type,part.value]));
       if (`${fields.year}-${fields.month}-${fields.day}` !== day(p.local_start)) return null;
     } catch (_) { return null; }
-    return {percent:c.percent,cutoff:p.end};
+    return {percent:c.percent,cutoff:p.end,baseline:c.baseline_kwh};
   };
   const paintZoneBar = (bar, analysis, host, format) => {
     if (!bar) return;
@@ -19526,7 +20109,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const p = analysis?.period, chart = analysis?.chart, window = analysis?.period_summary?.window;
     const start = Date.parse(p?.start), end = Date.parse(p?.calendar_end), observed = Date.parse(p?.end);
     const rows = chart?.bins;
-    const note = t(host,'Tariff zones for the calendar day; unconfirmed intervals are neutral.','Strefy taryfy w dniu kalendarzowym; niepotwierdzone odcinki są neutralne.');
+    const note = t(host,'Measured day energy with tariff zones; missing measurements are not zero.','Zmierzona energia doby w strefach taryfy; brak pomiaru nie oznacza zera.');
     const descriptions = [];
     bar.setAttribute('aria-label',`${note} ${unknown}`);
     // Position/width are time geometry only. Never sum bins, quantities or costs.
@@ -19534,6 +20117,9 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
         !Number.isFinite(observed) || observed > end || window?.start !== p.start || window?.end !== p.end || window?.timezone !== p.timezone ||
         chart?.timezone !== p.timezone || chart?.status !== 'ready' || chart.coverage_kind !== 'complete_household_hours' || chart.fixed_fee_scope !== 'household_period_only' ||
         !Array.isArray(rows) || rows.length > 48) return;
+    const measured = row => row.complete === true && row.expected_seconds === (row.to-row.from)/1000 && row.measured_seconds === row.expected_seconds &&
+      (typeof row.kwh === 'number' || typeof row.kwh === 'string' && row.kwh.trim() !== '') && Number.isFinite(Number(row.kwh)) && Number(row.kwh) >= 0 && String(row.recorded_kwh) === String(row.kwh);
+    const maximum = Math.max(0,...rows.filter(measured).map(row=>Number(row.kwh)));
     let last = start;
     for (const row of rows) {
       if (!Number.isFinite(row.from) || !Number.isFinite(row.to) || row.to <= row.from || row.from < last || row.from < start || row.to > observed ||
@@ -19549,10 +20135,13 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
         z.reconciles_recorded_kwh === true && z.reconciles_known_costs === true && zone?.complete === true && zone.measured_seconds === row.measured_seconds &&
         z.currency === row.currency && z.price_basis === row.price_basis && String(zone.kwh) === String(row.kwh) && String(row.recorded_kwh) === String(row.kwh) &&
         String(zone.recorded_kwh) === String(row.kwh) && Object.hasOwn(names,classification);
+      const known = measured(row);
       const label = proven ? names[classification] : unknown;
-      const description = `${format.pointLabel(row.start)}–${format.pointLabel(row.end)}: ${label}`;
+      const description = `${format.pointLabel(row.start)}–${format.pointLabel(row.end)}: ${known ? format.number(row.kwh,{minimumFractionDigits:1,maximumFractionDigits:1}) + ' kWh' : unknown} · ${label}`;
       const segment = document.createElement('span');
       segment.dataset.energyZone = proven ? classification : 'unknown';
+      segment.dataset.energyMeasurement = known ? 'ready' : 'unknown';
+      if (known) segment.style.height = `${maximum > 0 ? 100*Number(row.kwh)/maximum : 0}%`;
       segment.style.left = `${100*(row.from-start)/(end-start)}%`;
       segment.style.width = `${100*(row.to-row.from)/(end-start)}%`;
       segment.title = description; segment.setAttribute('aria-hidden','true');
@@ -19561,29 +20150,18 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     bar.setAttribute('aria-label',[note,...descriptions,observed < end ? t(host,'Remaining time: Unknown','Pozostały czas: brak danych') : ''].filter(Boolean).join(' '));
   };
   const compactActionsStyle = '[data-energy-simple=compact] [data-energy-actions]{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}[data-energy-simple=compact] [data-energy-actions] button{flex:1 1 120px;min-width:0}';
-  const reportStatusStyle = '[data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}[data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:8em;font-size:12px;line-height:18px}';
-  // Six native HA columns can be only183px wide at a390px viewport.
-  // Stack the primary label and use the full line for secondary facts.
-  const narrowSimpleStyle = `:host{container-type:inline-size;container-name:energy-simple-card}
-  [data-energy-tariff-tile] [data-energy-tile-zone]{display:none}
-  @container energy-simple-card (max-width:180px){
-    [data-energy-tariff-tile] [data-energy-name],[data-energy-tariff-tile] [data-energy-tile-current]{display:none}
-    [data-energy-tariff-tile] h2{gap:4px}
-    [data-energy-tariff-tile] h2 ha-icon{--mdc-icon-size:16px}
-    [data-energy-tariff-tile] [data-energy-tile-zone]{display:inline;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  const reportStatusStyle = '[data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}';
+  const narrowSimpleStyle = `@container energy-simple-card (max-width:279px){
+    [data-energy-state-long]{display:none} [data-energy-state-short]{display:inline}
+  }
+  @container energy-simple-card (max-width:219px){
+    [data-energy-simple=tile] button{display:none}
   }
   @container energy-simple-card (max-width:320px){
-    [data-energy-simple=compact]{grid-template-columns:minmax(0,1fr);gap:4px;padding:8px}
-    [data-energy-simple=compact] h2{min-width:0;line-height:18px}
-    [data-energy-simple=compact] [data-energy-name]{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-    [data-energy-simple=compact] [data-energy-primary]{grid-column:1;grid-row:2;font-size:22px;line-height:28px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-    [data-energy-simple=compact] [data-energy-primary-label]{grid-column:1;grid-row:3;justify-self:start;line-height:16px}
-    [data-energy-simple=compact] [data-energy-secondary]{display:grid;gap:0;font-size:12px;line-height:16px}
+    [data-energy-values]{flex-wrap:wrap} [data-energy-comparison]{max-width:100%;flex-basis:100%;text-align:start;margin-inline-start:0}
     [data-energy-report-status][data-energy-simple=compact]{padding:6px;gap:2px}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:none;line-height:16px}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions]{flex-wrap:nowrap}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions] button{flex:1 1 0;min-width:44px;padding-inline:4px}
+    [data-energy-report-status] [data-energy-actions]{flex-wrap:nowrap}
+    [data-energy-report-status] [data-energy-actions] button{flex:1 1 0;min-width:44px;padding-inline:4px}
   }`;
 
   const emailStatusFor = host => host._emailStatusV100 ||= (() => {
@@ -19656,7 +20234,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const recipients = attempt?.recipient_count !== null && attempt?.recipient_count !== undefined ? format.number(attempt.recipient_count) : unknown;
     const numeric = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '') && Number.isFinite(Number(value));
     const total = analysis?.totals, elapsed = elapsedComparison(analysis);
-    const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${format.number(total.kwh,{maximumFractionDigits:2})} kWh` : unknown;
+    const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${format.number(total.kwh,{minimumFractionDigits:1,maximumFractionDigits:1})} kWh` : unknown;
     const native = !analysis?.active_tariff_id && analysis?.native_pricing?.source === 'ha_energy' && analysis?.native_pricing?.schema === 1 ? analysis.native_pricing.period_cost : null;
     const nativeReady = native?.status === 'ready' && native.coverage?.complete === true && numeric(native.amount) && /^[A-Z]{3}$/.test(native.currency || '');
     const bookReady = total?.pricing_complete === true && numeric(total.usage_cost) && /^[A-Z]{3}$/.test(total.currency || '');
@@ -19675,10 +20253,20 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span>${tariffTile ? '<span data-energy-tile-zone></span>' : ''}</h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
+      root.innerHTML = `<style>${host._getTariffHostV3().ui().css}${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><ha-card data-energy-simple="${mode}" role="button" tabindex="0"${!email ? ' data-energy-open' : ''}><div data-energy-heading><ha-icon aria-hidden="true"></ha-icon><div data-energy-heading-text><h2><span data-energy-name></span></h2>${mode === 'compact' ? '<p data-energy-primary-label></p>' : '<div data-energy-primary role="status"></div>'}</div></div>${mode === 'compact' ? email ? '<div data-energy-primary role="status"></div><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : '<div data-energy-values><div data-energy-primary role="status"></div><span data-energy-cost></span><span data-energy-comparison></span></div><div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div><div data-energy-zone-axis></div><div data-energy-zone-legend></div></div>' : ''}${email ? mode === 'compact' ? '<div data-energy-actions><button type="button" data-energy-open></button></div>' : '<button type="button" data-energy-open></button>' : ''}</ha-card>`;
       section = root.querySelector('[data-energy-simple]');
-      section.querySelector('button').addEventListener('click', () => open(host));
-      section.querySelector('button').addEventListener('keydown', event => {
+      section.addEventListener('click', event => {
+        if (event.target.closest?.('button,a,input,select,textarea')) return;
+        open(host);
+      });
+      section.addEventListener('keydown', event => {
+        if (event.target !== section || !['Enter',' '].includes(event.key)) return;
+        event.preventDefault();
+        if (!event.repeat) open(host);
+      });
+      const openButton = section.querySelector('[data-energy-open]');
+      openButton?.addEventListener('click', () => open(host));
+      openButton?.addEventListener('keydown', event => {
         if (['Enter',' '].includes(event.key) && !event.repeat) { event.preventDefault(); event.currentTarget.click(); }
       });
     }
@@ -19701,46 +20289,77 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       send.disabled = grant.execute !== true || reportState.busy || host._getTariffHostV3().guard.occupied();
     }
     const icon = section.querySelector('ha-icon');
-    icon.setAttribute('icon', email ? 'mdi:email-outline' : 'mdi:lightning-bolt');
+    icon.setAttribute('icon', email ? 'mdi:email-fast-outline' : 'mdi:lightning-bolt');
     const tone = snapshot?.status !== 'unavailable' && snapshot?.current?.available === true ? snapshot.current.zone_class : null;
     icon.style.color = {cheap:'var(--energy-simple-cheap)',expensive:'var(--energy-simple-expensive)',mixed:'var(--warning-color,var(--primary-color))'}[tone] || 'var(--primary-color)';
-    section.querySelector('[data-energy-name]').textContent = config.title ?? title;
-    section.querySelector('[data-energy-name]').title = config.title ?? title;
+    const surfaceName = config.title && config.title !== title ? config.title : email ? t(host,'Energy report','Raport energii') : mode === 'compact' ? t(host,'Energy today','Energia dziś') : t(host,'Energy','Energia');
+    section.querySelector('[data-energy-name]').textContent = surfaceName;
+    section.querySelector('[data-energy-name]').title = surfaceName;
     const primary = section.querySelector('[data-energy-primary]');
     const shortReport = report?.schedule_state === 'enabled' && report.next_report_at ? `${format.date(report.next_report_at,true)} · ${format.clock(report.next_report_at)}` : unknown;
-    if (tariffTile) {
-      let current = primary.querySelector('[data-energy-tile-current]');
-      let clock = primary.querySelector('[data-energy-tile-next]');
-      if (!current || !clock) {
-        current = document.createElement('span'); current.dataset.energyTileCurrent = '';
-        clock = document.createElement('span'); clock.dataset.energyTileNext = '';
-        primary.replaceChildren(current,clock);
+    if (mode === 'tile') {
+      let long = primary.querySelector('[data-energy-state-long]'), short = primary.querySelector('[data-energy-state-short]');
+      if (!long || !short) {
+        long = document.createElement('span'); long.dataset.energyStateLong = '';
+        short = document.createElement('span'); short.dataset.energyStateShort = '';
+        primary.replaceChildren(long,short);
       }
-      current.textContent = `${zone} · `;
-      clock.textContent = nextKnown ? format.clock(next.start) || unknown : nextLabel;
-      section.querySelector('[data-energy-tile-zone]').textContent = zone;
-      section.querySelector('h2').setAttribute('aria-label',`${config.title ?? title} · ${zone}`);
-      section.querySelector('h2').title = config.title ?? title;
-    } else primary.textContent = email ? mode === 'tile' ? shortReport : nextReport : energy;
+      const nextShort = nextKnown ? `${t(host,'Cheap from','Tania od')} ${format.clock(next.start) || unknown}` : nextLabel;
+      long.textContent = email ? shortReport : `${zone} · ${nextShort}`;
+      short.textContent = email ? shortReport : nextShort;
+    } else if (email) primary.textContent = nextReport;
+    else {
+      primary.replaceChildren(document.createTextNode(total?.measurement_complete !== false && numeric(total?.kwh) ? format.number(total.kwh,{minimumFractionDigits:1,maximumFractionDigits:1}) + ' ' : unknown));
+      if (energy !== unknown) { const unit = document.createElement('span'); unit.dataset.energyUnit = ''; unit.textContent = 'kWh'; primary.append(unit); }
+    }
     primary.title = email ? `${t(host,'Scheduled report','Zaplanowany raport')}: ${nextReport}` : mode === 'tile' ? `${zone} · ${nextKnown ? t(host,'Cheap from','Tania od') + ' ' : ''}${nextLabel}` : primary.textContent;
     primary.setAttribute('aria-label',primary.title);
     if (mode === 'compact') {
-      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Scheduled report','Zaplanowany raport') : t(host,'Energy today','Energia dziś');
-      section.querySelector('[data-energy-cost]').textContent = email ? `${t(host,'Last attempt','Ostatnia próba')}: ${lastAttempt}` : `${!bookReady && nativeReady ? t(host,'Cost recorded in HA','Koszt zapisany w HA') : t(host,'Usage cost','Koszt zużycia')}: ${money}`;
+      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Scheduled report','Zaplanowany raport') : analysis?.period?.end ? `${t(host,'Through','Do')} ${format.clock(analysis.period.end) || unknown}` : unknown;
+      section.querySelector('[data-energy-cost]').textContent = email ? `${t(host,'Last attempt','Ostatnia próba')}: ${lastAttempt}` : money;
       const costLine = section.querySelector('[data-energy-cost]');
-      costLine.title = !email && !bookReady && nativeReady ? `${costLine.textContent}. ${t(host,'Source: Home Assistant Energy. Cost breakdown and fixed fees are unknown; this is not a complete bill.','Źródło: Home Assistant Energy. Rozbicie kosztu i opłaty stałe są nieznane; to nie jest pełny rachunek.')}` : costLine.textContent;
+      if (!email && money !== unknown) {
+        const currency = bookReady ? total.currency : native.currency;
+        costLine.replaceChildren(document.createTextNode(money.slice(0,-currency.length)));
+        const unit = document.createElement('span'); unit.dataset.energyUnit = ''; unit.textContent = currency; costLine.append(unit);
+      }
+      costLine.title = !email && !bookReady && nativeReady ? `${t(host,'Cost recorded in HA','Koszt zapisany w HA')}: ${costLine.textContent}. ${t(host,'Source: Home Assistant Energy. Cost breakdown and fixed fees are unknown; this is not a complete bill.','Źródło: Home Assistant Energy. Rozbicie kosztu i opłaty stałe są nieznane; to nie jest pełny rachunek.')}` : email ? costLine.textContent : `${t(host,'Usage cost','Koszt zużycia')}: ${money}`;
       costLine.setAttribute('aria-label',costLine.title);
-      section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : `${comparisonName}: ${difference}`;
+      section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : elapsed ? `${difference} ${comparisonName}${numeric(elapsed.baseline) ? ` (${format.number(elapsed.baseline,{minimumFractionDigits:1,maximumFractionDigits:1})} kWh)` : ''}` : `${comparisonName}: ${difference}`;
       const caption = section.querySelector('[data-energy-zone-caption]');
-      if (caption) caption.textContent = t(host,'Day tariff zones','Strefy taryfy w ciągu dnia');
+      if (caption) caption.textContent = t(host,'Measured day energy','Zmierzona energia w ciągu dnia');
       paintZoneBar(section.querySelector('[data-energy-zonebar]'),analysis,host,format);
+      const comparison = section.querySelector('[data-energy-comparison]');
+      comparison.title = comparison.textContent;
+      const axis = section.querySelector('[data-energy-zone-axis]');
+      if (axis) {
+        axis.replaceChildren();
+        const start = Date.parse(analysis?.period?.start), end = Date.parse(analysis?.period?.calendar_end);
+        if (Number.isFinite(start) && Number.isFinite(end) && end > start) for (const instant of [start,start+(end-start)/2,end]) {
+          const point = document.createElement('span'); point.textContent = format.clock(new Date(instant).toISOString()) || unknown; axis.append(point);
+        }
+      }
+      const legend = section.querySelector('[data-energy-zone-legend]');
+      if (legend) {
+        legend.replaceChildren();
+        for (const [zone,label] of [['cheap',t(host,'Cheap','Tania')],['expensive',t(host,'Expensive','Droga')],['unknown',unknown]]) {
+          const item = document.createElement('span'); item.dataset.zone = zone; item.textContent = label; legend.append(item);
+        }
+      }
     }
-    const button = section.querySelector('button');
-    button.textContent = mode === 'tile' ? '›' : t(host,'Open','Otwórz');
-    button.setAttribute('aria-label', `${t(host,'Open','Otwórz')} ${config.title ?? title}`);
-    button.disabled = config.tap_target === 'more-info' && !host._hass?.states?.[config.entity];
+    const available = canOpen(host);
+    section.setAttribute('aria-disabled',String(!available));
+    section.tabIndex = available ? 0 : -1;
+    section.setAttribute('aria-label',[surfaceName,primary.title,section.querySelector('[data-energy-cost]')?.getAttribute('aria-label'),section.querySelector('[data-energy-comparison]')?.textContent].filter(Boolean).join('. '));
+    const button = section.querySelector('[data-energy-open]');
+    if (button) {
+      button.textContent = mode === 'tile' ? '✉' : t(host,'Open','Otwórz');
+      button.setAttribute('aria-label',`${t(host,'Open','Otwórz')} ${surfaceName}`);
+      button.disabled = !available;
+    }
   };
   // Simple surfaces do not run the full cards' discovery/config/schedule paths.
+  Card.prototype._applyThemeV150 = function() { this._getTariffHostV3().ui().applyTheme(this); };
   const hassDescriptor = Object.getOwnPropertyDescriptor(Card.prototype,'hass');
   if (hassDescriptor?.set) Object.defineProperty(Card.prototype,'hass',{...hassDescriptor,set(value) {
     try {
@@ -19755,14 +20374,14 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       this.classList.toggle('bento-dark',value?.themes?.darkMode === true);
       this._tariffHostController?.guard.observe();
       this._render();
-    } finally { this._syncDashboardPlacementV53(); }
+    } finally { this._syncDashboardPlacementV53(); this._applyThemeV150(); }
   }});
   const connected = Card.prototype.connectedCallback;
   Card.prototype.connectedCallback = function() {
     try {
       if (!simple(this) && this.preview !== true) return connected?.call(this);
       this._tariffHostController?.guard.resume(); this._render();
-    } finally { this._syncDashboardPlacementV53(); }
+    } finally { this._syncDashboardPlacementV53(); this._applyThemeV150(); }
   };
   for (const method of ['_repriceTariffV3','_syncAnalysisV53']) {
     const original = Card.prototype[method]; if (!original) continue;
@@ -19822,7 +20441,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     this._applyCardOptionsV5();
     if (restoreBack) this.shadowRoot.querySelector('[data-energy-back]')?.focus({preventScroll:true});
     return result;
-    } finally { this._syncDashboardPlacementV53(); }
+    } finally { this._syncDashboardPlacementV53(); this._applyThemeV150(); }
   };
   Card.prototype._applyCardOptionsV5 = function() {
     this._syncDashboardPlacementV53();
