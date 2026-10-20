@@ -7293,9 +7293,9 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
 [data-energy-report-status][data-energy-simple=tile]{grid-template-columns:36px minmax(0,1fr) auto} [data-energy-simple=tile] [data-energy-heading]{display:contents} [data-energy-simple=tile] h2{font-size:14px;line-height:20px;font-weight:500}
 [data-energy-simple=tile] [data-energy-primary]{font-size:12px;line-height:16px;font-weight:400;letter-spacing:normal;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 [data-energy-state-short]{display:none} [data-energy-simple=tile] button{position:relative;height:36px;min-height:36px;min-width:36px;padding:0 10px;border:0;border-radius:999px} [data-energy-simple=tile] button:after{content:'';position:absolute;inset:-4px}
-[data-energy-simple=compact]{padding:12px 16px 16px;max-height:248px;overflow:hidden} [data-energy-values]{display:flex;align-items:baseline;gap:8px;min-width:0} [data-energy-cost]{font-size:20px;line-height:26px;font-weight:600;font-variant-numeric:tabular-nums} [data-energy-comparison]{margin-inline-start:auto;max-width:46%;font-size:12px;line-height:16px;text-align:end;color:var(--secondary-text-color)}
+[data-energy-simple=compact]{padding:12px 16px 16px;max-height:248px;overflow:hidden} [data-energy-values]{display:flex;align-items:baseline;gap:8px;min-width:0} [data-energy-cost]{font-size:20px;line-height:26px;font-weight:600;font-variant-numeric:tabular-nums} [data-energy-comparison]{margin-inline-start:auto;max-width:46%;font-size:12px;line-height:16px;text-align:end;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;color:var(--secondary-text-color)}
 [data-energy-report-status] [data-energy-cost]{font-size:12px;line-height:16px;font-weight:400} [data-energy-report-status] [data-energy-comparison]{margin:0;max-width:none;text-align:start} [data-energy-secondary]{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;line-height:16px} [data-energy-zone-wrapper] p{font-size:12px;line-height:16px;margin:0 0 4px}
-[data-energy-zonebar]{position:relative;height:10px;overflow:hidden;border:1px solid var(--divider-color);border-radius:4px;background:var(--disabled-color,var(--secondary-background-color))} [data-energy-zonebar] span{position:absolute;inset-block:0} [data-energy-zone=cheap]{background:var(--energy-simple-cheap)} [data-energy-zone=expensive]{background:var(--energy-simple-expensive)} [data-energy-zone=mixed]{background:var(--info-color,var(--primary-color))} [data-energy-zone=unknown]{background:var(--disabled-color,var(--secondary-background-color))}
+[data-energy-zonebar]{position:relative;height:28px;overflow:hidden;border:1px solid var(--divider-color);border-radius:4px;background:var(--disabled-color,var(--secondary-background-color))} [data-energy-zonebar] span{position:absolute;bottom:0;box-sizing:border-box;border-inline-end:1px solid var(--ha-card-background,var(--card-background-color))}[data-energy-measurement=unknown]{height:100%;background:transparent!important;border:1px dashed var(--secondary-text-color)}[data-energy-zone-axis]{display:flex;justify-content:space-between;font-size:12px;line-height:16px;color:var(--secondary-text-color)} [data-energy-zone=cheap]{background:var(--energy-simple-cheap)} [data-energy-zone=expensive]{background:var(--energy-simple-expensive)} [data-energy-zone=mixed]{background:var(--info-color,var(--primary-color))} [data-energy-zone=unknown]{background:var(--disabled-color,var(--secondary-background-color))}
 [data-energy-zone-legend]{display:flex;gap:12px;flex-wrap:wrap;color:var(--secondary-text-color);font-size:12px;line-height:16px} [data-energy-zone-legend] span:before{content:'';display:inline-block;width:8px;height:8px;margin-inline-end:4px;background:var(--disabled-color)} [data-energy-zone-legend] [data-zone=cheap]:before{background:var(--energy-simple-cheap)} [data-energy-zone-legend] [data-zone=expensive]:before{background:var(--energy-simple-expensive)}`;
   const canOpen = host => {
     const config = host._config || {};
@@ -7404,7 +7404,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const p = analysis?.period, chart = analysis?.chart, window = analysis?.period_summary?.window;
     const start = Date.parse(p?.start), end = Date.parse(p?.calendar_end), observed = Date.parse(p?.end);
     const rows = chart?.bins;
-    const note = t(host,'Tariff zones for the calendar day; unconfirmed intervals are neutral.','Strefy taryfy w dniu kalendarzowym; niepotwierdzone odcinki są neutralne.');
+    const note = t(host,'Measured day energy with tariff zones; missing measurements are not zero.','Zmierzona energia doby w strefach taryfy; brak pomiaru nie oznacza zera.');
     const descriptions = [];
     bar.setAttribute('aria-label',`${note} ${unknown}`);
     // Position/width are time geometry only. Never sum bins, quantities or costs.
@@ -7412,6 +7412,9 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
         !Number.isFinite(observed) || observed > end || window?.start !== p.start || window?.end !== p.end || window?.timezone !== p.timezone ||
         chart?.timezone !== p.timezone || chart?.status !== 'ready' || chart.coverage_kind !== 'complete_household_hours' || chart.fixed_fee_scope !== 'household_period_only' ||
         !Array.isArray(rows) || rows.length > 48) return;
+    const measured = row => row.complete === true && row.expected_seconds === (row.to-row.from)/1000 && row.measured_seconds === row.expected_seconds &&
+      (typeof row.kwh === 'number' || typeof row.kwh === 'string' && row.kwh.trim() !== '') && Number.isFinite(Number(row.kwh)) && Number(row.kwh) >= 0 && String(row.recorded_kwh) === String(row.kwh);
+    const maximum = Math.max(0,...rows.filter(measured).map(row=>Number(row.kwh)));
     let last = start;
     for (const row of rows) {
       if (!Number.isFinite(row.from) || !Number.isFinite(row.to) || row.to <= row.from || row.from < last || row.from < start || row.to > observed ||
@@ -7427,10 +7430,13 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
         z.reconciles_recorded_kwh === true && z.reconciles_known_costs === true && zone?.complete === true && zone.measured_seconds === row.measured_seconds &&
         z.currency === row.currency && z.price_basis === row.price_basis && String(zone.kwh) === String(row.kwh) && String(row.recorded_kwh) === String(row.kwh) &&
         String(zone.recorded_kwh) === String(row.kwh) && Object.hasOwn(names,classification);
+      const known = measured(row);
       const label = proven ? names[classification] : unknown;
-      const description = `${format.pointLabel(row.start)}–${format.pointLabel(row.end)}: ${label}`;
+      const description = `${format.pointLabel(row.start)}–${format.pointLabel(row.end)}: ${known ? format.number(row.kwh,{minimumFractionDigits:1,maximumFractionDigits:1}) + ' kWh' : unknown} · ${label}`;
       const segment = document.createElement('span');
       segment.dataset.energyZone = proven ? classification : 'unknown';
+      segment.dataset.energyMeasurement = known ? 'ready' : 'unknown';
+      if (known) segment.style.height = `${maximum > 0 ? 100*Number(row.kwh)/maximum : 0}%`;
       segment.style.left = `${100*(row.from-start)/(end-start)}%`;
       segment.style.width = `${100*(row.to-row.from)/(end-start)}%`;
       segment.title = description; segment.setAttribute('aria-hidden','true');
@@ -7448,6 +7454,8 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   }
   @container energy-simple-card (max-width:320px){
     [data-energy-values]{flex-wrap:wrap} [data-energy-comparison]{max-width:100%;flex-basis:100%;text-align:start;margin-inline-start:0}
+    [data-energy-report-status][data-energy-simple=compact]{padding:6px;gap:2px}
+    [data-energy-report-status] [data-energy-actions]{flex-wrap:nowrap}
     [data-energy-report-status] [data-energy-actions] button{flex:1 1 0;min-width:44px;padding-inline:4px}
   }`;
 
@@ -7614,8 +7622,18 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       costLine.setAttribute('aria-label',costLine.title);
       section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : elapsed ? `${difference} ${comparisonName}${numeric(elapsed.baseline) ? ` (${format.number(elapsed.baseline,{minimumFractionDigits:1,maximumFractionDigits:1})} kWh)` : ''}` : `${comparisonName}: ${difference}`;
       const caption = section.querySelector('[data-energy-zone-caption]');
-      if (caption) caption.textContent = t(host,'Day tariff zones','Strefy taryfy w ciągu dnia');
+      if (caption) caption.textContent = t(host,'Measured day energy','Zmierzona energia w ciągu dnia');
       paintZoneBar(section.querySelector('[data-energy-zonebar]'),analysis,host,format);
+      const comparison = section.querySelector('[data-energy-comparison]');
+      comparison.title = comparison.textContent;
+      const axis = section.querySelector('[data-energy-zone-axis]');
+      if (axis) {
+        axis.replaceChildren();
+        const start = Date.parse(analysis?.period?.start), end = Date.parse(analysis?.period?.calendar_end);
+        if (Number.isFinite(start) && Number.isFinite(end) && end > start) for (const instant of [start,start+(end-start)/2,end]) {
+          const point = document.createElement('span'); point.textContent = format.clock(new Date(instant).toISOString()) || unknown; axis.append(point);
+        }
+      }
       const legend = section.querySelector('[data-energy-zone-legend]');
       if (legend) {
         legend.replaceChildren();
