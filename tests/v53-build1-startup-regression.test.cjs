@@ -3,7 +3,7 @@ const {test}=require('node:test'),assert=require('node:assert/strict');
 const {readFileSync}=require('node:fs'),path=require('node:path'),{JSDOM}=require('jsdom');
 function fixture(name='ha-energy-insights'){
  const dom=new JSDOM('',{runScripts:'dangerously',url:'http://localhost/'}),w=dom.window;
- w.eval(readFileSync(path.join(__dirname,'../shared/ha-tools-energy-build1-host.js'),'utf8'));
+ w.eval(readFileSync(path.join(__dirname,'../shared/ha-tools-energy-build1-host.js'),'utf8')+';window.installEnergyBuild1HostV53=installEnergyBuild1HostV53;');
  let callback,updates=0,stops=0;const state={supported:null,status:'idle',selection:{period:'day'},capabilities:null,model:null};
  const counters={renders:0,setters:0,connects:0};
  class Card extends w.HTMLElement{
