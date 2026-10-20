@@ -4,15 +4,15 @@
   "sources": [
     {
       "path": "src/optimizer.js",
-      "sha256": "2afa904b31c22c3c5f5713142213d27bcd0037d07195dcb28c079fb9ac398f52"
+      "sha256": "6f3a86648d4bd5612cf3cbbca14bffe019c7261776dc38be829bff621107c54a"
     },
     {
       "path": "src/energy-insights.js",
-      "sha256": "1041b227ab5fe70cdbc2926ebdfc95bf9c1e51121dfa2dd2de1f2b08ce36f159"
+      "sha256": "bf03145ef3541135fae59350b207a020daff5b721f79142bd493bbbf5d8568c9"
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "97c0c4c8c4a76faaef1327f836cd592822af26f3d5cde910be8a75157a33515d"
+      "sha256": "4e81dec6b7b1b63573889e942f19a037847eb0bed100cffd31d30e0a031af3a7"
     },
     {
       "path": "src/chart-vendor.js",
@@ -88,12 +88,12 @@
   },
   "sharedFormat": {
     "path": "shared/ha-tools-format.js",
-    "sha256": "bef4af1c7e464115bddc77c6715ac82beae8660f2ee863cbb7900719cee28077",
-    "inlineSha256": "f95f9b83ce844f55af2b1edd85bc91bdc643ab0d2ae727bfd8e2643e845e9139"
+    "sha256": "da6a6ff3a9adf5eeff326f7f941f8b19136ad7125c2f128ebcf4ee9047161261",
+    "inlineSha256": "60be570663cbee90f06d1f42c56eec8f7b82e9aca12d1b1dced17336a9c3fc07"
   },
   "sharedCardOptions": {
     "path": "shared/ha-tools-energy-card-options.js",
-    "sha256": "c66e55ec3a1d993756d788fed5ba7dae4573bf65d6ee90e97bb24d991b824593"
+    "sha256": "d1939320c085b39913d79c42743019db25b431e2021c2a54acffa179cfc91739"
   },
   "sharedEnergyReport": {
     "path": "shared/ha-tools-energy-report.js",
@@ -108,5 +108,19 @@
   "sharedDashboardPlacement": {
     "path": "shared/ha-tools-dashboard-placement.js",
     "sha256": "6844bec02709c2beeb47a2fd1248c9473a85a80860b3138d32e07e42f58eb587"
-  }
+  },
+  "sharedEnergyBuild1": [
+    {
+      "path": "shared/ha-tools-energy-model.js",
+      "sha256": "fef0fb14d31435053423d25797eb67442b06a02f3c5e6444da964448606a827b"
+    },
+    {
+      "path": "shared/ha-tools-energy-build1-view.js",
+      "sha256": "38ac045236843fc75e3e760d89bec4161fb081005cdaae6d045a3772b8d8388e"
+    },
+    {
+      "path": "shared/ha-tools-energy-build1-host.js",
+      "sha256": "206e115e82d918c64dcf19ad22e5fa4306adeac666e26dc3fcd3199d34534046"
+    }
+  ]
 }

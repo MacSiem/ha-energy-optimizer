@@ -67,6 +67,21 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
   const decimals = new Intl.NumberFormat(language, {maximumFractionDigits:100});
   const plurals = new Intl.PluralRules(language);
   const count = (value, forms) => `${numbers.format(value)} ${forms[plurals.select(value)] || forms.other}`;
+  // Build1 R12 display roles. The ordinary number() remains exact for Data/history.
+  const reportNumber=(value,places=1,signed=false)=>{
+    if (typeof value==='boolean' || value===null || !['string','number'].includes(typeof value) || typeof value==='string'&&!value.trim() || !Number.isInteger(places) || places<0 || places>6) return null;
+    const parsed=Number(value);if(!Number.isFinite(parsed))return null;
+    const normalized=Number(parsed.toFixed(6)),n=Object.is(normalized,-0)?0:normalized;
+    const text=new Intl.NumberFormat(language,{minimumFractionDigits:places,maximumFractionDigits:places,roundingMode:'halfExpand',useGrouping:'always'}).format(Math.abs(n));
+    const zero=new Intl.NumberFormat(language,{minimumFractionDigits:places,maximumFractionDigits:places,useGrouping:'always'}).format(0);
+    return (text===zero?signed?'±':'':n<0?'−':signed?'+':'')+text;
+  };
+  const reportUnknown=()=>String(language).startsWith('pl')?'Brak danych':'No data';
+  const reportEnergy=(value,{role='tile',period='day'}={})=>{const n=reportNumber(value,role==='table'&&period==='day'?2:1);return n===null?reportUnknown():n+' kWh';};
+  const reportMoney=(value,currency)=>{const n=reportNumber(value,2),unit=String(language).startsWith('pl')&&currency==='PLN'?'zł':currency;return n===null||typeof unit!=='string'||!unit?reportUnknown():n+' '+unit;};
+  const reportRate=(value,currency)=>{const n=reportMoney(value,currency);return n===reportUnknown()?n:n+'/kWh';};
+  const reportPercent=(value,{role='share'}={})=>{const n=reportNumber(value,role==='change'?1:0,role==='change');return n===null?reportUnknown():n+'%';};
+  const reportPlural=(value,forms)=>{const n=Math.abs(Number(value)),key=String(language).startsWith('pl')&&Number.isFinite(n)&&!Number.isInteger(n)?'few':plurals.select(n);return forms[key]||forms.other||forms.many;};
   const dateTime = value => {
     if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T/.test(value)) return null;
     const time = Date.parse(value);
@@ -108,7 +123,7 @@ function createFormatUi(language = 'en', timeZone = 'UTC', preferences = {}) {
       if (record.focused) element.querySelector('summary')?.focus({preventScroll:true});
     }
   };
-  return {language, dateLanguage, clockLanguage, hourCycle, timeZone, key, clock, date, calendarDate, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : (typeof value === 'string' ? decimals : numbers).format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
+  return {reportNumber, reportEnergy, reportMoney, reportRate, reportPercent, reportPlural, language, dateLanguage, clockLanguage, hourCycle, timeZone, key, clock, date, calendarDate, pointLabel, chartLabels, chartTicks, number:(value, options)=>options ? new Intl.NumberFormat(language, options).format(value) : (typeof value === 'string' ? decimals : numbers).format(value), count, dateTime, range, periodMarkup, capturePeriods, restorePeriods};
 }
 // Presentation follows the HA profile; measurement and tariff calendars remain separate.
 createFormatUi.forHass = hass => {
@@ -6814,7 +6829,285 @@ this._installTariffConsumerV3();
     }
     connectedCallback() { this._render(); }
   }
-  // HA_DASHBOARD_PLACEMENT_V53_START
+  // HA_ENERGY_BUILD1_V53_START
+// Per-card transport; raw calls stay occupied across every identity/selection edge.
+function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>true}) {
+  const clone=v=>v==null?v:JSON.parse(JSON.stringify(v));
+  let enabled=false,identity=null,epoch=0,raw=null,pending=false,ack=false,selection={period:'day',mode:'full'};
+  let unsub=[],wire=null,authority=null,subscribing=null;
+  let view={status:'idle',model:null,current:null,preview:null,capabilities:null,error:null};
+  const context=()=>{const h=card._hass,t=guard.observe();return [h?.connection,h?.callWS,h?.user?.id,h?.user?.is_active,h?.user?.is_admin,h?.connected,h?.connection?.connected,card.isConnected,JSON.stringify(h?.locale||{}),h?.config?.time_zone,t.epoch,isActive()];};
+  const same=(a,b)=>a&&a.length===b.length&&a.every((v,i)=>v===b[i]);
+  const available=()=>enabled&&isActive()&&card.isConnected&&card.preview!==true&&!!card._hass?.user?.id&&card._hass.user.is_active!==false&&card._hass.connected!==false&&guard.available(guard.snapshot());
+  const emit=()=>onChange();
+  function clear(status='idle'){epoch++;pending=false;view={status,model:null,current:null,preview:null,capabilities:null,error:null};emit();}
+  function dispose(){for(const fn of unsub){try{fn();}catch(_){}}unsub=[];ack=false;subscribing=null;}
+  function stop(){enabled=false;dispose();identity=null;authority?.();wire?.();authority=wire=null;clear();}
+  function observe(){const next=context();if(!same(identity,next)){dispose();identity=next;clear();pending=available();}return available();}
+  const current=e=>e===epoch&&available()&&same(identity,context());
+  function invalidate(){if(!enabled)return;clear(available()?'loading':'idle');pending=available();queueMicrotask(()=>{if(observe())pump();});}
+  async function subscribe(){
+    if(ack||subscribing||!available())return;
+    const e=epoch,c=card._hass.connection,association=identity;
+    const task=(async()=>{
+      try {
+        if(typeof c?.subscribeMessage!=='function')throw Error('subscription_unavailable');
+        const off=await c.subscribeMessage(()=>{if(enabled&&same(association,context()))invalidate();},{type:'ha_tools_email/subscribe_analysis_updates'});
+        if(!current(e)){off?.();return;}
+        if(typeof off!=='function')throw Error('subscription_unavailable');
+        unsub.push(off);ack=true;
+        // This event is an invalidation hint only: never trust a public payload as data/ACL.
+        if(typeof c.subscribeEvents==='function') {
+          Promise.resolve(c.subscribeEvents(()=>{if(enabled&&same(association,context()))invalidate();},'ha_tools_email_energy_updated')).then(fn=>{if(!enabled||!same(association,context())||!ack){fn?.();return;}if(typeof fn==='function')unsub.push(fn);}).catch(()=>{});
+        }
+        pump();
+      } catch(error){if(current(e)){pending=false;view.status=error?.code==='unauthorized'?'denied':'error';view.error='subscription_unavailable';emit();}}
+    })();subscribing=task;await task;if(subscribing===task)subscribing=null;
+  }
+  const validModel=(m,s)=>m?.schema==='ha_tools.energy_report/1'&&m.period?.kind===s.period&&m.period?.timezone===card._hass?.config?.time_zone&&Number.isFinite(Date.parse(m.period.start))&&Number.isFinite(Date.parse(m.period.end))&&m.totals&&typeof m.totals==='object'&&m.coverage&&Array.isArray(m.hourly);
+  async function pump(){
+    if(!observe()||!pending||raw||guard.occupied())return;
+    if(!ack){void subscribe();return;}
+    pending=false;const e=epoch,s={...selection},token=guard.snapshot();
+    const lane={};raw=lane;view.status='loading';emit();
+    try {
+      const caps=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
+      if(!current(e))return;
+      if(caps?.status!=='ready'||!Number.isSafeInteger(caps.revision)||!caps.capabilities?.energy_analysis)throw Error('invalid_capabilities');
+      if(caps.energy_model_schema!=='ha_tools.energy_report/1'){view.status='legacy';emit();return;}
+      view.capabilities=clone(caps.capabilities);
+      const grant=view.capabilities.energy_analysis;
+      if(grant.visible!==true||grant.read!==true){view.status='denied';emit();return;}
+      const model=await guard.call(token,{type:'ha_tools_email/energy_report',...s,representation:'model'});
+      if(!current(e))return;
+      if(!validModel(model,s))throw Error('invalid_energy_model');
+      view.model=clone(model);view.status='ready';emit();
+      // Independent today snapshot. Do not infer current zone/price from a full period.
+      let live=null;try{live=await guard.call(token,{type:'ha_tools_email/energy_report',period:'day',mode:'so_far',representation:'model'});}catch(error){if(['unauthorized','not_allowed'].includes(error?.code))throw error;}
+      if(!current(e))return;
+      if(validModel(live,{period:'day'}))view.current=clone(live.current||null);
+      emit();
+    } catch(error){if(current(e)){view.model=null;view.current=null;view.preview=null;view.capabilities=null;view.status=['unauthorized','not_allowed'].includes(error?.code)?'denied':'error';view.error=error?.code||error?.message||'unavailable';emit();}}
+    finally{if(raw===lane)raw=null;if(pending)void pump();}
+  }
+  function update(next=selection){
+    if(!['day','week','month','year'].includes(next.period)||!['full','so_far'].includes(next.mode||'full'))throw Error('invalid_energy_selection');
+    if(next.date!==undefined&&(!/^\d{4}-\d{2}-\d{2}$/.test(next.date)||!Number.isFinite(Date.parse(next.date))||new Date(next.date).toISOString().slice(0,10)!==next.date))throw Error('invalid_energy_date');
+    const s={period:next.period,mode:next.mode||'full',...(next.date?{date:next.date}:{})};
+    if(!enabled){enabled=true;authority=guard.subscribe(()=>invalidate());wire=guard.subscribeWire(()=>queueMicrotask(()=>pump()));}
+    const changed=JSON.stringify(s)!==JSON.stringify(selection);selection=s;
+    const was=identity;observe();if(changed){clear();pending=true;}else if(!was)pending=available();
+    if(pending)void pump();
+  }
+  async function preview(){
+    observe();const grant=view.capabilities?.energy_reports;
+    if(!available()||!ack||raw||guard.occupied()||grant?.visible!==true||grant?.read!==true)return false;
+    const e=epoch,token=guard.snapshot(),lane={};raw=lane;view.preview=null;emit();
+    const ui=format.forHass(card._hass),request={type:'ha_tools_email/energy_report',period:selection.period,...(selection.date?{anchor:selection.date}:{}),language:String(ui.language).startsWith('pl')?'pl':'en',date_language:String(ui.dateLanguage).startsWith('pl')?'pl':'en',timezone:ui.timeZone,hour_cycle:['h11','h12'].includes(ui.hourCycle)?'12':'24'};
+    try{const result=await guard.call(token,request);if(!current(e))return false;
+      if(typeof result?.html!=='string'||result.context?.access_purpose!=='report_read'||result.period?.kind!==selection.period||result.display?.timezone!==request.timezone||result.display?.language!==request.language||result.display?.hour_cycle!==request.hour_cycle||result.display?.date_language!==request.date_language)throw Error('invalid_report_preview');
+      view.preview={html:result.html};emit();return true;
+    }catch(error){if(current(e)){view.preview=null;view.error=error?.code||'preview_unavailable';if(['unauthorized','not_allowed'].includes(error?.code)){clear('denied');pending=false;}emit();}return false;}
+    finally{if(raw===lane)raw=null;if(pending)void pump();}
+  }
+  function state(){observe();return clone({...view,busy:!!raw,selection});}
+  return {update,state,preview,stop,refresh:invalidate};
+}
+/** Pure Build1 presentation. No clock, persistence, network or HA calls.
+ * markup accepts an energy_report/1 and options:
+ * section: overview|breakdown|costs|reports; group: devices|rooms|floors;
+ * current: {label,rate,next_change,next_label,cheap_share,cheap_kwh,as_of};
+ * schedules: [{id,name,cadence,time,channel,enabled}],
+ * deliveries: [{id,at,name,channel,status}], previewText: string.
+ * current is a separately supplied live snapshot; never inferred from a full-day report.
+ * Controls only emit data-energy-build1/action/value/id attributes; host owns authority.
+ */
+function createEnergyBuild1ViewV53({format, language = format?.language || 'en'} = {}) {
+  const pl=String(language).startsWith('pl'), t=(en,polish)=>pl?polish:en;
+  const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const list=v=>Array.isArray(v)?v.filter(x=>x&&typeof x==='object'):[];
+  const valid=v=>(typeof v==='number'||typeof v==='string'&&v.trim()!=='')&&Number.isFinite(Number(v));
+  const unknown=()=>t('No data','Brak danych');
+  const formatted=(name,...args)=>{const value=format?.[name]?.(...args);return esc(value??unknown());};
+  const energy=(v,period='day',role='table')=>formatted('reportEnergy',v,{role,period});
+  const money=(v,c)=>formatted('reportMoney',v,c);
+  const rate=(v,c)=>formatted('reportRate',v,c);
+  const percent=(v,role='share')=>formatted('reportPercent',v,{role});
+  const ratio=v=>valid(v)?percent(Number(v)*100):esc(unknown());
+  const exact=v=>valid(v)?formatted('number',v):esc(unknown());
+  const when=v=>formatted('dateTime',v);
+  const date=v=>formatted('calendarDate',v);
+  const action=(name,label,value='',extra='')=>`<button type="button" data-energy-build1="${esc(name)}" data-value="${esc(value)}" ${extra}>${label}</button>`;
+  const heading=(name,note='')=>`<div class="sec2"><b>${name}</b><span>${note}</span></div>`;
+  const empty=()=>`<p class="info">${unknown()}</p>`;
+  const kpi=(label,value,note='')=>`<div class="k"><div class="l">${label}</div><div class="v">${value}</div><div class="n">${note}</div></div>`;
+  const row=(label,value,note='')=>`<div class="row3"><span>${label}${note?`<small>${note}</small>`:''}</span><span class="r">${value}</span></div>`;
+  const table=(caption,columns,rows)=>`<div class="table-wrap"><table class="ct"><caption>${caption}</caption><thead><tr>${columns.map(v=>`<th scope="col">${v}</th>`).join('')}</tr></thead><tbody>${rows.length?rows.map(c=>`<tr>${c.map((v,i)=>`<${i?'td':'th scope="row"'}>${v}</${i?'td':'th'}>`).join('')}</tr>`).join(''):`<tr><td colspan="${columns.length}">${unknown()}</td></tr>`}</tbody></table></div>`;
+  const sections={overview:t('Overview','Przegląd'),breakdown:t('Breakdown','Rozbicie'),costs:t('Costs','Koszty'),reports:t('Reports','Raporty')};
+  const periods={day:t('Day','Dzień'),week:t('Week','Tydzień'),month:t('Month','Miesiąc'),year:t('Year','Rok')};
+  const groups={devices:t('Devices','Urządzenia'),rooms:t('Rooms','Pokoje'),floors:t('Floors','Piętra')};
+  const colors={d1:'var(--hat-d1)',d2:'var(--hat-d2)',d3:'var(--hat-d3)',d4:'var(--hat-d4)',other:'var(--hat-text-3)',unmeasured:'var(--hat-unmeasured)'};
+  const color=(r,i)=>colors[r.color]||'var(--hat-text-3)';
+  // Number conversions below only size bars or convert ratios to display percentages.
+  const width=(value,max)=>valid(value)&&max>0?Math.max(0,Math.min(100,Number(value)/max*100)):0;
+  const isUnmeasured=r=>r.id==='_unmeasured'||r.area_id==='_unmeasured'||r.color==='unmeasured';
+  const doubleMessage=()=>t('Device total exceeds import — check the Energy dashboard','Suma urządzeń przekracza import — sprawdź panel Energia');
+  function chart(m,current={}){
+    const rows=list(m.hourly),values=rows.flatMap(r=>[r.kwh,r.prev_kwh]).filter(valid).map(Number),max=Math.max(0,...values);
+    const labels=format?.chartLabels?.(rows.map(r=>r.start))||rows.map(r=>format?.dateTime?.(r.start)||unknown());
+    const zone=id=>list(m.zones).find(z=>z.id===id);
+    const bars=rows.map((r,i)=>{
+      const future=r.future===true||(Number.isFinite(Date.parse(current.as_of))&&Date.parse(r.start)>=Date.parse(current.as_of)), v=future?r.prev_kwh:r.kwh;
+      const zoneIndex=list(m.zones).findIndex(z=>z.id===r.zone),fill=future?'var(--hat-ghost)':zoneIndex===0?'var(--hat-zone-cheap)':'var(--hat-zone-exp)';
+      return `<div class="c" title="${esc(labels[i])}: ${energy(r.kwh,m.period?.kind)}"><i style="height:${width(v,max)}%;background:${fill}"></i>${valid(r.prev_kwh)?`<em style="bottom:${width(r.prev_kwh,max)}%"></em>`:''}</div>`;
+    }).join('');
+    const now=Date.parse(current.as_of),begin=Date.parse(m.period?.start),end=Date.parse(m.period?.end);
+    const marker=Number.isFinite(now)&&now>=begin&&now<end?`<span class="now" style="left:${width(now-begin,end-begin)}%" title="${when(current.as_of)}"></span>`:'';
+    const data=table(t('Hourly data','Dane godzinowe'),[t('Time','Czas'),t('Energy','Energia'),t('Previous','Poprzednio'),t('Zone','Strefa'),t('Cost','Koszt')],rows.map((r,i)=>[esc(labels[i]),energy(r.kwh,m.period?.kind),energy(r.prev_kwh,m.period?.kind),esc(zone(r.zone)?.label||unknown()),money(r.cost,m.currency)]));
+    return `${heading(t('Energy during the period','Zużycie w okresie'),t('Color = zone · line = previous','Kolor = strefa · kreska = poprzednio'))}${rows.length?`<div class="cols24" role="img" aria-label="${t('Energy chart; full values in Data','Wykres energii; pełne wartości w Danych')}">${bars}${marker}</div><div class="axis"><span>${esc(labels[0])}</span><span>${esc(labels.at(-1))}</span></div><div class="legend">${list(m.zones).map((z,i)=>`<span><i style="background:var(--hat-zone-${i===0?'cheap':'exp'})"></i>${esc(z.label)}</span>`).join('')}<span>${t('Line: previous period','Kreska: poprzedni okres')}</span></div>`:empty()}<details><summary>${t('Data','Dane')}</summary>${data}${table(t('Exact values','Pełne wartości'),[t('Time','Czas'),'kWh',m.currency?esc(m.currency):unknown()],rows.map((r,i)=>[esc(labels[i]),exact(r.kwh),exact(r.cost)]))}</details>`;
+  }
+  function overview(m,o,partial){
+    const total=m.totals||{},current=o.current||{},period=m.period?.kind;
+    const comparisons=list(m.comparisons),previous=comparisons.find(r=>['previous_day','previous'].includes(r.key));
+    const comparison=r=>partial||r.coverage_ok!==true?esc(t('Insufficient coverage for comparison','Za mało danych do porównania')):`${energy(r.delta_kwh,period)} (${percent(r.delta_pct,'change')})`;
+    const top=list(m.ranking).filter(r=>!String(r.id||'').startsWith('_')).slice(0,3);
+    return `<div class="kpi4">${kpi(t('Consumption','Zużycie'),energy(total.import_kwh,period,'tile'),previous?comparison(previous):'')}${kpi(t('Usage cost','Koszt zużycia'),money(total.usage_cost,m.currency),rate(total.effective_rate,m.currency))}${kpi(t('In the cheap zone','W taniej strefie'),partial?unknown():percent(current.cheap_share),energy(current.cheap_kwh,period))}${kpi(t('Now','Teraz'),esc(current.label||unknown()),`${rate(current.rate,m.currency)}${current.next_change?` · ${esc(current.next_label||'')} ${when(current.next_change)}`:''}`)}</div>${current.as_of?`<p class="info">${t('Live snapshot','Stan bieżący')}: ${when(current.as_of)}</p>`:''}${chart(m,current)}<div class="two"><div>${heading(t('Comparison','Porównanie'),t('Same measurement window','Ten sam zakres pomiaru'))}${comparisons.length?comparisons.map(r=>row(esc(r.label||r.key),comparison(r),energy(r.kwh,period))).join(''):empty()}</div><div>${heading(t('Largest consumers','Największe zużycie'),action('section',sections.breakdown,'breakdown'))}${top.length?top.map(r=>row(esc(r.name),energy(r.kwh,period))).join(''):empty()}</div></div>`;
+  }
+  function breakdown(m,o,partial,double){
+    const group=Object.hasOwn(groups,o.group)?o.group:'devices',period=m.period?.kind;
+    const rows=(group==='devices'?list(m.ranking).length?list(m.ranking):list(m.devices):list(m[group])).filter(r=>!(group==='rooms'&&r.area_id===null&&valid(r.kwh)&&Number(r.kwh)===0));
+    const safe=rows.filter(r=>!(double&&isUnmeasured(r))),max=Math.max(0,...safe.filter(r=>valid(r.kwh)).map(r=>Number(r.kwh)));
+    const value=(r,f)=>double&&isUnmeasured(r)?esc(doubleMessage()):f();
+    const one=(r,i,child=false)=>`<div class="rk2${child?' child':''}"><div class="nm"><i class="sw${isUnmeasured(r)?' hatch':''}" style="background:${color(r,i)}"></i><span>${child?'↳ ':''}${esc(r.name||unknown())}${child?` <small>(${t('included','w tym')})</small>`:''}${r.count!==undefined?`<small>${exact(r.count)} ${formatted('reportPlural',r.count,pl?{one:'urządzenie',few:'urządzenia',many:'urządzeń'}:{one:'device',other:'devices'})}</small>`:''}</span></div><div class="bar"><i class="${isUnmeasured(r)?'hatch':''}" style="width:${double&&isUnmeasured(r)?0:width(r.kwh,max)}%;background:${color(r,i)}"></i></div><div class="v">${value(r,()=>energy(r.kwh,period))}</div><div class="p">${partial||double?'—':ratio(r.share)}</div><div class="c">${child?'':value(r,()=>money(r.cost,m.currency))}</div></div>`;
+    return `<div class="seg2">${Object.entries(groups).map(([key,label])=>action('group',label,key,`aria-pressed="${group===key}"`)).join('')}</div>${heading(`${energy(m.totals?.import_kwh,period)} ${t('imported','importu')}`,t('Energy dashboard devices · hourly zone costs','Urządzenia z panelu Energia · koszt wg stref każdej godziny'))}<div class="compbar" aria-hidden="true">${safe.map((r,i)=>`<i class="${isUnmeasured(r)?'hatch':''}" style="width:${width(r.kwh,Number(m.totals?.import_kwh))}%;background:${color(r,i)}"></i>`).join('')}</div>${rows.length?rows.map((r,i)=>`${r.id==='_other_measured'?`<details><summary>${t('Other measured devices','Pozostałe zmierzone')}</summary>${one(r,i)}${list(r.children).map(c=>one(c,i,true)).join('')}${list(r.children).length?'':`<p class="info">${t('Individual readings are unavailable in this snapshot.','Odczyty poszczególnych urządzeń nie są dostępne w tym stanie.')}</p>`}</details>`:one(r,i)+list(r.children).map(c=>one(c,i,true)).join('')}`).join(''):empty()}<p class="info">${t('Unmeasured = import minus top-level devices. Included children are not counted twice. Rooms follow HA areas; no proportional allocation.','Niezmierzone = import − suma urządzeń najwyższego poziomu. Urządzenia „w tym” nie są liczone drugi raz. Pokoje według obszarów HA; bez podziału proporcjonalnego.')}</p>`;
+  }
+  function costs(m,o){
+    const v=m.totals||{},tf=m.tariff||{},c=m.currency;
+    const charges=[[t('Active energy','Energia czynna'),money(v.energy_cost,c)],[t('Variable distribution','Dystrybucja zmienna'),money(v.variable_cost,c)],[`${t('Usage cost','Koszt zużycia')}<small>${t('Effective rate','Cena efektywna')}: ${rate(v.effective_rate,c)}</small>`,money(v.usage_cost,c)],[t('Fixed charges allocated to this period','Opłaty stałe przypadające na okres'),money(v.fixed_share,c)],[t('Total including fixed charges','Razem z opłatami stałymi'),money(v.total_with_fixed,c)]];
+    const alternatives=o.showAlternatives===false?'':list(m.alternatives).map(a=>`<p class="info">${esc(a.tariff)} · ${rate(a.rate,c)} · ${money(a.cost,c)} · ${t('difference','różnica')}: ${money(a.delta,c)}<br>${t('Informational comparison for unchanged consumption.','Porównanie informacyjne przy niezmienionym zużyciu.')}</p>`).join('');
+    return `<div class="two"><div>${heading(t('Cost for the period','Koszt okresu'),m.price_basis==='gross'?t('gross','brutto'):m.price_basis==='net'?t('net','netto'):unknown())}${table(t('Cost components','Składniki kosztu'),[t('Component','Składnik'),t('Cost','Koszt')],charges)}${alternatives}</div><div>${heading(`${t('Tariff','Taryfa')} ${esc(tf.name||unknown())}`,`${tf.valid_from?date(tf.valid_from):unknown()} · ${action('tariff-history',t('History','Historia'))}`)}${table(t('Zone rates','Stawki stref'),[t('Zone / hours','Strefa / godziny'),t('Energy + distribution = rate','Energia + dystrybucja = stawka')],list(tf.zones).map(z=>[`${esc(z.label)}<small>${esc(z.hours_label||unknown())}</small>`,`${rate(z.energy_rate,c)} + ${rate(z.variable_rate,c)} = <b>${rate(z.rate,c)}</b>`]))}${heading(t('Fixed charges','Opłaty stałe'),`${money(tf.fixed_monthly,c)} / ${t('month','mies.')}`)}${table(t('Monthly fixed charges','Miesięczne opłaty stałe'),[t('Component','Składnik'),t('Monthly','Miesięcznie')],list(tf.fixed).map(f=>[esc(f.label),money(f.monthly,c)]))}<div class="hat-acts">${action('tariff-edit',t('Edit tariff','Edytuj taryfę'))}${action('tariff-template',t('Tariff templates','Szablony taryf'))}</div></div></div>`;
+  }
+  function reports(m,o){
+    const schedules=list(o.schedules),deliveries=list(o.deliveries).slice(0,5),editable=o.canManageReports===true;
+    const disabled=editable?'':'disabled';
+    const status={delivered:t('Delivered','Dostarczone'),failed:t('Failed','Błąd'),pending:t('Pending','Oczekuje'),sent:t('Sent','Wysłano')};
+    return `${heading(t('Schedule','Harmonogram'),t('HA notification or email','Powiadomienie HA lub e-mail'))}<div class="list">${schedules.length?schedules.map(s=>`<div class="it"><div class="txt">${esc(s.name||s.cadence||unknown())}<small>${esc(s.cadence||'')} · ${esc(s.time||unknown())} · ${esc(s.channel||unknown())}</small></div>${action('schedule-toggle',s.enabled===true?t('Enabled','Włączony'):s.enabled===false?t('Disabled','Wyłączony'):unknown(),s.id,`${disabled} aria-pressed="${s.enabled===true}"`)}</div>`).join(''):`<p>${t('No schedules supplied.','Nie dostarczono harmonogramów.')}</p>`}</div><div class="hat-acts">${action('send-now',t('Send daily now','Wyślij dzienny teraz'),'day',disabled)}${action('schedule-add',t('+ Report','+ Raport'),'',disabled)}${action('email-add',t('Add email','Dodaj e-mail'),'',disabled)}</div>${heading(t('Preview','Podgląd'),t('The same report as in the email','Ten sam raport co w e-mailu'))}<div class="preview-controls">${action('preview-device',t('Phone','Telefon'),'phone')}${action('preview-device',t('Desktop','Komputer'),'desktop')}${action('preview-theme',t('Light','Jasny'),'light')}${action('preview-theme',t('Dark','Ciemny'),'dark')}${action('preview-load',t('Load preview','Wczytaj podgląd'))}</div><div class="prev" data-energy-build1-preview>${typeof o.previewText==='string'?`<pre>${esc(o.previewText)}</pre>`:`<p>${t('Load the report preview.','Wczytaj podgląd raportu.')}</p>`}</div>${heading(t('Recent deliveries','Ostatnie wysyłki'))}<div class="list">${deliveries.length?deliveries.map(d=>`<div class="it"><div class="txt">${when(d.at)} · ${esc(d.name||'')}<small>${esc(d.channel||unknown())}</small></div><span class="status">${esc(status[d.status]||d.status||unknown())}</span>${d.status==='failed'?action('delivery-retry',t('Retry','Ponów'),d.id,disabled):''}</div>`).join(''):`<p>${t('No delivery history supplied.','Nie dostarczono historii wysyłek.')}</p>`}</div>`;
+  }
+  function markup(model,options={}){
+    const m=model&&typeof model==='object'?model:{},o=options,section=Object.hasOwn(sections,o.section)?o.section:'overview';
+    const issues=list(m.issues),double=m.unmeasured?.status==='double_counting'||issues.some(i=>i.code==='double_counting');
+    const partial=m.coverage?.complete!==true,missing=issues.some(i=>i.code==='no_grid_meter');
+    const currentPeriod=Object.hasOwn(periods,m.period?.kind)?m.period.kind:'day';
+    const header=`<div class="ehd"><ha-icon icon="mdi:lightning-bolt" class="hat-ic"></ha-icon><div class="txt"><div class="t">${esc(o.title||t('Energy','Energia'))}</div><div class="s">${t('Tariff','Taryfa')} ${esc(m.tariff?.name||unknown())} · ${t('HA Energy dashboard data','Dane z panelu Energia HA')}</div></div><div class="seg2">${Object.entries(periods).map(([key,label])=>action('period',label,key,`aria-pressed="${key===currentPeriod}"`)).join('')}</div><div class="nav">${action('previous','‹','',`aria-label="${t('Previous period','Poprzedni okres')}"`)}<b>${formatted('range',m.period?.start,m.period?.end)}</b>${action('next','›','',`aria-label="${t('Next period','Następny okres')}"`)}</div></div>`;
+    const tabs=`<nav class="tabs2" aria-label="${t('Energy sections','Sekcje energii')}">${Object.entries(sections).map(([key,label])=>action('section',label,key,`aria-current="${key===section?'page':'false'}"`)).join('')}${action('more','⋯','',`aria-label="${t('More sections','Więcej sekcji')}"`)}</nav>`;
+    let content;
+    if(o.loading)content=`<div class="skeleton" role="status" aria-busy="true">${t('Loading…','Wczytywanie…')}</div>`;
+    else if(missing)content=`<p>${t('The Energy dashboard is not configured.','Panel Energia nie jest skonfigurowany.')}</p>${action('configure-energy',t('Configure Energy','Skonfiguruj Energię'))}`;
+    else if(m.schema!=='ha_tools.energy_report/1')content=`<p role="status">${t('Energy report unavailable.','Raport energii niedostępny.')}</p>`;
+    else content=(partial?`<p class="notice" role="status">${t('Incomplete data','Dane niepełne')} (${exact(m.coverage?.measured_hours)}/${exact(m.coverage?.expected_hours)} h)</p>`:'')+(double?`<p class="notice" role="alert">${doubleMessage()}</p>`:'')+(section==='overview'?overview(m,o,partial):section==='breakdown'?breakdown(m,o,partial,double):section==='costs'?costs(m,o):reports(m,o));
+    return `<section class="hat build1 cq" data-energy-build1-section="${section}">${header}${tabs}<div class="build1-panel">${content}</div></section>`;
+  }
+  function styles(){return BUILD1_STYLES_V53;}
+  return {markup,styles};
+}
+const BUILD1_STYLES_V53=`
+.build1{--hat-card:var(--ha-card-background,var(--card-background-color,#fff));--hat-text:var(--primary-text-color,#111827);--hat-text-2:var(--secondary-text-color,#4b5563);--hat-text-3:var(--secondary-text-color,#6b7280);--hat-chip:var(--secondary-background-color,#f3f4f6);--hat-border:var(--divider-color,#e5e7eb);--hat-primary:var(--primary-color,#2563eb);--hat-grid:color-mix(in srgb,var(--hat-text) 6%,var(--hat-card));--hat-ghost:color-mix(in srgb,var(--hat-text) 16%,var(--hat-card));--hat-zone-cheap:#1baf7a;--hat-zone-exp:#2a78d6;--hat-d1:#eb6834;--hat-d2:#6250d6;--hat-d3:#e87ba4;--hat-d4:#eda100;--hat-unmeasured:#9ca3af;color:var(--hat-text);font:14px var(--ha-font-family-body,Roboto,system-ui,sans-serif);padding:16px;box-sizing:border-box;container-type:inline-size;min-width:0;overflow-wrap:anywhere}
+:host(.hat-dark) .build1,.build1.hat-dark{--hat-zone-cheap:#199e70;--hat-zone-exp:#3987e5;--hat-d1:#d95926;--hat-d2:#9085e9;--hat-d3:#d55181;--hat-d4:#c98500;--hat-unmeasured:#6b7280}
+.build1 *{box-sizing:border-box}.build1 button{font:inherit;color:inherit;border:1px solid var(--hat-border);background:var(--hat-chip);border-radius:999px;padding:6px 12px;min-height:44px;cursor:pointer}.build1 button:disabled{opacity:.6;cursor:default}.build1 button:focus-visible,.build1 summary:focus-visible{outline:2px solid var(--hat-primary);outline-offset:2px}.build1 button[aria-pressed=true]{background:var(--hat-card);font-weight:600}.build1 .ehd{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.build1 .txt{flex:1;min-width:120px}.build1 .t{font-size:16px;font-weight:600;line-height:22px}.build1 .s,.build1 small,.build1 .info{font-size:12px;color:var(--hat-text-2)}.build1 small{display:block}.build1 .hat-ic{--mdc-icon-size:20px;color:var(--hat-zone-exp);background:color-mix(in srgb,var(--hat-zone-exp) 18%,transparent);border-radius:50%;padding:8px;width:36px;height:36px}.build1 .seg2{display:inline-flex;flex-wrap:wrap;background:var(--hat-chip);border-radius:24px;padding:2px}.build1 .seg2 button{font-size:12px;border:0}.build1 .nav{display:flex;align-items:center;gap:6px;min-width:0}.build1 .nav b{font-size:14px;font-weight:500}.build1 .tabs2{display:flex;gap:16px;border-bottom:1px solid var(--hat-border);margin:12px 0 16px;overflow-x:auto}.build1 .tabs2 button{background:none;border:0;border-radius:0;padding:10px 0;white-space:nowrap;color:var(--hat-text-2)}.build1 .tabs2 button[aria-current=page]{color:var(--hat-text);font-weight:600;box-shadow:inset 0 -2px 0 var(--hat-primary)}.build1 .kpi4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.build1 .k{border:1px solid var(--hat-border);border-radius:12px;padding:10px 12px;min-width:0}.build1 .k .l,.build1 .k .n{font-size:12px;color:var(--hat-text-2)}.build1 .k .v{font-size:24px;font-weight:600;line-height:30px;font-variant-numeric:tabular-nums}.build1 .sec2{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:baseline;margin:20px 0 8px}.build1 .sec2 b{font-size:16px;font-weight:600}.build1 .sec2>span{font-size:12px;color:var(--hat-text-2)}.build1 .cols24{display:flex;gap:2px;align-items:flex-end;height:120px;position:relative}.build1 .cols24 .c{flex:1;position:relative;height:100%;display:flex;align-items:flex-end}.build1 .cols24 .c i{display:block;width:100%;border-radius:2px 2px 0 0}.build1 .cols24 .c em{position:absolute;left:0;right:0;height:2px;background:var(--hat-text);opacity:.7}.build1 .cols24 .now{position:absolute;top:0;bottom:0;border-left:2px dashed var(--hat-text-2)}.build1 .axis{display:flex;justify-content:space-between;font-size:12px;color:var(--hat-text-2)}.build1 .legend{display:flex;flex-wrap:wrap;gap:12px;margin:8px 0;font-size:12px}.build1 .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px}.build1 summary{min-height:44px;padding:12px 0;cursor:pointer}.build1 .row3{display:grid;grid-template-columns:1fr auto;gap:8px;padding:8px 0;border-top:1px solid var(--hat-border)}.build1 .row3 .r{text-align:right;font-weight:600}.build1 .rk2{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) 88px 40px 80px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--hat-border)}.build1 .rk2 .bar{height:10px;border-radius:999px;background:var(--hat-grid);overflow:hidden}.build1 .rk2 .bar i{display:block;height:100%;border-radius:999px}.build1 .rk2 .v,.build1 .rk2 .p,.build1 .rk2 .c{text-align:right;font-variant-numeric:tabular-nums}.build1 .rk2 .v{font-weight:600}.build1 .rk2 .p{font-size:12px;color:var(--hat-text-2)}.build1 .rk2 .nm{display:flex;align-items:center;gap:8px;min-width:0}.build1 .child{padding-left:28px;color:var(--hat-text-2)}.build1 .sw{width:10px;height:10px;border-radius:3px;flex:none}.build1 .hatch{background-image:repeating-linear-gradient(135deg,var(--hat-unmeasured) 0 2px,transparent 2px 6px)!important;background-color:transparent!important;box-shadow:inset 0 0 0 1px var(--hat-unmeasured)}.build1 .compbar{display:flex;gap:2px;height:14px;margin:4px 0 8px;overflow:hidden;border-radius:999px}.build1 .compbar i{display:block;height:100%;flex:none}.build1 .table-wrap{overflow-x:auto}.build1 .ct{width:100%;border-collapse:collapse;font-size:14px}.build1 .ct td,.build1 .ct th{padding:8px 4px;border-top:1px solid var(--hat-border);text-align:left;font-variant-numeric:tabular-nums}.build1 .ct td:last-child{text-align:right}.build1 caption{text-align:left;font-size:12px;color:var(--hat-text-2);padding:8px 0}.build1 .info{line-height:18px}.build1 .two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px}.build1 .two>div{min-width:0}.build1 .list .it{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--hat-border)}.build1 .hat-acts,.build1 .preview-controls{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.build1 .prev{border:1px solid var(--hat-border);border-radius:12px;padding:12px}.build1 pre{white-space:pre-wrap;font:inherit;overflow-wrap:anywhere}.build1 .notice{padding:12px;background:var(--hat-chip);border-left:3px solid var(--hat-primary)}.build1 .skeleton{min-height:420px;background:var(--hat-chip);padding:16px;border-radius:12px}
+@container(max-width:520px){.build1 .kpi4{grid-template-columns:repeat(2,minmax(0,1fr))}.build1 .two{grid-template-columns:1fr}.build1 .rk2{grid-template-columns:minmax(0,1.4fr) minmax(0,.8fr) 72px 70px;gap:6px}.build1 .rk2 .p{display:none}.build1 .ehd>.seg2{order:3}.build1 .k .v{font-size:20px}.build1 .nav{flex-wrap:wrap}.build1 .tabs2{gap:16px}}
+`;
+
+// Installed outside generated constructor bodies, before customElements.define.
+function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyModelV53,createView=createEnergyBuild1ViewV53}) {
+  const key=name==='ha-energy-optimizer'?'_currentTab':'_activeTab';
+  const defaults=name==='ha-energy-insights'?'breakdown':name==='ha-energy-email'?'reports':'overview';
+  const aliases={dashboard:'overview',daily:'breakdown',weekly:'breakdown',monthly:'breakdown',compare:'costs',recommendations:'costs',schedule:'reports',preview:'reports',send:'reports',history:'reports'};
+  const canonical=v=>['overview','breakdown','costs','reports'].includes(v)?v:aliases[v];
+  const baseTab={overview:name==='ha-energy-optimizer'?'dashboard':'overview',breakdown:name==='ha-energy-insights'?'daily':name==='ha-energy-optimizer'?'dashboard':'overview',costs:name==='ha-energy-optimizer'?'recommendations':'overview',reports:name==='ha-energy-email'?'overview':name==='ha-energy-optimizer'?'dashboard':'overview'};
+  const full=card=>!card._build1CompatLegacyV53&&!card._build1LegacyV53&&(!(card._config?.compact&&!card._config?.variant))&&(!['tile','compact'].includes(card._config?.variant)||card._optionsExpandedV5);
+  const active=card=>full(card)&&card.isConnected&&card.preview!==true;
+  const pl=card=>String(card._hass?.locale?.language||card._hass?.language||'en').startsWith('pl');
+  const text=(card,en,polish)=>pl(card)?polish:en;
+  let painting=new WeakSet();
+  function client(card){return card._build1ClientV53 ||= createClient({card,guard:card._getTariffHostV3().guard,format,isActive:()=>active(card),onChange:()=>paint(card)});}
+  function options(card){return card._build1ConfigV53||card._config||{};}
+  function paint(card){
+    if(!full(card)||!card.shadowRoot||painting.has(card))return;
+    painting.add(card);
+    try {
+      const c=options(card),ctl=client(card),s=ctl.state(),ui=format.forHass(card._hass),v=createView({format:ui,language:ui.language});
+      if(s.status==='legacy'){card._build1CompatLegacyV53=true;card._domBuilt=false;queueMicrotask(()=>card._render());return;}
+      const section=card._build1SectionV53||defaults;
+      const sectionFeature=section==='reports'?'energy_reports':section==='costs'?'energy_tariff':'energy_analysis';
+      const sectionGrant=s.capabilities?.[sectionFeature];
+      const sectionAllowed=sectionGrant?.visible===true&&sectionGrant?.read===true;
+      const root=card.shadowRoot,focus=root.activeElement?.dataset?.energyBuild1,focusValue=root.activeElement?.dataset?.value;
+      card._applyThemeV150?.();
+      root.innerHTML=`<style>${v.styles()}</style><ha-card>${v.markup(sectionAllowed?s.model:null,{section,group:card._build1GroupV53,current:s.current||{},title:c.title,showAlternatives:c.show_alternatives!==false,loading:s.status==='loading',canManageReports:false})}<div data-build1-extra></div></ha-card>`;
+      const visible=c.tabs?.map(canonical).filter(Boolean);
+      for(const [tab,feature] of [['reports','energy_reports'],['costs','energy_tariff']])if(s.capabilities?.[feature]?.visible===false)root.querySelectorAll('[data-energy-build1="section"]').forEach(b=>{if(b.dataset.value===tab)b.remove();});
+      if(visible?.length)for(const b of root.querySelectorAll('[data-energy-build1="section"]'))if(!visible.includes(b.dataset.value))b.remove();
+      const extra=root.querySelector('[data-build1-extra]');
+      if(s.status==='error'||s.status==='denied'){const p=document.createElement('p');p.setAttribute('role','status');p.textContent=s.status==='denied'?text(card,'Access unavailable for this account.','Dostęp dla tego konta jest niedostępny.'):text(card,'Energy report unavailable. Check HA Tools Email and retry.','Raport energii niedostępny. Sprawdź HA Tools Email i ponów.');extra.append(p);const retry=document.createElement('button');retry.textContent=text(card,'Retry','Ponów');retry.onclick=()=>ctl.refresh();extra.append(retry);}
+      // Existing editor owns tariffs, migrations, validation, and write authority.
+      if(section==='costs'&&sectionAllowed){const mount=document.createElement('div');mount.innerHTML=card._getTariffHostV3().markup();extra.append(mount);card._getTariffHostV3().bind();}
+      if(s.preview?.html&&s.capabilities?.energy_reports?.read===true&&s.capabilities?.energy_reports?.visible===true){
+        const holder=root.querySelector('[data-energy-build1-preview]');if(holder){holder.replaceChildren();const frame=document.createElement('iframe');frame.title=text(card,'Energy report preview','Podgląd raportu energii');frame.setAttribute('sandbox','');frame.setAttribute('referrerpolicy','no-referrer');frame.style.cssText=`display:block;width:100%;max-width:${card._build1DeviceV53==='phone'?'390px':'100%'};height:560px;border:0;color-scheme:${card._build1ThemeV53||'light'};`;
+          frame.srcdoc='<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; base-uri \'none\'; form-action \'none\'; navigate-to \'none\'">'+s.preview.html;holder.append(frame);}
+      }
+      const implemented=new Set(['section','group','period','previous','next','more','preview-load','preview-device','preview-theme','tariff-edit','configure-energy']);
+      for(const b of root.querySelectorAll('[data-energy-build1]')){
+        const action=b.dataset.energyBuild1;
+        if(!implemented.has(action)){b.disabled=true;b.title=text(card,'This action is not connected in this version.','Ta akcja nie jest podłączona w tej wersji.');}
+        if(action==='tariff-edit')b.disabled=s.capabilities?.energy_tariff?.execute!==true;
+        if(action==='preview-load')b.disabled=s.busy||s.capabilities?.energy_reports?.read!==true||s.capabilities?.energy_reports?.visible!==true;
+        if(['previous','next'].includes(action))b.disabled=!s.model;
+        b.addEventListener('click',()=>{if(!b.disabled)void actionFor(card,action,b.dataset.value);});
+        if(action===focus&&b.dataset.value===focusValue)b.focus({preventScroll:true});
+      }
+      if(card._build1OverflowV53){
+        const choices=name==='ha-energy-optimizer'?[['patterns','Patterns','Wzorce'],['recommendations','Recommendations','Rekomendacje']]:name==='ha-energy-insights'?[['tips','Recommendations','Rekomendacje']]:[['config','Email settings','Ustawienia e-mail'],['schedule','Schedules','Harmonogramy'],['send','Send form','Formularz wysyłki'],['history','History','Historia']];
+        for(const [tab,en,polish] of choices){if(name==='ha-energy-email'&&card._hass?.user?.is_admin!==true)continue;const b=document.createElement('button');b.textContent=text(card,en,polish);b.onclick=()=>legacy(card,tab);extra.append(b);}
+      }
+    }finally{painting.delete(card);}
+  }
+  function render(card){if(!full(card))return false;if(!card._hass||!card.shadowRoot)return true;client(card).update(card._build1SelectionV53||{period:options(card).period_default||'day',mode:'full'});paint(card);return true;}
+  function legacy(card,tab){card._build1LegacyV53=true;card._build1OverflowV53=false;card._build1ClientV53?.stop();card._domBuilt=false;card[key]=tab;card._render();const b=document.createElement('button');b.textContent=text(card,'Back to Energy','Wróć do Energii');b.onclick=()=>{card._build1LegacyV53=false;card._domBuilt=false;render(card);};card.shadowRoot.prepend(b);}
+  async function actionFor(card,action,value){
+    if(!active(card))return;
+    const ctl=client(card),s=ctl.state();
+    if(action==='section'){card._build1SectionV53=value;paint(card);}
+    else if(action==='group'){card._build1GroupV53=value;paint(card);}
+    else if(action==='period'){card._build1SelectionV53={period:value,mode:'full'};ctl.update(card._build1SelectionV53);paint(card);}
+    else if(action==='previous'||action==='next'){
+      if(!s.model)return;const period=s.selection.period,parts=new Intl.DateTimeFormat('en-CA',{timeZone:card._hass.config.time_zone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(s.model.period.start));const f=Object.fromEntries(parts.map(p=>[p.type,p.value]));const d=new Date(`${f.year}-${f.month}-${f.day}T12:00:00Z`),n=action==='next'?1:-1;
+      if(period==='year')d.setUTCFullYear(d.getUTCFullYear()+n);else if(period==='month')d.setUTCMonth(d.getUTCMonth()+n);else d.setUTCDate(d.getUTCDate()+n*(period==='week'?7:1));
+      card._build1SelectionV53={period,mode:'full',date:d.toISOString().slice(0,10)};ctl.update(card._build1SelectionV53);paint(card);
+    } else if(action==='preview-load')await ctl.preview();
+    else if(action==='preview-device'){card._build1DeviceV53=value;paint(card);}
+    else if(action==='preview-theme'){card._build1ThemeV53=value;paint(card);}
+    else if(action==='more'){card._build1OverflowV53=!card._build1OverflowV53;paint(card);}
+    else if(action==='tariff-edit'){if(s.capabilities?.energy_tariff?.execute!==true)return;card._tariffSettingsOpen=true;paint(card);const details=card.shadowRoot.querySelector('[data-tariff-details]');if(details){details.open=true;card._getTariffHostV3().bind();details.querySelector('summary')?.focus();}}
+    else if(action==='configure-energy'){history.pushState(null,'','/energy');window.dispatchEvent(new CustomEvent('location-changed'));}
+  }
+  const set=Card.prototype.setConfig;
+  Card.prototype.setConfig=function(config={}){
+    if(config.period_default!==undefined&&!['day','week','month','year'].includes(config.period_default))throw Error('period_default: day / week / month / year');
+    if(config.show_alternatives!==undefined&&typeof config.show_alternatives!=='boolean')throw Error('show_alternatives: boolean');
+    this._build1ClientV53?.stop();this._build1CompatLegacyV53=false;this._build1ConfigV53={...config};this._build1LegacyV53=['patterns','tips','config'].includes(config.default_tab);this._build1SectionV53=canonical(config.default_tab)||(config.tabs?.map(canonical).filter(Boolean).includes(defaults)?defaults:config.tabs?.map(canonical).find(Boolean))||defaults;this._build1SelectionV53={period:config.period_default||'day',mode:'full'};
+    const legacyConfig={...config};if(canonical(config.default_tab))legacyConfig.default_tab=baseTab[canonical(config.default_tab)];if(config.tabs)legacyConfig.tabs=[...new Set(config.tabs.map(v=>baseTab[canonical(v)]||v))];
+    const result=set.call(this,legacyConfig);render(this);return result;
+  };
+  const hass=Object.getOwnPropertyDescriptor(Card.prototype,'hass');
+  if(hass?.set)Object.defineProperty(Card.prototype,'hass',{...hass,set(value){if(!full(this)){this._build1ClientV53?.stop();return hass.set.call(this,value);}this._hass=value;this._lang=String(value?.locale?.language||value?.language||'en').startsWith('pl')?'pl':'en';this._tariffHostController?.guard.observe();render(this);}});
+  for(const method of ['_render','_renderTab','_renderCurrentTab','_updateContent']){const old=Card.prototype[method];if(old)Card.prototype[method]=function(...args){if(render(this))return;this._build1ClientV53?.stop();return old.apply(this,args);};}
+  const connected=Card.prototype.connectedCallback;
+  Card.prototype.connectedCallback=function(){if(full(this)){this._tariffHostController?.guard.resume();render(this);}else connected?.call(this);};
+  const disconnected=Card.prototype.disconnectedCallback;
+  Card.prototype.disconnectedCallback=function(){this._build1ClientV53?.stop();return disconnected?.call(this);};
+}
+// HA_ENERGY_BUILD1_V53_END
+// HA_DASHBOARD_PLACEMENT_V53_START
 // Native HA dialog-manager (frontend 20260826.7) owns this transient session.
 // Its provideHass subscription supplies current identity after Lovelace replaces
 // the initiating card. Neither an old card nor a cached hass authorizes Undo.
@@ -7256,6 +7549,11 @@ dialog[data-ha-tools-placement]{box-sizing:border-box;width:min(640px,calc(100vw
 // HA_ENERGY_CARD_OPTIONS_V5_START
 // Presentation-only card options. Only UI preferences are stored locally; no pricing, backend writes or requests.
 function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) {
+  const originalTabs = tabs;
+  const build1Tabs = ['overview','breakdown','costs','reports'];
+  const build1Labels = [['Overview','Breakdown','Costs','Reports'],['Przegląd','Rozbicie','Koszty','Raporty']];
+  tabs = [...new Set([...originalTabs,...build1Tabs])];
+  labels = [0,1].map(lang => tabs.map(id => build1Tabs.includes(id) ? build1Labels[lang][build1Tabs.indexOf(id)] : labels[lang][originalTabs.indexOf(id)]));
   const key = name === 'ha-energy-optimizer' ? '_currentTab' : '_activeTab';
   const pl = host => String(host._hass?.locale?.language || host._hass?.language || navigator.language || '').startsWith('pl');
   const t = (host, en, polish) => pl(host) ? polish : en;
@@ -7363,6 +7661,8 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
 
     if (config.tabs !== undefined && (!Array.isArray(config.tabs) || !config.tabs.length || config.tabs.some(id => !tabs.includes(id)) || new Set(config.tabs).size !== config.tabs.length)) throw new Error('tabs: choose at least one known visible tab / wybierz widoczną zakładkę');
     if (config.default_tab !== undefined && !visible(config).includes(config.default_tab)) throw new Error('default_tab must be a visible tab / domyślna zakładka musi być widoczna');
+    if(config.period_default!==undefined&&!['day','week','month','year'].includes(config.period_default))throw new Error('period_default: day / week / month / year');
+    if(config.show_alternatives!==undefined&&typeof config.show_alternatives!=='boolean')throw new Error('show_alternatives: boolean');
     for (const option of ['compact', 'show_help', 'show_support']) if (config[option] !== undefined && typeof config[option] !== 'boolean') throw new Error(`${option}: expected true or false`);
     if (config.chart_hours !== undefined && (!Number.isInteger(config.chart_hours) || config.chart_hours < 1 || config.chart_hours > 744)) throw new Error('chart_hours: 1–744 whole hours / pełnych godzin');
   };
@@ -8016,7 +8316,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     let fields = root.querySelector('[data-energy-option-fields]');
     if (!fields) {
       fields = document.createElement('div'); fields.dataset.energyOptionFields = '';
-      fields.innerHTML = `<style>label[data-option-row]{display:flex;align-items:center;gap:8px;min-height:44px}select,input[type=number],input[type=search]{min-height:44px;box-sizing:border-box;width:100%;font:inherit;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#888);border-radius:8px;padding:8px}fieldset{margin:12px 0;border:1px solid var(--divider-color,#888)}[data-option-row] input{width:24px;height:24px;min-height:24px;margin:0}select:focus-visible,input:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}[data-config-error]{color:var(--energy-value-red,#b91c1c)}</style><label data-option-label="variant" for="cf_variant"></label><select id="cf_variant" data-config="variant"><option value="" data-variant-label="legacy"></option><option value="tile" data-variant-label="tile"></option><option value="compact" data-variant-label="compact"></option><option value="full" data-variant-label="full"></option></select><label data-option-label="tap_target" for="cf_tap_target"></label><select id="cf_tap_target" data-config="tap_target"><option value="full" data-target-label="full"></option><option value="energy" data-target-label="energy"></option><option value="more-info" data-target-label="more-info"></option></select><div data-entity-chooser><label data-option-label="entity_search" for="cf_entity_search"></label><input id="cf_entity_search" type="search" data-entity-search><label data-option-label="entity" for="cf_entity"></label><select id="cf_entity" data-config="entity"></select><p data-entity-hint></p></div><label data-option-label="default_tab" for="cf_default_tab"></label><select id="cf_default_tab" data-config="default_tab">${tabs.map(id=>`<option value="${id}"></option>`).join('')}</select><fieldset><legend data-option-label="tabs"></legend>${tabs.map(id=>`<label data-option-row><input type="checkbox" data-tab-option="${id}"><span data-tab-label="${id}"></span></label>`).join('')}</fieldset>${['compact','show_help','show_support'].map(id=>`<label data-option-row><input type="checkbox" data-config="${id}"><span data-option-label="${id}"></span></label>`).join('')}<label data-option-label="chart_hours" for="cf_chart_hours"></label><input id="cf_chart_hours" type="number" min="1" max="744" step="1" data-config="chart_hours"><p data-config-error role="alert"></p>`;
+      fields.innerHTML = `<style>label[data-option-row]{display:flex;align-items:center;gap:8px;min-height:44px}select,input[type=number],input[type=search]{min-height:44px;box-sizing:border-box;width:100%;font:inherit;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border:1px solid var(--divider-color,#888);border-radius:8px;padding:8px}fieldset{margin:12px 0;border:1px solid var(--divider-color,#888)}[data-option-row] input{width:24px;height:24px;min-height:24px;margin:0}select:focus-visible,input:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}[data-config-error]{color:var(--energy-value-red,#b91c1c)}</style><label data-option-label="variant" for="cf_variant"></label><select id="cf_variant" data-config="variant"><option value="" data-variant-label="legacy"></option><option value="tile" data-variant-label="tile"></option><option value="compact" data-variant-label="compact"></option><option value="full" data-variant-label="full"></option></select><label data-option-label="tap_target" for="cf_tap_target"></label><select id="cf_tap_target" data-config="tap_target"><option value="full" data-target-label="full"></option><option value="energy" data-target-label="energy"></option><option value="more-info" data-target-label="more-info"></option></select><div data-entity-chooser><label data-option-label="entity_search" for="cf_entity_search"></label><input id="cf_entity_search" type="search" data-entity-search><label data-option-label="entity" for="cf_entity"></label><select id="cf_entity" data-config="entity"></select><p data-entity-hint></p></div><label data-option-label="default_tab" for="cf_default_tab"></label><select id="cf_default_tab" data-config="default_tab">${tabs.map(id=>`<option value="${id}"></option>`).join('')}</select><fieldset><legend data-option-label="tabs"></legend>${tabs.map(id=>`<label data-option-row><input type="checkbox" data-tab-option="${id}"><span data-tab-label="${id}"></span></label>`).join('')}</fieldset><label data-option-label="period_default" for="cf_period_default"></label><select id="cf_period_default" data-config="period_default">${['day','week','month','year'].map(v=>`<option value="${v}">${v}</option>`).join('')}</select>${['show_alternatives','compact','show_help','show_support'].map(id=>`<label data-option-row><input type="checkbox" data-config="${id}"><span data-option-label="${id}"></span></label>`).join('')}<label data-option-label="chart_hours" for="cf_chart_hours"></label><input id="cf_chart_hours" type="number" min="1" max="744" step="1" data-config="chart_hours"><p data-config-error role="alert"></p>`;
       root.append(fields);
       fields.addEventListener('input', event => { if (event.target.matches('[data-entity-search]')) this._renderOptionsV5(); });
       fields.addEventListener('change', event => {
@@ -8033,7 +8333,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
         this.dispatchEvent(new CustomEvent('config-changed',{detail:{config:{...candidate}},bubbles:true,composed:true}));
       });
     }
-    const names = {entity:t(this,'Existing entity for details','Istniejąca encja do szczegółów'),entity_search:t(this,'Find entity','Znajdź encję'),variant:t(this,'Variant','Wariant'),tap_target:t(this,'Open destination','Cel otwarcia'),default_tab:t(this,'Default tab','Domyślna zakładka'),tabs:t(this,'Visible tabs','Widoczne zakładki'),compact:t(this,'Compact view','Widok kompaktowy'),show_help:t(this,'Show help','Pokaż pomoc'),show_support:t(this,'Show project support','Pokaż wsparcie projektu'),chart_hours:t(this,'Hourly chart range (1–744 hours; empty = full range)','Zakres wykresów godzinowych (1–744 godz.; puste = cały zakres)')};
+    const names = {period_default:t(this,'Default period','Domyślny okres'),show_alternatives:t(this,'Show tariff comparison','Pokaż porównanie taryf'),entity:t(this,'Existing entity for details','Istniejąca encja do szczegółów'),entity_search:t(this,'Find entity','Znajdź encję'),variant:t(this,'Variant','Wariant'),tap_target:t(this,'Open destination','Cel otwarcia'),default_tab:t(this,'Default tab','Domyślna zakładka'),tabs:t(this,'Visible tabs','Widoczne zakładki'),compact:t(this,'Compact view','Widok kompaktowy'),show_help:t(this,'Show help','Pokaż pomoc'),show_support:t(this,'Show project support','Pokaż wsparcie projektu'),chart_hours:t(this,'Hourly chart range (1–744 hours; empty = full range)','Zakres wykresów godzinowych (1–744 godz.; puste = cały zakres)')};
     const variants = {legacy:t(this,'Existing configuration (unchanged)','Istniejąca konfiguracja (bez zmian)'),tile:t(this,'Tile','Kafelek'),compact:t(this,'Compact','Kompaktowy'),full:t(this,'Full','Pełny')};
     fields.querySelectorAll('[data-variant-label]').forEach(node => node.textContent = variants[node.dataset.variantLabel]);
     const targets = {full:t(this,'Full card','Pełna karta'),energy:t(this,'Home Assistant Energy','Energia Home Assistant'),'more-info':t(this,'Entity details (existing entity required)','Szczegóły encji (wymagana istniejąca encja)')};
@@ -8057,7 +8357,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     fields.querySelector('[data-entity-hint]').textContent = t(this,'Choose an existing entity to enable Entity details. Search shows up to 200 matches.','Wybierz istniejącą encję, aby włączyć jej szczegóły. Wyszukiwanie pokazuje do 200 wyników.');
 
     tabs.forEach((id,index)=>{const label=labels[pl(this)?1:0][index];fields.querySelector(`[data-tab-label="${id}"]`).textContent=label;const option=fields.querySelector(`option[value="${id}"]`);option.textContent=label;option.disabled=!visible(this._config).includes(id);fields.querySelector(`[data-tab-option="${id}"]`).checked=visible(this._config).includes(id);});
-    for(const field of fields.querySelectorAll('[data-config]')) {const option=field.dataset.config;field.setAttribute('aria-label',names[option]);if(option==='compact')field.disabled=!!this._config.variant;if(field.type==='checkbox')field.checked=option==='compact'?this._config[option]===true:this._config[option]!==false;else if(option!=='entity'&&root.activeElement!==field)field.value=this._config[option]??(option==='default_tab'?visible(this._config)[0]:option==='tap_target'?'full':'');}
+    for(const field of fields.querySelectorAll('[data-config]')) {const option=field.dataset.config;field.setAttribute('aria-label',names[option]);if(option==='compact')field.disabled=!!this._config.variant;if(field.type==='checkbox')field.checked=option==='compact'?this._config[option]===true:this._config[option]!==false;else if(option!=='entity'&&root.activeElement!==field)field.value=this._config[option]??(option==='period_default'?'day':option==='default_tab'?visible(this._config)[0]:option==='tap_target'?'full':'');}
   };
 }
 // HA_ENERGY_CARD_OPTIONS_V5_END
