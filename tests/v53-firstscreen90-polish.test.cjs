@@ -23,6 +23,9 @@ function setup({language='en',config={},states={},snapshot=producer,analysisErro
   assert.equal(q.type,'ha_tools_email/subscribe_analysis_updates');const row={fn,active:true};subscriptions.push(row);return ()=>{row.active=false;};
  };
  const backend=energyBackend(card,async q=>{
+  // Explicit old-backend capability envelope: absence of energy_model_schema
+  // keeps this fixture on its existing schema-2 analysis protocol.
+  if(q.type==='ha_tools_email/feature_capabilities')return {status:'ready',revision:1,capabilities:{energy_analysis:{visible:true,read:true,execute:false}}};
   if(q.type==='ha_tools_email/energy_analysis'){if(analysisError)throw analysisError;return clone(snapshot);}
   if(q.type==='ha_tools_email/energy_patterns')return patterns(q.days);
   if(q.type==='ha_tools_email/get_tariff')return {profile:clone(producer.rates[0].profile),revision:4,updated_at:null};

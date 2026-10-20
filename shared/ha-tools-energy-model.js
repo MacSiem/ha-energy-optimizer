@@ -12,7 +12,7 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
   function clear(status='idle',resetSupport=false){epoch++;pending=false;const supported=resetSupport?null:view.supported;view={status,model:null,current:null,preview:null,capabilities:null,supported,error:null};emit();}
   function dispose(){for(const fn of unsub){try{fn();}catch(_){}}unsub=[];ack=false;subscribing=null;}
   function stop(){enabled=false;dispose();identity=null;authority?.();wire?.();authority=wire=null;clear('idle',true);}
-  function observe(){const next=context();if(!same(identity,next)){dispose();identity=next;clear('idle',true);pending=available();}return available();}
+  function observe(){const next=context();if(!same(identity,next)){const keepLegacy=view.supported===false&&identity&&identity[0]===next[0]&&identity[1]===next[1];dispose();identity=next;clear(keepLegacy?'legacy':'idle',!keepLegacy);pending=available()&&!keepLegacy;}return available();}
   const current=e=>e===epoch&&available()&&same(identity,context());
   function invalidate(){if(!enabled)return;clear(available()?'loading':'idle');pending=available();queueMicrotask(()=>{if(observe())pump();});}
   async function subscribe(){

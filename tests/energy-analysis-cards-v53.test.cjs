@@ -64,7 +64,13 @@ function setup(spec,{response=()=>clone(producer),legacy=false,subscribeError=nu
       raw++;maxRaw=Math.max(raw,maxRaw);
       try{return await currentResponse(request);}finally{raw--;}
     }
-    if(spec.type==='ha-energy-email'&&request.type==='ha_tools_email/feature_capabilities')return {status:'ready',revision:1,capabilities:{energy_reports:{visible:true,read:false,execute:false}}};
+    if(request.type==='ha_tools_email/feature_capabilities'){
+      // This producer predates Build 1: negotiate explicitly without claiming
+      // energy_model_schema. Keep Email's independent report denial unchanged.
+      return {status:'ready',revision:1,capabilities:spec.type==='ha-energy-email'
+        ?{energy_reports:{visible:true,read:false,execute:false}}
+        :{energy_analysis:{visible:true,read:true,execute:false}}};
+    }
     if(request.type==='ha_tools_email/get_tariff')return {profile:clone(producer.rates[0].profile),revision:4,updated_at:null};
     if(legacy&&request.type==='energy/get_prefs')return {energy_sources:[{type:'grid',stat_energy_from:'sensor.fixture_grid'}],device_consumption:[]};
     if(legacy&&request.type==='recorder/get_statistics_metadata')return {'sensor.fixture_grid':{has_sum:true,unit_class:'energy',statistics_unit_of_measurement:'kWh',name:'Measured fixture grid'}};

@@ -7,7 +7,8 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
   const aliases={dashboard:'overview',daily:'breakdown',weekly:'breakdown',monthly:'breakdown',compare:'costs',recommendations:'costs',schedule:'reports',preview:'reports',send:'reports',history:'reports'};
   const canonical=v=>['overview','breakdown','costs','reports'].includes(v)?v:aliases[v];
   const baseTab={overview:name==='ha-energy-optimizer'?'dashboard':'overview',breakdown:name==='ha-energy-insights'?'daily':name==='ha-energy-optimizer'?'dashboard':'overview',costs:name==='ha-energy-optimizer'?'recommendations':'overview',reports:name==='ha-energy-email'?'overview':name==='ha-energy-optimizer'?'dashboard':'overview'};
-  const eligible=card=>!card._build1CompatLegacyV53&&!card._build1LegacyV53&&(!(card._config?.compact&&!card._config?.variant))&&(!['tile','compact'].includes(card._config?.variant)||card._optionsExpandedV5);
+  const nativeReportRoute=card=>name==='ha-energy-email'&&(card._build1ConfigV53?.default_tab==='preview'||card._optionsExpandedV5&&card[key]==='send');
+  const eligible=card=>!nativeReportRoute(card)&&!card._build1CompatLegacyV53&&!card._build1LegacyV53&&(!(card._config?.compact&&!card._config?.variant))&&(!['tile','compact'].includes(card._config?.variant)||card._optionsExpandedV5);
   const full=card=>eligible(card)&&card._build1ClientV53?.state().supported===true;
   const active=card=>eligible(card)&&card.isConnected&&card.preview!==true;
   const pl=card=>String(card._hass?.locale?.language||card._hass?.language||'en').startsWith('pl');
