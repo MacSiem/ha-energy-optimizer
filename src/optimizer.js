@@ -6165,7 +6165,7 @@ function createHaToolsMailPresentation({ escape = value => String(value), langua
   };
 }
 // Per-card transport; raw calls stay occupied across every identity/selection edge.
-function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>true}) {
+function createEnergyModelV53({card,guard,format,onChange=()=>{},onScheduleChange=()=>{},isActive=()=>true}) {
   const clone=v=>v==null?v:JSON.parse(JSON.stringify(v));
   let enabled=false,identity=null,epoch=0,raw=null,pending=false,ack=false,selection={period:'day',mode:'full'};
   let unsub=[],wire=null,authority=null,subscribing=null;
@@ -6187,7 +6187,7 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
     const e=epoch,c=card._hass.connection,association=identity;
     const task=(async()=>{
       if(typeof c?.subscribeMessage!=='function')throw Error('subscription_unavailable');
-      const off=await c.subscribeMessage(()=>{if(enabled&&same(association,context()))invalidate();},{type:'ha_tools_email/subscribe_analysis_updates'});
+      const off=await c.subscribeMessage(event=>{if(enabled&&same(association,context())){invalidate();if(event?.schedules_changed===true)onScheduleChange();}},{type:'ha_tools_email/subscribe_analysis_updates'});
       if(!current(e)){off?.();return false;}
       if(typeof off!=='function')throw Error('subscription_unavailable');
       unsub.push(off);ack=true;
@@ -6282,15 +6282,15 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
  const same=(a,b)=>a&&a.length===b.length&&a.every((v,i)=>v===b[i]);
  const available=()=>isActive()&&readable()&&card.isConnected&&card.preview!==true&&card._hass?.user?.is_active!==false&&guard.available(guard.snapshot());
  let scheduleReview=null;
- let identity=null,epoch=0,raw=null,pending=false,loaded=false,refreshSchedules=false,root=null,store=null,proxy=null,unwire=null,unauthority=null,form=null,serial=0;
+ let identity=null,epoch=0,raw=null,pending=false,loaded=false,refreshSchedules=false,scheduleDirty=false,scheduleVersion=0,root=null,store=null,proxy=null,unwire=null,unauthority=null,form=null,serial=0;
  let state={status:'idle',schedules:[],deliveries:[],targets:[],reportStatus:null,outcome:null,message:null};
  const failed=new Set(['preparation_failed','authentication_failed','recipients_refused','tls_failed','send_failed']);
  function emit(){paint();onChange();}
- function clear(){epoch++;pending=false;loaded=false;form=null;scheduleReview=null;state={status:'idle',schedules:[],deliveries:[],targets:[],reportStatus:null,outcome:null,message:null};store?.discard?.();store=null;proxy=null;if(root){root.replaceChildren();root._reportMarkup=null;}}
+ function clear(){epoch++;pending=false;loaded=false;scheduleDirty=false;scheduleVersion++;form=null;scheduleReview=null;state={status:'idle',schedules:[],deliveries:[],targets:[],reportStatus:null,outcome:null,message:null};store?.discard?.();store=null;proxy=null;if(root){root.replaceChildren();root._reportMarkup=null;}}
  const current=(e,token)=>e===epoch&&available()&&same(identity,context())&&guard.current(token);
  function observe(){if(getCapabilities()?.energy_reports)knownGrants=copy(getCapabilities().energy_reports);const next=context();if(!same(identity,next)){identity=next;clear();}return available();}
  function stop(){identity=null;knownGrants=null;clear();unwire?.();unauthority?.();unwire=unauthority=null;root=null;}
- function storeChanged(){if(!store||!available())return;if(!store.model().draft)scheduleReview=null;state.schedules=store.model().rows.filter(r=>r.kind==='energy_report').map(r=>({...r,channel:(r.channels||['email']).join(', '),editable:true}));emit();}
+ function storeChanged(){if(!store||!available())return;if(!store.model().draft)scheduleReview=null;state.schedules=store.model().rows.filter(r=>r.kind==='energy_report').map(r=>({...r,channel:(r.channels||['email']).join(', '),editable:true}));emit();queueMicrotask(refreshDirtySchedules);}
  // An ACK is not readback. Keep an accepted write associated while a secured
  // update refreshes model grants; subsequent reads wait and require fresh grants.
  const associated=(e,token)=>e===epoch&&isActive()&&card.isConnected&&card.preview!==true&&same(identity,context())&&guard.current(token);
@@ -6308,8 +6308,20 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
    unwire=guard.subscribeWire(check);unauthority=guard.subscribe(check);check();
   });
  }
+ // A tagged secured event invalidates rows, never a write or a local draft.
+ function scheduleChanged(){
+  if(!isActive()||!card.isConnected||card.preview===true||!guard.available(guard.snapshot()))return;
+  observe();scheduleDirty=true;scheduleVersion++;queueMicrotask(refreshDirtySchedules);
+ }
+ function refreshDirtySchedules(){
+  if(!scheduleDirty||!available()||card._hass?.user?.is_admin!==true||raw||isModelBusy()||guard.occupied()||!store)return;
+  const sm=store.model();
+  if(sm.draft||sm.reading||sm.writing||sm.locked)return;
+  // Consume once before IO. Failure needs explicit Refresh, never a read loop.
+  scheduleDirty=false;void store.refresh();
+ }
  async function protectedCall(request){
-  const e=epoch,token=guard.snapshot(),admin=card._hass?.user?.is_admin===true;
+  const e=epoch,token=guard.snapshot(),admin=card._hass?.user?.is_admin===true,version=scheduleVersion;
   let owner=null;
   const readback=['manifest/get','ha_tools_email/list_schedules'].includes(request.type);
   if(readback&&(isModelBusy()||guard.occupied()))owner=await acquireScheduleRead(e,token);
@@ -6333,6 +6345,7 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   try{
    const result=await guard.call(token,request,true,owner);
    if(!(request.type==='ha_tools_email/set_schedule'?associated(e,token):current(e,token)))throw {code:'stale_context'};
+   if(request.type==='ha_tools_email/list_schedules'&&version===scheduleVersion)scheduleDirty=false;
    return result;
   }finally{owner?.release();}
  }
@@ -6364,10 +6377,11 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   }catch(error){if(current(e,token)){if(error?.code==='wire_occupied'){pending=true;state.status='loading';}else{loaded=true;state.status='error';}}}finally{if(raw===lane)raw=null;if(current(e,token)){emit();if(state.status==='ready'&&card._hass?.user?.is_admin===true){const c=schedules();if(refreshSchedules){refreshSchedules=false;await c?.refresh?.();}else await c?.ensureRead?.();}}}
  }
  function update(){
-  if(!unwire)unwire=guard.subscribeWire(()=>queueMicrotask(()=>{if(pending)void load();else emit();}));
+  if(!unwire)unwire=guard.subscribeWire(()=>queueMicrotask(()=>{if(pending)void load();else emit();refreshDirtySchedules();}));
   if(!unauthority)unauthority=guard.subscribe(()=>{clear();identity=null;emit();});
   if(!observe())return;
   if(!loaded){pending=true;void load();}
+  queueMicrotask(refreshDirtySchedules);
  }
  function defaultChannel(){return state.targets.find(r=>r.default&&r.id.startsWith('notify.mobile_app_'))?.id||state.targets.find(r=>r.id==='persistent_notification')?.id||'';}
  function openSend({email=false,retryId=null}={}){
@@ -6394,13 +6408,15 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
    if(plan.channel==='email')request.recipients=recipients(plan.recipients);
    dispatched=true;
    const result=await guard.call(token,request,true);
-   if(!current(e,token)){if(e===epoch&&same(identity,context())){state.outcome='outcome_unknown';form=null;emit();}return false;}
+   // A secured update may clear model grants after the server accepted this send.
+   // Bind the ACK to its unchanged authority; paint still requires current grants.
+   if(!associated(e,token)){if(e===epoch&&same(identity,context())){state.outcome='outcome_unknown';form=null;emit();}return false;}
    const parts=Array.isArray(result?.channels)?result.channels:Array.isArray(result?.results)?result.results:[result];
    const statuses=parts.map(r=>r?.status);
    const accepted=result?.ok===true&&parts.length>0&&parts.every(r=>r?.ok===true&&['accepted_by_notify','accepted_by_smtp'].includes(r.status)&&typeof r.attempt_id==='string'&&r.attempt_id.length>0);
    state.outcome=accepted?(statuses.every(s=>s==='accepted_by_notify')?'accepted_by_notify':'accepted_by_smtp'):'outcome_unknown';
    form=null;emit();return accepted;
-  }catch(error){if(current(e,token)){state.outcome=dispatched?'outcome_unknown':'not_sent';state.message=null;form=null;emit();}return false;}
+  }catch(error){if(associated(e,token)){state.outcome=dispatched?'outcome_unknown':'not_sent';state.message=null;form=null;emit();}return false;}
   finally{if(raw===lane)raw=null;emit();}
  }
  function reviewSchedule(){
@@ -6481,7 +6497,7 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   if(selector){const next=[...root.querySelectorAll('input,select')].find(n=>n.dataset[selector[0]]===selector[1]);next?.focus({preventScroll:true});if(next&&selection)next.setSelectionRange(...selection);}
  }
  function snapshot(){observe();const sm=store?.model();return copy({...state,busy:!!raw||guard.occupied(),canExecute:executable(),canManageSchedules:executable()&&!!store&&!sm.reading&&!sm.writing&&!sm.locked,formOpen:!!form});}
- return {mount,update,stop,state:snapshot,openSend,review,confirm,scheduleAction,reviewSchedule,confirmSchedule,refresh:()=>{refreshSchedules=true;loaded=false;pending=true;void load();}};
+ return {mount,update,stop,scheduleChanged,state:snapshot,openSend,review,confirm,scheduleAction,reviewSchedule,confirmSchedule,refresh:()=>{refreshSchedules=true;loaded=false;pending=true;void load();}};
 }
 /** Pure Build1 presentation. No clock, persistence, network or HA calls.
  * markup accepts an energy_report/1 and options:
@@ -6658,7 +6674,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
   const text=(card,en,polish)=>pl(card)?polish:en;
   let painting=new WeakSet();
   const presentations=new WeakMap();
-  function client(card){return card._build1ClientV53 ||= createClient({card,guard:card._getTariffHostV3().guard,format,isActive:()=>active(card),onChange:()=>changed(card)});}
+  function client(card){return card._build1ClientV53 ||= createClient({card,guard:card._getTariffHostV3().guard,format,isActive:()=>active(card),onChange:()=>changed(card),onScheduleChange:()=>card._build1ReportsV53?.scheduleChanged()});}
   function changed(card){
     if(full(card)){paint(card);return;}
     // Pending/old capability replies must leave existing forms, focus and startup alone.
@@ -7630,6 +7646,27 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     [data-energy-report-status] [data-energy-actions] button{flex:1 1 0;min-width:44px;padding-inline:4px}
   }`;
 
+  const narrowEnergyStyle = `
+  [data-energy-simple=compact]:not([data-energy-report-status]){overflow:auto;scrollbar-width:thin}
+  [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-zone-axis]{position:relative;min-height:16px}
+  [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-zone-axis] span{position:absolute;white-space:nowrap;line-height:16px}
+  @container energy-simple-card (max-width:279px){
+    [data-energy-simple=compact]:not([data-energy-report-status]){padding:8px;gap:4px}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-heading]{gap:8px;align-items:flex-start}
+    [data-energy-simple=compact]:not([data-energy-report-status]) ha-icon{width:28px;height:28px;--mdc-icon-size:18px}
+    [data-energy-simple=compact]:not([data-energy-report-status]) h2{font-size:14px;line-height:18px}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-name],
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-primary-label]{white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-values]{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:4px 8px;align-items:baseline}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-primary]{font-size:18px;line-height:22px;min-width:0;overflow-wrap:anywhere}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-cost]{font-size:16px;line-height:22px;min-width:0;text-align:end;overflow-wrap:anywhere}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-unit]{font-size:12px;line-height:16px;white-space:nowrap}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-comparison]{grid-column:1/-1;display:block;max-width:none;margin:0;text-align:start;-webkit-line-clamp:unset;overflow:visible;overflow-wrap:anywhere}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-zonebar]{height:20px}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-zone-legend]{gap:0 8px}
+    [data-energy-simple=compact]:not([data-energy-report-status]) [data-energy-zone-legend] span{white-space:nowrap}
+  }`;
+
   const emailStatusFor = host => host._emailStatusV100 ||= (() => {
     let scheduled = false;
     const active = () => name === 'ha-energy-email' && host.isConnected && host.preview !== true && simple(host);
@@ -7725,7 +7762,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${host._getTariffHostV3().ui().css}${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><ha-card data-energy-simple="${mode}" role="button" tabindex="0"${!email ? ' data-energy-open' : ''}><div data-energy-heading><ha-icon aria-hidden="true"></ha-icon><div data-energy-heading-text><h2><span data-energy-name></span></h2>${mode === 'compact' ? '<p data-energy-primary-label></p>' : '<div data-energy-primary role="status"></div>'}</div></div>${mode === 'compact' ? email ? '<div data-energy-primary role="status"></div><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : '<div data-energy-values><div data-energy-primary role="status"></div><span data-energy-cost></span><span data-energy-comparison></span></div><div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div><div data-energy-zone-axis></div><div data-energy-zone-legend></div></div>' : ''}${email ? mode === 'compact' ? '<div data-energy-actions><button type="button" data-energy-open></button></div>' : '<button type="button" data-energy-open></button>' : ''}</ha-card>`;
+      root.innerHTML = `<style>${host._getTariffHostV3().ui().css}${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}${narrowEnergyStyle}</style><ha-card data-energy-simple="${mode}" role="button" tabindex="0"${!email ? ' data-energy-open' : ''}><div data-energy-heading><ha-icon aria-hidden="true"></ha-icon><div data-energy-heading-text><h2><span data-energy-name></span></h2>${mode === 'compact' ? '<p data-energy-primary-label></p>' : '<div data-energy-primary role="status"></div>'}</div></div>${mode === 'compact' ? email ? '<div data-energy-primary role="status"></div><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : '<div data-energy-values><div data-energy-primary role="status"></div><span data-energy-cost></span><span data-energy-comparison></span></div><div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div><div data-energy-zone-axis></div><div data-energy-zone-legend></div></div>' : ''}${email ? mode === 'compact' ? '<div data-energy-actions><button type="button" data-energy-open></button></div>' : '<button type="button" data-energy-open></button>' : ''}</ha-card>`;
       section = root.querySelector('[data-energy-simple]');
       section.addEventListener('click', event => {
         if (event.target.closest?.('button,a,input,select,textarea')) return;
@@ -7811,8 +7848,19 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       if (axis) {
         axis.replaceChildren();
         const start = Date.parse(analysis?.period?.start), end = Date.parse(analysis?.period?.calendar_end);
-        if (Number.isFinite(start) && Number.isFinite(end) && end > start) for (const instant of [start,start+(end-start)/2,end]) {
-          const point = document.createElement('span'); point.textContent = format.clock(new Date(instant).toISOString()) || unknown; axis.append(point);
+        if (Number.isFinite(start) && Number.isFinite(end) && end > start && end-start <= 48*3600000) {
+          // Reuse the format layer's compact 24-hour axis notation. Full point
+          // labels retain the user's 12/24-hour clock and DST offsets.
+          const values=Array.from({length:Math.ceil((end-start)/3600000)},(_,index)=>new Date(start+index*3600000).toISOString());
+          const ticks=format.chartTicks(values,'hour');
+          const selected=[...new Set([0,Math.floor((ticks.length-1)/2),ticks.length-1])].map(index=>ticks[index]).filter(Boolean);
+          axis.setAttribute('aria-label',t(host,'Hourly ticks (24-hour notation)','Godziny osi (zapis 24-godzinny)'));
+          for(const tick of selected){
+            const value=values[tick.index],instant=Date.parse(value),position=100*(instant-start)/(end-start);
+            const point=document.createElement('span');point.textContent=tick.label;point.title=format.pointLabel(value)||unknown;
+            point.style.left=`${position}%`;point.style.transform=position<=10?'translateX(0)':position>=90?'translateX(-100%)':'translateX(-50%)';
+            axis.append(point);
+          }
         }
       }
       const legend = section.querySelector('[data-energy-zone-legend]');
