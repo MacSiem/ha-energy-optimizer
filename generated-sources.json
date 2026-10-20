@@ -4,15 +4,15 @@
   "sources": [
     {
       "path": "src/optimizer.js",
-      "sha256": "bfd4224d3a2d2f2389e6d3452b28a4d698aa964d7944f33d7c27202b01a901d2"
+      "sha256": "fec2b47d7c23e6b7e54c0b2ee49ac62cd0432b59b4a858a41867b6d7117cf705"
     },
     {
       "path": "src/energy-insights.js",
-      "sha256": "716ac8a27429e6a2d80cab282b1b1492f7e3eb7009dd67b1dfa7fe9ee6a439be"
+      "sha256": "b73b97c30954daa62f4b1b7c47a901918cbb3fb60ff7a31f136be22ef0092dbd"
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "3a05153aa721140ac34d21f663086bdd29683cc21278e64a35d104d2b4c89629"
+      "sha256": "86a6393f7ed4bd4785f1d1146bfe808ecfbb33cd2baaa62db233cd064b2120f5"
     },
     {
       "path": "src/chart-vendor.js",
@@ -20,7 +20,7 @@
     }
   ],
   "sharedTariff": {
-    "sha256": "f1a83cc5d0b3e4e6aed8388ddbc75aa40984b23edf4c565769ec1ef2d1d387a1",
+    "sha256": "4d83bbba36d21503c91f09273ab39ec5cacb1b316b2de814d95b34a4f6a0613c",
     "modules": [
       {
         "path": "shared/ha-tools-ui.js",
@@ -52,7 +52,7 @@
       },
       {
         "path": "shared/ha-tools-tariff-host.js",
-        "sha256": "fd86ae1bd41696a5881ce452c1d3c7165453de05ff2b448a69f1507449b90a93"
+        "sha256": "b246e4d52e86838403ce29bc7aead781cef894b89226d5f86094ad6a4ac9926e"
       },
       {
         "path": "shared/ha-tools-energy-analysis.js",
@@ -124,7 +124,7 @@
     },
     {
       "path": "shared/ha-tools-energy-build1-view.js",
-      "sha256": "0f86833172c120672ce5cdc4ffd9d95468b629c09278dd2c5938f5851427a1e4"
+      "sha256": "5f3f3cc3fa23f03fd7c28b0b453a2d08fac7c85d8e08a5cd2b9bb51ebfea9ff9"
     },
     {
       "path": "shared/ha-tools-energy-build1-host.js",
