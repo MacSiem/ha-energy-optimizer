@@ -21,10 +21,10 @@ for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email']
   throw {code:'unknown_command'};
  }};
  try{
-  // Real generated host/consumer installs the production guard.call wrapper.
-  // Keep its native startup outside the model assertion; use the real DOM mount.
-  const host=card._getTariffHostV3();card.preview=true;dom.window.document.body.append(card);await drainBackend();card.preview=false;calls.length=0;
-  client=card._build1ClientV53 || createEnergyModelV53({card,guard:host.guard,format:{forHass:()=>({language:'en'})}});client.update();await tick();
+  // Start the installed client through the actual native setter and mount.
+  // A second manually created client would compete with the queued native mount.
+  const host=card._getTariffHostV3();dom.window.document.body.append(card);card.hass=card._hass;
+  await drainBackend();await tick();client=card._build1ClientV53;
   assert.equal(client.state().status,'ready');assert.equal(client.state().model.schema,'ha_tools.energy_report/1');assert.equal(calls.filter(q=>q.representation==='model').length,2);assert.equal(host.guard.occupied(),false);
   const token=host.guard.snapshot(),owner=host.guard.reserve(token);card._hass.user.is_active=false;
   await assert.rejects(host.guard.call(token,{type:'ha_tools_email/feature_capabilities'},false,owner),e=>e.code==='authority_changed');owner.release();
