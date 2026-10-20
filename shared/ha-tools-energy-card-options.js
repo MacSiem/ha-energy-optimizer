@@ -165,7 +165,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]{flex:1 1 100%;width:100%}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer>summary{min-height:44px;padding:12px 8px;font-size:14px}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]>p{margin:0 0 8px}`;
-  const simpleStyle = `:host{display:block;min-width:0;container-type:inline-size;container-name:energy-simple-card;--energy-simple-cheap:var(--hat-zone-cheap,#1baf7a);--energy-simple-expensive:var(--hat-zone-exp,#2a78d6)}
+  const simpleStyle = `:host{display:block;min-width:0;container-type:inline-size;container-name:energy-simple-card;--energy-simple-cheap:var(--hat-zone-cheap,var(--_hat-zone-cheap,#1baf7a));--energy-simple-expensive:var(--hat-zone-exp,var(--_hat-zone-exp,#2a78d6))}
 :host(.bento-dark){--energy-simple-cheap:var(--hat-zone-cheap,#199e70);--energy-simple-expensive:var(--hat-zone-exp,#3987e5)}
 [data-energy-simple]{box-sizing:border-box;display:grid;gap:8px;min-width:0;color:var(--primary-text-color);font-size:14px;cursor:pointer}
 [data-energy-simple] h2,[data-energy-simple] p{margin:0} [data-energy-simple] h2{font-size:16px;line-height:22px;font-weight:600;min-width:0} [data-energy-name]{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

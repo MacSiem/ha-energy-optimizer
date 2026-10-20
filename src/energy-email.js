@@ -5164,7 +5164,7 @@ this._installTariffConsumerV3();
           .email-action-result{padding:12px;border:1px solid var(--bento-border);border-radius:10px;margin:12px 0;overflow-wrap:anywhere}
           .email-action-result p{margin:8px 0 0;line-height:1.5}
           .card a{color:var(--hat-primary, var(--_hat-primary));text-underline-offset:2px}
-          
+
           :host .ht-result-state--not_checked,:host .ht-result-state--no_data{color:var(--bento-text-secondary,#64748b)}
           .card button,.card select{min-height:44px;min-width:44px;box-sizing:border-box}
           .card :is(button,input,select,[tabindex]):focus-visible{outline:3px solid var(--bento-primary);outline-offset:2px}
@@ -5191,7 +5191,7 @@ this._installTariffConsumerV3();
           }
           @container energy-card (max-width:279px){.card .tabs{display:none !important}.email-tab-picker{display:block}.email-tab-picker select{width:100%}}
 
-  
+
 /* Spec 5.3 full-view bridge; shared UI supplies defaults after vendoring. */
 :host {
   --bento-primary: var(--hat-primary, var(--_hat-primary));

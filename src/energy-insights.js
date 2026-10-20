@@ -4150,7 +4150,7 @@ this._installTariffConsumerV3();
             .stats-grid { grid-template-columns: 1fr !important; }
           }
 
-  
+
 /* Spec 5.3 full-view bridge; shared UI supplies defaults after vendoring. */
 :host {
   --bento-primary: var(--hat-primary, var(--_hat-primary));
