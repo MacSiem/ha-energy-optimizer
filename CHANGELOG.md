@@ -2,6 +2,11 @@
 
 ## 4.0.0 (Unreleased)
 
+- Default new picker cards to Compact while preserving existing full cards. Keep native tariff tiles readable in narrow Sections columns, with a complete next-cheap clock, accessible product names and full calendar details. Compact summaries retain measured energy, usage cost and neutral unconfirmed intervals.
+- Use one schema-2 analysis service for calendar periods, historical tariff versions, measured group comparisons and reports read inside HA without SMTP. Keep roomless and unmeasured energy separate, household fixed fees separate from group usage, and existing legacy compatibility explicit.
+- Add reviewed dashboard placement with preview, explicit confirmation and guarded Undo through native Home Assistant dialogs. Preserve the dialog across Lovelace remounts and refuse to overwrite later dashboard changes.
+- Expose administrator-controlled feature access and opt-in native cost statistics with explicit consent, late-hour recovery and seven-day backfill. Reading a card does not publish statistics, send mail or grant access.
+
 - Clear recovered pricing warnings after a successful retry while retaining warnings for other queries that still fail.
 
 - Refresh native light/dark phone screenshots, compact visual-editor examples and the actual Polish weekly mail preview, with capture hashes and explicit measurement windows.

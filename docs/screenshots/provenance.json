@@ -106,10 +106,36 @@
       "backend_candidate": "84e0e2abbc21e23c9be69f171c472d2367204386",
       "capture": "three-compact-pl-dark.jpg",
       "qualification": "Unedited actual native Chrome capture, personally inspected; synthetic measurements only. Stable visible frame, no household data, personal tabs or real recipient. Qualified reuse: the same frontend989 compact renderer; backend0869 changes mail presentation only. Missing new measured hour is N/A, never zero."
+    },
+    {
+      "file": "simple-sections-pl-dark.png",
+      "sha256": "0e168a9867d3394c0e33fc592743fe77a950743078f70a87ed7c1f65171636ed",
+      "pixels": [
+        390,
+        844
+      ],
+      "captured_at": "2026-10-20",
+      "source_candidate": "42e4eb1c039932e5ff2b09bf4909373233373e9b",
+      "backend_candidate": "3c4e0bb350499bb36505d0299028a91ac0c5fc5d",
+      "capture": "native130/sections6-pl390-dark-cdp.png",
+      "qualification": "Unedited native HA Core2026.9.4 screenshot through supported tab CDP Page.captureScreenshot, exact1:1 viewport DPR1 scale1, personally inspected. Frontend actual HACS upgrade42e; backend custom_components byte-identical to native124 installed40f4. Synthetic Recorder851hours per source, old850 exact plus one new09Zhour, shared book. Source measurements120kWh/102EUR usage cost. Email schedule and attempt intentionally unknown. No inbox, real200percent zoom or whole-matrix claim."
+    },
+    {
+      "file": "simple-sections-en-narrow.png",
+      "sha256": "116329a35a2234e4c6a1176413cee03b91dfb2e654cc052a2bdf9246ccfea89c",
+      "pixels": [
+        320,
+        844
+      ],
+      "captured_at": "2026-10-20",
+      "source_candidate": "42e4eb1c039932e5ff2b09bf4909373233373e9b",
+      "backend_candidate": "3c4e0bb350499bb36505d0299028a91ac0c5fc5d",
+      "capture": "native130/sections6-en320-light-cdp.png",
+      "qualification": "Unedited native HA Core2026.9.4 screenshot through supported tab CDP Page.captureScreenshot, exact1:1 viewport DPR1 scale1, personally inspected. Frontend actual HACS upgrade42e; backend custom_components byte-identical to native124 installed40f4. Synthetic Recorder851hours per source, old850 exact plus one new09Zhour, shared book. Source measurements120kWh/102EUR usage cost. Email schedule and attempt intentionally unknown. No inbox, real200percent zoom or whole-matrix claim."
     }
   ],
   "data": "Controlled synthetic Recorder Alpha/Beta, sample EUR gross tariff, no household data or real recipient.",
-  "windows": "Optimizer/Insights today18Oct2026 Europe/Warsaw00:00–10:00:37.20kWh/10completedhours. Optimizer usage cost34.50EUR includes energy25.20EUR and variablefees9.30EUR. Email rolling24h:90.6kWh/48of48sourcehours/103.20EUR energy cost. Weekly actual mail5–12Oct:634.20kWh/336sourcehours/880.95EUR usagecost. Fixed monthly7EUR remains separate. Different windows and cost components are intentional.",
+  "windows": "Optimizer/Insights today18Oct2026 Europe/Warsaw00:00\u201310:00:37.20kWh/10completedhours. Optimizer usage cost34.50EUR includes energy25.20EUR and variablefees9.30EUR. Email rolling24h:90.6kWh/48of48sourcehours/103.20EUR energy cost. Weekly actual mail5\u201312Oct:634.20kWh/336sourcehours/880.95EUR usagecost. Fixed monthly7EUR remains separate. Different windows and cost components are intentional.",
   "email_preview": "Current Polish weekly actual backend HTML, HA languagepl/Warsaw, readable local header, chart and comparison dates. Preview-only, no Send.",
   "capture_limit": "Optimizer native92 captures CSS390x844; older compatibility mobile images CSS390x674. Native browser200percent is separate. All images retain original JPEG bytes without crop/retouch/scaling/compositing. This partial image set does not qualify the whole W22 or mail-client matrix.",
   "compact": "Three compact cards in Masonry after actual Polish visual-editor saves; N/A reflects a missing new measured hour. Same frontend989, backend source84e; later backend0869 changes mail dates only, without compact/tariff engine changes.",
@@ -126,5 +152,7 @@
     "subtitle": "Measured energy & tariff costs",
     "old_banner": "banner.png retained as historical asset, no longer referenced by README"
   },
-  "image_set_note": "Mixed sources: Optimizer images updated to native92 exact schema2 bundle; remaining images retain their recorded historical compatibility sources and are labeled as such in README."
+  "image_set_note": "Mixed sources: Optimizer images updated to native92 exact schema2 bundle; remaining images retain their recorded historical compatibility sources and are labeled as such in README.",
+  "current_simple_candidate": "42e4eb1c039932e5ff2b09bf4909373233373e9b",
+  "current_simple_bundle_sha256": "31f7d6e7a258ccd820e144d3df13f18477f3dc1ee718af9b47d31744849c31f6"
 }

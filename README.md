@@ -55,7 +55,15 @@ once, use any of them:
 |---|---|
 | `custom:ha-energy-optimizer` | Dashboard with hourly Chart/Data, measured Patterns by day/hour, tariff-zone costs and consecutive-week totals. |
 | `custom:ha-energy-insights` | Overview, Daily / Weekly / Monthly Chart/Data and Tips. Device measurements configured in Energy Dashboard are read only on request; parent/submeter relationships and partial coverage stay visible, and device rows are never added to the grid-import total. |
-| `custom:ha-energy-email` | Recorder-backed 24h / 7d / 30d overview and report preview. Sending requires an administrator and configured SMTP in HA Tools Email. With **HA Tools Email 2.3.1+**, actual emails retain available measurements and show incomplete coverage; a partial report does not claim a complete total or cost. Actual HTML mail previews and explicit manual calendar sends require **HA Tools Email 2.3.0+**; summary/rolling compatibility supports **2.1.2+**, and calendar schedules and shared tariffs require **2.2.0+**. Legacy direct sending also validates hourly coverage. Local schedule settings are retained but do not run a server schedule. HA Tools Email & Reports 4.5.0+ forwards to this maintained card. |
+| `custom:ha-energy-email` | Shared calendar analysis and in-HA reports with HA Tools Email 2.4+. Older APIs retain the Recorder-backed 24h / 7d / 30d overview and report preview. Sending requires the saved execution permission and configured SMTP in HA Tools Email. With **HA Tools Email 2.3.1+**, actual emails retain available measurements and show incomplete coverage; a partial report does not claim a complete total or cost. Actual HTML mail previews and explicit manual calendar sends require **HA Tools Email 2.3.0+**; summary/rolling compatibility supports **2.1.2+**, and calendar schedules and shared tariffs require **2.2.0+**. Legacy direct sending also validates hourly coverage. Local schedule settings are retained but do not run a server schedule. HA Tools Email & Reports 4.5.0+ forwards to this maintained card. |
+
+### Tile, compact and full views
+
+New cards from Home Assistant’s picker start in **Compact** without extra fields. Choose **Tile**, **Compact** or **Full** in the visual editor. Existing cards without a variant keep their full view.
+
+The tile shows the current tariff classification and the next cheap-period clock. In very narrow columns the classification moves into the heading so the clock remains visible; the accessible heading and Open button retain the product name, and the status includes the complete date and timezone. Compact shows measured energy today, usage cost, a like-for-like comparison and the day’s tariff zones. Future or unconfirmed intervals stay neutral. Fixed household fees remain separate from usage cost. Energy Email’s compact view instead shows the confirmed schedule and attempt status; unknown history stays unknown.
+
+**Open** expands the card and **Back to summary** returns focus to its original button. From a full card, **Add to dashboard** lets you choose a destination, review a preview and confirm the write. **Undo** restores the saved dashboard only while no later change would be overwritten. YAML dashboards offer a copy action.
 
 ### What is automatic vs. manual
 
@@ -66,7 +74,9 @@ once, use any of them:
 | Home Assistant theme and device date/time preferences | Set `power_entity` for live power; add Insights or Email cards if wanted |
 | Bundled charts | Install HA Tools Email 2.4.0+ for prices; configure SMTP only when sending mail |
 
-### Windows and first run
+### Older compatibility windows and first run
+
+The rolling-window descriptions in this section apply to the compatible older API path. Current schema-2 views use the selected server calendar day, week, month or year and display their actual bounds.
 
 Optimizer and Insights “Today” cover completed hourly buckets since local midnight in the Home Assistant timezone. Repeated DST hours keep separate absolute identities and UTC offsets; a skipped or future hour is not a measured zero. Completed days may have 23 or 25 hours. Weekly comparisons use consecutive 168-hour windows; monthly and email views use the last 720 hours. Email daily reports use the last 24 completed hours. The displayed start/end timestamps identify the window, so Today and a daily email can legitimately differ.
 
@@ -168,9 +178,15 @@ confirm inbox delivery; an occupied send is never automatically retried.
 
 ## Screenshots
 
-These unedited native Chrome captures use synthetic Recorder statistics and a
+These unedited native Home Assistant browser captures use synthetic Recorder statistics and a
 sample EUR tariff. They contain no household data or real recipients. The cards
 follow Home Assistant's light/dark theme and date/time preferences.
+
+| Current compact and tile views, Polish dark | Narrow tariff tile, English light |
+|---|---|
+| ![Native Sections at 390 pixels: tariff clock, 120 kWh measured energy, 102 EUR usage cost and unknown Email schedule history](docs/screenshots/simple-sections-pl-dark.png) | ![Native Sections at 320 pixels: the complete next cheap clock remains visible in a 148-pixel tile](docs/screenshots/simple-sections-en-narrow.png) |
+
+These current simple views use the shared tariff book on 20 October 2026. The Polish 390 px capture has 183 px cards: Energy compact is 214 px high, with 120 kWh and 102 EUR usage cost through 12:00 Europe/Warsaw. The English 320 px capture shows the adaptive 148 px tariff tile. The next cheap period starts at 20:00 Europe/Warsaw (08:00 PM in the English profile). Email has no confirmed schedule or attempt; its unknown state is intentional. Open and Send now are actions, not evidence that a report was sent.
 
 | Optimizer, phone light | Optimizer, phone dark |
 |---|---|
