@@ -13,7 +13,20 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
       throw { code: 'invalid_recipients' };
     return [...value];
   };
-  const editable = ['id', 'kind', 'cadence', 'time', 'enabled', 'timezone', 'weekday', 'month_day'];
+  // Missing channels is the historical email contract. Never infer a target
+  // from list position; native defaults/availability belong to the host UI.
+  const normalizeChannels = (value, allowEmpty = false) => {
+    if (!Array.isArray(value) || value.length > 32 || (!allowEmpty && !value.length)) throw {code:'invalid_channels'};
+    const result=[];
+    for (let target of value) {
+      if (typeof target === 'string' && target.startsWith('notify:')) target='notify.'+target.slice(7);
+      if (typeof target !== 'string' || !(['email','persistent_notification'].includes(target) || /^notify\.[a-z0-9_]{1,128}$/.test(target))) throw {code:'invalid_channels'};
+      if (!result.includes(target)) result.push(target);
+    }
+    return result;
+  };
+  const cloneRow = row => ({...row,...(Array.isArray(row.channels)?{channels:[...row.channels]}:{})});
+  const editable = ['id', 'kind', 'cadence', 'time', 'enabled', 'timezone', 'weekday', 'month_day', 'channels'];
   let hass = null, context = null, epoch = 0, checked = false, rows = [], draft = null;
   let calendarCompatible = false, mailCompatible = false;
   let reading = null, writing = false, previewing = null, pendingExpected = null, preview = null;
@@ -39,7 +52,7 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
     Promise.resolve().then(() => { if (!done && allowed()) return source.callWS(message); if (!done) throw { code: 'stale_context' }; }).then(value => finish(resolve, value), error => finish(reject, error));
   });
   const same = (expected, actual) => expected.deleted ? !actual : !!actual && editable.every(key =>
-    Object.prototype.hasOwnProperty.call(expected, key) ? actual[key] === expected[key] : key !== 'timezone' || actual[key] === undefined) &&
+    key === 'channels' ? JSON.stringify(expected.channels || ['email']) === JSON.stringify(actual.channels || ['email']) : Object.prototype.hasOwnProperty.call(expected, key) ? actual[key] === expected[key] : key !== 'timezone' || actual[key] === undefined) &&
     (pendingRecipients === null || JSON.stringify(pendingRecipients) === JSON.stringify(privateRows.get(expected.id)));
   const cleanRows = result => {
     if (!result || !Array.isArray(result.schedules) || result.schedules.length > 500) throw { code: 'invalid_response' };
@@ -51,7 +64,8 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
       if (recipientEditor && raw.kind === kind) nextPrivate.set(raw.id, recipients(raw.recipients ?? []));
       const clean = { id: raw.id, kind: ['log_digest', 'energy_report'].includes(raw.kind) ? raw.kind : 'unknown' };
       if (raw.kind === kind) {
-        for (const key of editable.filter(key => !['id', 'kind'].includes(key))) if (Object.prototype.hasOwnProperty.call(raw, key)) clean[key] = raw[key];
+        if(Object.hasOwn(raw,'channels')&&kind!=='energy_report')throw {code:'invalid_response'};
+        for (const key of editable.filter(key => !['id', 'kind'].includes(key))) if (Object.prototype.hasOwnProperty.call(raw, key)) clean[key] = key === 'channels' ? normalizeChannels(raw[key]) : raw[key];
         if (raw.timezone !== undefined && typeof raw.timezone !== 'string') throw { code: 'invalid_response' };
         if (raw.weekday !== undefined && (!Number.isInteger(raw.weekday) || raw.weekday < 0 || raw.weekday > 6)) throw { code: 'invalid_response' };
         if (raw.month_day !== undefined && (!Number.isInteger(raw.month_day) || raw.month_day < 1 || raw.month_day > 31)) throw { code: 'invalid_response' };
@@ -108,6 +122,7 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
     notify(); return token.promise;
   };
   const validate = value => {
+    if (Object.hasOwn(value,'channels')) { if(kind !== 'energy_report')throw {code:'invalid_channels'}; normalizeChannels(value.channels); }
     if (!['daily', 'weekly', 'monthly'].includes(value.cadence) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value.time)) throw { code: 'invalid_fields' };
     if (value.timezone) {
       if (value.timezone.length > 128 || /^(posix\/|right\/)|^(localtime|posixrules)$/.test(value.timezone)) throw { code: 'invalid_timezone' };
@@ -122,6 +137,7 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
     try {
       validate(draft);
       expected = { id: draft.id, kind, cadence: draft.cadence, time: draft.time, enabled: draft.enabled === true };
+      if (Object.hasOwn(draft,'channels')) expected.channels=normalizeChannels(draft.channels);
       if (draft.timezone) expected.timezone = draft.timezone;
       if (draft.cadence === 'weekly') expected.weekday = draft.weekday;
       if (draft.cadence === 'monthly') expected.month_day = draft.month_day;
@@ -247,11 +263,13 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
       if (!row) return;
       previewing?.cancel?.(); previewing = null;
       privateDraft = recipientEditor ? [...(privateRows.get(id) || [])] : null;
-      draft = { ...row, timezone: row.timezone || '', weekday: row.weekday ?? 0, month_day: row.month_day ?? 1 };
+      draft = { ...cloneRow(row), timezone: row.timezone || '', weekday: row.weekday ?? 0, month_day: row.month_day ?? 1 };
       preview = null; previewStatus = { state: 'not_checked', reason: 'initial' }; notify();
     },
-    create() {
+    create(options = {}) {
       if (!allowed() || !calendarCompatible || reading || writing || pendingExpected || !['success', 'no_data'].includes(status.state)) return;
+      let newChannels;
+      if(Object.hasOwn(options,'channels')) {try {if(kind!=='energy_report')throw {code:'invalid_channels'};newChannels=normalizeChannels(options.channels,true);}catch(error){status={state:'error',reason:error.code};notify();return;}}
       // New IDs are allocated only after the explicit New action, never on open.
       let id;
       try {
@@ -266,11 +284,12 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
       previewing?.cancel?.(); previewing = null;
       privateDraft = recipientEditor ? [] : null;
       draft = { id, kind, cadence: 'daily', time: '08:00', enabled: false,
-        timezone: '', weekday: 0, month_day: 1 };
+        timezone: '', weekday: 0, month_day: 1, ...(newChannels?{channels:newChannels}:{}) };
       preview = null; previewStatus = { state: 'not_checked', reason: 'initial' }; notify();
     },
     update(key, value) {
       if (!allowed() || !draft || writing || pendingExpected || !editable.includes(key) || ['id', 'kind'].includes(key)) return;
+      if(key==='channels') {try {if(kind!=='energy_report')throw {code:'invalid_channels'};value=normalizeChannels(value,true);}catch(error){status={state:'error',reason:error.code};notify();return;}}
       draft = { ...draft, [key]: value };
       // A preview belongs to its exact selection; invalidate callbacks after an edit.
       if (previewing) { previewing.cancel?.(); previewing = null; }
@@ -294,7 +313,7 @@ export function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 80
         status = { state: rejected ? 'error' : 'unconfirmed', reason: rejected ? 'save_rejected' : 'write_unknown' };
       } finally { if (requestEpoch === epoch) { writing = false; notify(); } }
     },
-    model() { return { rows: rows.map(row => ({ ...row })), draft: draft ? { ...draft } : null, status: { ...status },
+    model() { return { rows: rows.map(cloneRow), draft: draft ? cloneRow(draft) : null, status: { ...status },
       reading: !!reading, writing, locked: !!pendingExpected, previewing: !!previewing,
       preview: preview ? { ...preview } : null, previewStatus: { ...previewStatus } }; }
   };

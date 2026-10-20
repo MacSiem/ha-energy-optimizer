@@ -9,26 +9,37 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
  const context=()=>{const h=card._hass,token=guard.observe(),g=getCapabilities()?.energy_reports||knownGrants;return [h?.connection,h?.callWS,h?.user?.id,h?.user?.is_admin,h?.user?.is_active,h?.connected,h?.connection?.connected,token.epoch,isActive(),g?.visible===true&&g?.read===true,g?.execute];};
  const same=(a,b)=>a&&a.length===b.length&&a.every((v,i)=>v===b[i]);
  const available=()=>isActive()&&readable()&&card.isConnected&&card.preview!==true&&card._hass?.user?.is_active!==false&&guard.available(guard.snapshot());
+ let scheduleReview=null;
  let identity=null,epoch=0,raw=null,pending=false,loaded=false,refreshSchedules=false,root=null,store=null,proxy=null,unwire=null,unauthority=null,form=null,serial=0;
  let state={status:'idle',schedules:[],deliveries:[],targets:[],reportStatus:null,outcome:null,message:null};
- const channels=new Map(),failed=new Set(['preparation_failed','authentication_failed','recipients_refused','tls_failed','send_failed']);
+ const failed=new Set(['preparation_failed','authentication_failed','recipients_refused','tls_failed','send_failed']);
  function emit(){paint();onChange();}
- function clear(){epoch++;pending=false;loaded=false;form=null;channels.clear();state={status:'idle',schedules:[],deliveries:[],targets:[],reportStatus:null,outcome:null,message:null};store?.discard?.();store=null;proxy=null;if(root){root.replaceChildren();root._reportMarkup=null;}}
+ function clear(){epoch++;pending=false;loaded=false;form=null;scheduleReview=null;state={status:'idle',schedules:[],deliveries:[],targets:[],reportStatus:null,outcome:null,message:null};store?.discard?.();store=null;proxy=null;if(root){root.replaceChildren();root._reportMarkup=null;}}
  const current=(e,token)=>e===epoch&&available()&&same(identity,context())&&guard.current(token);
  function observe(){if(getCapabilities()?.energy_reports)knownGrants=copy(getCapabilities().energy_reports);const next=context();if(!same(identity,next)){identity=next;clear();}return available();}
  function stop(){identity=null;knownGrants=null;clear();unwire?.();unauthority?.();unwire=unauthority=null;root=null;}
- function storeChanged(){if(!store||!available())return;state.schedules=store.model().rows.filter(r=>r.kind==='energy_report').map(r=>({...r,channel:channels.has(r.id)?channels.get(r.id).join(', '):'email',editable:!channels.has(r.id)||channels.get(r.id).every(c=>c==='email')}));emit();}
+ function storeChanged(){if(!store||!available())return;if(!store.model().draft)scheduleReview=null;state.schedules=store.model().rows.filter(r=>r.kind==='energy_report').map(r=>({...r,channel:(r.channels||['email']).join(', '),editable:true}));emit();}
  async function protectedCall(request){
   const e=epoch,token=guard.snapshot(),admin=card._hass?.user?.is_admin===true;
   if(!current(e,token)||!admin||guard.occupied())throw {code:'stale_context'};
   if(request.type==='ha_tools_email/set_schedule'){
    if(!executable())throw {code:'unauthorized'};
    const caps=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
-   if(!current(e,token)||caps?.capabilities?.energy_reports?.execute!==true||caps?.capabilities?.energy_reports?.visible!==true)throw {code:'unauthorized'};
+   if(!current(e,token)||caps?.status!=='ready'||caps?.capabilities?.energy_reports?.read!==true||caps?.capabilities?.energy_reports?.execute!==true||caps?.capabilities?.energy_reports?.visible!==true)throw {code:'unauthorized'};
+   if(request.action!=='delete'){
+    const wanted=request.schedule?.channels||['email'];
+    const targets=await guard.call(token,{type:'ha_tools_email/list_delivery_targets'});
+    if(!current(e,token))throw {code:'stale_context'};
+    if(!Array.isArray(targets)||!wanted.length||wanted.some(id=>!targets.some(t=>t&&t.id===id))){
+      if(Array.isArray(targets))state.targets=targets.filter(t=>t&&typeof t.id==='string'&&(t.id==='email'||t.id==='persistent_notification'||/^notify\.[a-z0-9_]{1,128}$/.test(t.id))).map(t=>({id:t.id,name:String(t.name||t.id),default:t.default===true}));
+      state.message=t('A selected delivery target is unavailable. Choose a current target and review again.','Wybrany cel dostarczenia jest niedostępny. Wybierz aktualny cel i sprawdź ponownie.');emit();
+      throw {code:'invalid_payload'};
+    }
+   }
+
   }
   const result=await guard.call(token,request,true);
   if(!current(e,token))throw {code:'stale_context'};
-  if(request.type==='ha_tools_email/list_schedules')for(const row of result?.schedules||[])if(row.kind==='energy_report'&&Array.isArray(row.channels))channels.set(row.id,[...row.channels]);
   return result;
  }
  function schedules(){
@@ -98,22 +109,40 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   }catch(error){if(current(e,token)){state.outcome=dispatched?'outcome_unknown':'not_sent';state.message=null;form=null;emit();}return false;}
   finally{if(raw===lane)raw=null;emit();}
  }
+ function reviewSchedule(){
+  observe();const sm=store?.model(),d=sm?.draft;
+  if(!executable()||raw||guard.occupied()||!d||sm.reading||sm.writing||sm.locked)return false;
+  if(!['daily','weekly','monthly'].includes(d.cadence)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(d.time)){state.message=t('Check schedule cadence and time.','Sprawdź częstotliwość i godzinę harmonogramu.');emit();return false;}
+  if(d.cadence==='weekly'&&(!Number.isInteger(d.weekday)||d.weekday<0||d.weekday>6)||d.cadence==='monthly'&&(!Number.isInteger(d.month_day)||d.month_day<1||d.month_day>31)){state.message=t('Check the selected day.','Sprawdź wybrany dzień.');emit();return false;}
+  const selected=d.channels||['email'],to=store.recipientModel()||[];
+  if(!selected.length||selected.some(id=>!state.targets.some(t=>t.id===id))){state.message=t('Choose available delivery channels before reviewing.','Wybierz dostępne kanały przed sprawdzeniem.');emit();return false;}
+  if(selected.includes('email')&&(!to.length||to.some(v=>!v.includes('@')||/[\r\n]/.test(v)))){state.message=t('Enter explicit email recipients before reviewing this schedule.','Wpisz odbiorców e-mail przed sprawdzeniem harmonogramu.');emit();return false;}
+  scheduleReview={signature:JSON.stringify({draft:d,recipients:to}),draft:copy(d),recipients:[...to],consumed:false};state.message=null;emit();root?.querySelector('[data-report-action="confirm-schedule"]')?.focus();return true;
+ }
+ async function confirmSchedule(){
+  observe();const sm=store?.model();
+  if(!executable()||raw||guard.occupied()||!scheduleReview||scheduleReview.consumed||!sm?.draft||sm.reading||sm.writing||sm.locked)return false;
+  if(scheduleReview.signature!==JSON.stringify({draft:sm.draft,recipients:store.recipientModel()||[]})){scheduleReview=null;emit();return false;}
+  scheduleReview.consumed=true;emit();await store.save();return store.model().status.state==='success';
+ }
  function scheduleAction(action,id){
   observe();if(!executable()||raw||guard.occupied())return false;
-  const c=schedules();if(!c)return false;
-  if(id&&channels.get(id)?.some(v=>v!=='email')){state.message=t('Edit notification schedules in Home Assistant. This editor manages email schedules.','Harmonogramy powiadomień edytuj w Home Assistant. Ten edytor obsługuje harmonogramy e-mail.');emit();return false;}
-  if(action==='add')c.create();else if(action==='edit')c.edit(id);else if(action==='toggle'){c.edit(id);const d=c.model().draft;if(d){c.update('enabled',!d.enabled);void c.save();}}
-  emit();return true;
+  const c=schedules();if(!c)return false;const m=c.model();if(m.reading||m.writing||m.locked)return false;scheduleReview=null;state.message=null;
+  if(action==='add'){c.create({channels:defaultChannel()?[defaultChannel()]:[]});}
+  else if(action==='edit')c.edit(id);
+  else if(action==='toggle'){c.edit(id);const d=c.model().draft;if(d){c.update('enabled',!d.enabled);reviewSchedule();}}
+  emit();return !!c.model().draft;
  }
  function mount(next){if(root!==next){root=next;if(root){root.addEventListener('input',input);root.addEventListener('change',input);root.addEventListener('click',click);}}update();paint();}
  function input(event){
   if(!available())return;const node=event.target;
   if(node.dataset.reportField&&form&&!form.consumed){form[node.dataset.reportField]=node.value;form.phase='draft';const reviewButton=root.querySelector('[data-report-action="review"]');if(reviewButton)reviewButton.disabled=!form.channel;}
-  if(node.dataset.scheduleField&&executable()){const key=node.dataset.scheduleField;store?.update(key,node.type==='checkbox'?node.checked:['weekday','month_day'].includes(key)?Number(node.value):node.value);}
-  if(node.dataset.scheduleRecipients!==undefined&&executable())store?.updateRecipients(recipients(node.value));
+  if(node.dataset.scheduleField&&executable()){scheduleReview=null;const key=node.dataset.scheduleField;store?.update(key,node.type==='checkbox'?node.checked:['weekday','month_day'].includes(key)?Number(node.value):node.value);}
+  if(node.dataset.scheduleRecipients!==undefined&&executable()){scheduleReview=null;store?.updateRecipients(recipients(node.value));}
+  if(node.dataset.scheduleChannels!==undefined&&executable()){scheduleReview=null;store?.update('channels',[...node.selectedOptions].map(o=>o.value));paint();}
  }
  function click(event){const button=event.target.closest?.('[data-report-action]');if(!button||button.disabled||!root?.contains(button))return;const a=button.dataset.reportAction;
-  if(a==='review')review();else if(a==='confirm')void confirm();else if(a==='cancel'){form=null;emit();}else if(a==='edit-send'){if(form&&!form.consumed)form.phase='draft';emit();}else if(a==='save-schedule'&&executable())void store?.save();else if(a==='cancel-schedule'){store?.cancel();emit();}else if(a==='new')openSend();else if(a==='reload'){refreshSchedules=true;loaded=false;pending=true;void load();}
+  if(a==='review')review();else if(a==='confirm')void confirm();else if(a==='cancel'){form=null;emit();}else if(a==='edit-send'){if(form&&!form.consumed)form.phase='draft';emit();}else if(a==='save-schedule')reviewSchedule();else if(a==='confirm-schedule')void confirmSchedule();else if(a==='edit-schedule'){scheduleReview=null;emit();}else if(a==='cancel-schedule'){scheduleReview=null;store?.cancel();emit();}else if(a==='new')openSend();else if(a==='reload'){refreshSchedules=true;loaded=false;pending=true;void load();}
  }
  function paint(){
   if(!root||!available())return;
@@ -135,18 +164,26 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   const sm=store?.model(),d=sm?.draft;
   if(d&&executable()){
    const entry=(key,label,type='text')=>`<label>${label}<input type="${type}" data-schedule-field="${key}" value="${esc(d[key]??'')}"></label>`;
-   html+=`<fieldset><legend>${t('Email schedule','Harmonogram e-mail')}</legend><label>${t('Cadence','Częstotliwość')}<select data-schedule-field="cadence">${['daily','weekly','monthly'].map(c=>`<option value="${c}" ${d.cadence===c?'selected':''}>${c}</option>`).join('')}</select></label>${entry('time',t('Time','Godzina'),'time')}${entry('timezone',t('Time zone (empty: HA)','Strefa czasu (pusta: HA)'))}${entry('weekday',t('Weekday 0–6','Dzień tygodnia 0–6'),'number')}${entry('month_day',t('Day of month 1–31','Dzień miesiąca 1–31'),'number')}<label><input type="checkbox" data-schedule-field="enabled" ${d.enabled?'checked':''}>${t('Enabled','Włączony')}</label><label>${t('Email recipients','Odbiorcy e-mail')}<input data-schedule-recipients value="${esc((store.recipientModel()||[]).join(', '))}"></label>${button('save-schedule',t('Save schedule','Zapisz harmonogram'),sm.writing||sm.reading||sm.locked)}${button('cancel-schedule',t('Cancel','Anuluj'),sm.writing)}</fieldset>`;
+   const selected=d.channels||['email'],missing=selected.filter(id=>!state.targets.some(target=>target.id===id));
+   if(scheduleReview){
+    const plan=scheduleReview,channels=plan.draft.channels||['email'];
+    html+=`<fieldset><legend>${t('Review recurring report','Sprawdź raport cykliczny')}</legend><p>${esc(plan.draft.cadence)} · ${esc(plan.draft.time)} · ${esc(plan.draft.timezone||card._hass?.config?.time_zone||'HA')} · ${plan.draft.enabled?t('Enabled','Włączony'):t('Disabled','Wyłączony')}</p>${plan.draft.cadence==='weekly'?`<p>${t('Weekday (0 Sunday – 6 Saturday)','Dzień tygodnia (0 niedziela – 6 sobota)')}: ${esc(plan.draft.weekday)}</p>`:plan.draft.cadence==='monthly'?`<p>${t('Day of month','Dzień miesiąca')}: ${esc(plan.draft.month_day)}</p>`:''}<p>${esc(channels.join(', '))}</p>${channels.includes('email')?`<p>${esc(plan.recipients.join(', '))}</p>`:''}${button('confirm-schedule',t('Confirm schedule save','Potwierdź zapis harmonogramu'),plan.consumed||sm.writing||sm.reading||sm.locked)}${button('edit-schedule',t('Edit','Edytuj'),sm.writing||sm.locked)}${button('cancel-schedule',t('Cancel','Anuluj'),sm.writing)}</fieldset>`;
+   }else{
+    html+=`<fieldset><legend>${t('Recurring energy report','Cykliczny raport energii')}</legend><label>${t('Channels (select one or more)','Kanały (wybierz co najmniej jeden)')}<select multiple data-schedule-channels>${state.targets.map(target=>`<option value="${esc(target.id)}" ${selected.includes(target.id)?'selected':''}>${esc(target.name)}</option>`).join('')}</select></label>${missing.length?`<p role="status">${t('Unavailable selected targets; choose current targets: ','Niedostępne wybrane cele; wybierz aktualne cele: ')}${esc(missing.join(', '))}</p>`:''}<label>${t('Cadence','Częstotliwość')}<select data-schedule-field="cadence">${['daily','weekly','monthly'].map(c=>`<option value="${c}" ${d.cadence===c?'selected':''}>${c}</option>`).join('')}</select></label>${entry('time',t('Time','Godzina'),'time')}${entry('timezone',t('Time zone (empty: HA)','Strefa czasu (pusta: HA)'))}${entry('weekday',t('Weekday 0–6','Dzień tygodnia 0–6'),'number')}${entry('month_day',t('Day of month 1–31','Dzień miesiąca 1–31'),'number')}<label><input type="checkbox" data-schedule-field="enabled" ${d.enabled?'checked':''}>${t('Enabled','Włączony')}</label>${selected.includes('email')?`<label>${t('Email recipients','Odbiorcy e-mail')}<input data-schedule-recipients value="${esc((store.recipientModel()||[]).join(', '))}"></label>`:''}${button('save-schedule',t('Review schedule','Sprawdź harmonogram'),sm.writing||sm.reading||sm.locked)}${button('cancel-schedule',t('Cancel','Anuluj'),sm.writing)}</fieldset>`;
+   }
+
   }
+  if(sm?.status?.state==='error')html+=`<p role="status">${t('Schedule not saved. Check its fields, access and current delivery targets.','Harmonogram nie został zapisany. Sprawdź pola, dostęp i aktualne cele dostarczenia.')}</p>`;
   if(sm?.status?.state==='unconfirmed')html+=`<p role="status">${t('Schedule save is unconfirmed. Reload before another change.','Zapis harmonogramu niepotwierdzony. Wczytaj przed kolejną zmianą.')}</p>`;
   html+=button('reload',t('Refresh report status and history','Odśwież stan raportów i historię'),!!raw||guard.occupied());
   if(state.outcome==='outcome_unknown'||state.outcome==='accepted_by_notify'||state.outcome==='accepted_by_smtp')html+=button('new',t('New report','Nowy raport'),!!raw||!executable());
   if(root._reportMarkup===html)return;
-  const focus=root.getRootNode().activeElement,selector=focus?.dataset?.reportField?['reportField',focus.dataset.reportField]:focus?.dataset?.scheduleField?['scheduleField',focus.dataset.scheduleField]:null;
+  const focus=root.getRootNode().activeElement,selector=focus?.dataset?.reportField?['reportField',focus.dataset.reportField]:focus?.dataset?.scheduleField?['scheduleField',focus.dataset.scheduleField]:focus?.dataset?.scheduleRecipients!==undefined?['scheduleRecipients','']:focus?.dataset?.scheduleChannels!==undefined?['scheduleChannels','']:null;
   const selection=focus&&typeof focus.selectionStart==='number'?[focus.selectionStart,focus.selectionEnd,focus.selectionDirection]:null;
   root.innerHTML=html;root._reportMarkup=html;
   if(selector){const next=[...root.querySelectorAll('input,select')].find(n=>n.dataset[selector[0]]===selector[1]);next?.focus({preventScroll:true});if(next&&selection)next.setSelectionRange(...selection);}
  }
  function snapshot(){observe();const sm=store?.model();return copy({...state,busy:!!raw||guard.occupied(),canExecute:executable(),canManageSchedules:executable()&&!!store&&!sm.reading&&!sm.writing&&!sm.locked,formOpen:!!form});}
- return {mount,update,stop,state:snapshot,openSend,review,confirm,scheduleAction,refresh:()=>{refreshSchedules=true;loaded=false;pending=true;void load();}};
+ return {mount,update,stop,state:snapshot,openSend,review,confirm,scheduleAction,reviewSchedule,confirmSchedule,refresh:()=>{refreshSchedules=true;loaded=false;pending=true;void load();}};
 }
 if(typeof module!=='undefined'&&module.exports)module.exports={createEnergyReportsActionsV53};
