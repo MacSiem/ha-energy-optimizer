@@ -2,6 +2,9 @@
 
 ## 4.0.0 (Unreleased)
 
+- Keep the accepted result of a manual report action visible across its own secured refresh, while preserving fresh permission checks and unconfirmed outcomes without replay. Refresh schedules in other active report cards after an authorized change; retain local drafts and locked unknown writes.
+- Fit narrow Compact Energy cards into their bounded Sections height with complete tariff context, comparisons and legends, readable units and compact hourly axes. Retain full date/offset details and scroll access for unusually long content.
+
 - Explain overview consumption with a matching published comparison, preserving unknown baselines. Omit redundant offsets from ordinary peak times while keeping DST disambiguation, different display zones and exact time details.
 
 - Show the grid-import cost already recorded by HA Energy in analysis, Compact and HTML/text/CSV reports when no tariff book is configured. Keep current prices explicitly current-only, partial coverage distinct, and cost components and fixed fees unknown; preserve tariff-book calculations and source permissions.
@@ -28,7 +31,7 @@
 - Register Energy Insights once when its script loads again, preserving other custom cards.
 - Use HA Tools Email 2.4.0+ as the sole price engine for shared and card-owned tariffs, historical charts and compact summaries. Keep measurements available when pricing is unavailable; preserve unknowns, zero, negative costs and tariff currency. Existing legacy rates are ephemeral backend read inputs without settings writes.
 - Add visual title/default-tab/visible-tabs/compact/help/support/hourly-range options to all three cards, with narrow named navigation, Sections sizing, persistent help gestures and unchanged measurement/calendar semantics.
-- Show primary compact cost today, tariff classification and the next strictly future cheap period from the same backend snapshot as five Energy entities. Clear stale context, fence late replies, coalesce slow-wire updates and refresh mounted views.
+- Show primary compact cost today, tariff classification and the next strictly future cheap period from the same backend snapshot as the native Energy entities. Clear stale context, fence late replies, coalesce slow-wire updates and refresh mounted views.
 - Use tonal KPI surfaces, accessible action text and labels of at least 12px. Keep live measured power in the summary grid, source details collapsed, friendly hourly axes and full date/offset detail without changing data or pricing.
 
 ## 3.7.1 (2026-10-17)
