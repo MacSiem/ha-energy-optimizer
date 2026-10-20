@@ -2,7 +2,7 @@
 // Its provideHass subscription supplies current identity after Lovelace replaces
 // the initiating card. Neither an old card nor a cached hass authorizes Undo.
 function createNativeDashboardPlacementV53(options) {
-  const {host, getHass, getCardConfig, getSourceKey} = options;
+  const {host, getHass, getCardConfig, getSourceKey, createGuard} = options;
   let ancestor = host;
   while (ancestor && ancestor.localName !== 'home-assistant')
     ancestor = ancestor.parentElement || ancestor.getRootNode?.().host;
@@ -39,7 +39,7 @@ function createNativeDashboardPlacementV53(options) {
         if (!request || this._guard || !this.isConnected) return;
         if (!this._sourceCurrent() || this._hass?.connection !== request.connection ||
             this._hass?.user?.id !== request.user) { this.closeDialog(); return; }
-        const guard = createTariffGuardV3({getHass:() => this._hass,
+        const guard = createGuard({getHass:() => this._hass,
           getContext:() => ({card:request.card,route:route()}),browser:win});
         this._guard = guard; this._token = guard.snapshot();
         if (!guard.current(this._token,true)) { this.closeDialog(); return; }
@@ -125,9 +125,9 @@ function createNativeDashboardPlacementV53(options) {
 // the race with another editor between the final read and the native save.
 function createDashboardPlacementV53({host, getHass, getCardConfig,
   cardTypes = ['custom:ha-energy-optimizer', 'custom:ha-energy-insights', 'custom:ha-energy-email'],
-  getSourceKey = () => null, nativeOwned = false, onClose = () => {}}) {
+  getSourceKey = () => null, createGuard, nativeOwned = false, onClose = () => {}}) {
   if (!nativeOwned) {
-    const native = createNativeDashboardPlacementV53({host,getHass,getCardConfig,getSourceKey,cardTypes});
+    const native = createNativeDashboardPlacementV53({host,getHass,getCardConfig,getSourceKey,cardTypes,createGuard});
     if (native) return native;
   }
   const known = ['custom:ha-energy-optimizer', 'custom:ha-energy-insights', 'custom:ha-energy-email'];

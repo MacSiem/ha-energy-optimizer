@@ -64,6 +64,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
           getHass:() => placementAllowed(host) ? host._hass : null,
           getCardConfig:() => ({...(host._optionsConfigV5 || {}),type:`custom:${name}`}),
           cardTypes:[`custom:${name}`],
+          createGuard:host._getTariffHostV3().createGuard,
           getSourceKey:() => placementGuard(host).snapshot().epoch
         });
         host._dashboardPlacementV53.open();

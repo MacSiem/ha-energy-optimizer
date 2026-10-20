@@ -255,7 +255,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   const reportStatus = ({onChange,isActive,getSourceKey,wantsExecute} = {}) => createReportStatusV53({card,guard,purpose:'energy_report',onChange,isActive,wantsExecute,getSourceKey:getSourceKey || (() => guard.snapshot().epoch)});
   const statistics = options => createEnergyStatisticsUiV53({card,guard,...options});
-  return { statistics, reportStatus, summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
+  return { createGuard: createTariffGuardV3, statistics, reportStatus, summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
 }
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { createTariffHostV3 };
