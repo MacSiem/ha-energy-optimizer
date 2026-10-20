@@ -13,7 +13,7 @@ for(const lang of ['en','pl'])test('native Recorder precision is readable in '+l
   try{
    const shown=root.cloneNode(true);shown.querySelectorAll('details').forEach(n=>n.remove());
    assert.doesNotMatch(shown.textContent,/999999|000000000000/);
-   assert.match(shown.textContent,/50 kWh/);assert.match(shown.textContent,/200 kWh/);
+   assert.ok(shown.textContent.includes(format.number('50',{minimumFractionDigits:1,maximumFractionDigits:1})+' kWh'));assert.ok(shown.textContent.includes(format.number('200',{minimumFractionDigits:1,maximumFractionDigits:1})+' kWh'));
    const exact=format.number('49.999999999999545');
    assert.ok(root.querySelector('details')&&[...root.querySelectorAll('details')].some(n=>n.textContent.includes(exact)),'full precision stays in discoverable details');
   }finally{dom.window.close();}
