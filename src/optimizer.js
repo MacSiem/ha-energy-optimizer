@@ -620,7 +620,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=0ebc02059f4d950d18c482018b6eabf66d74d85f9304c18490017d95cffb32d5
+    // HA_TARIFF_V3_START sha256=52cb02c5eca9b6d206ede5422ab7c5cac3cf2df45c881e20232a0fc2f8546c72
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -2113,7 +2113,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   const reportStatus = ({onChange,isActive,getSourceKey,wantsExecute} = {}) => createReportStatusV53({card,guard,purpose:'energy_report',onChange,isActive,wantsExecute,getSourceKey:getSourceKey || (() => guard.snapshot().epoch)});
   const statistics = options => createEnergyStatisticsUiV53({card,guard,...options});
-  return { statistics, reportStatus, summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
+  return { createGuard: createTariffGuardV3, statistics, reportStatus, summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
 }
 "use strict";
 
@@ -5271,7 +5271,7 @@ async _drawComparisonChart() {
 // Its provideHass subscription supplies current identity after Lovelace replaces
 // the initiating card. Neither an old card nor a cached hass authorizes Undo.
 function createNativeDashboardPlacementV53(options) {
-  const {host, getHass, getCardConfig, getSourceKey} = options;
+  const {host, getHass, getCardConfig, getSourceKey, createGuard} = options;
   let ancestor = host;
   while (ancestor && ancestor.localName !== 'home-assistant')
     ancestor = ancestor.parentElement || ancestor.getRootNode?.().host;
@@ -5308,7 +5308,7 @@ function createNativeDashboardPlacementV53(options) {
         if (!request || this._guard || !this.isConnected) return;
         if (!this._sourceCurrent() || this._hass?.connection !== request.connection ||
             this._hass?.user?.id !== request.user) { this.closeDialog(); return; }
-        const guard = createTariffGuardV3({getHass:() => this._hass,
+        const guard = createGuard({getHass:() => this._hass,
           getContext:() => ({card:request.card,route:route()}),browser:win});
         this._guard = guard; this._token = guard.snapshot();
         if (!guard.current(this._token,true)) { this.closeDialog(); return; }
@@ -5394,9 +5394,9 @@ function createNativeDashboardPlacementV53(options) {
 // the race with another editor between the final read and the native save.
 function createDashboardPlacementV53({host, getHass, getCardConfig,
   cardTypes = ['custom:ha-energy-optimizer', 'custom:ha-energy-insights', 'custom:ha-energy-email'],
-  getSourceKey = () => null, nativeOwned = false, onClose = () => {}}) {
+  getSourceKey = () => null, createGuard, nativeOwned = false, onClose = () => {}}) {
   if (!nativeOwned) {
-    const native = createNativeDashboardPlacementV53({host,getHass,getCardConfig,getSourceKey,cardTypes});
+    const native = createNativeDashboardPlacementV53({host,getHass,getCardConfig,getSourceKey,cardTypes,createGuard});
     if (native) return native;
   }
   const known = ['custom:ha-energy-optimizer', 'custom:ha-energy-insights', 'custom:ha-energy-email'];
@@ -5772,6 +5772,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
           getHass:() => placementAllowed(host) ? host._hass : null,
           getCardConfig:() => ({...(host._optionsConfigV5 || {}),type:`custom:${name}`}),
           cardTypes:[`custom:${name}`],
+          createGuard:host._getTariffHostV3().createGuard,
           getSourceKey:() => placementGuard(host).snapshot().epoch
         });
         host._dashboardPlacementV53.open();
