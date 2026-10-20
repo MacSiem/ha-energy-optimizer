@@ -6835,6 +6835,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
     const old=Card.prototype[method];if(!old)continue;
     Card.prototype[method]=function(...args){
       if(!active(this)||!this._hass?.user?.id||typeof this._hass?.connection?.subscribeMessage!=='function'||this._analysisHostV53?.legacyAllowed?.()===true)return old.apply(this,args);
+      probe(this);
       const ctl=client(this),support=ctl.state().supported;
       if(support===false)return old.apply(this,args);
       if(support===true)return method==='_loadEmailBackendConfig'?Promise.resolve(null):undefined;
@@ -6843,7 +6844,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
         let resolve,reject;const promise=new Promise((ok,no)=>{resolve=ok;reject=no;});
         waiting.set(method,{hass:this._hass,run:()=>old.apply(this,args),resolve,reject,promise});
       }
-      probe(this);
+      waiting.get(method).hass=this._hass;
       return method==='_loadEmailBackendConfig'?waiting.get(method).promise:undefined;
     };
   }
