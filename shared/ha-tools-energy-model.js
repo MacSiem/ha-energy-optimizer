@@ -26,9 +26,7 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
       if(!current(e)){off?.();return false;}
       if(typeof off!=='function')throw Error('subscription_unavailable');
       unsub.push(off);ack=true;
-      if(typeof c.subscribeEvents==='function') {
-        Promise.resolve(c.subscribeEvents(()=>{if(enabled&&same(association,context()))invalidate();},'ha_tools_email_energy_updated')).then(fn=>{if(!enabled||!same(association,context())||!ack){fn?.();return;}if(typeof fn==='function')unsub.push(fn);}).catch(()=>{});
-      }
+      // The secured subscription already includes server energy ticks.
       return true;
     })();subscribing=task;
     try{return await task;}finally{if(subscribing===task)subscribing=null;}
