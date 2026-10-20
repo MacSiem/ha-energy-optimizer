@@ -4,15 +4,15 @@
   "sources": [
     {
       "path": "src/optimizer.js",
-      "sha256": "fe063667c5f1885059835fc13358d7971c780f86b8df505f4489ce1893604d62"
+      "sha256": "3535b8159d768327e17bb5d0b62be7d26b58f5b2d4c9ebf052b7fd73a9040399"
     },
     {
       "path": "src/energy-insights.js",
-      "sha256": "4e5ffafbed5eeec894336489997f41f60f1d9247d48d46c3939ecfca58887743"
+      "sha256": "fd193097c48de69d2ccb47f7fd5e7456088fcae61faf8d86c77f0a263a6547be"
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "f68170be547ee46d464a21d73477e965cab80360a3d65fd036201599742e297d"
+      "sha256": "94868c5ff251a89fc59b1153d3014e5798f4e57626377b0a908ebd9c723260ea"
     },
     {
       "path": "src/chart-vendor.js",
@@ -20,7 +20,7 @@
     }
   ],
   "sharedTariff": {
-    "sha256": "52cb02c5eca9b6d206ede5422ab7c5cac3cf2df45c881e20232a0fc2f8546c72",
+    "sha256": "a19622d626bdf2fc4e133bb32659bd9d00c5a1ce1ebccfb903383738a8ecfeb7",
     "modules": [
       {
         "path": "shared/ha-tools-ui.js",
@@ -40,7 +40,7 @@
       },
       {
         "path": "shared/ha-tools-energy-backend.js",
-        "sha256": "9097682bb9c386a9c91f90f7679a100f5b6aaff7a2879e046c028c4a471abc01"
+        "sha256": "af14f703132a03727812b35859cbd299b883382997852f014477400485aa0491"
       },
       {
         "path": "shared/ha-tools-report-status.js",
@@ -52,7 +52,7 @@
       },
       {
         "path": "shared/ha-tools-tariff-host.js",
-        "sha256": "f5061e686ce8b775fc5f21f56fb7f5a63515941b3b189466df386532b60fa9d7"
+        "sha256": "e9106c676c3ec7bfa2066c1d90644c8389ff9819fa83b7e87d58b18d66e62483"
       },
       {
         "path": "shared/ha-tools-energy-analysis.js",
@@ -93,7 +93,7 @@
   },
   "sharedCardOptions": {
     "path": "shared/ha-tools-energy-card-options.js",
-    "sha256": "0f451ae8a64b5e06f4fe16df906cb767c5c573acbef4a1ed17ebf7d792fcc9e4"
+    "sha256": "be7aa20b27d52894f0058561dbcc1f1dd408590a6b47f33d62e1f14d9860e199"
   },
   "sharedEnergyReport": {
     "path": "shared/ha-tools-energy-report.js",

@@ -315,6 +315,8 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     [data-energy-report-status][data-energy-simple=compact]{padding:6px;gap:2px}
     [data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}
     [data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:none;line-height:16px}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions]{flex-wrap:nowrap}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions] button{flex:1 1 0;min-width:44px;padding-inline:4px}
   }`;
 
   const emailStatusFor = host => host._emailStatusV100 ||= (() => {
