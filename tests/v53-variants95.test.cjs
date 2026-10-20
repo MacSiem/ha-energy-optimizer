@@ -222,3 +222,13 @@ for(const name of names.slice(0,2))for(const language of ['en','pl'])test(`${nam
   assert.equal(JSON.stringify(dto),original);f.quiet();
  }finally{f.close();}
 });
+
+for(const name of names.slice(0,2))for(const language of ['en','pl'])test(`${name}: compact tiny nonzero is not presented as measured zero (${language})`,async()=>{
+ const dto=clone(producer);dto.totals.kwh='0.0000000001';dto.totals.usage_cost='-0.0000000001';
+ const before=JSON.stringify(dto),f=setup(name,{language,reply:()=>clone(dto)});try{
+  await f.mount();const root=f.card.shadowRoot;
+  assert.equal(root.querySelector('[data-energy-primary]').textContent,language==='pl'?'<0,1 kWh':'<0.1 kWh');
+  assert.equal(root.querySelector('[data-energy-cost]').textContent,language==='pl'?'>−0,01 EUR':'>−0.01 EUR');
+  assert.equal(JSON.stringify(dto),before);f.quiet();
+ }finally{f.close();}
+});

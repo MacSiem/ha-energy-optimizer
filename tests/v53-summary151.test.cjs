@@ -35,3 +35,11 @@ test('current rate and cost cards use display precision with exact history and D
  }finally{d.window.close();}
  const data=new JSDOM(view.markup(dto,{section:'rates',view:'data'}));try{assert.equal(data.window.document.querySelector('[data-analysis-rate76-current] dd').textContent,'0.123456789 EUR');}finally{data.window.close();}
 });
+
+for(const language of ['pl','en'])test(`KPI comparison is brief in Chart and exact in Data (${language})`,()=>{
+ const dto=structuredClone(actual),c=dto.comparisons.previous;c.delta_kwh='50.123456789';c.percent='25.123456789';
+ const before=JSON.stringify(dto),f=createFormatUi(language,'Europe/Warsaw');
+ const chart=render(dto,language);try{const text=chart.window.document.querySelector('[data-analysis-kpi-comparison]').textContent;assert.ok(text.includes('+'+f.number(c.delta_kwh,{minimumFractionDigits:1,maximumFractionDigits:1})+' kWh'));assert.ok(text.includes('+25%'));assert.doesNotMatch(text,/123456789/);}finally{chart.window.close();}
+ const data=render(dto,language,'data');try{assert.ok(data.window.document.querySelector('[data-analysis-kpi-comparison]').textContent.includes(f.number(c.delta_kwh)));}finally{data.window.close();}
+ assert.equal(JSON.stringify(dto),before);
+});
