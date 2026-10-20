@@ -6966,26 +6966,34 @@ function createEnergyBuild1ViewV53({format, language = format?.language || 'en'}
   const width=(value,max)=>valid(value)&&max>0?Math.max(0,Math.min(100,Number(value)/max*100)):0;
   const isUnmeasured=r=>r.id==='_unmeasured'||r.area_id==='_unmeasured'||r.color==='unmeasured';
   const doubleMessage=()=>t('Device total exceeds import — check the Energy dashboard','Suma urządzeń przekracza import — sprawdź panel Energia');
+  // Classification must be producer-supplied; list order and labels are not prices.
+  const zoneClass=z=>z?.classification||z?.zone_class||(z?.cheap===true?'cheap':z?.cheap===false?'expensive':null);
+  const zoneFill=z=>zoneClass(z)==='cheap'?'var(--hat-zone-cheap)':['expensive','exp'].includes(zoneClass(z))?'var(--hat-zone-exp)':'var(--hat-text-3)';
   function chart(m,current={}){
-    const rows=list(m.hourly),values=rows.flatMap(r=>[r.kwh,r.prev_kwh]).filter(valid).map(Number),max=Math.max(0,...values);
-    const labels=format?.chartLabels?.(rows.map(r=>r.start))||rows.map(r=>format?.dateTime?.(r.start)||unknown());
+    const hourly=m.period?.kind==='day',rows=list(hourly?m.hourly:m.daily),resolution=hourly?'hour':'day';
+    const values=rows.flatMap(r=>[r.kwh,r.prev_kwh]).filter(valid).map(Number),max=Math.max(0,...values);
+    const labels=format?.chartLabels?.(rows.map(r=>r.start),resolution)||rows.map(r=>format?.dateTime?.(r.start)||unknown());
     const zone=id=>list(m.zones).find(z=>z.id===id);
     const bars=rows.map((r,i)=>{
-      const future=r.future===true||(Number.isFinite(Date.parse(current.as_of))&&Date.parse(r.start)>=Date.parse(current.as_of)), v=future?r.prev_kwh:r.kwh;
-      const zoneIndex=list(m.zones).findIndex(z=>z.id===r.zone),fill=future?'var(--hat-ghost)':zoneIndex===0?'var(--hat-zone-cheap)':'var(--hat-zone-exp)';
-      return `<div class="c" title="${esc(labels[i])}: ${energy(r.kwh,m.period?.kind)}"><i style="height:${width(v,max)}%;background:${fill}"></i>${valid(r.prev_kwh)?`<em style="bottom:${width(r.prev_kwh,max)}%"></em>`:''}</div>`;
+      const future=r.future===true||(hourly&&Number.isFinite(Date.parse(current.as_of))&&Date.parse(r.start)>=Date.parse(current.as_of));
+      // Daily zone segments are already aggregated by the producer. Only scale geometry.
+      const segments=!hourly&&list(r.zones).length?list(r.zones):[{id:r.zone,kwh:r.kwh}];
+      const fill=future?`<i style="height:${width(r.prev_kwh,max)}%;background:var(--hat-ghost)"></i>`:segments.map(z=>`<i style="height:${width(z.kwh,max)}%;background:${zoneFill(zone(z.id))}"></i>`).join('');
+      return `<div class="c" title="${esc(labels[i])}: ${energy(r.kwh,m.period?.kind)}"><span class="chart-stack">${fill}</span>${valid(r.prev_kwh)?`<em style="bottom:${width(r.prev_kwh,max)}%"></em>`:''}</div>`;
     }).join('');
     const now=Date.parse(current.as_of),begin=Date.parse(m.period?.start),end=Date.parse(m.period?.end);
-    const marker=Number.isFinite(now)&&now>=begin&&now<end?`<span class="now" style="left:${width(now-begin,end-begin)}%" title="${when(current.as_of)}"></span>`:'';
-    const data=table(t('Hourly data','Dane godzinowe'),[t('Time','Czas'),t('Energy','Energia'),t('Previous','Poprzednio'),t('Zone','Strefa'),t('Cost','Koszt')],rows.map((r,i)=>[esc(labels[i]),energy(r.kwh,m.period?.kind),energy(r.prev_kwh,m.period?.kind),esc(zone(r.zone)?.label||unknown()),money(r.cost,m.currency)]));
-    return `${heading(t('Energy during the period','Zużycie w okresie'),t('Color = zone · line = previous','Kolor = strefa · kreska = poprzednio'))}${rows.length?`<div class="cols24" role="img" aria-label="${t('Energy chart; full values in Data','Wykres energii; pełne wartości w Danych')}">${bars}${marker}</div><div class="axis"><span>${esc(labels[0])}</span><span>${esc(labels.at(-1))}</span></div><div class="legend">${list(m.zones).map((z,i)=>`<span><i style="background:var(--hat-zone-${i===0?'cheap':'exp'})"></i>${esc(z.label)}</span>`).join('')}<span>${t('Line: previous period','Kreska: poprzedni okres')}</span></div>`:empty()}<details><summary>${t('Data','Dane')}</summary>${data}${table(t('Exact values','Pełne wartości'),[t('Time','Czas'),'kWh',m.currency?esc(m.currency):unknown()],rows.map((r,i)=>[esc(labels[i]),exact(r.kwh),exact(r.cost)]))}</details>`;
+    const marker=hourly&&Number.isFinite(now)&&now>=begin&&now<end?`<span class="now" style="left:${width(now-begin,end-begin)}%" title="${when(current.as_of)}"></span>`:'';
+    const zoneLabel=r=>hourly?esc(zone(r.zone)?.label||unknown()):list(r.zones).length?list(r.zones).map(z=>`${esc(zone(z.id)?.label||unknown())}: ${energy(z.kwh,m.period?.kind)}`).join(' · '):esc(unknown());
+    const data=table(hourly?t('Hourly data','Dane godzinowe'):t('Daily data','Dane dzienne'),[hourly?t('Time','Czas'):t('Date','Data'),t('Energy','Energia'),t('Previous','Poprzednio'),hourly?t('Zone','Strefa'):t('Zones','Strefy'),t('Cost','Koszt')],rows.map((r,i)=>[esc(labels[i]),energy(r.kwh,m.period?.kind),energy(r.prev_kwh,m.period?.kind),zoneLabel(r),money(r.cost,m.currency)]));
+    return `${heading(t('Energy during the period','Zużycie w okresie'),t('Color = zone · line = previous','Kolor = strefa · kreska = poprzednio'))}${rows.length?`<div class="cols24" data-energy-build1-series="${hourly?'hourly':'daily'}" role="img" aria-label="${t('Energy chart; full values in Data','Wykres energii; pełne wartości w Danych')}">${bars}${marker}</div><div class="axis"><span>${esc(labels[0])}</span><span>${esc(labels.at(-1))}</span></div><div class="legend">${list(m.zones).map(z=>`<span><i style="background:${zoneFill(z)}"></i>${esc(z.label)}</span>`).join('')}<span>${t('Line: previous period','Kreska: poprzedni okres')}</span></div>`:empty()}<details data-energy-build1-disclosure="chart-data"><summary>${t('Data','Dane')}</summary>${data}${table(t('Exact values','Pełne wartości'),[t('Time','Czas'),'kWh',m.currency?esc(m.currency):unknown()],rows.map((r,i)=>[esc(labels[i]),exact(r.kwh),exact(r.cost)]))}</details>`;
   }
   function overview(m,o,partial){
     const total=m.totals||{},current=o.current||{},period=m.period?.kind;
+    const cheapZones=list(m.zones).filter(z=>zoneClass(z)==='cheap'),cheap=cheapZones.length===1?cheapZones[0]:null;
     const comparisons=list(m.comparisons),previous=comparisons.find(r=>['previous_day','previous'].includes(r.key));
     const comparison=r=>partial||r.coverage_ok!==true?esc(t('Insufficient coverage for comparison','Za mało danych do porównania')):`${energy(r.delta_kwh,period)} (${percent(r.delta_pct,'change')})`;
     const top=list(m.ranking).filter(r=>!String(r.id||'').startsWith('_')).slice(0,3);
-    return `<div class="kpi4">${kpi(t('Consumption','Zużycie'),energy(total.import_kwh,period,'tile'),previous?comparison(previous):'')}${kpi(t('Usage cost','Koszt zużycia'),money(total.usage_cost,m.currency),rate(total.effective_rate,m.currency))}${kpi(t('In the cheap zone','W taniej strefie'),partial?unknown():percent(current.cheap_share),energy(current.cheap_kwh,period))}${kpi(t('Now','Teraz'),esc(current.label||unknown()),`${rate(current.rate,m.currency)}${current.next_change?` · ${esc(current.next_label||'')} ${when(current.next_change)}`:''}`)}</div>${current.as_of?`<p class="info">${t('Live snapshot','Stan bieżący')}: ${when(current.as_of)}</p>`:''}${chart(m,current)}<div class="two"><div>${heading(t('Comparison','Porównanie'),t('Same measurement window','Ten sam zakres pomiaru'))}${comparisons.length?comparisons.map(r=>row(esc(r.label||r.key),comparison(r),energy(r.kwh,period))).join(''):empty()}</div><div>${heading(t('Largest consumers','Największe zużycie'),action('section',sections.breakdown,'breakdown'))}${top.length?top.map(r=>row(esc(r.name),energy(r.kwh,period))).join(''):empty()}</div></div>`;
+    return `<div class="kpi4">${kpi(t('Consumption','Zużycie'),energy(total.import_kwh,period,'tile'),previous?comparison(previous):'')}${kpi(t('Usage cost','Koszt zużycia'),money(total.usage_cost,m.currency),rate(total.effective_rate,m.currency))}${kpi(t('In the cheap zone','W taniej strefie'),partial?unknown():ratio(cheap?.share),energy(cheap?.kwh,period))}${kpi(t('Now','Teraz'),esc(current.label||unknown()),`${rate(current.rate,current.currency)}${current.next_change?` · ${esc(current.next_label||'')} ${when(current.next_change)}`:''}`)}</div>${current.as_of?`<p class="info">${t('Live snapshot','Stan bieżący')}: ${when(current.as_of)}</p>`:''}${chart(m,current)}<div class="two"><div>${heading(t('Comparison','Porównanie'),t('Same measurement window','Ten sam zakres pomiaru'))}${comparisons.length?comparisons.map(r=>row(esc(r.label||r.key),comparison(r),energy(r.kwh,period))).join(''):empty()}</div><div>${heading(t('Largest consumers','Największe zużycie'),action('section',sections.breakdown,'breakdown'))}${top.length?top.map(r=>row(esc(r.name),energy(r.kwh,period))).join(''):empty()}</div></div>`;
   }
   function breakdown(m,o,partial,double){
     const group=Object.hasOwn(groups,o.group)?o.group:'devices',period=m.period?.kind;
@@ -6993,7 +7001,7 @@ function createEnergyBuild1ViewV53({format, language = format?.language || 'en'}
     const safe=rows.filter(r=>!(double&&isUnmeasured(r))),max=Math.max(0,...safe.filter(r=>valid(r.kwh)).map(r=>Number(r.kwh)));
     const value=(r,f)=>double&&isUnmeasured(r)?esc(doubleMessage()):f();
     const one=(r,i,child=false)=>`<div class="rk2${child?' child':''}"><div class="nm"><i class="sw${isUnmeasured(r)?' hatch':''}" style="background:${color(r,i)}"></i><span>${child?'↳ ':''}${esc(r.name||unknown())}${child?` <small>(${t('included','w tym')})</small>`:''}${r.count!==undefined?`<small>${exact(r.count)} ${formatted('reportPlural',r.count,pl?{one:'urządzenie',few:'urządzenia',many:'urządzeń'}:{one:'device',other:'devices'})}</small>`:''}</span></div><div class="bar"><i class="${isUnmeasured(r)?'hatch':''}" style="width:${double&&isUnmeasured(r)?0:width(r.kwh,max)}%;background:${color(r,i)}"></i></div><div class="v">${value(r,()=>energy(r.kwh,period))}</div><div class="p">${partial||double?'—':ratio(r.share)}</div><div class="c">${child?'':value(r,()=>money(r.cost,m.currency))}</div></div>`;
-    return `<div class="seg2">${Object.entries(groups).map(([key,label])=>action('group',label,key,`aria-pressed="${group===key}"`)).join('')}</div>${heading(`${energy(m.totals?.import_kwh,period)} ${t('imported','importu')}`,t('Energy dashboard devices · hourly zone costs','Urządzenia z panelu Energia · koszt wg stref każdej godziny'))}<div class="compbar" aria-hidden="true">${safe.map((r,i)=>`<i class="${isUnmeasured(r)?'hatch':''}" style="width:${width(r.kwh,Number(m.totals?.import_kwh))}%;background:${color(r,i)}"></i>`).join('')}</div>${rows.length?rows.map((r,i)=>`${r.id==='_other_measured'?`<details><summary>${t('Other measured devices','Pozostałe zmierzone')}</summary>${one(r,i)}${list(r.children).map(c=>one(c,i,true)).join('')}${list(r.children).length?'':`<p class="info">${t('Individual readings are unavailable in this snapshot.','Odczyty poszczególnych urządzeń nie są dostępne w tym stanie.')}</p>`}</details>`:one(r,i)+list(r.children).map(c=>one(c,i,true)).join('')}`).join(''):empty()}<p class="info">${t('Unmeasured = import minus top-level devices. Included children are not counted twice. Rooms follow HA areas; no proportional allocation.','Niezmierzone = import − suma urządzeń najwyższego poziomu. Urządzenia „w tym” nie są liczone drugi raz. Pokoje według obszarów HA; bez podziału proporcjonalnego.')}</p>`;
+    return `<div class="seg2">${Object.entries(groups).map(([key,label])=>action('group',label,key,`aria-pressed="${group===key}"`)).join('')}</div>${heading(`${energy(m.totals?.import_kwh,period)} ${t('imported','importu')}`,t('Energy dashboard devices · hourly zone costs','Urządzenia z panelu Energia · koszt wg stref każdej godziny'))}<div class="compbar" aria-hidden="true">${safe.map((r,i)=>`<i class="${isUnmeasured(r)?'hatch':''}" style="width:${width(r.kwh,Number(m.totals?.import_kwh))}%;background:${color(r,i)}"></i>`).join('')}</div>${rows.length?rows.map((r,i)=>`${r.id==='_other_measured'?`<details data-energy-build1-disclosure="other-measured"><summary>${t('Other measured devices','Pozostałe zmierzone')}</summary>${one(r,i)}${list(r.children).map(c=>one(c,i,true)).join('')}${list(r.children).length?'':`<p class="info">${t('Individual readings are unavailable in this snapshot.','Odczyty poszczególnych urządzeń nie są dostępne w tym stanie.')}</p>`}</details>`:one(r,i)+list(r.children).map(c=>one(c,i,true)).join('')}`).join(''):empty()}<p class="info">${t('Unmeasured = import minus top-level devices. Included children are not counted twice. Rooms follow HA areas; no proportional allocation.','Niezmierzone = import − suma urządzeń najwyższego poziomu. Urządzenia „w tym” nie są liczone drugi raz. Pokoje według obszarów HA; bez podziału proporcjonalnego.')}</p>`;
   }
   function costs(m,o){
     const v=m.totals||{},tf=m.tariff||{},c=m.currency;
@@ -7027,10 +7035,25 @@ function createEnergyBuild1ViewV53({format, language = format?.language || 'en'}
 const BUILD1_STYLES_V53=`
 .build1{--hat-card:var(--ha-card-background,var(--card-background-color,#fff));--hat-text:var(--primary-text-color,#111827);--hat-text-2:var(--secondary-text-color,#4b5563);--hat-text-3:var(--secondary-text-color,#6b7280);--hat-chip:var(--secondary-background-color,#f3f4f6);--hat-border:var(--divider-color,#e5e7eb);--hat-primary:var(--primary-color,#2563eb);--hat-grid:color-mix(in srgb,var(--hat-text) 6%,var(--hat-card));--hat-ghost:color-mix(in srgb,var(--hat-text) 16%,var(--hat-card));--hat-zone-cheap:#1baf7a;--hat-zone-exp:#2a78d6;--hat-d1:#eb6834;--hat-d2:#6250d6;--hat-d3:#e87ba4;--hat-d4:#eda100;--hat-unmeasured:#9ca3af;color:var(--hat-text);font:14px var(--ha-font-family-body,Roboto,system-ui,sans-serif);padding:16px;box-sizing:border-box;container-type:inline-size;min-width:0;overflow-wrap:anywhere}
 :host(.hat-dark) .build1,.build1.hat-dark{--hat-zone-cheap:#199e70;--hat-zone-exp:#3987e5;--hat-d1:#d95926;--hat-d2:#9085e9;--hat-d3:#d55181;--hat-d4:#c98500;--hat-unmeasured:#6b7280}
-.build1 *{box-sizing:border-box}.build1 button{font:inherit;color:inherit;border:1px solid var(--hat-border);background:var(--hat-chip);border-radius:999px;padding:6px 12px;min-height:44px;cursor:pointer}.build1 button:disabled{opacity:.6;cursor:default}.build1 button:focus-visible,.build1 summary:focus-visible{outline:2px solid var(--hat-primary);outline-offset:2px}.build1 button[aria-pressed=true]{background:var(--hat-card);font-weight:600}.build1 .ehd{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.build1 .txt{flex:1;min-width:120px}.build1 .t{font-size:16px;font-weight:600;line-height:22px}.build1 .s,.build1 small,.build1 .info{font-size:12px;color:var(--hat-text-2)}.build1 small{display:block}.build1 .hat-ic{--mdc-icon-size:20px;color:var(--hat-zone-exp);background:color-mix(in srgb,var(--hat-zone-exp) 18%,transparent);border-radius:50%;padding:8px;width:36px;height:36px}.build1 .seg2{display:inline-flex;flex-wrap:wrap;background:var(--hat-chip);border-radius:24px;padding:2px}.build1 .seg2 button{font-size:12px;border:0}.build1 .nav{display:flex;align-items:center;gap:6px;min-width:0}.build1 .nav b{font-size:14px;font-weight:500}.build1 .tabs2{display:flex;gap:16px;border-bottom:1px solid var(--hat-border);margin:12px 0 16px;overflow-x:auto}.build1 .tabs2 button{background:none;border:0;border-radius:0;padding:10px 0;white-space:nowrap;color:var(--hat-text-2)}.build1 .tabs2 button[aria-current=page]{color:var(--hat-text);font-weight:600;box-shadow:inset 0 -2px 0 var(--hat-primary)}.build1 .kpi4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.build1 .k{border:1px solid var(--hat-border);border-radius:12px;padding:10px 12px;min-width:0}.build1 .k .l,.build1 .k .n{font-size:12px;color:var(--hat-text-2)}.build1 .k .v{font-size:24px;font-weight:600;line-height:30px;font-variant-numeric:tabular-nums}.build1 .sec2{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:baseline;margin:20px 0 8px}.build1 .sec2 b{font-size:16px;font-weight:600}.build1 .sec2>span{font-size:12px;color:var(--hat-text-2)}.build1 .cols24{display:flex;gap:2px;align-items:flex-end;height:120px;position:relative}.build1 .cols24 .c{flex:1;position:relative;height:100%;display:flex;align-items:flex-end}.build1 .cols24 .c i{display:block;width:100%;border-radius:2px 2px 0 0}.build1 .cols24 .c em{position:absolute;left:0;right:0;height:2px;background:var(--hat-text);opacity:.7}.build1 .cols24 .now{position:absolute;top:0;bottom:0;border-left:2px dashed var(--hat-text-2)}.build1 .axis{display:flex;justify-content:space-between;font-size:12px;color:var(--hat-text-2)}.build1 .legend{display:flex;flex-wrap:wrap;gap:12px;margin:8px 0;font-size:12px}.build1 .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px}.build1 summary{min-height:44px;padding:12px 0;cursor:pointer}.build1 .row3{display:grid;grid-template-columns:1fr auto;gap:8px;padding:8px 0;border-top:1px solid var(--hat-border)}.build1 .row3 .r{text-align:right;font-weight:600}.build1 .rk2{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) 88px 40px 80px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--hat-border)}.build1 .rk2 .bar{height:10px;border-radius:999px;background:var(--hat-grid);overflow:hidden}.build1 .rk2 .bar i{display:block;height:100%;border-radius:999px}.build1 .rk2 .v,.build1 .rk2 .p,.build1 .rk2 .c{text-align:right;font-variant-numeric:tabular-nums}.build1 .rk2 .v{font-weight:600}.build1 .rk2 .p{font-size:12px;color:var(--hat-text-2)}.build1 .rk2 .nm{display:flex;align-items:center;gap:8px;min-width:0}.build1 .child{padding-left:28px;color:var(--hat-text-2)}.build1 .sw{width:10px;height:10px;border-radius:3px;flex:none}.build1 .hatch{background-image:repeating-linear-gradient(135deg,var(--hat-unmeasured) 0 2px,transparent 2px 6px)!important;background-color:transparent!important;box-shadow:inset 0 0 0 1px var(--hat-unmeasured)}.build1 .compbar{display:flex;gap:2px;height:14px;margin:4px 0 8px;overflow:hidden;border-radius:999px}.build1 .compbar i{display:block;height:100%;flex:none}.build1 .table-wrap{overflow-x:auto}.build1 .ct{width:100%;border-collapse:collapse;font-size:14px}.build1 .ct td,.build1 .ct th{padding:8px 4px;border-top:1px solid var(--hat-border);text-align:left;font-variant-numeric:tabular-nums}.build1 .ct td:last-child{text-align:right}.build1 caption{text-align:left;font-size:12px;color:var(--hat-text-2);padding:8px 0}.build1 .info{line-height:18px}.build1 .two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px}.build1 .two>div{min-width:0}.build1 .list .it{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--hat-border)}.build1 .hat-acts,.build1 .preview-controls{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.build1 .prev{border:1px solid var(--hat-border);border-radius:12px;padding:12px}.build1 pre{white-space:pre-wrap;font:inherit;overflow-wrap:anywhere}.build1 .notice{padding:12px;background:var(--hat-chip);border-left:3px solid var(--hat-primary)}.build1 .skeleton{min-height:420px;background:var(--hat-chip);padding:16px;border-radius:12px}
+.build1 *{box-sizing:border-box}.build1 button{font:inherit;color:inherit;border:1px solid var(--hat-border);background:var(--hat-chip);border-radius:999px;padding:6px 12px;min-height:44px;cursor:pointer}.build1 button:disabled{opacity:.6;cursor:default}.build1 button:focus-visible,.build1 summary:focus-visible{outline:2px solid var(--hat-primary);outline-offset:2px}.build1 button[aria-pressed=true]{background:var(--hat-card);font-weight:600}.build1 .ehd{display:flex;align-items:center;gap:12px;flex-wrap:wrap}.build1 .txt{flex:1;min-width:120px}.build1 .t{font-size:16px;font-weight:600;line-height:22px}.build1 .s,.build1 small,.build1 .info{font-size:12px;color:var(--hat-text-2)}.build1 small{display:block}.build1 .hat-ic{--mdc-icon-size:20px;color:var(--hat-zone-exp);background:color-mix(in srgb,var(--hat-zone-exp) 18%,transparent);border-radius:50%;padding:8px;width:36px;height:36px}.build1 .seg2{display:inline-flex;flex-wrap:wrap;background:var(--hat-chip);border-radius:24px;padding:2px}.build1 .seg2 button{font-size:12px;border:0}.build1 .nav{display:flex;align-items:center;gap:6px;min-width:0}.build1 .nav b{font-size:14px;font-weight:500}.build1 .tabs2{display:flex;gap:16px;border-bottom:1px solid var(--hat-border);margin:12px 0 16px;overflow-x:auto}.build1 .tabs2 button{background:none;border:0;border-radius:0;padding:10px 0;white-space:nowrap;color:var(--hat-text-2)}.build1 .tabs2 button[aria-current=page]{color:var(--hat-text);font-weight:600;box-shadow:inset 0 -2px 0 var(--hat-primary)}.build1 .kpi4{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.build1 .k{border:1px solid var(--hat-border);border-radius:12px;padding:10px 12px;min-width:0}.build1 .k .l,.build1 .k .n{font-size:12px;color:var(--hat-text-2)}.build1 .k .v{font-size:24px;font-weight:600;line-height:30px;font-variant-numeric:tabular-nums}.build1 .sec2{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:baseline;margin:20px 0 8px}.build1 .sec2 b{font-size:16px;font-weight:600}.build1 .sec2>span{font-size:12px;color:var(--hat-text-2)}.build1 .cols24{display:flex;gap:2px;align-items:flex-end;height:120px;position:relative}.build1 .cols24 .c{flex:1;position:relative;height:100%;display:flex;align-items:flex-end}.build1 .cols24 .chart-stack{display:flex;flex-direction:column-reverse;justify-content:flex-start;width:100%;height:100%}.build1 .cols24 .c i{display:block;width:100%;border-radius:2px 2px 0 0}.build1 .cols24 .c em{position:absolute;left:0;right:0;height:2px;background:var(--hat-text);opacity:.7}.build1 .cols24 .now{position:absolute;top:0;bottom:0;border-left:2px dashed var(--hat-text-2)}.build1 .axis{display:flex;justify-content:space-between;font-size:12px;color:var(--hat-text-2)}.build1 .legend{display:flex;flex-wrap:wrap;gap:12px;margin:8px 0;font-size:12px}.build1 .legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px}.build1 summary{min-height:44px;padding:12px 0;cursor:pointer}.build1 .row3{display:grid;grid-template-columns:1fr auto;gap:8px;padding:8px 0;border-top:1px solid var(--hat-border)}.build1 .row3 .r{text-align:right;font-weight:600}.build1 .rk2{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,1fr) 88px 40px 80px;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--hat-border)}.build1 .rk2 .bar{height:10px;border-radius:999px;background:var(--hat-grid);overflow:hidden}.build1 .rk2 .bar i{display:block;height:100%;border-radius:999px}.build1 .rk2 .v,.build1 .rk2 .p,.build1 .rk2 .c{text-align:right;font-variant-numeric:tabular-nums}.build1 .rk2 .v{font-weight:600}.build1 .rk2 .p{font-size:12px;color:var(--hat-text-2)}.build1 .rk2 .nm{display:flex;align-items:center;gap:8px;min-width:0}.build1 .child{padding-left:28px;color:var(--hat-text-2)}.build1 .sw{width:10px;height:10px;border-radius:3px;flex:none}.build1 .hatch{background-image:repeating-linear-gradient(135deg,var(--hat-unmeasured) 0 2px,transparent 2px 6px)!important;background-color:transparent!important;box-shadow:inset 0 0 0 1px var(--hat-unmeasured)}.build1 .compbar{display:flex;gap:2px;height:14px;margin:4px 0 8px;overflow:hidden;border-radius:999px}.build1 .compbar i{display:block;height:100%;flex:none}.build1 .table-wrap{overflow-x:auto}.build1 .ct{width:100%;border-collapse:collapse;font-size:14px}.build1 .ct td,.build1 .ct th{padding:8px 4px;border-top:1px solid var(--hat-border);text-align:left;font-variant-numeric:tabular-nums}.build1 .ct td:last-child{text-align:right}.build1 caption{text-align:left;font-size:12px;color:var(--hat-text-2);padding:8px 0}.build1 .info{line-height:18px}.build1 .two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:24px}.build1 .two>div{min-width:0}.build1 .list .it{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--hat-border)}.build1 .hat-acts,.build1 .preview-controls{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.build1 .prev{border:1px solid var(--hat-border);border-radius:12px;padding:12px}.build1 pre{white-space:pre-wrap;font:inherit;overflow-wrap:anywhere}.build1 .notice{padding:12px;background:var(--hat-chip);border-left:3px solid var(--hat-primary)}.build1 .skeleton{min-height:420px;background:var(--hat-chip);padding:16px;border-radius:12px}
 @container(max-width:520px){.build1 .kpi4{grid-template-columns:repeat(2,minmax(0,1fr))}.build1 .two{grid-template-columns:1fr}.build1 .rk2{grid-template-columns:minmax(0,1.4fr) minmax(0,.8fr) 72px 70px;gap:6px}.build1 .rk2 .p{display:none}.build1 .ehd>.seg2{order:3}.build1 .k .v{font-size:20px}.build1 .nav{flex-wrap:wrap}.build1 .tabs2{gap:16px}}
 `;
 
+// Presentation-only copy: never alter the backend report or execute iframe script.
+function energyBuild1PreviewDocumentV53(html,theme,document){
+  const mode=theme==='dark'?'dark':'light';
+  const parsed=new document.defaultView.DOMParser().parseFromString(String(html),'text/html');
+  parsed.documentElement.setAttribute('data-mail-preview-theme',mode);
+  parsed.documentElement.style.colorScheme=mode;
+  for(const style of parsed.querySelectorAll('style')){
+    // Force only color-scheme media features. Keep width/print/other constraints.
+    // Negative viewport widths are always false per Media Queries; zero min is true.
+    style.textContent=style.textContent.replace(/@media\b([^{}]*)\{/gi,(all,query)=>'@media'+query.replace(/\(\s*prefers-color-scheme\s*:\s*(dark|light)\s*\)/gi,(_,wanted)=>wanted.toLowerCase()===mode?'(min-width: 0px)':'(max-width: -1px)')+'{');
+  }
+  for(const meta of parsed.querySelectorAll('meta[name="color-scheme"],meta[name="supported-color-schemes"]'))meta.setAttribute('content',mode);
+  const policy=parsed.createElement('meta');policy.setAttribute('http-equiv','Content-Security-Policy');policy.content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; navigate-to 'none'";parsed.head.prepend(policy);
+  return '<!doctype html>'+parsed.documentElement.outerHTML;
+}
 // Installed outside generated constructor bodies, before customElements.define.
 function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyModelV53,createView=createEnergyBuild1ViewV53}) {
   const key=name==='ha-energy-optimizer'?'_currentTab':'_activeTab';
@@ -7038,19 +7061,20 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
   const aliases={dashboard:'overview',daily:'breakdown',weekly:'breakdown',monthly:'breakdown',compare:'costs',recommendations:'costs',schedule:'reports',preview:'reports',send:'reports',history:'reports'};
   const canonical=v=>['overview','breakdown','costs','reports'].includes(v)?v:aliases[v];
   const baseTab={overview:name==='ha-energy-optimizer'?'dashboard':'overview',breakdown:name==='ha-energy-insights'?'daily':name==='ha-energy-optimizer'?'dashboard':'overview',costs:name==='ha-energy-optimizer'?'recommendations':'overview',reports:name==='ha-energy-email'?'overview':name==='ha-energy-optimizer'?'dashboard':'overview'};
-  const nativeReportRoute=card=>name==='ha-energy-email'&&(card._build1ConfigV53?.default_tab==='preview'||card._optionsExpandedV5&&card[key]==='send');
+  const nativeReportRoute=card=>name==='ha-energy-email'&&(card._build1ConfigV53?.default_tab==='preview'||card._emailCompactSendFlowV106||card._optionsExpandedV5&&card[key]==='send');
   const eligible=card=>!nativeReportRoute(card)&&!card._build1CompatLegacyV53&&!card._build1LegacyV53&&(!(card._config?.compact&&!card._config?.variant))&&(!['tile','compact'].includes(card._config?.variant)||card._optionsExpandedV5);
   const full=card=>eligible(card)&&card._build1ClientV53?.state().supported===true;
   const active=card=>eligible(card)&&card.isConnected&&card.preview!==true;
   const pl=card=>String(card._hass?.locale?.language||card._hass?.language||'en').startsWith('pl');
   const text=(card,en,polish)=>pl(card)?polish:en;
   let painting=new WeakSet();
+  const presentations=new WeakMap();
   function client(card){return card._build1ClientV53 ||= createClient({card,guard:card._getTariffHostV3().guard,format,isActive:()=>active(card),onChange:()=>changed(card)});}
   function changed(card){
     if(full(card)){paint(card);return;}
     // Pending/old capability replies must leave existing forms, focus and startup alone.
     if(!card._build1MountedV53)return;
-    card._build1MountedV53=false;card._domBuilt=false;
+    card._build1MountedV53=false;card._domBuilt=false;presentations.delete(card);
     card.shadowRoot?.replaceChildren();
     queueMicrotask(()=>{if(card.isConnected&&!full(card))hass?.set?.call(card,card._hass);});
   }
@@ -7073,26 +7097,62 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
       const sectionFeature=section==='reports'?'energy_reports':section==='costs'?'energy_tariff':'energy_analysis';
       const sectionGrant=s.capabilities?.[sectionFeature];
       const sectionAllowed=sectionGrant?.visible===true&&sectionGrant?.read===true;
-      const root=card.shadowRoot,focus=root.activeElement?.dataset?.energyBuild1,focusValue=root.activeElement?.dataset?.value;
+      const root=card.shadowRoot,doc=root.ownerDocument;
+      let memory=presentations.get(card);
+      if(!memory){memory={details:new Map(),markup:null,section:null,selection:null,focus:null,scrolls:[]};presentations.set(card,memory);}
+      const scope=JSON.stringify(s.selection||card._build1SelectionV53||{});
+      const scopeChanged=memory.section!==section||memory.selection!==scope;
+      if(scopeChanged){memory.details.clear();memory.focus=null;memory.scrolls=[];memory.section=section;memory.selection=scope;}
+      const focused=root.activeElement;
+      const focus=focused?.dataset?.energyBuild1,focusValue=focused?.dataset?.value;
+      const content=root.querySelector('[data-build1-content]');
+      if(content?.contains(focused)){
+        if(focus)memory.focus={action:focus,value:focusValue};
+        else if(!scopeChanged&&focused?.tagName==='SUMMARY')memory.focus={disclosure:focused.parentElement.dataset.energyBuild1Disclosure};
+      }else if(focused||doc.activeElement!==card&&doc.activeElement!==doc.body)memory.focus=null;
+      if(!scopeChanged)for(const details of content?.querySelectorAll('[data-energy-build1-disclosure]')||[])memory.details.set(details.dataset.energyBuild1Disclosure,details.open);
+      const scrollers=[...content?.querySelectorAll('.table-wrap')||[]];
+      if(!scopeChanged&&scrollers.length)memory.scrolls=scrollers.map(node=>[node.scrollLeft,node.scrollTop]);
       card._applyThemeV150?.();
-      root.innerHTML=`<style>${v.styles()}</style><ha-card>${v.markup(sectionAllowed?s.model:null,{section,group:card._build1GroupV53,current:s.current||{},title:c.title,showAlternatives:c.show_alternatives!==false,loading:s.status==='loading',canManageReports:false})}<div data-build1-extra></div></ha-card>`;
+      // A stable connected shell keeps the existing tariff editor and its inputs alive.
+      if(!root.querySelector('[data-build1-content]')){root.innerHTML='<style data-build1-style></style><ha-card><div data-build1-content></div><div data-build1-extra></div><div data-build1-tariff-host></div></ha-card>';memory.markup=null;}
+      const style=root.querySelector('[data-build1-style]');if(style.textContent!==v.styles())style.textContent=v.styles();
+      const panel=root.querySelector('[data-build1-content]');
+      const markup=v.markup(sectionAllowed?s.model:null,{section,group:card._build1GroupV53,current:s.current||{},title:c.title,showAlternatives:c.show_alternatives!==false,loading:s.status==='loading',canManageReports:false});
+      const replaced=memory.markup!==markup;
+      if(replaced){panel.innerHTML=markup;memory.markup=markup;}
+      for(const details of panel.querySelectorAll('[data-energy-build1-disclosure]'))if(memory.details.has(details.dataset.energyBuild1Disclosure))details.open=memory.details.get(details.dataset.energyBuild1Disclosure);
+      if(replaced)[...panel.querySelectorAll('.table-wrap')].forEach((node,i)=>{if(memory.scrolls[i]){node.scrollLeft=memory.scrolls[i][0];node.scrollTop=memory.scrolls[i][1];}});
       const visible=c.tabs?.map(canonical).filter(Boolean);
-      for(const [tab,feature] of [['reports','energy_reports'],['costs','energy_tariff']])if(s.capabilities?.[feature]?.visible===false)root.querySelectorAll('[data-energy-build1="section"]').forEach(b=>{if(b.dataset.value===tab)b.remove();});
-      if(visible?.length)for(const b of root.querySelectorAll('[data-energy-build1="section"]'))if(!visible.includes(b.dataset.value))b.remove();
-      const extra=root.querySelector('[data-build1-extra]');
+      for(const button of panel.querySelectorAll('[data-energy-build1="section"]')){
+        const tab=button.dataset.value,feature=tab==='reports'?'energy_reports':tab==='costs'?'energy_tariff':null;
+        button.hidden=!!(visible?.length&&!visible.includes(tab)||feature&&s.capabilities?.[feature]?.visible===false);
+      }
+      const extra=root.querySelector('[data-build1-extra]'),extraKey=JSON.stringify([s.status,section,card._build1OverflowV53,card._hass?.user?.is_admin,ui.language]);
+      const extraChanged=memory.extraKey!==extraKey;
+      if(extraChanged){extra.replaceChildren();memory.extraKey=extraKey;}
       if(['tile','compact'].includes(c.variant)&&card._optionsExpandedV5){
-        const back=document.createElement('button');back.type='button';back.setAttribute('data-energy-back','');back.textContent=text(card,'Back','Wróć');back.style.cssText='min-height:44px';
+        let back=root.querySelector('[data-energy-back]');if(!back){back=document.createElement('button');back.type='button';back.setAttribute('data-energy-back','');root.querySelector('ha-card').prepend(back);}back.textContent=text(card,'Back','Wróć');back.style.cssText='min-height:44px';
         back.onclick=()=>{card._optionsExpandedV5=false;card._build1MountedV53=false;ctl.stop();card._domBuilt=false;card._render();card.shadowRoot.querySelector('[data-energy-open]')?.focus({preventScroll:true});};
-        root.querySelector('ha-card').prepend(back);
-      }
+      }else root.querySelector('[data-energy-back]')?.remove();
 
-      if(s.status==='error'||s.status==='denied'){const p=document.createElement('p');p.setAttribute('role','status');p.textContent=s.status==='denied'?text(card,'Access unavailable for this account.','Dostęp dla tego konta jest niedostępny.'):text(card,'Energy report unavailable. Check HA Tools Email and retry.','Raport energii niedostępny. Sprawdź HA Tools Email i ponów.');extra.append(p);const retry=document.createElement('button');retry.textContent=text(card,'Retry','Ponów');retry.onclick=()=>ctl.refresh();extra.append(retry);}
+      if(extraChanged&&(s.status==='error'||s.status==='denied')){const p=document.createElement('p');p.setAttribute('role','status');p.textContent=s.status==='denied'?text(card,'Access unavailable for this account.','Dostęp dla tego konta jest niedostępny.'):text(card,'Energy report unavailable. Check HA Tools Email and retry.','Raport energii niedostępny. Sprawdź HA Tools Email i ponów.');extra.append(p);const retry=document.createElement('button');retry.textContent=text(card,'Retry','Ponów');retry.onclick=()=>ctl.refresh();extra.append(retry);}
       // Existing editor owns tariffs, migrations, validation, and write authority.
-      if(section==='costs'&&sectionAllowed){const mount=document.createElement('div');mount.innerHTML=card._getTariffHostV3().markup();extra.append(mount);card._getTariffHostV3().bind();}
-      if(s.preview?.html&&s.capabilities?.energy_reports?.read===true&&s.capabilities?.energy_reports?.visible===true){
-        const holder=root.querySelector('[data-energy-build1-preview]');if(holder){holder.replaceChildren();const frame=document.createElement('iframe');frame.title=text(card,'Energy report preview','Podgląd raportu energii');frame.setAttribute('sandbox','');frame.setAttribute('referrerpolicy','no-referrer');frame.style.cssText=`display:block;width:100%;max-width:${card._build1DeviceV53==='phone'?'390px':'100%'};height:560px;border:0;color-scheme:${card._build1ThemeV53||'light'};`;
-          frame.srcdoc='<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; style-src \'unsafe-inline\'; base-uri \'none\'; form-action \'none\'; navigate-to \'none\'">'+s.preview.html;holder.append(frame);}
+      const tariffArea=root.querySelector('[data-build1-tariff-host]');
+      const tariffGrant=s.capabilities?.energy_tariff;
+      const revoked=tariffGrant&&(tariffGrant.visible!==true||tariffGrant.read!==true);
+      if(revoked){tariffArea.replaceChildren();card._tariffSettingsOpen=false;}
+      tariffArea.hidden=section!=='costs'||!!revoked;
+      if(section==='costs'&&sectionAllowed){
+        if(!tariffArea.firstChild){tariffArea.innerHTML=card._getTariffHostV3().markup();card._getTariffHostV3().bind();}
       }
+      if(s.preview?.html&&s.capabilities?.energy_reports?.read===true&&s.capabilities?.energy_reports?.visible===true){
+        const holder=panel.querySelector('[data-energy-build1-preview]');if(holder){
+          let frame=holder.querySelector('iframe');if(!frame){holder.replaceChildren();frame=doc.createElement('iframe');frame.setAttribute('sandbox','');frame.setAttribute('referrerpolicy','no-referrer');holder.append(frame);}
+          frame.title=text(card,'Energy report preview','Podgląd raportu energii');frame.style.cssText=`display:block;width:100%;max-width:${card._build1DeviceV53==='phone'?'390px':'100%'};height:560px;border:0;`;
+          const srcdoc=energyBuild1PreviewDocumentV53(s.preview.html,card._build1ThemeV53||'light',doc);if(frame.srcdoc!==srcdoc)frame.srcdoc=srcdoc;
+        }
+      }else panel.querySelector('[data-energy-build1-preview] iframe')?.remove();
       const implemented=new Set(['section','group','period','previous','next','more','preview-load','preview-device','preview-theme','tariff-edit','configure-energy']);
       for(const b of root.querySelectorAll('[data-energy-build1]')){
         const action=b.dataset.energyBuild1;
@@ -7100,10 +7160,16 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
         if(action==='tariff-edit')b.disabled=s.capabilities?.energy_tariff?.execute!==true;
         if(action==='preview-load')b.disabled=s.busy||s.capabilities?.energy_reports?.read!==true||s.capabilities?.energy_reports?.visible!==true;
         if(['previous','next'].includes(action))b.disabled=!s.model;
-        b.addEventListener('click',()=>{if(!b.disabled)void actionFor(card,action,b.dataset.value);});
-        if(action===focus&&b.dataset.value===focusValue)b.focus({preventScroll:true});
+        if(['preview-device','preview-theme'].includes(action))b.setAttribute('aria-pressed',String(b.dataset.value===(action==='preview-device'?card._build1DeviceV53||'desktop':card._build1ThemeV53||'light')));
+        b.onclick=()=>{if(!b.disabled)void actionFor(card,action,b.dataset.value);};
       }
-      if(card._build1OverflowV53){
+      if(replaced&&memory.focus&&(!root.activeElement||root.activeElement===focused)){
+        const hint=memory.focus;let target;
+        if(hint.action)target=[...panel.querySelectorAll('[data-energy-build1]')].find(b=>b.dataset.energyBuild1===hint.action&&b.dataset.value===hint.value);
+        else if(hint.disclosure)target=[...panel.querySelectorAll('[data-energy-build1-disclosure]')].find(d=>d.dataset.energyBuild1Disclosure===hint.disclosure)?.querySelector('summary');
+        if(target&&!target.disabled)target.focus({preventScroll:true});
+      }
+      if(extraChanged&&card._build1OverflowV53){
         const choices=name==='ha-energy-optimizer'?[['patterns','Patterns','Wzorce'],['recommendations','Recommendations','Rekomendacje']]:name==='ha-energy-insights'?[['tips','Recommendations','Rekomendacje']]:[['config','Email settings','Ustawienia e-mail'],['schedule','Schedules','Harmonogramy'],['send','Send form','Formularz wysyłki'],['history','History','Historia']];
         for(const [tab,en,polish] of choices){if(name==='ha-energy-email'&&card._hass?.user?.is_admin!==true)continue;const b=document.createElement('button');b.textContent=text(card,en,polish);b.onclick=()=>legacy(card,tab);extra.append(b);}
       }
@@ -7132,7 +7198,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
   Card.prototype.setConfig=function(config={}){
     if(config.period_default!==undefined&&!['day','week','month','year'].includes(config.period_default))throw Error('period_default: day / week / month / year');
     if(config.show_alternatives!==undefined&&typeof config.show_alternatives!=='boolean')throw Error('show_alternatives: boolean');
-    this._build1MountedV53=false;this._build1ClientV53?.stop();this._build1CompatLegacyV53=false;this._build1ConfigV53={...config};this._build1LegacyV53=['patterns','tips','config'].includes(config.default_tab);this._build1SectionV53=canonical(config.default_tab)||(config.tabs?.map(canonical).filter(Boolean).includes(defaults)?defaults:config.tabs?.map(canonical).find(Boolean))||defaults;this._build1SelectionV53={period:config.period_default||'day',mode:'full'};
+    presentations.delete(this);this._build1MountedV53=false;this._build1ClientV53?.stop();this._build1CompatLegacyV53=false;this._build1ConfigV53={...config};this._build1LegacyV53=['patterns','tips','config'].includes(config.default_tab);this._build1SectionV53=canonical(config.default_tab)||(config.tabs?.map(canonical).filter(Boolean).includes(defaults)?defaults:config.tabs?.map(canonical).find(Boolean))||defaults;this._build1SelectionV53={period:config.period_default||'day',mode:'full'};
     const nativeTabs=name==='ha-energy-optimizer'?['dashboard','patterns','recommendations','compare']:name==='ha-energy-insights'?['overview','daily','weekly','monthly','tips']:['overview','schedule','preview','send','config','history'];
     const translate=v=>nativeTabs.includes(v)?v:baseTab[canonical(v)]||v;
     const legacyConfig={...config};if(config.default_tab)legacyConfig.default_tab=translate(config.default_tab);if(config.tabs)legacyConfig.tabs=[...new Set(config.tabs.map(translate))];
@@ -7155,7 +7221,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
     else{connected?.call(this);probe(this);}
   };
   const disconnected=Card.prototype.disconnectedCallback;
-  Card.prototype.disconnectedCallback=function(){this._build1ClientV53?.stop();return disconnected?.call(this);};
+  Card.prototype.disconnectedCallback=function(){presentations.delete(this);this._build1ClientV53?.stop();return disconnected?.call(this);};
 }
 // HA_ENERGY_BUILD1_V53_END
 // HA_DASHBOARD_PLACEMENT_V53_START
