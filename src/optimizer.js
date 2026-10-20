@@ -635,7 +635,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=0d37d0cb51a6707158fc45e6b25a6a41ef07b1d19a65b828d31bba2ec7572249
+    // HA_TARIFF_V3_START sha256=f1a83cc5d0b3e4e6aed8388ddbc75aa40984b23edf4c565769ec1ef2d1d387a1
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1054,7 +1054,7 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
   const canonical = value => JSON.stringify(value, (_, v) => v && typeof v === 'object' && !Array.isArray(v)
     ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v);
   let epoch = 0, association, connection, connectionOffline = false, browserOffline = browser?.navigator?.onLine === false;
-  let raw = null, suspended = false;
+  let raw = null, reservation = null, suspended = false;
   const listeners = new Set(), wireListeners = new Set();
   const notify = () => { epoch++; for (const listener of [...listeners]) listener(); };
   const connectionEvent = event => {
@@ -1094,9 +1094,19 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
     const now = observe();
     return token?.epoch === now.epoch && equal(token, Object.fromEntries(Object.entries(now).filter(([k]) => k !== 'epoch'))) && available(now) && (!admin || now.admin);
   };
-  const call = (token, payload, admin = false) => {
+  const reserve = token => {
+    if (!current(token)) throw { code: 'authority_changed' };
+    if (raw || reservation) throw { code: 'wire_occupied' };
+    const owner = { release: () => {
+      if (reservation !== owner) return;
+      reservation = null;
+      if (!raw) for (const listener of [...wireListeners]) listener();
+    } };
+    reservation = owner; return owner;
+  };
+  const call = (token, payload, admin = false, owner = null) => {
     if (!current(token, admin)) return Promise.reject({ code: 'authority_changed' });
-    if (raw) return Promise.reject({ code: 'wire_occupied' });
+    if (raw || reservation && reservation !== owner) return Promise.reject({ code: 'wire_occupied' });
     let resolvePublic, rejectPublic, finished = false;
     const result = new Promise((resolve, reject) => { resolvePublic = resolve; rejectPublic = reject; });
     const slot = {}; raw = slot;
@@ -1107,12 +1117,13 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
     // Both branches handle late settlement; no floating rejected finally promise.
     const settled = () => {
       clearTimeout(timer); if (raw === slot) raw = null;
-      for (const listener of [...wireListeners]) listener();
     };
+    const notifySettled = () => { for (const listener of [...wireListeners]) listener(); };
     request.then(value => {
       settled();
       if (!finished) { finished = true; current(token, admin) ? resolvePublic(value) : rejectPublic({ code: 'authority_changed' }); }
-    }, error => { settled(); if (!finished) { finished = true; rejectPublic(error); } });
+      notifySettled();
+    }, error => { settled(); if (!finished) { finished = true; rejectPublic(error); } notifySettled(); });
     return result;
   };
   const suspend = () => {
@@ -1135,7 +1146,7 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
     notify(); listeners.clear(); wireListeners.clear(); // Raw occupancy intentionally survives disposal.
   };
   observe(); // Observe typed edges before the card/editor is ever mounted.
-  return { snapshot, observe, current, available, call, occupied: () => raw !== null,
+  return { snapshot, observe, current, available, call, reserve, occupied: () => raw !== null || reservation !== null,
     subscribeWire: listener => { wireListeners.add(listener); return () => wireListeners.delete(listener); },
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); }, invalidate: notify, suspend, resume, dispose };
 }
@@ -1181,7 +1192,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   } catch (_) { return false; } };
   const canEdit = token => wireProfile
     ? state.wireCapabilities?.energy_tariff?.visible === true && state.wireCapabilities?.energy_tariff?.read === true
-      && state.wireCapabilities?.energy_tariff?.execute === true && !state.wireMigrationRequired
+      && state.wireCapabilities?.energy_tariff?.execute === true && !state.wireMigrationRequired && !state.wireMigrationWriteUnknown
     : token.admin;
   // The server returns only this bounded marker when persisted validation fails.
   // Its confirmed revision lets an administrator explicitly replace the profile.
@@ -1212,7 +1223,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     const rejectAuthority = caps => {
       const grant=caps?.capabilities?.energy_tariff;
       if(caps?.status==='ready'&&grant?.visible===true&&grant.read===true)state.wireCapabilities=clone(caps.capabilities);
-      else{state.wireCapabilities=null;state.wireEnvelope=null;state.wireTemplates=[];state.wireDrafts={};state.draft=blank();state.profile=null;root.replaceChildren();}
+      else{state.wireCapabilities=null;state.wireEnvelope=null;state.wireTemplates=[];state.wireDrafts={};state.wireMigrationPreview=null;state.wireMigrationChoice='';state.draft=blank();state.profile=null;root.replaceChildren();}
     };
     const before=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
     if (!current(token) || !authorized(before)) {rejectAuthority(before);throw {code:'unauthorized'};}
@@ -1224,13 +1235,14 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
       request={...payload,type:'ha_tools_email/set_tariff_profile',historical_edit_ack:state.wireHistoricalAck===true,
         ...(state.wireEnvelope?.tariff_id?{tariff_id:state.wireEnvelope.tariff_id}:{})};
     }
+    if(request.type==='ha_tools_email/set_tariff_profile'&&state.wireMigrationSaving)state.wireMigrationDispatched=true;
     let result;try{result=await guard.call(token,request);}catch(error){if(['unauthorized','not_allowed'].includes(error?.code))rejectAuthority(null);throw error;}
     const after=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
     if(!current(token) || !authorized(after) || after.revision!==before.revision){rejectAuthority(after);throw {code:'unauthorized'};}
     state.wireCapabilities=clone(after.capabilities);
     if(request.type==='ha_tools_email/get_tariff_profile'){
       if(!object(result)||!['ready','empty','inactive','migration_required'].includes(result.status)||!Array.isArray(result.tariff_profiles)||result.tariff_profiles.length>32||!Array.isArray(result.tariffs)||result.tariffs.length>8||result.tariff_profiles.some(v=>!object(v)||typeof v.version_id!=='string'||!object(v.profile)||v.profile.schema!==2||typeof v.profile.name!=='string'||!Array.isArray(v.profile.fixed))||result.tariffs.some(tariff=>!object(tariff)||typeof tariff.id!=='string'||typeof tariff.name!=='string'))throw {code:'malformed'};
-      state.wireEnvelope=clone(result);
+      if(result.migration_preview!==true)state.wireEnvelope=clone(result);
     }
     if(request.type==='ha_tools_email/set_tariff_profile')state.wireReadback={tariff_id:result.tariff_id,version_id:result.version_id};
     return result;
@@ -1241,7 +1253,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     state.profile = null; state.revision = null; state.updated_at = null;
     state.draft = blank(); state._draftBaseline = clone(state.draft);
     state.feedText = undefined; state.feedError = null; state.backendAvailable = false;
-    if(wireProfile){state.wireCapabilities=null;state.wireEnvelope=null;state.wireTemplates=[];state.wireDrafts={};state.wireRequested=null;state.wireReadback=null;state.wireKey=null;state.wireHistoricalAck=false;}
+    if(wireProfile){state.wireCapabilities=null;state.wireEnvelope=null;state.wireTemplates=[];state.wireDrafts={};state.wireRequested=null;state.wireReadback=null;state.wireKey=null;state.wireHistoricalAck=false;state.wireMigrationPreview=null;state.wireMigrationChoice='';state.wireMigrationHistoricalAck=false;state.wireMigrationWriteUnknown=false;state.wireMigrationSaving=false;state.wireMigrationStale=false;state.wireMigrationDirty=false;}
     state.busy = false; state.status = 'unconfirmed'; state.message = '';
     // This mount may already have been detached; erase it too, synchronously.
     root.replaceChildren();
@@ -1266,10 +1278,11 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
       if (!current(token)) return;
       if(wireProfile && result?.status==='migration_required'){
         state.wireMigrationRequired=true;state.backendAvailable=false;
+        if(!state.wireMigrationWriteUnknown)state.wireMigrationPreview=null;
         message('unconfirmed',t('Legacy tariff semantics need explicit migration before editing. No prices were inferred.', 'Semantyka starej taryfy wymaga jawnej migracji przed edycją. Nie przyjęto stawek.'));return;
       }
       if (!envelope(result)) throw { code: 'malformed' };
-      if(wireProfile){state.wireMigrationRequired=false;state.wireHistoricalAck=false;}
+      if(wireProfile){state.wireMigrationRequired=false;state.wireHistoricalAck=false;if(!state.wireMigrationWriteUnknown){state.wireMigrationPreview=null;state.wireMigrationChoice='';state.wireMigrationHistoricalAck=false;}}
       state.profile = clone(result.profile); state.revision = result.revision; state.updated_at = result.updated_at;
       state.backendAvailable = true; state.writeUnconfirmed = false;
       const switchKey=wireProfile && state.wireSwitch?.startsWith('tariff:') ? 'version:'+result.tariff_id+':'+result.version_id : state.wireSwitch;
@@ -1370,7 +1383,89 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   const css = `.ht-tariff-v3{box-sizing:border-box;color:var(--primary-text-color,#172033);font:inherit;width:100%;min-width:0;max-width:100%;padding:12px;background:var(--ha-card-background,var(--card-background-color,#fff));border-radius:var(--bento-radius,20px)}
 .ht-tariff-v3 *{box-sizing:border-box;min-width:0}.ht-tariff-v3 h3,.ht-tariff-v3 p{overflow-wrap:anywhere}.ht-tariff-v3 fieldset{border:1px solid var(--divider-color,#d8dce5);border-radius:14px;margin:12px 0;padding:12px}.ht-tariff-v3 legend{max-width:100%;overflow-wrap:anywhere}.ht-tariff-v3 .ht-tariff-grid,.ht-tariff-v3 .ht-tariff-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:12px;margin:8px 0}.ht-tariff-v3 .ht-tariff-field{display:flex;flex-direction:column;gap:6px;overflow-wrap:anywhere}.ht-tariff-v3 input,.ht-tariff-v3 select,.ht-tariff-v3 textarea,.ht-tariff-v3 button{font:inherit;color:inherit;border:1px solid var(--divider-color,#c7cdd9);border-radius:10px;background:var(--secondary-background-color,#f7f8fa);min-height:44px;max-width:100%;width:100%;padding:10px}.ht-tariff-v3 textarea{resize:vertical;min-height:110px}.ht-tariff-v3 button{cursor:pointer;width:auto;white-space:normal;overflow-wrap:anywhere}.ht-tariff-v3 button:disabled{cursor:default;opacity:.6}.ht-tariff-v3 :is(input,select,textarea,button):focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}.ht-tariff-v3 .ht-tariff-days,.ht-tariff-v3 .ht-tariff-actions{display:flex;flex-wrap:wrap;gap:8px}.ht-tariff-v3 .ht-tariff-days label{display:flex;align-items:center;gap:8px;min-height:44px}.ht-tariff-v3 input[type=checkbox]{width:24px;min-height:24px;height:24px}.ht-tariff-v3 [role=status]{padding:12px;border-radius:12px;overflow-wrap:anywhere;background:var(--secondary-background-color,#f1f3f6);margin:12px 0}.ht-tariff-v3 [data-status=success]{color:var(--bento-success,#16804a);background:var(--bento-success-light,#e8f5ed)}.ht-tariff-v3 [data-status=error]{color:var(--error-color,#ba1a1a)}.ht-tariff-v3 [data-status=unconfirmed],.ht-tariff-v3 [data-status=partial]{color:var(--warning-color,#a15b00)}.ht-tariff-v3 details{margin:12px 0}.ht-tariff-v3 summary{min-height:44px;cursor:pointer}`;
   const stashWire = () => {state.wireDrafts ||= {};if(state.wireKey)state.wireDrafts[state.wireKey]={draft:clone(state.draft),profile:clone(state.profile),revision:state.revision};};
-  const wireFields = () => `<fieldset data-wire-panel><legend>${esc(t('Saved versions and server templates','Zapisane wersje i szablony serwera'))}</legend>
+  const migrationReadAllowed = () => {
+    const grant=state.wireCapabilities?.energy_tariff;
+    return wireProfile && grant?.visible===true && grant.read===true && available(observe());
+  };
+  const migrationPreviewCurrent = () => {
+    const preview=state.wireMigrationPreview;
+    return preview && preview.epoch===observe().epoch && preview.choice===state.wireMigrationChoice
+      && typeof preview.legacyCombined==='boolean' && !state.wireMigrationStale;
+  };
+  const migrationControls = () => {
+    if(!state.wireMigrationRequired&&!state.wireMigrationPreview&&!state.wireMigrationWriteUnknown)return '';
+    const preview=state.wireMigrationPreview,p=preview?.envelope?.profile,locked=state.busy||guard.occupied()||!migrationReadAllowed();
+    const executable=migrationReadAllowed()&&state.wireCapabilities?.energy_tariff?.execute===true;
+    const unknown=t('Unknown','Nieznane');
+    return `<fieldset data-wire-migration><legend>${esc(t('Migrate the saved legacy tariff','Migracja zapisanej starej taryfy'))}</legend>
+      <p>${esc(t('Choose what the old energy rate meant using your tariff or invoice. No rates, fees or dates are inferred. Preview is read-only; saving is a separate action.', 'Wybierz znaczenie starej stawki energii na podstawie taryfy lub faktury. Ceny, opłaty ani daty nie są zgadywane. Podgląd jest tylko do odczytu; zapis to osobna czynność.'))}</p>
+      <label>${esc(t('Meaning of the old energy rate','Znaczenie starej stawki energii'))}<select data-wire-migration-choice data-wire-focus="migration-choice"${locked||state.wireMigrationWriteUnknown?' disabled':''}>
+      <option value=""${!state.wireMigrationChoice?' selected':''}>${esc(t('Choose explicitly','Wybierz jawnie'))}</option>
+      <option value="components"${state.wireMigrationChoice==='components'?' selected':''}>${esc(t('Energy only; variable distribution is separate or unknown','Sama energia; dystrybucja zmienna osobno lub nieznana'))}</option>
+      <option value="combined"${state.wireMigrationChoice==='combined'?' selected':''}>${esc(t('Combined rate; variable distribution is already included','Stawka łączna; dystrybucja zmienna jest już wliczona'))}</option></select></label>
+      <button type="button" data-wire-action="migration-preview" data-wire-focus="migration-preview"${locked||!state.wireMigrationChoice||state.wireMigrationWriteUnknown?' disabled':''}>${esc(t('Preview migration without saving','Pokaż podgląd migracji bez zapisu'))}</button>
+      ${p?`<section data-wire-migration-preview aria-label="${esc(t('Read-only server migration preview','Podgląd migracji z serwera, tylko odczyt'))}"><h4>${esc(p.name)}</h4><p>${esc(p.currency)} · ${esc(p.priceBasis)} · ${esc(p.validFrom||unknown)} → ${esc(p.validTo||unknown)}</p>
+      <ul>${(p.zones||[]).map(z=>`<li>${esc(z.label||z.id)}: ${esc(z.energyRate??unknown)} / ${esc(z.variableRate??unknown)}</li>`).join('')}</ul>
+      <ul>${(p.fixed||[]).map(f=>`<li>${esc(f.label)} [${esc(f.id)}]: ${esc(f.monthly??unknown)}</li>`).join('')}</ul>
+      <details><summary>${esc(t('Full server profile and provenance','Pełny profil i pochodzenie danych z serwera'))}</summary><pre style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(JSON.stringify(p,null,2))}</pre></details></section>`:''}
+      <label><input type="checkbox" data-wire-migration-ack data-wire-focus="migration-ack"${state.wireMigrationHistoricalAck?' checked':''}${locked||!executable||!p||state.wireMigrationWriteUnknown?' disabled':''}>${esc(t('I acknowledge any historical calculation changes from this migration. Archived reports remain unchanged.', 'Potwierdzam ewentualne zmiany obliczeń historycznych wynikające z tej migracji. Archiwalne raporty pozostają bez zmian.'))}</label>
+      <button type="button" data-wire-action="migration-save" data-wire-focus="migration-save"${locked||!executable||!migrationPreviewCurrent()||state.wireMigrationWriteUnknown?' disabled':''}>${esc(t('Save this migration','Zapisz tę migrację'))}</button>
+      ${state.wireMigrationWriteUnknown?`<p role="status">${esc(t('The write outcome is UNKNOWN. Saving again is blocked. Read the stored result; no retry is sent.', 'Wynik zapisu jest UNKNOWN. Ponowny zapis jest zablokowany. Odczytaj zapisany wynik; próba nie jest ponawiana.'))}</p><button type="button" data-wire-action="migration-confirm" data-wire-focus="migration-confirm"${locked||!p?' disabled':''}>${esc(t('Read and confirm the stored result','Odczytaj i potwierdź zapisany wynik'))}</button>`:''}
+    </fieldset>`;
+  };
+  const previewMigration = async () => {
+    if(disposed||state.busy||guard.occupied()||!migrationReadAllowed()||state.wireMigrationWriteUnknown||!['components','combined'].includes(state.wireMigrationChoice))return;
+    const token=ticket(),choice=state.wireMigrationChoice,legacyCombined=choice==='combined';
+    state.busy=true;state.wireMigrationPreview=null;state.wireMigrationHistoricalAck=false;render();
+    try{
+      const result=await call(token,{type:'ha_tools_email/get_tariff_profile',legacy_combined:legacyCombined});
+      if(!current(token))return;
+      if(!envelope(result)||result.status!=='ready'||result.migration_preview!==true||!object(result.profile)||result.profile.rateSemantics!==(legacyCombined?'legacy_combined':'components')||typeof result.tariff_id!=='string'||typeof result.version_id!=='string')throw {code:'malformed'};
+      state.wireMigrationStale=false;state.wireMigrationPreview={envelope:clone(result),choice,legacyCombined,epoch:token.epoch};
+      message('not_checked',t('Server preview only. Nothing has been saved. Review the values and save separately if appropriate.', 'To tylko podgląd z serwera. Niczego nie zapisano. Sprawdź wartości i w razie potrzeby zapisz osobno.'));
+    }catch(_){if(current(token))message('error',t('This interpretation could not be previewed. The original tariff and drafts are unchanged.', 'Nie udało się wyświetlić tej interpretacji. Oryginalna taryfa i szkice pozostają bez zmian.'));}
+    finally{if(current(token)){state.busy=false;render();}}
+  };
+  const finishMigration = (stored, dirty) => {
+    state.wireMigrationWriteUnknown=false;state.wireMigrationRequired=false;state.wireMigrationPreview=null;state.wireMigrationChoice='';state.wireMigrationHistoricalAck=false;state.wireMigrationStale=false;state.wireMigrationDirty=false;state.wireReadback=null;
+    state.profile=clone(stored.profile);state.updated_at=stored.updated_at;state.backendAvailable=true;state.wireRequested={tariff_id:stored.tariff_id,version_id:stored.version_id};
+    state.wireKey='version:'+stored.tariff_id+':'+stored.version_id;state._draftBaseline=clone(stored.profile);
+    if(dirty){state.wireConflict=true;state.writeUnconfirmed=true;message('unconfirmed',t('Migration is stored and confirmed. Your separate unsaved draft is preserved; reconcile it with the stored version.', 'Migracja jest zapisana i potwierdzona. Osobny niezapisany szkic został zachowany; porównaj go z zapisaną wersją.'));}
+    else{state.draft=clone(stored.profile);state.revision=stored.revision;state.wireConflict=false;state.writeUnconfirmed=false;message('success',t('Migration saved and confirmed by stored readback.', 'Migracja zapisana i potwierdzona odczytem.'));}
+    if(typeof onSaved==='function')onSaved(clone(stored));
+  };
+  const confirmMigrationResult = (stored, preview) => envelope(stored)&&stored.status==='ready'&&stored.migration_preview!==true
+    &&stored.updated_at!==null&&stored.revision===preview.envelope.revision+1&&stored.tariff_id===preview.envelope.tariff_id&&stored.version_id===preview.envelope.version_id
+    &&equal(stored.profile,preview.envelope.profile);
+  const saveMigration = async () => {
+    if(disposed||state.busy||guard.occupied()||state.wireMigrationWriteUnknown||!migrationReadAllowed()||state.wireCapabilities?.energy_tariff?.execute!==true||!migrationPreviewCurrent())return;
+    const token=ticket(),preview=clone(state.wireMigrationPreview),dirty=!equal(state.draft,seed(state.profile));
+    state.busy=true;state.wireMigrationSaving=true;state.wireMigrationDispatched=false;state.wireMigrationDirty=dirty;render();
+    try{
+      const written=await call(token,{type:'ha_tools_email/set_tariff_profile',profile:clone(preview.envelope.profile),expected_revision:preview.envelope.revision,
+        legacy_combined:preview.legacyCombined,historical_edit_ack:state.wireMigrationHistoricalAck===true},true);
+      if(!current(token))return;
+      if(!object(written)||written.revision!==preview.envelope.revision+1)throw {code:'unconfirmed'};
+      const stored=await call(token,{type:'ha_tools_email/get_tariff_profile',tariff_id:preview.envelope.tariff_id,version_id:preview.envelope.version_id});
+      if(!current(token))return;
+      if(!confirmMigrationResult(stored,preview))throw {code:'unconfirmed'};
+      finishMigration(stored,dirty);
+    }catch(error){if(current(token)){
+      if(error?.code==='historical_edit_ack_required')message('error',t('Review the preview and explicitly acknowledge historical changes before a separate save.', 'Sprawdź podgląd i jawnie potwierdź zmiany historyczne przed osobnym zapisem.'));
+      else if(['tariff_revision_conflict','revision_conflict','conflict'].includes(error?.code)){state.wireMigrationStale=true;message('error',t('Revision conflict. Request a new read-only preview; this migration was not retried.', 'Konflikt rewizji. Poproś o nowy podgląd tylko do odczytu; nie ponowiono migracji.'));}
+      else if(error?.code==='invalid_tariff_profile'||!state.wireMigrationDispatched)message('error',t('Migration was not dispatched or was rejected before storage. Original values and drafts remain.', 'Migracja nie została przekazana lub została odrzucona przed zapisem. Oryginalne wartości i szkice pozostają.'));
+      else{state.wireMigrationWriteUnknown=true;state.writeUnconfirmed=true;unknown();}
+    }}finally{if(current(token)){state.busy=false;state.wireMigrationSaving=false;render();}}
+  };
+  const confirmUnknownMigration = async () => {
+    if(disposed||state.busy||guard.occupied()||!migrationReadAllowed()||!state.wireMigrationWriteUnknown||!state.wireMigrationPreview)return;
+    const token=ticket(),preview=clone(state.wireMigrationPreview),dirty=state.wireMigrationDirty===true;state.busy=true;render();
+    try{const stored=await call(token,{type:'ha_tools_email/get_tariff_profile',tariff_id:preview.envelope.tariff_id,version_id:preview.envelope.version_id});
+      if(!current(token))return;if(!confirmMigrationResult(stored,preview))throw {code:'unconfirmed'};finishMigration(stored,dirty);
+    }catch(_){if(current(token))message('unconfirmed',t('Stored migration outcome remains unconfirmed. Saving again stays blocked.', 'Wynik zapisanej migracji nadal nie jest potwierdzony. Ponowny zapis pozostaje zablokowany.'));}
+    finally{if(current(token)){state.busy=false;render();}}
+  };
+  const wireFields = () => `${migrationControls()}<fieldset data-wire-panel><legend>${esc(t('Saved versions and server templates','Zapisane wersje i szablony serwera'))}</legend>
     <button type="button" data-wire-action="history" data-wire-focus="reload"${state.busy?' disabled':''}>${esc(t('Reload history','Wczytaj historię'))}</button>
     <button type="button" data-wire-action="templates" data-wire-focus="templates"${state.busy?' disabled':''}>${esc(t('Load G11 / G12 / G12w templates','Wczytaj szablony G11 / G12 / G12w'))}</button>
     ${state.wireConflict?`<button type="button" data-wire-action="stored"${state.busy?' disabled':''}>${esc(t('Use the newly loaded stored profile','Użyj właśnie wczytanego zapisanego profilu'))}</button>`:''}
@@ -1397,6 +1492,15 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   }
   const bindWire = () => {
     if(!wireProfile)return;
+    root.querySelector('[data-wire-migration-choice]')?.addEventListener('change',event=>{
+      if(state.busy||guard.occupied()||state.wireMigrationWriteUnknown||!migrationReadAllowed())return;
+      if(!['','components','combined'].includes(event.target.value))return;
+      state.wireMigrationChoice=event.target.value;state.wireMigrationPreview=null;state.wireMigrationHistoricalAck=false;state.wireMigrationStale=false;render();
+    });
+    root.querySelector('[data-wire-migration-ack]')?.addEventListener('change',event=>{if(!state.busy&&!state.wireMigrationWriteUnknown&&migrationReadAllowed())state.wireMigrationHistoricalAck=event.target.checked;});
+    root.querySelector('[data-wire-action="migration-preview"]')?.addEventListener('click',()=>void previewMigration());
+    root.querySelector('[data-wire-action="migration-save"]')?.addEventListener('click',()=>void saveMigration());
+    root.querySelector('[data-wire-action="migration-confirm"]')?.addEventListener('click',()=>void confirmUnknownMigration());
     root.querySelector('[data-wire-action="stored"]')?.addEventListener('click',()=>{if(state.busy||guard.occupied())return;stashWire();state.draft=seed(state.profile);state.revision=state.wireEnvelope?.revision;state.writeUnconfirmed=false;state.wireConflict=false;state.feedText=undefined;state.feedError=null;render();});
     root.querySelector('[data-wire-action="history"]')?.addEventListener('click',()=>void load());
     root.querySelector('[data-wire-action="templates"]')?.addEventListener('click',()=>void fetchTemplates());
@@ -2311,7 +2415,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       wireEditor=createSettings({root,getHass:()=>card._hass,language,state:saved,validate:createModel,guard,wireProfile:true,
         ui:()=>createUi({language:language()}),
         onSaved:()=>{backend.invalidate();cachedKey=undefined;cachedModel=undefined;card._analysisHostV53?.invalidate();card._build1ClientV53?.refresh();},
-        onCancel:()=>{card._tariffProfileModeV53=false;bind();card.shadowRoot?.querySelector('[data-tariff-details]>summary')?.focus();}});
+        onCancel:()=>{card._tariffSettingsOpen=false;const details=card.shadowRoot?.querySelector('[data-tariff-details]');if(details){details.open=false;details.querySelector('summary')?.focus();}}});
     }
     wireEditor.render();
   };
@@ -6082,30 +6186,33 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
   async function pump(){
     if(!observe()||!pending||raw||guard.occupied())return;
     pending=false;const e=epoch,s={...selection},token=guard.snapshot();
+    // Reserve the complete read sequence; snapshot/report listeners share this guard.
+    const reservation=guard.reserve?.(token);
+    const call=request=>guard.call(token,request,false,reservation);
     const lane={};raw=lane;view.status='loading';emit();
     try {
-      const caps=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
+      const caps=await call({type:'ha_tools_email/feature_capabilities'});
       if(!current(e)||!capabilities(caps))return;
       // Subscribe only after schema negotiation; confirm grants again after ACK
       // to close the policy-change gap before the first authoritative model read.
       if(!ack){
         if(!await subscribe()||!current(e))return;
-        const confirmed=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
+        const confirmed=await call({type:'ha_tools_email/feature_capabilities'});
         if(!current(e)||!capabilities(confirmed))return;
       }
       if(view.capabilities.energy_analysis?.visible!==true||view.capabilities.energy_analysis?.read!==true){view.status='ready';emit();return;}
       emit();
-      const model=await guard.call(token,{type:'ha_tools_email/energy_report',...s,representation:'model'});
+      const model=await call({type:'ha_tools_email/energy_report',...s,representation:'model'});
       if(!current(e))return;
       if(!validModel(model,s))throw Error('invalid_energy_model');
       view.model=clone(model);view.status='ready';emit();
       // Independent today snapshot. Do not infer current zone/price from a full period.
-      let live=null;try{live=await guard.call(token,{type:'ha_tools_email/energy_report',period:'day',mode:'so_far',representation:'model'});}catch(error){if(['unauthorized','not_allowed'].includes(error?.code))throw error;}
+      let live=null;try{live=await call({type:'ha_tools_email/energy_report',period:'day',mode:'so_far',representation:'model'});}catch(error){if(['unauthorized','not_allowed'].includes(error?.code))throw error;}
       if(!current(e))return;
       if(validModel(live,{period:'day'}))view.current=clone(live.current||null);
       emit();
     } catch(error){if(current(e)){view.model=null;view.current=null;view.preview=null;view.capabilities=null;if(error?.code==='unknown_command'&&view.supported!==true){view.supported=false;view.status='legacy';}else view.status=['unauthorized','not_allowed'].includes(error?.code)?'denied':'error';view.error=error?.code||error?.message||'unavailable';emit();}}
-    finally{if(raw===lane)raw=null;if(pending)void pump();}
+    finally{if(raw===lane)raw=null;reservation?.release();emit();if(pending)void pump();}
   }
   function update(next=selection){
     if(!['day','week','month','year'].includes(next.period)||!['full','so_far'].includes(next.mode||'full'))throw Error('invalid_energy_selection');
@@ -6131,7 +6238,7 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
   return {update,state,preview,stop,refresh:invalidate};
 }
 // Existing server stores and send_now dispatcher; no scheduler, SMTP setup or auto retry.
-function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>false,onChange=()=>{},format=null,createSchedules=typeof createHaToolsEmailSchedules==='function'?createHaToolsEmailSchedules:null}){
+function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>false,isModelBusy=()=>false,onChange=()=>{},format=null,createSchedules=typeof createHaToolsEmailSchedules==='function'?createHaToolsEmailSchedules:null}){
  const copy=v=>v==null?v:JSON.parse(JSON.stringify(v)),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const pl=()=>String(card._hass?.locale?.language||card._hass?.language||'en').startsWith('pl'),t=(en,polish)=>pl()?polish:en;
  const cadenceLabel=c=>({daily:t('Daily','Dzienny'),weekly:t('Weekly','Tygodniowy'),monthly:t('Monthly','Miesięczny')}[c]||String(c||''));
@@ -6183,24 +6290,24 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   store=createSchedules({kind:'energy_report',recipientEditor:true,changed:storeChanged,contextLost:()=>{form=null;}});store.setContext(proxy);return store;
  }
  async function load(){
-  if(!observe()||loaded||raw||guard.occupied())return;
-  pending=false;loaded=true;const e=epoch,token=guard.snapshot(),lane={};raw=lane;state.status='loading';emit();
+  if(!observe()||loaded||raw||isModelBusy()||guard.occupied())return;
+  pending=false;const e=epoch,token=guard.snapshot(),lane={};raw=lane;state.status='loading';emit();
   try{
    // Safe bounded household facts; never get_config or get_attempt_history here.
-   try{state.reportStatus=await guard.call(token,{type:'ha_tools_email/get_report_status',purpose:'energy_report'});}catch(_){state.reportStatus=null;}
+   try{state.reportStatus=await guard.call(token,{type:'ha_tools_email/get_report_status',purpose:'energy_report'});}catch(error){state.reportStatus=null;throw error;}
    if(!current(e,token))return;
    if(executable()){
     try{const targets=await guard.call(token,{type:'ha_tools_email/list_delivery_targets'});if(!current(e,token))return;
      state.targets=Array.isArray(targets)?targets.filter(r=>r&&typeof r.id==='string'&&(r.id==='email'||r.id==='persistent_notification'||/^notify\.[a-z0-9_]{1,128}$/.test(r.id))).map(r=>({id:r.id,name:String(r.name||r.id),default:r.default===true})):[];
-    }catch(_){state.targets=[];}
+    }catch(error){state.targets=[];throw error;}
    }
    if(card._hass?.user?.is_admin===true){
     try{const history=await guard.call(token,{type:'ha_tools_email/get_attempt_history'},true);if(!current(e,token))return;
      state.deliveries=(history?.schema===1&&Array.isArray(history.attempts)?history.attempts:[]).filter(r=>r.kind==='energy_report'&&typeof r.id==='string'&&typeof r.timestamp==='string'&&Number.isFinite(Date.parse(r.timestamp))).slice(0,5).map(r=>({id:r.id,at:r.timestamp,name:cadenceLabel(r.cadence),cadence:r.cadence,channel:r.channel||(['accepted_by_smtp'].includes(r.outcome)?'email':null),status:failed.has(r.outcome)?'failed':r.outcome,retryable:failed.has(r.outcome)}));
-    }catch(_){state.deliveries=[];}
+    }catch(error){state.deliveries=[];throw error;}
    }
-   if(!current(e,token))return;state.status='ready';
-  }catch(_){if(current(e,token))state.status='error';}finally{if(raw===lane)raw=null;if(current(e,token)){emit();if(card._hass?.user?.is_admin===true){const c=schedules();if(refreshSchedules){refreshSchedules=false;await c?.refresh?.();}else await c?.ensureRead?.();}}}
+   if(!current(e,token))return;loaded=true;state.status='ready';
+  }catch(error){if(current(e,token)){if(error?.code==='wire_occupied'){pending=true;state.status='loading';}else{loaded=true;state.status='error';}}}finally{if(raw===lane)raw=null;if(current(e,token)){emit();if(state.status==='ready'&&card._hass?.user?.is_admin===true){const c=schedules();if(refreshSchedules){refreshSchedules=false;await c?.refresh?.();}else await c?.ensureRead?.();}}}
  }
  function update(){
   if(!unwire)unwire=guard.subscribeWire(()=>queueMicrotask(()=>{if(pending)void load();else emit();}));
@@ -6283,6 +6390,7 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   const button=(action,label,disabled=false)=>`<button type="button" data-report-action="${action}" ${disabled?'disabled':''}>${label}</button>`;
   const field=(key,label,type='text',value='')=>`<label>${label}<input type="${type}" data-report-field="${key}" value="${esc(value)}"></label>`;
   let html='<style>[data-build1-reports-host] label{display:grid;gap:4px;margin:8px 0}[data-build1-reports-host] input,[data-build1-reports-host] select,[data-build1-reports-host] button{min-height:44px;font:inherit;max-width:100%}[data-build1-reports-host] fieldset{min-width:0;margin:12px 0}</style>';
+  if(state.status==='error')html+=`<p role="status">${t('Report status could not be loaded. Refresh to retry.','Nie udało się wczytać stanu raportów. Odśwież, aby ponowić.')}</p>`;
   if(state.outcome)html+=`<p role="status">${esc(status[state.outcome]||state.outcome)}</p>`;
   const next=state.reportStatus?.schema===1&&state.reportStatus?.purpose==='energy_report'&&state.reportStatus?.schedule_state==='enabled'?state.reportStatus.next_report_at:null;
   if(typeof next==='string'&&Number.isFinite(Date.parse(next)))html+=`<p>${t('Next report','Następny raport')}: ${esc(format?.forHass?.(card._hass)?.dateTime(next)||next)}</p>`;
@@ -6480,7 +6588,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
   }
   function reports(card){
     if(!createReports||typeof card._getTariffHostV3().guard.call!=='function')return null;
-    return card._build1ReportsV53 ||= createReports({card,format,guard:card._getTariffHostV3().guard,getCapabilities:()=>client(card).state().capabilities,isActive:()=>active(card)&&card._build1SectionV53==='reports',onChange:()=>{if(!painting.has(card))paint(card);}});
+    return card._build1ReportsV53 ||= createReports({card,format,isModelBusy:()=>client(card).state().busy,guard:card._getTariffHostV3().guard,getCapabilities:()=>client(card).state().capabilities,isActive:()=>active(card)&&card._build1SectionV53==='reports',onChange:()=>{if(!painting.has(card))paint(card);}});
   }
   function options(card){return card._build1ConfigV53||card._config||{};}
   function paint(card){
