@@ -51,7 +51,7 @@ for(const name of ['ha-energy-optimizer','ha-energy-insights'])for(const languag
  const f=setup(name,null);f.hass.language=language;f.hass.locale.language=language;
  try{
   await f.mount();const primary=f.card.shadowRoot.querySelector('[data-energy-primary]');
-  assert.equal(primary.textContent,`${language==='pl'?'Droga':'Expensive'} · 20:00`,'the narrow visible status must retain the next cheap clock');
+  assert.equal(primary.querySelector('[data-energy-state-short]').textContent,`${language==='pl'?'Droga':'Expensive'} · 20:00`,'the narrow visible status retains the current zone and next cheap clock');assert.equal(primary.querySelector('[data-energy-state-long]').textContent,`${language==='pl'?'Droga · Tania od':'Expensive · Cheap from'} 20:00`);
   assert.match(primary.getAttribute('aria-label'),language==='pl'?/Tania od.*2026.*20:00/:/Cheap from.*2026.*20:00/,'the full calendar date remains available to assistive technology');
   assert.equal(primary.title,primary.getAttribute('aria-label'));
   assert.deepEqual(f.errors,[]);

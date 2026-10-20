@@ -12,7 +12,18 @@ const options=fs.readFileSync('shared/ha-tools-energy-card-options.js','utf8');
 function setup(){const dom=new JSDOM('',{runScripts:'dangerously',pretendToBeVisual:true,url:'http://localhost/'});dom.window.eval(fs.readFileSync('src/optimizer.js','utf8')+insights+email);return dom;}
 function luminance(hex){const rgb=hex.match(/[a-f\d]{2}/gi).map(c=>parseInt(c,16)/255).map(c=>c<=.04045?c/12.92:((c+.055)/1.055)**2.4);return rgb.reduce((sum,c,i)=>sum+c*[.2126,.7152,.0722][i],0);}
 function ratio(a,b){const values=[luminance(a),luminance(b)].sort((a,b)=>a-b);return(values[1]+.05)/(values[0]+.05);}
-function palette(dark=false){const selector=dark?':host(.bento-dark)':':host';const block=options.slice(options.indexOf(selector+'{')).split('}')[0];return Object.fromEntries([...block.matchAll(/(--[a-z-]+):(#(?:[a-f\d]{6}))/gi)].map(m=>[m[1],m[2]]));}
+function palette(dark=false){
+ const css=require('../shared/ha-tools-ui.js').createUiV3().css;
+ const selector=dark?':host(.hat-dark), :host(.bento-dark), .hat.hat-dark {':':host, .hat {';
+ const block=css.slice(css.indexOf(selector)).split('}')[0],tokens={};
+ for(const m of block.matchAll(/(--_hat-[a-z0-9-]+):\s*([^;]+);/g)){
+  const colors=[...m[2].matchAll(/#[a-f\d]{6}/gi)];if(colors.length)tokens[m[1]]=colors.at(-1)[0];
+ }
+ return {'--energy-value-green':tokens['--_hat-good-text'],'--energy-value-red':tokens['--_hat-crit-text'],
+  '--energy-value-amber':tokens['--_hat-warn-readout']||tokens['--_hat-warn-text'],
+  '--energy-value-neutral':tokens['--_hat-text-2'],'--energy-value-purple':tokens['--_hat-d2'],
+  '--energy-card':tokens['--_hat-card'],'--energy-kpi-tone':tokens['--_hat-chip'],'--energy-kpi-tone-alt':tokens['--_hat-chip']};
+}
 test('Email local specificity preserves one scroll row, fading edges, 44px tabs and the narrow picker',()=>{
  const tabs=email.match(/\.card \.tabs\{([^}]+)\}/)[1],buttons=email.match(/\.card \.tab-btn\{([^}]+)\}/)[1];
  assert.match(tabs,/flex-wrap:nowrap/);assert.match(tabs,/overflow-x:auto/);assert.match(tabs,/overflow-y:hidden/);assert.match(tabs,/mask-image:linear-gradient/);assert.match(buttons,/white-space:nowrap/);assert.match(buttons,/flex:0 0 auto/);assert.match(buttons,/min-height:44px/);
@@ -20,7 +31,8 @@ test('Email local specificity preserves one scroll row, fading edges, 44px tabs 
  for(const id of ['overview','schedule','preview','send','config','history']) assert.match(email,new RegExp(`id="email-tab-${id}" data-tab="${id}"`));
 });
 test('semantic success/error/warning text meets AA on actual light and dark card/KPI tones without changing bar pigments',()=>{
- for(const dark of [false,true]){const p=palette(dark);for(const name of ['green','red','amber','neutral','purple']){const fg=p[`--energy-value-${name}`];assert.ok(fg,`${name} semantic text token`);for(const bg of dark?['#16213e',p['--energy-kpi-tone'],p['--energy-kpi-tone-alt']]:['#ffffff',p['--energy-kpi-tone'],p['--energy-kpi-tone-alt'],'#eff6f3','#fef0f0','#fff7eb'])assert.ok(ratio(fg,bg)>=4.5,`${dark?'dark':'light'} ${name} ${fg}/${bg} must meet AA`);}}
+ for(const dark of [false,true]){const p=palette(dark);for(const name of ['green','red','amber','neutral','purple']){const fg=p[`--energy-value-${name}`];assert.ok(fg,`${name} semantic text token`);for(const bg of [p['--energy-card'],p['--energy-kpi-tone'],p['--energy-kpi-tone-alt']])assert.ok(ratio(fg,bg)>=4.5,`${dark?'dark':'light'} ${name} ${fg}/${bg} must meet AA`);}}
+ assert.match(options,/--energy-value-amber:var\(--hat-warn-text,var\(--_hat-warn-readout/);
  assert.doesNotMatch(email,/class="stat-value" style="color:#10B981"/i);
  assert.match(options,/\[data-status=success\]\{color:var\(--energy-value-green\)/);
  assert.match(options,/\[data-status=error\]\{color:var\(--energy-value-red\)/);
