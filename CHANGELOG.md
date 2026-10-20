@@ -2,6 +2,8 @@
 
 ## 4.0.0 (Unreleased)
 
+- Show the grid-import cost already recorded by HA Energy in analysis, Compact and HTML/text/CSV reports when no tariff book is configured. Keep current prices explicitly current-only, partial coverage distinct, and cost components and fixed fees unknown; preserve tariff-book calculations and source permissions.
+
 - Default new picker cards to Compact while preserving existing full cards. Keep native tariff tiles readable in narrow Sections columns, with a complete next-cheap clock, accessible product names and full calendar details. Compact summaries retain measured energy, usage cost and neutral unconfirmed intervals.
 - Use one schema-2 analysis service for calendar periods, historical tariff versions, measured group comparisons and reports read inside HA without SMTP. Keep roomless and unmeasured energy separate, household fixed fees separate from group usage, and existing legacy compatibility explicit.
 - Add reviewed dashboard placement with preview, explicit confirmation and guarded Undo through native Home Assistant dialogs. Preserve the dialog across Lovelace remounts and refuse to overwrite later dashboard changes.

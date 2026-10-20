@@ -12,7 +12,7 @@ Part of the [HA Tools](https://github.com/MacSiem/ha-tools-panel) collection for
 
 1. Select your grid-import meters in Home Assistant’s **Energy Dashboard**. Add the card from the dashboard’s **Add card** picker; no card YAML is required for the default view.
 2. Install and add **HA Tools Email 2.4+** for the current shared analysis and report APIs. SMTP is optional. Choose a period in **Overview**, **Tariff costs** or **Compare**. **Date and comparison** contains the calendar date and baseline choices.
-3. To see costs, an administrator saves an explicitly configured tariff in **Tariff settings**. Unavailable prices or measurements stay unavailable. Open **Data** or the named details for original precision and measurement bounds.
+3. If HA Energy already records your grid-import cost, the cards and reports show **Cost recorded in HA** automatically. An administrator can save a tariff under **Tariff settings** to calculate its energy charges, variable charges and fixed fees. Unavailable values stay unavailable. Open **Data** or the named details for original precision and measurement bounds.
 4. In **Energy Email → Preview**, choose **Day / Week / Month / Year**, an optional date and comparison, then press **Read report**. Read it inside HA or explicitly download HTML, text or CSV. You do not need an email account or recipient.
 5. To receive email, configure SMTP under **Settings → Devices & services → HA Tools Email → Configure**, then use **Send Now** or explicitly save a **Schedule**. Reading a report never sends mail or enables a schedule. Report access follows the administrator’s saved policy; existing defaults remain until explicitly changed.
 
@@ -28,7 +28,7 @@ The sections below also describe supported older integration APIs. Only an expli
 
 1. Current schema-2 views request shared analysis from HA Tools Email. Its server reads Energy Dashboard preferences, validates Recorder metadata and uses measured hourly changes. Older compatible backends use the documented Recorder path in the cards. Solar production, grid export, power sensors in watts and unrelated statistics do not become grid-import totals.
 2. Complete usage totals require every configured source and completed hourly bucket in the selected window. Insights and the Email overview retain available measured rows and clearly label partial coverage; recorded subsets never become complete totals or prices. Missing or invalid measurements remain gaps. No demo numbers are shown.
-3. Costs require **HA Tools Email 2.4.0+** and use its shared tariff engine over measured hourly import and an explicitly configured tariff. Energy, variable charges and fixed monthly charges are separate; this is not a complete utility bill. The tariff supplies its own currency, clock and gross/net basis. There is no load-shifting slider or hypothetical saving.
+3. Costs require **HA Tools Email 2.4.0+**. A configured tariff uses the shared tariff engine over measured hourly import, with its own currency, clock and gross/net basis. Without a tariff book, recorded grid-import costs from HA Energy appear as **Cost recorded in HA**, in the recorded currency. A complete amount requires every source-hour; available subsets stay partial. Its breakdown, fixed fees and gross/net basis remain unknown. Configured current prices are labelled **now** and never reprice history. Energy, variable charges and fixed monthly charges remain separate; the result is not a complete utility bill.
 4. Live power is shown only if you set `power_entity`; the card does not sum overlapping power sensors.
 5. Chart.js is bundled in the single HACS JavaScript file. There is no CDN request or extra Lovelace resource.
 
@@ -179,8 +179,14 @@ confirm inbox delivery; an occupied send is never automatically retried.
 ## Screenshots
 
 These unedited native Home Assistant browser captures use synthetic Recorder statistics and a
-sample EUR tariff. They contain no household data or real recipients. The cards
+sample EUR tariff or an independently recorded EUR import-cost series. They contain no household data or real recipients. The cards
 follow Home Assistant's light/dark theme and date/time preferences.
+
+| Native HA cost, Polish light | Native HA cost in Compact, English dark |
+|---|---|
+| ![Optimizer shows 234 kWh and 58.50 EUR recorded by HA Energy, without a tariff book](docs/screenshots/native-ha-cost-pl-light.png) | ![Compact cards show 130 kWh and 32.50 EUR recorded by HA at 183-pixel card width](docs/screenshots/native-ha-cost-en-compact.png) |
+
+These captures use the same recorded cost source without a tariff book or SMTP. The Polish analysis covers the completed 19 October 2026: 234 kWh and 58.50 EUR. The English Compact cards cover 20 October through 13:00 Europe/Warsaw: 130 kWh and 32.50 EUR. At a 390 px viewport their 183 px cards are 246 px high, with 44 px actions and 12 px metadata. Cost components and fixed fees remain unknown; no tariff-zone classification is inferred from the recorded cost. These are HA browser views, with no inbox-delivery claim.
 
 | Current compact and tile views, Polish dark | Narrow tariff tile, English light |
 |---|---|
