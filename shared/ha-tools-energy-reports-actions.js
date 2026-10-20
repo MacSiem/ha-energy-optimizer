@@ -3,6 +3,12 @@
 function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>false,isModelBusy=()=>false,onChange=()=>{},format=null,createSchedules=typeof createHaToolsEmailSchedules==='function'?createHaToolsEmailSchedules:null}){
  const copy=v=>v==null?v:JSON.parse(JSON.stringify(v)),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const pl=()=>String(card._hass?.locale?.language||card._hass?.language||'en').startsWith('pl'),t=(en,polish)=>pl()?polish:en;
+ const channelLabels=()=>({email:t('Email','E-mail'),persistent_notification:t('HA notification','Powiadomienie HA'),'notify.persistent_notification':t('HA notification','Powiadomienie HA'),'notify.send_message':t('HA message','Wiadomość HA')});
+ const channelLabel=(id,name)=>{
+  const supplied=name??state.targets.find(target=>target.id===id)?.name;
+  if(supplied&&supplied!==id)return supplied;
+  const labels=channelLabels();return Object.hasOwn(labels,id)?labels[id]:supplied||id;
+ };
  const cadenceLabel=c=>({daily:t('Daily','Dzienny'),weekly:t('Weekly','Tygodniowy'),monthly:t('Monthly','Miesięczny')}[c]||String(c||''));
  const weekdays=()=>[t('Monday','Poniedziałek'),t('Tuesday','Wtorek'),t('Wednesday','Środa'),t('Thursday','Czwartek'),t('Friday','Piątek'),t('Saturday','Sobota'),t('Sunday','Niedziela')];
  const grants=()=>getCapabilities()?.energy_reports,readable=()=>grants()?.visible===true&&grants()?.read===true;
@@ -21,9 +27,29 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
  function observe(){if(getCapabilities()?.energy_reports)knownGrants=copy(getCapabilities().energy_reports);const next=context();if(!same(identity,next)){identity=next;clear();}return available();}
  function stop(){identity=null;knownGrants=null;clear();unwire?.();unauthority?.();unwire=unauthority=null;root=null;}
  function storeChanged(){if(!store||!available())return;if(!store.model().draft)scheduleReview=null;state.schedules=store.model().rows.filter(r=>r.kind==='energy_report').map(r=>({...r,channel:(r.channels||['email']).join(', '),editable:true}));emit();}
+ // An ACK is not readback. Keep an accepted write associated while a secured
+ // update refreshes model grants; subsequent reads wait and require fresh grants.
+ const associated=(e,token)=>e===epoch&&isActive()&&card.isConnected&&card.preview!==true&&same(identity,context())&&guard.current(token);
+ function acquireScheduleRead(e,token){
+  return new Promise(resolve=>{
+   let finished=false,unwire=()=>{},unauthority=()=>{};
+   const finish=owner=>{if(finished)return;finished=true;unwire();unauthority();resolve(owner);};
+   const check=()=>{
+    if(finished)return;
+    if(!associated(e,token)){finish(null);return;}
+    if(isModelBusy()||guard.occupied())return;
+    if(!current(e,token)){finish(null);return;}
+    try{finish(guard.reserve?.(token)||{release:()=>{}});}catch(_){finish(null);}
+   };
+   unwire=guard.subscribeWire(check);unauthority=guard.subscribe(check);check();
+  });
+ }
  async function protectedCall(request){
   const e=epoch,token=guard.snapshot(),admin=card._hass?.user?.is_admin===true;
-  if(!current(e,token)||!admin||guard.occupied())throw {code:'stale_context'};
+  let owner=null;
+  const readback=['manifest/get','ha_tools_email/list_schedules'].includes(request.type);
+  if(readback&&(isModelBusy()||guard.occupied()))owner=await acquireScheduleRead(e,token);
+  if(!current(e,token)||!admin||(!owner&&guard.occupied())){owner?.release();throw {code:'stale_context'};}
   if(request.type==='ha_tools_email/set_schedule'){
    if(!executable())throw {code:'unauthorized'};
    const caps=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
@@ -40,9 +66,11 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
    }
 
   }
-  const result=await guard.call(token,request,true);
-  if(!current(e,token))throw {code:'stale_context'};
-  return result;
+  try{
+   const result=await guard.call(token,request,true,owner);
+   if(!(request.type==='ha_tools_email/set_schedule'?associated(e,token):current(e,token)))throw {code:'stale_context'};
+   return result;
+  }finally{owner?.release();}
  }
  function schedules(){
   if(store||!createSchedules||card._hass?.user?.is_admin!==true)return store;
@@ -125,7 +153,9 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   observe();const sm=store?.model();
   if(!executable()||raw||guard.occupied()||!scheduleReview||scheduleReview.consumed||!sm?.draft||sm.reading||sm.writing||sm.locked)return false;
   if(scheduleReview.signature!==JSON.stringify({draft:sm.draft,recipients:store.recipientModel()||[]})){scheduleReview=null;emit();return false;}
-  scheduleReview.consumed=true;emit();await store.save();return store.model().status.state==='success';
+  const scheduleStore=store;
+  scheduleReview.consumed=true;emit();await scheduleStore.save();
+  return store===scheduleStore&&executable()&&scheduleStore.model().status.state==='success';
  }
  function scheduleAction(action,id){
   observe();if(!executable()||raw||guard.occupied())return false;
@@ -160,8 +190,8 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   if(form){
    const locked=form.consumed||raw!==null;
    html+=`<fieldset><legend>${t('Send a new energy report','Wyślij nowy raport energii')}</legend><p>${t('Previous completed calendar period. This does not send the selected historical preview.','Poprzedni zakończony okres kalendarzowy. Nie wysyła wybranego podglądu historycznego.')}</p>`;
-   if(form.phase==='review')html+=`<p>${esc(cadenceLabel(form.cadence))} · ${esc(form.channel)}${form.channel==='email'?' · '+esc(form.recipients):''}</p>${button('confirm',t('Confirm send once','Potwierdź jedną wysyłkę'),locked)}${button('edit-send',t('Edit','Edytuj'),locked)}`;
-   else html+=`<label>${t('Channel','Kanał')}<select data-report-field="channel"><option value="">${t('Choose a channel','Wybierz kanał')}</option>${state.targets.map(r=>`<option value="${esc(r.id)}" ${r.id===form.channel?'selected':''}>${esc(r.name)}</option>`).join('')}</select></label><label>${t('Period','Okres')}<select data-report-field="cadence">${['daily','weekly','monthly'].map(c=>`<option value="${c}" ${form.cadence===c?'selected':''}>${esc(cadenceLabel(c))}</option>`).join('')}</select></label>${field('recipients',t('Email recipients (used only for email)','Odbiorcy e-mail (tylko dla kanału e-mail)'),'text',form.recipients)}${button('review',t('Review delivery','Sprawdź wysyłkę'),locked||!form.channel)}`;
+   if(form.phase==='review')html+=`<p>${esc(cadenceLabel(form.cadence))} · ${esc(channelLabel(form.channel))}${form.channel==='email'?' · '+esc(form.recipients):''}</p>${button('confirm',t('Confirm send once','Potwierdź jedną wysyłkę'),locked)}${button('edit-send',t('Edit','Edytuj'),locked)}`;
+   else html+=`<label>${t('Channel','Kanał')}<select data-report-field="channel"><option value="">${t('Choose a channel','Wybierz kanał')}</option>${state.targets.map(r=>`<option value="${esc(r.id)}" ${r.id===form.channel?'selected':''}>${esc(channelLabel(r.id,r.name))}</option>`).join('')}</select></label><label>${t('Period','Okres')}<select data-report-field="cadence">${['daily','weekly','monthly'].map(c=>`<option value="${c}" ${form.cadence===c?'selected':''}>${esc(cadenceLabel(c))}</option>`).join('')}</select></label>${field('recipients',t('Email recipients (used only for email)','Odbiorcy e-mail (tylko dla kanału e-mail)'),'text',form.recipients)}${button('review',t('Review delivery','Sprawdź wysyłkę'),locked||!form.channel)}`;
    html+=button('cancel',t('Cancel','Anuluj'),locked)+'</fieldset>';
   }
   const sm=store?.model(),d=sm?.draft;
@@ -170,9 +200,9 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
    const selected=d.channels||['email'],missing=selected.filter(id=>!state.targets.some(target=>target.id===id));
    if(scheduleReview){
     const plan=scheduleReview,channels=plan.draft.channels||['email'];
-    html+=`<fieldset><legend>${t('Review recurring report','Sprawdź raport cykliczny')}</legend><p>${esc(cadenceLabel(plan.draft.cadence))} · ${esc(plan.draft.time)} · ${esc(plan.draft.timezone||card._hass?.config?.time_zone||'HA')} · ${plan.draft.enabled?t('Enabled','Włączony'):t('Disabled','Wyłączony')}</p>${plan.draft.cadence==='weekly'?`<p>${t('Weekday','Dzień tygodnia')}: ${esc(weekdays()[plan.draft.weekday])}</p>`:plan.draft.cadence==='monthly'?`<p>${t('Day of month','Dzień miesiąca')}: ${esc(plan.draft.month_day)}</p>`:''}<p>${esc(channels.join(', '))}</p>${channels.includes('email')?`<p>${esc(plan.recipients.join(', '))}</p>`:''}${button('confirm-schedule',t('Confirm schedule save','Potwierdź zapis harmonogramu'),plan.consumed||sm.writing||sm.reading||sm.locked)}${button('edit-schedule',t('Edit','Edytuj'),sm.writing||sm.locked)}${button('cancel-schedule',t('Cancel','Anuluj'),sm.writing)}</fieldset>`;
+    html+=`<fieldset><legend>${t('Review recurring report','Sprawdź raport cykliczny')}</legend><p>${esc(cadenceLabel(plan.draft.cadence))} · ${esc(plan.draft.time)} · ${esc(plan.draft.timezone||card._hass?.config?.time_zone||'HA')} · ${plan.draft.enabled?t('Enabled','Włączony'):t('Disabled','Wyłączony')}</p>${plan.draft.cadence==='weekly'?`<p>${t('Weekday','Dzień tygodnia')}: ${esc(weekdays()[plan.draft.weekday])}</p>`:plan.draft.cadence==='monthly'?`<p>${t('Day of month','Dzień miesiąca')}: ${esc(plan.draft.month_day)}</p>`:''}<p>${esc(channels.map(id=>channelLabel(id)).join(', '))}</p>${channels.includes('email')?`<p>${esc(plan.recipients.join(', '))}</p>`:''}${button('confirm-schedule',t('Confirm schedule save','Potwierdź zapis harmonogramu'),plan.consumed||sm.writing||sm.reading||sm.locked)}${button('edit-schedule',t('Edit','Edytuj'),sm.writing||sm.locked)}${button('cancel-schedule',t('Cancel','Anuluj'),sm.writing)}</fieldset>`;
    }else{
-    html+=`<fieldset><legend>${t('Recurring energy report','Cykliczny raport energii')}</legend><label>${t('Channels (select one or more)','Kanały (wybierz co najmniej jeden)')}<select multiple data-schedule-channels>${state.targets.map(target=>`<option value="${esc(target.id)}" ${selected.includes(target.id)?'selected':''}>${esc(target.name)}</option>`).join('')}</select></label>${missing.length?`<p role="status">${t('Unavailable selected targets; choose current targets: ','Niedostępne wybrane cele; wybierz aktualne cele: ')}${esc(missing.join(', '))}</p>`:''}<label>${t('Cadence','Częstotliwość')}<select data-schedule-field="cadence">${['daily','weekly','monthly'].map(c=>`<option value="${c}" ${d.cadence===c?'selected':''}>${esc(cadenceLabel(c))}</option>`).join('')}</select></label>${entry('time',t('Time','Godzina'),'time')}${entry('timezone',t('Time zone (empty: HA)','Strefa czasu (pusta: HA)'))}${d.cadence==='weekly'?`<label>${t('Weekday','Dzień tygodnia')}<select data-schedule-field="weekday">${weekdays().map((label,index)=>`<option value="${index}" ${d.weekday===index?'selected':''}>${esc(label)}</option>`).join('')}</select></label>`:d.cadence==='monthly'?entry('month_day',t('Day of month 1–31','Dzień miesiąca 1–31'),'number'):''}<label><input type="checkbox" data-schedule-field="enabled" ${d.enabled?'checked':''}>${t('Enabled','Włączony')}</label>${selected.includes('email')?`<label>${t('Email recipients','Odbiorcy e-mail')}<input data-schedule-recipients value="${esc((store.recipientModel()||[]).join(', '))}"></label>`:''}${button('save-schedule',t('Review schedule','Sprawdź harmonogram'),sm.writing||sm.reading||sm.locked)}${button('cancel-schedule',t('Cancel','Anuluj'),sm.writing)}</fieldset>`;
+    html+=`<fieldset><legend>${t('Recurring energy report','Cykliczny raport energii')}</legend><label>${t('Channels (select one or more)','Kanały (wybierz co najmniej jeden)')}<select multiple data-schedule-channels>${state.targets.map(target=>`<option value="${esc(target.id)}" ${selected.includes(target.id)?'selected':''}>${esc(channelLabel(target.id,target.name))}</option>`).join('')}</select></label>${missing.length?`<p role="status">${t('Unavailable selected targets; choose current targets: ','Niedostępne wybrane cele; wybierz aktualne cele: ')}${esc(missing.map(id=>channelLabel(id)).join(', '))}</p>`:''}<label>${t('Cadence','Częstotliwość')}<select data-schedule-field="cadence">${['daily','weekly','monthly'].map(c=>`<option value="${c}" ${d.cadence===c?'selected':''}>${esc(cadenceLabel(c))}</option>`).join('')}</select></label>${entry('time',t('Time','Godzina'),'time')}${entry('timezone',t('Time zone (empty: HA)','Strefa czasu (pusta: HA)'))}${d.cadence==='weekly'?`<label>${t('Weekday','Dzień tygodnia')}<select data-schedule-field="weekday">${weekdays().map((label,index)=>`<option value="${index}" ${d.weekday===index?'selected':''}>${esc(label)}</option>`).join('')}</select></label>`:d.cadence==='monthly'?entry('month_day',t('Day of month 1–31','Dzień miesiąca 1–31'),'number'):''}<label><input type="checkbox" data-schedule-field="enabled" ${d.enabled?'checked':''}>${t('Enabled','Włączony')}</label>${selected.includes('email')?`<label>${t('Email recipients','Odbiorcy e-mail')}<input data-schedule-recipients value="${esc((store.recipientModel()||[]).join(', '))}"></label>`:''}${button('save-schedule',t('Review schedule','Sprawdź harmonogram'),sm.writing||sm.reading||sm.locked)}${button('cancel-schedule',t('Cancel','Anuluj'),sm.writing)}</fieldset>`;
    }
 
   }
