@@ -5034,7 +5034,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     } finally { this._syncDashboardPlacementV53(); }
   };
   Card.prototype.getGridOptions = function() {
-    if (simple(this)) return variant(this._config) === 'tile' ? {columns:6,rows:1,min_columns:6,min_rows:1} : {columns:12,rows:4,min_columns:6,min_rows:2,max_rows:4};
+    if (simple(this)) return variant(this._config) === 'tile' ? {columns:6,rows:1,min_columns:6} : {columns:12,rows:'auto',min_columns:6};
     return {columns:variant(this._config || {}) === 'legacy' ? 6 : 12,min_columns:3,min_rows:variant(this._config || {}) === 'legacy' ? 2 : 3};
   };
   const originalSize = Card.prototype.getCardSize;
@@ -5049,8 +5049,32 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]{flex:1 1 100%;width:100%}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer>summary{min-height:44px;padding:12px 8px;font-size:14px}
 .optimizer-heading>[data-energy-options-help].energy-options-help-optimizer[open]>p{margin:0 0 8px}`;
-  const simpleStyle = `:host{display:block;min-width:0;--energy-simple-cheap:#1baf7a;--energy-simple-expensive:#2a78d6}:host(.bento-dark){--energy-simple-cheap:#199e70;--energy-simple-expensive:#3987e5} [data-energy-simple]{box-sizing:border-box;display:grid;gap:8px;padding:12px;color:var(--primary-text-color);background:var(--ha-card-background,var(--card-background-color));border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);font-size:14px;min-width:0;overflow-wrap:anywhere} [data-energy-simple] h2,[data-energy-simple] p{margin:0;font-size:14px;line-height:20px} [data-energy-simple] h2{display:flex;align-items:center;gap:8px} [data-energy-simple] ha-icon{color:var(--primary-color);flex-shrink:0} [data-energy-primary]{font-size:24px;line-height:32px;font-weight:600} [data-energy-secondary]{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;line-height:18px} [data-energy-simple] button,[data-energy-back]{min-height:44px;min-width:44px;padding:8px 12px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit;font-size:14px;cursor:pointer} [data-energy-simple] button:focus-visible,[data-energy-back]:focus-visible{outline:3px solid var(--primary-color);outline-offset:2px} [data-energy-simple=tile]{grid-template-columns:minmax(0,1fr) auto;gap:4px;padding:4px 6px;min-height:56px} [data-energy-simple=tile] h2{font-size:14px;min-width:0} [data-energy-simple=tile] [data-energy-name],[data-energy-simple=tile] [data-energy-primary]{overflow:hidden;white-space:nowrap;text-overflow:ellipsis} [data-energy-simple=tile] [data-energy-primary]{font-size:12px;line-height:16px} [data-energy-simple=tile] button{grid-column:2;grid-row:1 / 3;width:44px;height:44px;align-self:center;padding:8px;font-size:24px;line-height:24px} [data-energy-simple=tile] ha-icon{--mdc-icon-size:20px} [data-energy-simple=compact]{grid-template-columns:minmax(0,1fr) auto;gap:6px 8px} [data-energy-simple=compact] h2,[data-energy-simple=compact] [data-energy-secondary],[data-energy-simple=compact] [data-energy-zone-wrapper],[data-energy-simple=compact] button{grid-column:1 / -1} [data-energy-simple=compact] [data-energy-primary]{grid-column:1;grid-row:2} [data-energy-simple=compact] [data-energy-primary-label]{grid-column:2;grid-row:2;align-self:center;font-size:12px;line-height:18px} [data-energy-zone-wrapper] p{font-size:12px;line-height:16px;margin:0 0 4px} [data-energy-zonebar]{position:relative;height:10px;overflow:hidden;border:1px solid var(--divider-color);border-radius:4px;background:var(--disabled-color,var(--secondary-background-color))} [data-energy-zonebar] span{position:absolute;inset-block:0} [data-energy-zone=cheap]{background:var(--energy-simple-cheap)} [data-energy-zone=expensive]{background:var(--energy-simple-expensive)} [data-energy-zone=mixed]{background:var(--info-color,var(--primary-color))} [data-energy-zone=unknown]{background:var(--disabled-color,var(--secondary-background-color))}`;
+  const simpleStyle = `:host{display:block;min-width:0;container-type:inline-size;container-name:energy-simple-card;--energy-simple-cheap:var(--hat-zone-cheap,#1baf7a);--energy-simple-expensive:var(--hat-zone-exp,#2a78d6)}
+:host(.bento-dark){--energy-simple-cheap:var(--hat-zone-cheap,#199e70);--energy-simple-expensive:var(--hat-zone-exp,#3987e5)}
+[data-energy-simple]{box-sizing:border-box;display:grid;gap:8px;min-width:0;color:var(--primary-text-color);font-size:14px;cursor:pointer}
+[data-energy-simple] h2,[data-energy-simple] p{margin:0} [data-energy-simple] h2{font-size:16px;line-height:22px;font-weight:600;min-width:0} [data-energy-name]{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-energy-simple] ha-icon{display:flex;align-items:center;justify-content:center;flex:none;width:36px;height:36px;border-radius:50%;--mdc-icon-size:20px;color:var(--primary-color);background:color-mix(in srgb,currentColor 14%,transparent)}
+[data-energy-heading]{display:flex;align-items:center;gap:12px;min-width:0} [data-energy-heading-text]{flex:1;min-width:0}
+[data-energy-primary-label]{font-size:12px;line-height:16px;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-energy-primary]{font-size:28px;line-height:34px;font-weight:600;letter-spacing:-.01em;font-variant-numeric:tabular-nums} [data-energy-unit]{font-size:14px;line-height:20px;font-weight:400;letter-spacing:normal;color:var(--secondary-text-color)}
+[data-energy-simple] button,[data-energy-back]{min-height:44px;min-width:44px;padding:8px 12px;border:1px solid var(--divider-color);border-radius:var(--ha-card-border-radius,12px);background:var(--secondary-background-color);color:var(--primary-text-color);font:inherit;font-size:14px;cursor:pointer}
+[data-energy-simple]:focus-visible,[data-energy-simple] button:focus-visible,[data-energy-back]:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+[data-energy-simple=tile]{height:56px;grid-template-columns:36px minmax(0,1fr);column-gap:12px;row-gap:0;align-items:center;padding:0 8px 0 12px}
+[data-energy-report-status][data-energy-simple=tile]{grid-template-columns:36px minmax(0,1fr) auto} [data-energy-simple=tile] [data-energy-heading]{display:contents} [data-energy-simple=tile] h2{font-size:14px;line-height:20px;font-weight:500}
+[data-energy-simple=tile] [data-energy-primary]{font-size:12px;line-height:16px;font-weight:400;letter-spacing:normal;color:var(--secondary-text-color);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+[data-energy-state-short]{display:none} [data-energy-simple=tile] button{position:relative;height:36px;min-height:36px;min-width:36px;padding:0 10px;border:0;border-radius:999px} [data-energy-simple=tile] button:after{content:'';position:absolute;inset:-4px}
+[data-energy-simple=compact]{padding:12px 16px 16px;max-height:248px;overflow:hidden} [data-energy-values]{display:flex;align-items:baseline;gap:8px;min-width:0} [data-energy-cost]{font-size:20px;line-height:26px;font-weight:600;font-variant-numeric:tabular-nums} [data-energy-comparison]{margin-inline-start:auto;max-width:46%;font-size:12px;line-height:16px;text-align:end;color:var(--secondary-text-color)}
+[data-energy-report-status] [data-energy-cost]{font-size:12px;line-height:16px;font-weight:400} [data-energy-report-status] [data-energy-comparison]{margin:0;max-width:none;text-align:start} [data-energy-secondary]{display:flex;flex-wrap:wrap;gap:4px 16px;font-size:12px;line-height:16px} [data-energy-zone-wrapper] p{font-size:12px;line-height:16px;margin:0 0 4px}
+[data-energy-zonebar]{position:relative;height:10px;overflow:hidden;border:1px solid var(--divider-color);border-radius:4px;background:var(--disabled-color,var(--secondary-background-color))} [data-energy-zonebar] span{position:absolute;inset-block:0} [data-energy-zone=cheap]{background:var(--energy-simple-cheap)} [data-energy-zone=expensive]{background:var(--energy-simple-expensive)} [data-energy-zone=mixed]{background:var(--info-color,var(--primary-color))} [data-energy-zone=unknown]{background:var(--disabled-color,var(--secondary-background-color))}
+[data-energy-zone-legend]{display:flex;gap:12px;flex-wrap:wrap;color:var(--secondary-text-color);font-size:12px;line-height:16px} [data-energy-zone-legend] span:before{content:'';display:inline-block;width:8px;height:8px;margin-inline-end:4px;background:var(--disabled-color)} [data-energy-zone-legend] [data-zone=cheap]:before{background:var(--energy-simple-cheap)} [data-energy-zone-legend] [data-zone=expensive]:before{background:var(--energy-simple-expensive)}`;
+  const canOpen = host => {
+    const config = host._config || {};
+    if (!host.isConnected || host.preview === true || host._hass?.user?.is_active === false || !simple(host)) return false;
+    const guard = host._getTariffHostV3().guard, token = guard.snapshot();
+    return guard.available(token) && guard.current(token) && (config.tap_target !== 'more-info' || !!host._hass?.states?.[config.entity]);
+  };
   const open = host => {
+    if (!canOpen(host)) return;
     const config = host._config || {};
     if (config.tap_target === 'energy') {
       // Fixed HA route only: configuration cannot supply a URL.
@@ -5140,7 +5164,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       const fields = Object.fromEntries(parts.map(part => [part.type,part.value]));
       if (`${fields.year}-${fields.month}-${fields.day}` !== day(p.local_start)) return null;
     } catch (_) { return null; }
-    return {percent:c.percent,cutoff:p.end};
+    return {percent:c.percent,cutoff:p.end,baseline:c.baseline_kwh};
   };
   const paintZoneBar = (bar, analysis, host, format) => {
     if (!bar) return;
@@ -5185,29 +5209,16 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     bar.setAttribute('aria-label',[note,...descriptions,observed < end ? t(host,'Remaining time: Unknown','Pozostały czas: brak danych') : ''].filter(Boolean).join(' '));
   };
   const compactActionsStyle = '[data-energy-simple=compact] [data-energy-actions]{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}[data-energy-simple=compact] [data-energy-actions] button{flex:1 1 120px;min-width:0}';
-  const reportStatusStyle = '[data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}[data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:8em;font-size:12px;line-height:18px}';
-  // Six native HA columns can be only183px wide at a390px viewport.
-  // Stack the primary label and use the full line for secondary facts.
-  const narrowSimpleStyle = `:host{container-type:inline-size;container-name:energy-simple-card}
-  [data-energy-tariff-tile] [data-energy-tile-zone]{display:none}
-  @container energy-simple-card (max-width:180px){
-    [data-energy-tariff-tile] [data-energy-name],[data-energy-tariff-tile] [data-energy-tile-current]{display:none}
-    [data-energy-tariff-tile] h2{gap:4px}
-    [data-energy-tariff-tile] h2 ha-icon{--mdc-icon-size:16px}
-    [data-energy-tariff-tile] [data-energy-tile-zone]{display:inline;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  const reportStatusStyle = '[data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}';
+  const narrowSimpleStyle = `@container energy-simple-card (max-width:279px){
+    [data-energy-state-long]{display:none} [data-energy-state-short]{display:inline}
+  }
+  @container energy-simple-card (max-width:219px){
+    [data-energy-simple=tile] button{display:none}
   }
   @container energy-simple-card (max-width:320px){
-    [data-energy-simple=compact]{grid-template-columns:minmax(0,1fr);gap:4px;padding:8px}
-    [data-energy-simple=compact] h2{min-width:0;line-height:18px}
-    [data-energy-simple=compact] [data-energy-name]{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-    [data-energy-simple=compact] [data-energy-primary]{grid-column:1;grid-row:2;font-size:22px;line-height:28px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-    [data-energy-simple=compact] [data-energy-primary-label]{grid-column:1;grid-row:3;justify-self:start;line-height:16px}
-    [data-energy-simple=compact] [data-energy-secondary]{display:grid;gap:0;font-size:12px;line-height:16px}
-    [data-energy-report-status][data-energy-simple=compact]{padding:6px;gap:2px}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:none;line-height:16px}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions]{flex-wrap:nowrap}
-    [data-energy-report-status][data-energy-simple=compact] [data-energy-actions] button{flex:1 1 0;min-width:44px;padding-inline:4px}
+    [data-energy-values]{flex-wrap:wrap} [data-energy-comparison]{max-width:100%;flex-basis:100%;text-align:start;margin-inline-start:0}
+    [data-energy-report-status] [data-energy-actions] button{flex:1 1 0;min-width:44px;padding-inline:4px}
   }`;
 
   const emailStatusFor = host => host._emailStatusV100 ||= (() => {
@@ -5280,7 +5291,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const recipients = attempt?.recipient_count !== null && attempt?.recipient_count !== undefined ? format.number(attempt.recipient_count) : unknown;
     const numeric = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '') && Number.isFinite(Number(value));
     const total = analysis?.totals, elapsed = elapsedComparison(analysis);
-    const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${format.number(total.kwh,{maximumFractionDigits:2})} kWh` : unknown;
+    const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${format.number(total.kwh,{minimumFractionDigits:1,maximumFractionDigits:1})} kWh` : unknown;
     const native = !analysis?.active_tariff_id && analysis?.native_pricing?.source === 'ha_energy' && analysis?.native_pricing?.schema === 1 ? analysis.native_pricing.period_cost : null;
     const nativeReady = native?.status === 'ready' && native.coverage?.complete === true && numeric(native.amount) && /^[A-Z]{3}$/.test(native.currency || '');
     const bookReady = total?.pricing_complete === true && numeric(total.usage_cost) && /^[A-Z]{3}$/.test(total.currency || '');
@@ -5299,10 +5310,20 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span>${tariffTile ? '<span data-energy-tile-zone></span>' : ''}</h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
+      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><ha-card data-energy-simple="${mode}" role="button" tabindex="0"${!email ? ' data-energy-open' : ''}><div data-energy-heading><ha-icon aria-hidden="true"></ha-icon><div data-energy-heading-text><h2><span data-energy-name></span></h2>${mode === 'compact' ? '<p data-energy-primary-label></p>' : '<div data-energy-primary role="status"></div>'}</div></div>${mode === 'compact' ? email ? '<div data-energy-primary role="status"></div><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : '<div data-energy-values><div data-energy-primary role="status"></div><span data-energy-cost></span><span data-energy-comparison></span></div><div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div><div data-energy-zone-legend></div></div>' : ''}${email ? mode === 'compact' ? '<div data-energy-actions><button type="button" data-energy-open></button></div>' : '<button type="button" data-energy-open></button>' : ''}</ha-card>`;
       section = root.querySelector('[data-energy-simple]');
-      section.querySelector('button').addEventListener('click', () => open(host));
-      section.querySelector('button').addEventListener('keydown', event => {
+      section.addEventListener('click', event => {
+        if (event.target.closest?.('button,a,input,select,textarea')) return;
+        open(host);
+      });
+      section.addEventListener('keydown', event => {
+        if (event.target !== section || !['Enter',' '].includes(event.key)) return;
+        event.preventDefault();
+        if (!event.repeat) open(host);
+      });
+      const openButton = section.querySelector('[data-energy-open]');
+      openButton?.addEventListener('click', () => open(host));
+      openButton?.addEventListener('keydown', event => {
         if (['Enter',' '].includes(event.key) && !event.repeat) { event.preventDefault(); event.currentTarget.click(); }
       });
     }
@@ -5325,44 +5346,64 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       send.disabled = grant.execute !== true || reportState.busy || host._getTariffHostV3().guard.occupied();
     }
     const icon = section.querySelector('ha-icon');
-    icon.setAttribute('icon', email ? 'mdi:email-outline' : 'mdi:lightning-bolt');
+    icon.setAttribute('icon', email ? 'mdi:email-fast-outline' : 'mdi:lightning-bolt');
     const tone = snapshot?.status !== 'unavailable' && snapshot?.current?.available === true ? snapshot.current.zone_class : null;
     icon.style.color = {cheap:'var(--energy-simple-cheap)',expensive:'var(--energy-simple-expensive)',mixed:'var(--warning-color,var(--primary-color))'}[tone] || 'var(--primary-color)';
-    section.querySelector('[data-energy-name]').textContent = config.title ?? title;
-    section.querySelector('[data-energy-name]').title = config.title ?? title;
+    const surfaceName = config.title && config.title !== title ? config.title : email ? t(host,'Energy report','Raport energii') : mode === 'compact' ? t(host,'Energy today','Energia dziś') : t(host,'Energy','Energia');
+    section.querySelector('[data-energy-name]').textContent = surfaceName;
+    section.querySelector('[data-energy-name]').title = surfaceName;
     const primary = section.querySelector('[data-energy-primary]');
     const shortReport = report?.schedule_state === 'enabled' && report.next_report_at ? `${format.date(report.next_report_at,true)} · ${format.clock(report.next_report_at)}` : unknown;
-    if (tariffTile) {
-      let current = primary.querySelector('[data-energy-tile-current]');
-      let clock = primary.querySelector('[data-energy-tile-next]');
-      if (!current || !clock) {
-        current = document.createElement('span'); current.dataset.energyTileCurrent = '';
-        clock = document.createElement('span'); clock.dataset.energyTileNext = '';
-        primary.replaceChildren(current,clock);
+    if (mode === 'tile') {
+      let long = primary.querySelector('[data-energy-state-long]'), short = primary.querySelector('[data-energy-state-short]');
+      if (!long || !short) {
+        long = document.createElement('span'); long.dataset.energyStateLong = '';
+        short = document.createElement('span'); short.dataset.energyStateShort = '';
+        primary.replaceChildren(long,short);
       }
-      current.textContent = `${zone} · `;
-      clock.textContent = nextKnown ? format.clock(next.start) || unknown : nextLabel;
-      section.querySelector('[data-energy-tile-zone]').textContent = zone;
-      section.querySelector('h2').setAttribute('aria-label',`${config.title ?? title} · ${zone}`);
-      section.querySelector('h2').title = config.title ?? title;
-    } else primary.textContent = email ? mode === 'tile' ? shortReport : nextReport : energy;
+      const nextShort = nextKnown ? `${t(host,'Cheap from','Tania od')} ${format.clock(next.start) || unknown}` : nextLabel;
+      long.textContent = email ? shortReport : `${zone} · ${nextShort}`;
+      short.textContent = email ? shortReport : nextShort;
+    } else if (email) primary.textContent = nextReport;
+    else {
+      primary.replaceChildren(document.createTextNode(total?.measurement_complete !== false && numeric(total?.kwh) ? format.number(total.kwh,{minimumFractionDigits:1,maximumFractionDigits:1}) + ' ' : unknown));
+      if (energy !== unknown) { const unit = document.createElement('span'); unit.dataset.energyUnit = ''; unit.textContent = 'kWh'; primary.append(unit); }
+    }
     primary.title = email ? `${t(host,'Scheduled report','Zaplanowany raport')}: ${nextReport}` : mode === 'tile' ? `${zone} · ${nextKnown ? t(host,'Cheap from','Tania od') + ' ' : ''}${nextLabel}` : primary.textContent;
     primary.setAttribute('aria-label',primary.title);
     if (mode === 'compact') {
-      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Scheduled report','Zaplanowany raport') : t(host,'Energy today','Energia dziś');
-      section.querySelector('[data-energy-cost]').textContent = email ? `${t(host,'Last attempt','Ostatnia próba')}: ${lastAttempt}` : `${!bookReady && nativeReady ? t(host,'Cost recorded in HA','Koszt zapisany w HA') : t(host,'Usage cost','Koszt zużycia')}: ${money}`;
+      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Scheduled report','Zaplanowany raport') : analysis?.period?.end ? `${t(host,'Through','Do')} ${format.clock(analysis.period.end) || unknown}` : unknown;
+      section.querySelector('[data-energy-cost]').textContent = email ? `${t(host,'Last attempt','Ostatnia próba')}: ${lastAttempt}` : money;
       const costLine = section.querySelector('[data-energy-cost]');
-      costLine.title = !email && !bookReady && nativeReady ? `${costLine.textContent}. ${t(host,'Source: Home Assistant Energy. Cost breakdown and fixed fees are unknown; this is not a complete bill.','Źródło: Home Assistant Energy. Rozbicie kosztu i opłaty stałe są nieznane; to nie jest pełny rachunek.')}` : costLine.textContent;
+      if (!email && money !== unknown) {
+        const currency = bookReady ? total.currency : native.currency;
+        costLine.replaceChildren(document.createTextNode(money.slice(0,-currency.length)));
+        const unit = document.createElement('span'); unit.dataset.energyUnit = ''; unit.textContent = currency; costLine.append(unit);
+      }
+      costLine.title = !email && !bookReady && nativeReady ? `${t(host,'Cost recorded in HA','Koszt zapisany w HA')}: ${costLine.textContent}. ${t(host,'Source: Home Assistant Energy. Cost breakdown and fixed fees are unknown; this is not a complete bill.','Źródło: Home Assistant Energy. Rozbicie kosztu i opłaty stałe są nieznane; to nie jest pełny rachunek.')}` : email ? costLine.textContent : `${t(host,'Usage cost','Koszt zużycia')}: ${money}`;
       costLine.setAttribute('aria-label',costLine.title);
-      section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : `${comparisonName}: ${difference}`;
+      section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : elapsed ? `${difference} ${comparisonName}${numeric(elapsed.baseline) ? ` (${format.number(elapsed.baseline,{minimumFractionDigits:1,maximumFractionDigits:1})} kWh)` : ''}` : `${comparisonName}: ${difference}`;
       const caption = section.querySelector('[data-energy-zone-caption]');
       if (caption) caption.textContent = t(host,'Day tariff zones','Strefy taryfy w ciągu dnia');
       paintZoneBar(section.querySelector('[data-energy-zonebar]'),analysis,host,format);
+      const legend = section.querySelector('[data-energy-zone-legend]');
+      if (legend) {
+        legend.replaceChildren();
+        for (const [zone,label] of [['cheap',t(host,'Cheap','Tania')],['expensive',t(host,'Expensive','Droga')],['unknown',unknown]]) {
+          const item = document.createElement('span'); item.dataset.zone = zone; item.textContent = label; legend.append(item);
+        }
+      }
     }
-    const button = section.querySelector('button');
-    button.textContent = mode === 'tile' ? '›' : t(host,'Open','Otwórz');
-    button.setAttribute('aria-label', `${t(host,'Open','Otwórz')} ${config.title ?? title}`);
-    button.disabled = config.tap_target === 'more-info' && !host._hass?.states?.[config.entity];
+    const available = canOpen(host);
+    section.setAttribute('aria-disabled',String(!available));
+    section.tabIndex = available ? 0 : -1;
+    section.setAttribute('aria-label',[surfaceName,primary.title,section.querySelector('[data-energy-cost]')?.getAttribute('aria-label'),section.querySelector('[data-energy-comparison]')?.textContent].filter(Boolean).join('. '));
+    const button = section.querySelector('[data-energy-open]');
+    if (button) {
+      button.textContent = mode === 'tile' ? '✉' : t(host,'Open','Otwórz');
+      button.setAttribute('aria-label',`${t(host,'Open','Otwórz')} ${surfaceName}`);
+      button.disabled = !available;
+    }
   };
   // Simple surfaces do not run the full cards' discovery/config/schedule paths.
   const hassDescriptor = Object.getOwnPropertyDescriptor(Card.prototype,'hass');
