@@ -7351,6 +7351,13 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   // Six native HA columns can be only183px wide at a390px viewport.
   // Stack the primary label and use the full line for secondary facts.
   const narrowSimpleStyle = `:host{container-type:inline-size;container-name:energy-simple-card}
+  [data-energy-tariff-tile] [data-energy-tile-zone]{display:none}
+  @container energy-simple-card (max-width:180px){
+    [data-energy-tariff-tile] [data-energy-name],[data-energy-tariff-tile] [data-energy-tile-current]{display:none}
+    [data-energy-tariff-tile] h2{gap:4px}
+    [data-energy-tariff-tile] h2 ha-icon{--mdc-icon-size:16px}
+    [data-energy-tariff-tile] [data-energy-tile-zone]{display:inline;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+  }
   @container energy-simple-card (max-width:320px){
     [data-energy-simple=compact]{grid-template-columns:minmax(0,1fr);gap:4px;padding:8px}
     [data-energy-simple=compact] h2{min-width:0;line-height:18px}
@@ -7414,6 +7421,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   const renderSimple = host => {
     const root = host.shadowRoot, config = host._config || {}, mode = variant(config);
     const unknown = t(host,'Unknown','Brak danych'), email = name === 'ha-energy-email';
+    const tariffTile = !email && mode === 'tile';
     const summary = !email && mode === 'compact' ? summaryFor(host).state() : null;
     const analysis = summary?.status === 'ready' ? summary.snapshot : null;
     const snapshot = !email && mode === 'tile' ? tileFor(host).state() : null;
@@ -7450,7 +7458,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
+      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span>${tariffTile ? '<span data-energy-tile-zone></span>' : ''}</h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
       section = root.querySelector('[data-energy-simple]');
       section.querySelector('button').addEventListener('click', () => open(host));
       section.querySelector('button').addEventListener('keydown', event => {
@@ -7458,6 +7466,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       });
     }
     if (email) section.dataset.energyReportStatus = '';
+    if (tariffTile) section.dataset.energyTariffTile = '';
     const grant = reportState?.capabilities;
     const showSend = email && mode === 'compact' && visible(config).includes('send') && host.preview !== true && host._hass?.user?.is_admin === true && grant?.visible === true;
     let send = section.querySelector('[data-energy-send-now]');
@@ -7482,7 +7491,20 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     section.querySelector('[data-energy-name]').title = config.title ?? title;
     const primary = section.querySelector('[data-energy-primary]');
     const shortReport = report?.schedule_state === 'enabled' && report.next_report_at ? `${format.date(report.next_report_at,true)} · ${format.clock(report.next_report_at)}` : unknown;
-    primary.textContent = email ? mode === 'tile' ? shortReport : nextReport : mode === 'tile' ? `${zone} · ${nextKnown ? format.clock(next.start) || unknown : nextLabel}` : energy;
+    if (tariffTile) {
+      let current = primary.querySelector('[data-energy-tile-current]');
+      let clock = primary.querySelector('[data-energy-tile-next]');
+      if (!current || !clock) {
+        current = document.createElement('span'); current.dataset.energyTileCurrent = '';
+        clock = document.createElement('span'); clock.dataset.energyTileNext = '';
+        primary.replaceChildren(current,clock);
+      }
+      current.textContent = `${zone} · `;
+      clock.textContent = nextKnown ? format.clock(next.start) || unknown : nextLabel;
+      section.querySelector('[data-energy-tile-zone]').textContent = zone;
+      section.querySelector('h2').setAttribute('aria-label',`${config.title ?? title} · ${zone}`);
+      section.querySelector('h2').title = config.title ?? title;
+    } else primary.textContent = email ? mode === 'tile' ? shortReport : nextReport : energy;
     primary.title = email ? `${t(host,'Scheduled report','Zaplanowany raport')}: ${nextReport}` : mode === 'tile' ? `${zone} · ${nextKnown ? t(host,'Cheap from','Tania od') + ' ' : ''}${nextLabel}` : primary.textContent;
     primary.setAttribute('aria-label',primary.title);
     if (mode === 'compact') {
