@@ -92,14 +92,14 @@ test('four tabs keep keyboard navigation, Chart/Data and calendar state through 
  }finally{f.close();}
 });
 
-test('peak clock retains explicit 12/24/System while full calendar/offset/ties remain in details',async()=>{
+test('ordinary peak follows 12/24/System without redundant offset; exact calendar/offset/ties remain in details',async()=>{
  const f=setup();try{await f.mount();const root=f.card.shadowRoot,peak=producer.period_summary.peak_hour,reads=f.requests.length;
   for(const choice of ['12','24','system']){
    f.update({...f.hass,locale:{...f.hass.locale,time_format:choice}});await settle();
    const region=choice==='system'?f.w.Intl.DateTimeFormat().resolvedOptions().locale:'en';
    const cycle=choice==='12'?'h12':choice==='24'?'h23':f.w.Intl.DateTimeFormat(region,{hour:'numeric'}).resolvedOptions().hourCycle;
-   assert.equal(root.querySelector('[data-analysis-peak] strong').textContent,f.w.Intl.DateTimeFormat(region,{timeZone:'Europe/Warsaw',hour:'2-digit',minute:'2-digit',hourCycle:cycle,timeZoneName:'shortOffset'}).format(Date.parse(peak.start)));
-   const detail=root.querySelector('[data-analysis-period-summary-details]');assert.ok(detail.textContent.includes('Europe/Warsaw'));assert.match(detail.textContent,/Hours tied at this value/);assert.ok(root.querySelector('[data-analysis-source-details]').textContent.includes(producer.period.start));
+   assert.equal(root.querySelector('[data-analysis-peak] strong').textContent,f.w.Intl.DateTimeFormat(region,{timeZone:'Europe/Warsaw',hour:'2-digit',minute:'2-digit',hourCycle:cycle}).format(Date.parse(peak.start)));
+   const detail=root.querySelector('[data-analysis-period-summary-details]');assert.ok(detail.textContent.includes('Europe/Warsaw'));assert.match(detail.textContent,/Hours tied at this value/);assert.match(detail.textContent,/GMT\+2|UTC\+02:00/);assert.ok(root.querySelector('[data-analysis-source-details]').textContent.includes(producer.period.start));
   }
   assert.equal(f.requests.length,reads);f.quiet();
  }finally{f.close();}
