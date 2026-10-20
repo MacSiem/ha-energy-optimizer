@@ -55,7 +55,7 @@ test('tile and inert preview keep their one action and never read execute capabi
  for(const options of [{config:{variant:'tile'}},{preview:true}]){const f=setup(options);try{await f.mount();assert.equal(f.q('[data-energy-send-now]'),null);assert.equal(f.card.shadowRoot.querySelectorAll('[data-energy-simple] button').length,1);assert.equal(f.calls.some(q=>q.type==='ha_tools_email/feature_capabilities'),false);f.quiet();}finally{f.close();}}
 });
 test('compact action row stays a single wrapping flex row, at most two actions, and 44px targets',async()=>{
- const f=setup();try{await f.mount();assert.equal(f.q('[data-energy-actions]').querySelectorAll('button').length,2);const css=[...f.card.shadowRoot.querySelectorAll('style')].map(s=>s.textContent).join('');assert.match(css,/data-energy-actions[^}]*display:flex/);assert.match(css,/min-height:44px/);assert.equal(f.card.getGridOptions().max_rows,4);f.quiet();}finally{f.close();}
+ const f=setup();try{await f.mount();assert.equal(f.q('[data-energy-actions]').querySelectorAll('button').length,2);const css=[...f.card.shadowRoot.querySelectorAll('style')].map(s=>s.textContent).join('');assert.match(css,/data-energy-actions[^}]*display:flex/);assert.match(css,/min-height:44px/);assert.equal(f.card.getGridOptions().rows,'auto');f.quiet();}finally{f.close();}
 });
 
 test('a card whose configured visible tabs exclude Send does not bypass that choice',async()=>{

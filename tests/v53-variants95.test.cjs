@@ -68,7 +68,7 @@ for(const name of names){
    f.card.setConfig({compact:true});assert.equal(f.card.getGridOptions().columns,6);
    f.card.setConfig({variant:'full',compact:true});assert.equal(f.card.getGridOptions().columns,12);
    f.card.setConfig({variant:'tile',compact:true});assert.equal(f.card.getGridOptions().rows,1);assert.equal(f.card.getCardSize(),1);
-   f.card.setConfig({variant:'compact'});assert.equal(f.card.getGridOptions().columns,12);assert.equal(f.card.getGridOptions().max_rows,4);assert.equal(f.card.getGridOptions().rows,4);assert.equal(f.card.getCardSize(),4);
+   f.card.setConfig({variant:'compact'});assert.equal(f.card.getGridOptions().columns,12);assert.equal(f.card.getGridOptions().rows,'auto');assert.equal(f.card.getGridOptions().min_columns,6);assert.equal(f.card.getCardSize(),4);
    assert.throws(()=>f.card.setConfig({variant:'bad'}),/variant/);assert.throws(()=>f.card.setConfig({tap_target:'https://elsewhere'}),/tap_target/);
    assert.throws(()=>f.card.setConfig({variant:'tile',tap_target:'more-info',entity:'not-an-id'}),/entity|encję/);
    f.card.setConfig({tap_target:'more-info'});assert.equal(f.card._config.tap_target,'more-info','selection can wait for the entity picker');
@@ -78,10 +78,10 @@ for(const name of names){
  for(const language of ['en','pl'])test(`${name}: mounted default stub, ${language}, one primary/two secondary, stable focus and bounded presentation`,async()=>{
   const f=setup(name,{language});try{
    await f.mount();const root=f.card.shadowRoot;assert.ok(root.querySelector('[data-energy-simple="compact"]'));
-   assert.equal(root.querySelectorAll('button').length,1);assert.equal(root.querySelectorAll('[data-energy-secondary]>span').length,2);assert.equal(root.querySelectorAll('.tabs,[data-energy-options-help],input,select').length,0);
+   assert.equal(root.querySelectorAll('button').length,name==='ha-energy-email'?1:0);assert.equal(root.querySelectorAll('[data-energy-cost],[data-energy-comparison]').length,2);assert.equal(root.querySelectorAll('.tabs,[data-energy-options-help],input,select').length,0);
    const button=root.querySelector('[data-energy-open]');button.focus();const count=f.reads().length;f.card._render();assert.equal(root.activeElement,button);assert.equal(root.querySelector('[data-energy-open]'),button);assert.equal(f.reads().length,count);
    if(name==='ha-energy-email'){assert.deepEqual(f.requests,[{type:'ha_tools_email/get_report_status',purpose:'energy_report'}]);assert.equal(f.subscriptions.length,1);assert.match(root.querySelector('[data-energy-primary]').textContent,/Unknown|Brak danych/);}
-   else {assert.equal(Object.hasOwn(f.card._config,'tariff_profile'),false);assert.match(root.querySelector('[data-energy-primary]').textContent,/250 kWh/);assert.match(root.querySelector('[data-energy-cost]').textContent,/246[,.]00 EUR/);assert.match(root.querySelector('[data-energy-comparison]').textContent,/Unknown|Brak danych/);assert.deepEqual(f.reads(),[{type:'ha_tools_email/energy_analysis',period:'day',comparison:'previous'}]);assert.equal(f.requests.some(q=>q.type==='ha_tools_email/get_tariff'),false);}
+   else {assert.equal(Object.hasOwn(f.card._config,'tariff_profile'),false);assert.match(root.querySelector('[data-energy-primary]').textContent,/250[,.]0 kWh/);assert.match(root.querySelector('[data-energy-cost]').textContent,/246[,.]00 EUR/);assert.match(root.querySelector('[data-energy-comparison]').textContent,/Unknown|Brak danych/);assert.deepEqual(f.reads(),[{type:'ha_tools_email/energy_analysis',period:'day',comparison:'previous'}]);assert.equal(f.requests.some(q=>q.type==='ha_tools_email/get_tariff'),false);}
    f.update({...f.hass,locale:{...f.hass.locale,language:language==='pl'?'en':'pl'}});assert.equal(root.activeElement,button);assert.equal(f.reads().length,count);f.quiet();
   }finally{f.close();}
  });
@@ -100,11 +100,11 @@ for(const name of names){
  test(`${name}: fixed Energy navigation and more-info require an entity in the current hass state`,async()=>{
   const f=setup(name,{config:{variant:'tile',tap_target:'energy'}});try{
    await f.mount();f.card.shadowRoot.querySelector('[data-energy-open]').click();assert.equal(f.w.location.pathname,'/energy');
-   f.card.setConfig({variant:'compact',tap_target:'more-info'});f.card._render();assert.equal(f.card.shadowRoot.querySelector('button').disabled,true);
+   f.card.setConfig({variant:'compact',tap_target:'more-info'});f.card._render();assert.equal(f.card.shadowRoot.querySelector('[data-energy-simple]').getAttribute('aria-disabled'),'true');
    f.card.setConfig({variant:'compact',tap_target:'more-info',entity:'sensor.grid'});let seen=[];f.card.addEventListener('hass-more-info',e=>seen.push(e.detail.entityId));
-   f.update({...f.hass,states:{'sensor.grid':{state:'0'}}});f.card.shadowRoot.querySelector('button').click();assert.deepEqual(seen,['sensor.grid']);
-   f.card.setConfig({variant:'compact',tap_target:'more-info'});f.card._render();assert.equal(f.card._config.entity,undefined);assert.equal(f.card.shadowRoot.querySelector('button').disabled,true);
-   f.update({...f.hass,states:{}});assert.equal(f.card.shadowRoot.querySelector('button').disabled,true);f.card.shadowRoot.querySelector('button').click();assert.equal(seen.length,1);
+   f.update({...f.hass,states:{'sensor.grid':{state:'0'}}});f.card.shadowRoot.querySelector('[data-energy-simple]').click();assert.deepEqual(seen,['sensor.grid']);
+   f.card.setConfig({variant:'compact',tap_target:'more-info'});f.card._render();assert.equal(f.card._config.entity,undefined);assert.equal(f.card.shadowRoot.querySelector('[data-energy-simple]').getAttribute('aria-disabled'),'true');
+   f.update({...f.hass,states:{}});assert.equal(f.card.shadowRoot.querySelector('[data-energy-simple]').getAttribute('aria-disabled'),'true');f.card.shadowRoot.querySelector('[data-energy-simple]').click();assert.equal(seen.length,1);
   }finally{f.close();}
  });
  test(`${name}: native bounded entity picker completes more-info with no YAML and preserves unknown config/focus`,()=>{
@@ -128,9 +128,9 @@ for(const name of names.slice(0,2)){
  test(`${name}: compact waits for actual ACK; events refresh native analysis; zero and missing facts stay distinct`,async()=>{
   const f=setup(name,{manualAck:true});try{
    await f.mount();assert.equal(f.reads().length,0);assert.equal(f.subscriptions.length,1);assert.match(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,/Unknown/);
-   f.ack();await tick();assert.match(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,/250 kWh/);
+   f.ack();await tick();assert.match(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,/250[,.]0 kWh/);
    const zero=clone(producer);zero.totals.kwh='0';zero.totals.usage_cost='0.00';zero.comparisons.previous.percent=0;
-   f.reply=()=>zero;f.signal();await tick();assert.equal(f.reads().length,2);assert.equal(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,'0 kWh');assert.match(f.card.shadowRoot.querySelector('[data-energy-cost]').textContent,/0[,.]00 EUR/);assert.match(f.card.shadowRoot.querySelector('[data-energy-comparison]').textContent,/Unknown/);
+   f.reply=()=>zero;f.signal();await tick();assert.equal(f.reads().length,2);assert.equal(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,'0.0 kWh');assert.match(f.card.shadowRoot.querySelector('[data-energy-cost]').textContent,/0[,.]00 EUR/);assert.match(f.card.shadowRoot.querySelector('[data-energy-comparison]').textContent,/Unknown/);
    const missing=clone(zero);missing.totals.kwh=null;missing.totals.usage_cost=null;missing.totals.measurement_complete=false;missing.totals.pricing_complete=false;missing.comparisons.previous.status='unknown';missing.comparisons.previous.percent=null;
    f.reply=()=>missing;f.signal();await tick();assert.equal(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,'Unknown');assert.match(f.card.shadowRoot.querySelector('[data-energy-cost]').textContent,/Unknown/);assert.match(f.card.shadowRoot.querySelector('[data-energy-comparison]').textContent,/Unknown/);f.quiet();
   }finally{f.close();}
@@ -143,7 +143,7 @@ for(const name of names.slice(0,2)){
   }finally{f.close();}
   const denied=setup(name,{config:{variant:'tile'},tariffError:{code:'unauthorized'}});try{
    await denied.mount();assert.match(denied.card.shadowRoot.querySelector('[data-energy-primary]').textContent,/Unknown/);
-   denied.card.setConfig({variant:'compact'});await tick();assert.match(denied.card.shadowRoot.querySelector('[data-energy-primary]').textContent,/250 kWh/);assert.equal(denied.reads().length,1);denied.quiet();
+   denied.card.setConfig({variant:'compact'});await tick();assert.match(denied.card.shadowRoot.querySelector('[data-energy-primary]').textContent,/250[,.]0 kWh/);assert.equal(denied.reads().length,1);denied.quiet();
   }finally{denied.close();}
  });
  for(const change of ['identity','role','inactive','event-revocation'])test(`${name}: pending ${change} preserves raw occupancy and never reveals old facts`,async()=>{
@@ -157,7 +157,7 @@ for(const name of names.slice(0,2)){
    }
    await tick();assert.equal(f.reads().length,1,'queued read waits for occupied raw settlement');assert.equal(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,'Unknown');
    old.resolve(secret);await tick();assert.doesNotMatch(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,/987/);assert.equal(f.maxRaw,1);
-   if(change==='identity'||change==='role')assert.equal(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,'0 kWh');
+   if(change==='identity'||change==='role')assert.equal(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,'0.0 kWh');
    else assert.equal(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,'Unknown');f.quiet();
   }finally{f.close();}
  });
@@ -177,5 +177,48 @@ test('Email never infers metadata from energy snapshots/config or old identity; 
   await f.mount();f.card._energySnapshotV5={...producer,next_report:'PRIVATE_NEXT',last_report:'PRIVATE_LAST',result:'PRIVATE_RESULT'};f.card._config.recipient='PRIVATE_RECIPIENT';f.card._render();
   f.update({...f.hass,user:{id:'revoked',is_active:false,is_admin:false}});assert.match(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,/Unknown/);assert.doesNotMatch(f.card.shadowRoot.textContent,/PRIVATE_/);
   f.update({...f.hass,user:{id:'other',is_active:true,is_admin:false}});assert.deepEqual(f.requests,[{type:'ha_tools_email/get_report_status',purpose:'energy_report'}]);assert.ok(f.subscriptions.every(s=>!s.active));f.quiet();
+ }finally{f.close();}
+});
+
+for (const name of names) {
+ test(`${name}: theme card surface opens from content and keyboard, with current navigation authority`,async()=>{
+  const f=setup(name,{config:{variant:'tile',tap_target:'more-info',entity:'sensor.grid'}});
+  try {
+   await f.mount();const root=f.card.shadowRoot,surface=root.querySelector('[data-energy-simple]');
+   assert.equal(surface.localName,'ha-card');assert.equal(surface.getAttribute('role'),'button');
+   assert.equal(surface.getAttribute('aria-disabled'),'true');
+   let events=0;f.card.addEventListener('hass-more-info',()=>events++);
+   surface.click();assert.equal(events,0);
+   f.update({...f.hass,states:{'sensor.grid':{state:'0'}}});assert.equal(surface.tabIndex,0);
+   surface.querySelector('[data-energy-name]').click();assert.equal(events,1,'the name opens the tile once');
+   for(const key of ['Enter',' ']){
+    const event=new f.w.KeyboardEvent('keydown',{key,bubbles:true,cancelable:true});surface.dispatchEvent(event);assert.equal(event.defaultPrevented,true);
+   }
+   assert.equal(events,3);
+   surface.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'Enter',repeat:true,bubbles:true,cancelable:true}));assert.equal(events,3);
+   if(name==='ha-energy-email'){
+    root.querySelector('button').dispatchEvent(new f.w.KeyboardEvent('keydown',{key:' ',bubbles:true,cancelable:true}));assert.equal(events,4,'nested action does not trigger the surface twice');
+   }else{
+    assert.equal(root.querySelector('button'),null,'Energy has no tile action');
+    assert.equal(surface.querySelector('[data-energy-name]').textContent,'Energy');
+    assert.ok(surface.querySelector('[data-energy-state-short]'));assert.ok(surface.querySelector('[data-energy-state-long]'));
+   }
+   const expected=events;
+   f.card.preview=true;surface.click();assert.equal(events,expected,'preview is inert even before repaint');f.card.preview=false;
+   f.update({...f.hass,user:{...f.hass.user,is_active:false}});surface.click();assert.equal(events,expected,'revoked account cannot reuse the painted action');
+   f.quiet();
+  }finally{f.close();}
+ });
+}
+for(const name of names.slice(0,2))for(const language of ['en','pl'])test(`${name}: compact keeps localized rounded units separate and preserves source amounts (${language})`,async()=>{
+ const dto=clone(producer);const original=JSON.stringify(dto),f=setup(name,{language,reply:()=>dto});
+ try{
+  await f.mount();const root=f.card.shadowRoot,primary=root.querySelector('[data-energy-primary]');
+  assert.equal(root.querySelector('[data-energy-simple]').localName,'ha-card');
+  assert.equal(primary.textContent,language==='pl'?'250,0 kWh':'250.0 kWh');assert.equal(primary.querySelector('[data-energy-unit]').textContent,'kWh');
+  assert.equal(root.querySelector('[data-energy-cost]').textContent,language==='pl'?'246,00 EUR':'246.00 EUR');
+  assert.equal(root.querySelector('[data-energy-cost] [data-energy-unit]').textContent,'EUR');
+  assert.equal(root.querySelector('button'),null);assert.equal(root.querySelectorAll('[data-energy-zone-legend] span').length,3);
+  assert.equal(JSON.stringify(dto),original);f.quiet();
  }finally{f.close();}
 });

@@ -120,7 +120,7 @@ for(const [label,mutate] of [
 for(const name of names.slice(0,2))for(const language of ['en','pl'])test(`native133 actual ${name} compact uses HA amount and retains focused action, ${language}`,async()=>{
  const f=setup(name,{language,reply:()=>nativeFixture()});try{
   await f.mount();const root=f.card.shadowRoot,line=root.querySelector('[data-energy-cost]'),button=root.querySelector('[data-energy-open]');
-  assert.match(root.querySelector('[data-energy-primary]').textContent,/234 kWh/);assert.match(line.textContent,/58[,.]50 EUR/);assert.ok(line.textContent.includes(language==='pl'?'Koszt zapisany w HA':'Cost recorded in HA'));
+  assert.match(root.querySelector('[data-energy-primary]').textContent,/234[,.]0 kWh/);assert.match(line.textContent,/58[,.]50 EUR/);assert.ok(line.getAttribute('aria-label').includes(language==='pl'?'Koszt zapisany w HA':'Cost recorded in HA'));
   assert.match(line.getAttribute('aria-label'),language==='pl'?/opłaty stałe są nieznane/:/fixed fees are unknown/);
   button.focus();f.card._render();assert.equal(root.activeElement,button);assert.equal(root.querySelector('[data-energy-open]'),button);assert.equal(f.requests.some(q=>q.type==='ha_tools_email/get_tariff'),false);f.quiet();
  }finally{f.close();}

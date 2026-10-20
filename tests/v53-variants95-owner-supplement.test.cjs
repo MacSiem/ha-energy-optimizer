@@ -47,7 +47,7 @@ for(const name of names){
   const f=setup(name,{language});try{
    await f.mount();const root=f.card.shadowRoot;assert.equal(typeof f.card._getTariffHostV3().summary,'function');
    assert.deepEqual(f.calls,[{type:'ha_tools_email/energy_analysis',period:'day',comparison:'previous'}]);
-   assert.match(root.querySelector('[data-energy-primary]').textContent,/250 kWh/);assert.match(root.querySelector('[data-energy-cost]').textContent,/246[,.]00 EUR/);
+   assert.match(root.querySelector('[data-energy-primary]').textContent,/250[,.]0 kWh/);assert.match(root.querySelector('[data-energy-cost]').textContent,/246[,.]00 EUR/);
    assert.match(root.querySelector('[data-energy-comparison]').textContent,/Unknown|Brak danych/,'full historical day does not pretend to be same-hour comparison');
    const bar=root.querySelector('[data-energy-zonebar]');assert.ok(bar);assert.equal(root.querySelectorAll('[data-energy-zonebar]').length,1);assert.equal(bar.querySelectorAll('[data-energy-zone]').length,24);
    assert.ok(bar.querySelector('[data-energy-zone="cheap"]'));assert.ok(bar.querySelector('[data-energy-zone="expensive"]'));assert.match(bar.getAttribute('aria-label'),/Cheap|Tania/);
@@ -56,7 +56,7 @@ for(const name of names){
  });
  test(`${name} generated consumer: confirmed current partial and yesterday same local cutoff display server delta, future remains neutral`,async()=>{
   const d=elapsed(),original=JSON.stringify(d),f=setup(name,{reply:()=>d});try{
-   await f.mount();const root=f.card.shadowRoot;assert.equal(root.querySelector('[data-energy-primary]').textContent,'104 kWh');assert.match(root.querySelector('[data-energy-comparison]').textContent,/vs yesterday through 12:00: \+25%/);
+   await f.mount();const root=f.card.shadowRoot;assert.equal(root.querySelector('[data-energy-primary]').textContent,'104.0 kWh');assert.match(root.querySelector('[data-energy-comparison]').textContent,/\+25% vs yesterday through 12:00/);
    const bar=root.querySelector('[data-energy-zonebar]');assert.equal(bar.children.length,12);assert.match(bar.getAttribute('aria-label'),/Remaining time: Unknown/);assert.equal(bar.children[0].style.left,'0%');
    assert.equal(JSON.stringify(d),original,'presentation does not mutate period, amounts, proofs or bins');f.quiet();
   }finally{f.close();}
@@ -91,7 +91,7 @@ for(const name of names){
    await f.mount();assert.equal(f.calls.length,0);f.ack();await tick();assert.equal(f.calls.length,1);
    f.reply=()=>elapsed();f.update({...f.hass,user:{id:'other',is_active:true,is_admin:true}});await tick();f.ack();await tick();assert.equal(f.calls.length,1);
    assert.match(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,/Unknown/);
-   const stale=clone(producer);stale.totals.kwh='987654';first.resolve(stale);await tick();assert.equal(f.maxRaw,1);assert.equal(f.calls.length,2);assert.equal(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,'104 kWh');
+   const stale=clone(producer);stale.totals.kwh='987654';first.resolve(stale);await tick();assert.equal(f.maxRaw,1);assert.equal(f.calls.length,2);assert.equal(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,'104.0 kWh');
    f.reply=()=>Promise.reject({code:'unauthorized'});f.signal();await tick();assert.match(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,/Unknown/);assert.equal(f.card.shadowRoot.querySelector('[data-energy-zonebar]').children.length,0);
    const row=f.subscriptions.at(-1);f.card.remove();assert.equal(row.active,false);f.quiet();
   }finally{f.close();}
@@ -99,4 +99,9 @@ for(const name of names){
 }
 test('generated Email simple view uses no lexical engine, private data or tariff zone bar',async()=>{
  const f=setup('ha-energy-email');try{await f.mount();assert.deepEqual(f.calls,[{type:'ha_tools_email/get_report_status',purpose:'energy_report'}]);assert.equal(f.subscriptions.length,1);assert.equal(f.card.shadowRoot.querySelector('[data-energy-zonebar]'),null);assert.match(f.card.shadowRoot.querySelector('[data-energy-primary]').textContent,/Unknown/);f.quiet();}finally{f.close();}
+});
+
+for(const language of ['en','pl'])test(`generated compact preserves the explicit 6.5% comparison exception (${language})`,async()=>{
+ const dto=elapsed();dto.comparisons.previous.percent=6.5;const f=setup('ha-energy-optimizer',{language,reply:()=>dto});
+ try{await f.mount();assert.match(f.card.shadowRoot.querySelector('[data-energy-comparison]').textContent,language==='pl'?/\+6,5%.*83,2 kWh/:/\+6\.5%.*83\.2 kWh/);f.quiet();}finally{f.close();}
 });

@@ -76,7 +76,7 @@ for(const name of names){
   const f=setup(name);try{await f.mount();assert.equal(f.q('[data-energy-dashboard-add]').closest('footer').hasAttribute('data-energy-dashboard-footer'),true);
    assert.equal(f.card.shadowRoot.querySelectorAll('[data-energy-dashboard-add]').length,1);
    assert.equal(f.q('.header,.optimizer-heading,.panel-header')?.querySelector('[data-energy-dashboard-add]')||null,null);assert.equal(f.dashboardCalls().length,0);
-   for(const variant of ['compact','tile']){f.card.setConfig({type:`custom:${name}`,variant});f.card._render();await tick();assert.equal(f.q('[data-energy-dashboard-add]'),null);assert.equal(f.q('[data-energy-simple]').querySelectorAll('button').length,name==='ha-energy-email'&&variant==='compact'?2:1);assert.equal(Boolean(f.q('[data-energy-send-now]')),name==='ha-energy-email'&&variant==='compact');}
+   for(const variant of ['compact','tile']){f.card.setConfig({type:`custom:${name}`,variant});f.card._render();await tick();assert.equal(f.q('[data-energy-dashboard-add]'),null);assert.equal(f.q('[data-energy-simple]').querySelectorAll('button').length,name==='ha-energy-email'?(variant==='compact'?2:1):0);assert.equal(Boolean(f.q('[data-energy-send-now]')),name==='ha-energy-email'&&variant==='compact');}
    f.card.setConfig({type:`custom:${name}`,variant:'full',...(name==='ha-energy-email'?{default_tab:'preview'}:{}),show_support:false});f.card._render();await tick();assert.equal(f.card.shadowRoot.querySelectorAll('[data-energy-dashboard-add]').length,1);assert.equal(f.dashboardCalls().length,0);f.quiet();
   }finally{f.close();}
  });
