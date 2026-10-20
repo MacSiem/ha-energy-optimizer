@@ -14,6 +14,7 @@ const labels=[
  ['avg_7d','7-day average','Średnia 7 dni'],
  ['previous_week','Previous week','Poprzedni tydzień'],
  ['previous_month','Previous month','Poprzedni miesiąc'],
+ ['previous_year','Previous year','Poprzedni rok'],
  ['same_week_last_year','Same week last year','Ten sam tydzień rok temu'],
  ['same_month_last_year','Same month last year','Ten sam miesiąc rok temu'],
  ['previous','Previous period','Poprzedni okres'],

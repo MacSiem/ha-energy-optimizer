@@ -37,6 +37,26 @@ function createEnergyBuild1ViewV53({format, language = format?.language || 'en'}
   // Number conversions below only size bars or convert ratios to display percentages.
   const width=(value,max)=>valid(value)&&max>0?Math.max(0,Math.min(100,Number(value)/max*100)):0;
   const isUnmeasured=r=>r.id==='_unmeasured'||r.area_id==='_unmeasured'||r.color==='unmeasured';
+  const itemName=r=>isUnmeasured(r)?t('Unmeasured','Niezmierzone'):r.name||unknown();
+  // Backend model/1 may use its semantic key as the label. Translate only this
+  // allowlist; already descriptive/custom labels remain producer-owned text.
+  const comparisonLabels={
+    previous_day:t('Previous day','Poprzedni dzień'),
+    same_weekday_last_week:t('Same weekday last week','Ten sam dzień tydzień temu'),
+    avg_7d:t('7-day average','Średnia 7 dni'),
+    previous_week:t('Previous week','Poprzedni tydzień'),
+    previous_month:t('Previous month','Poprzedni miesiąc'),
+    previous_year:t('Previous year','Poprzedni rok'),
+    same_week_last_year:t('Same week last year','Ten sam tydzień rok temu'),
+    same_month_last_year:t('Same month last year','Ten sam miesiąc rok temu'),
+    previous:t('Previous period','Poprzedni okres'),
+  };
+  const comparisonLabel=r=>{
+    const label=String(r.label??''),semantic=label.trim();
+    if(semantic&&!Object.hasOwn(comparisonLabels,semantic))return label;
+    const key=Object.hasOwn(comparisonLabels,r.key)?r.key:semantic;
+    return Object.hasOwn(comparisonLabels,key)?comparisonLabels[key]:t('Previous period','Poprzedni okres');
+  };
   const doubleMessage=()=>t('Device total exceeds import — check the Energy dashboard','Suma urządzeń przekracza import — sprawdź panel Energia');
   // Classification must be producer-supplied; list order and labels are not prices.
   const zoneClass=z=>z?.classification||z?.zone_class||(z?.cheap===true?'cheap':z?.cheap===false?'expensive':null);
@@ -65,14 +85,14 @@ function createEnergyBuild1ViewV53({format, language = format?.language || 'en'}
     const comparisons=list(m.comparisons),previous=comparisons.find(r=>['previous_day','previous'].includes(r.key));
     const comparison=r=>partial||r.coverage_ok!==true?esc(t('Insufficient coverage for comparison','Za mało danych do porównania')):`${energy(r.delta_kwh,period)} (${percent(r.delta_pct,'change')})`;
     const top=list(m.ranking).filter(r=>!String(r.id||'').startsWith('_')).slice(0,3);
-    return `<div class="kpi4">${kpi(t('Consumption','Zużycie'),energy(total.import_kwh,period,'tile'),previous?comparison(previous):'')}${kpi(t('Usage cost','Koszt zużycia'),money(total.usage_cost,m.currency),rate(total.effective_rate,m.currency))}${kpi(t('In the cheap zone','W taniej strefie'),partial?unknown():ratio(cheap?.share),energy(cheap?.kwh,period))}${kpi(t('Now','Teraz'),esc(current.label||unknown()),`${rate(current.rate,current.currency)}${current.next_change?` · ${esc(current.next_label||'')} ${when(current.next_change)}`:''}`)}</div>${current.as_of?`<p class="info">${t('Live snapshot','Stan bieżący')}: ${when(current.as_of)}</p>`:''}${chart(m,current)}<div class="two"><div>${heading(t('Comparison','Porównanie'),t('Same measurement window','Ten sam zakres pomiaru'))}${comparisons.length?comparisons.map(r=>row(esc(r.label||r.key),comparison(r),energy(r.kwh,period))).join(''):empty()}</div><div>${heading(t('Largest consumers','Największe zużycie'),action('section',sections.breakdown,'breakdown'))}${top.length?top.map(r=>row(esc(r.name),energy(r.kwh,period))).join(''):empty()}</div></div>`;
+    return `<div class="kpi4">${kpi(t('Consumption','Zużycie'),energy(total.import_kwh,period,'tile'),previous?comparison(previous):'')}${kpi(t('Usage cost','Koszt zużycia'),money(total.usage_cost,m.currency),rate(total.effective_rate,m.currency))}${kpi(t('In the cheap zone','W taniej strefie'),partial?unknown():ratio(cheap?.share),energy(cheap?.kwh,period))}${kpi(t('Now','Teraz'),esc(current.label||unknown()),`${rate(current.rate,current.currency)}${current.next_change?` · ${esc(current.next_label||'')} ${when(current.next_change)}`:''}`)}</div>${current.as_of?`<p class="info">${t('Live snapshot','Stan bieżący')}: ${when(current.as_of)}</p>`:''}${chart(m,current)}<div class="two"><div>${heading(t('Comparison','Porównanie'),t('Same measurement window','Ten sam zakres pomiaru'))}${comparisons.length?comparisons.map(r=>row(esc(comparisonLabel(r)),comparison(r),energy(r.kwh,period))).join(''):empty()}</div><div>${heading(t('Largest consumers','Największe zużycie'),action('section',sections.breakdown,'breakdown'))}${top.length?top.map(r=>row(esc(itemName(r)),energy(r.kwh,period))).join(''):empty()}</div></div>`;
   }
   function breakdown(m,o,partial,double){
     const group=Object.hasOwn(groups,o.group)?o.group:'devices',period=m.period?.kind;
     const rows=(group==='devices'?list(m.ranking).length?list(m.ranking):list(m.devices):list(m[group])).filter(r=>!(group==='rooms'&&r.area_id===null&&valid(r.kwh)&&Number(r.kwh)===0));
     const safe=rows.filter(r=>!(double&&isUnmeasured(r))),max=Math.max(0,...safe.filter(r=>valid(r.kwh)).map(r=>Number(r.kwh)));
     const value=(r,f)=>double&&isUnmeasured(r)?esc(doubleMessage()):f();
-    const one=(r,i,child=false)=>`<div class="rk2${child?' child':''}"><div class="nm"><i class="sw${isUnmeasured(r)?' hatch':''}" style="background:${color(r,i)}"></i><span>${child?'↳ ':''}${esc(r.name||unknown())}${child?` <small>(${t('included','w tym')})</small>`:''}${r.count!==undefined?`<small>${exact(r.count)} ${formatted('reportPlural',r.count,pl?{one:'urządzenie',few:'urządzenia',many:'urządzeń'}:{one:'device',other:'devices'})}</small>`:''}</span></div><div class="bar"><i class="${isUnmeasured(r)?'hatch':''}" style="width:${double&&isUnmeasured(r)?0:width(r.kwh,max)}%;background:${color(r,i)}"></i></div><div class="v">${value(r,()=>energy(r.kwh,period))}</div><div class="p">${partial||double?'—':ratio(r.share)}</div><div class="c">${child?'':value(r,()=>money(r.cost,m.currency))}</div></div>`;
+    const one=(r,i,child=false)=>`<div class="rk2${child?' child':''}"><div class="nm"><i class="sw${isUnmeasured(r)?' hatch':''}" style="background:${color(r,i)}"></i><span>${child?'↳ ':''}${esc(itemName(r))}${child?` <small>(${t('included','w tym')})</small>`:''}${r.count!==undefined?`<small>${exact(r.count)} ${formatted('reportPlural',r.count,pl?{one:'urządzenie',few:'urządzenia',many:'urządzeń'}:{one:'device',other:'devices'})}</small>`:''}</span></div><div class="bar"><i class="${isUnmeasured(r)?'hatch':''}" style="width:${double&&isUnmeasured(r)?0:width(r.kwh,max)}%;background:${color(r,i)}"></i></div><div class="v">${value(r,()=>energy(r.kwh,period))}</div><div class="p">${partial||double?'—':ratio(r.share)}</div><div class="c">${child?'':value(r,()=>money(r.cost,m.currency))}</div></div>`;
     return `<div class="seg2">${Object.entries(groups).map(([key,label])=>action('group',label,key,`aria-pressed="${group===key}"`)).join('')}</div>${heading(`${energy(m.totals?.import_kwh,period)} ${t('imported','importu')}`,t('Energy dashboard devices · hourly zone costs','Urządzenia z panelu Energia · koszt wg stref każdej godziny'))}<div class="compbar" aria-hidden="true">${safe.map((r,i)=>`<i class="${isUnmeasured(r)?'hatch':''}" style="width:${width(r.kwh,Number(m.totals?.import_kwh))}%;background:${color(r,i)}"></i>`).join('')}</div>${rows.length?rows.map((r,i)=>`${r.id==='_other_measured'?`<details data-energy-build1-disclosure="other-measured"><summary>${t('Other measured devices','Pozostałe zmierzone')}</summary>${one(r,i)}${list(r.children).map(c=>one(c,i,true)).join('')}${list(r.children).length?'':`<p class="info">${t('Individual readings are unavailable in this snapshot.','Odczyty poszczególnych urządzeń nie są dostępne w tym stanie.')}</p>`}</details>`:one(r,i)+list(r.children).map(c=>one(c,i,true)).join('')}`).join(''):empty()}<p class="info">${t('Unmeasured = import minus top-level devices. Included children are not counted twice. Rooms follow HA areas; no proportional allocation.','Niezmierzone = import − suma urządzeń najwyższego poziomu. Urządzenia „w tym” nie są liczone drugi raz. Pokoje według obszarów HA; bez podziału proporcjonalnego.')}</p>`;
   }
   function costs(m,o){
