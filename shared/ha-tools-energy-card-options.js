@@ -155,9 +155,9 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   };
   const originalSize = Card.prototype.getCardSize;
   Card.prototype.getCardSize = function() { return simple(this) ? (variant(this._config) === 'tile' ? 1 : 4) : variant(this._config || {}) === 'legacy' && !this._optionsExpandedV5 ? 3 : originalSize?.call(this) || 10; };
-  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:#1d4ed8;--bento-primary-hover:#1e40af;--bento-on-primary:#fff;--bento-text-muted:var(--secondary-text-color,#475569);--energy-value-blue:#1d4ed8;--energy-value-amber:#92400e;--energy-value-green:#166534;--energy-value-red:#b91c1c;--energy-value-neutral:#475569;--energy-value-purple:#6d28d9;--energy-success-button:#166534;--energy-kpi-tone:#eff6ff;--energy-kpi-tone-alt:#f0fdf4}
-:host(.bento-dark){color-scheme:dark;--bento-primary:#a5b4fc;--bento-primary-hover:#c7d2fe;--bento-on-primary:#111827;--bento-text-muted:var(--secondary-text-color,#cbd5e1);--energy-value-blue:#93c5fd;--energy-value-amber:#fcd34d;--energy-value-green:#86efac;--energy-value-red:#fca5a5;--energy-value-neutral:#cbd5e1;--energy-value-purple:#c4b5fd;--energy-success-button:#166534;--energy-kpi-tone:#17273d;--energy-kpi-tone-alt:#172d25}
-.stat,.stat-card{background:var(--energy-kpi-tone)!important}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)!important}
+  const style = `:host{display:block;min-width:0;color-scheme:light;--bento-primary:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--bento-primary-hover:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--bento-on-primary:var(--hat-on-primary,var(--_hat-on-primary,#fff));--bento-text-muted:var(--hat-text-2,var(--secondary-text-color,#4b5563));--energy-value-blue:var(--hat-text,var(--primary-text-color,#111827));--energy-value-amber:var(--hat-warn-text,var(--_hat-warn-text,#a16207));--energy-value-green:var(--hat-good-text,var(--_hat-good-text,#15803d));--energy-value-red:var(--hat-crit-text,var(--_hat-crit-text,#b91c1c));--energy-value-neutral:var(--hat-text-2,var(--secondary-text-color,#4b5563));--energy-value-purple:var(--hat-d2,var(--_hat-d2,#6250d6));--energy-success-button:var(--hat-primary-fill,var(--_hat-primary-fill,#2563eb));--energy-kpi-tone:var(--hat-chip,var(--secondary-background-color,#f3f4f6));--energy-kpi-tone-alt:var(--energy-kpi-tone)}
+:host(.bento-dark){color-scheme:dark}
+.stat,.stat-card{background:var(--energy-kpi-tone)}.stat:nth-child(even),.stat-card:nth-child(even){background:var(--energy-kpi-tone-alt)}
 .btn-primary,button.btn-primary{color:var(--bento-on-primary)}
 .ht-tariff-v3 [data-status=success]{color:var(--energy-value-green)}.ht-tariff-v3 [data-status=error]{color:var(--energy-value-red)}.ht-tariff-v3 [data-status=partial],.ht-tariff-v3 [data-status=unconfirmed]{color:var(--energy-value-amber)}
  [data-energy-options-help], [data-energy-compact]{box-sizing:border-box;padding:16px;color:var(--primary-text-color,#202124);background:var(--card-background-color,#fff);border-radius:12px;font-size:14px;overflow-wrap:anywhere} [data-energy-options-help] summary, [data-energy-expand]{min-height:44px;box-sizing:border-box;padding:12px;cursor:pointer} [data-energy-compact] dl{display:grid;grid-template-columns:minmax(0,1fr);gap:8px;margin:12px 0} [data-energy-compact] dt{font-size:13px;color:var(--secondary-text-color,#50545b)} [data-energy-compact] dd{margin:0 0 12px;font-weight:600;font-size:18px} [data-energy-expand]{color:var(--primary-text-color,#202124);background:var(--secondary-background-color,#eee);border:1px solid var(--divider-color,#888);border-radius:8px;font:inherit} [data-energy-options-help] summary:focus-visible,[data-energy-expand]:focus-visible{outline:3px solid var(--primary-color,#1565c0);outline-offset:2px}
@@ -434,7 +434,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><ha-card data-energy-simple="${mode}" role="button" tabindex="0"${!email ? ' data-energy-open' : ''}><div data-energy-heading><ha-icon aria-hidden="true"></ha-icon><div data-energy-heading-text><h2><span data-energy-name></span></h2>${mode === 'compact' ? '<p data-energy-primary-label></p>' : '<div data-energy-primary role="status"></div>'}</div></div>${mode === 'compact' ? email ? '<div data-energy-primary role="status"></div><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : '<div data-energy-values><div data-energy-primary role="status"></div><span data-energy-cost></span><span data-energy-comparison></span></div><div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div><div data-energy-zone-axis></div><div data-energy-zone-legend></div></div>' : ''}${email ? mode === 'compact' ? '<div data-energy-actions><button type="button" data-energy-open></button></div>' : '<button type="button" data-energy-open></button>' : ''}</ha-card>`;
+      root.innerHTML = `<style>${host._getTariffHostV3().ui().css}${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><ha-card data-energy-simple="${mode}" role="button" tabindex="0"${!email ? ' data-energy-open' : ''}><div data-energy-heading><ha-icon aria-hidden="true"></ha-icon><div data-energy-heading-text><h2><span data-energy-name></span></h2>${mode === 'compact' ? '<p data-energy-primary-label></p>' : '<div data-energy-primary role="status"></div>'}</div></div>${mode === 'compact' ? email ? '<div data-energy-primary role="status"></div><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : '<div data-energy-values><div data-energy-primary role="status"></div><span data-energy-cost></span><span data-energy-comparison></span></div><div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div><div data-energy-zone-axis></div><div data-energy-zone-legend></div></div>' : ''}${email ? mode === 'compact' ? '<div data-energy-actions><button type="button" data-energy-open></button></div>' : '<button type="button" data-energy-open></button>' : ''}</ha-card>`;
       section = root.querySelector('[data-energy-simple]');
       section.addEventListener('click', event => {
         if (event.target.closest?.('button,a,input,select,textarea')) return;
@@ -540,6 +540,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     }
   };
   // Simple surfaces do not run the full cards' discovery/config/schedule paths.
+  Card.prototype._applyThemeV150 = function() { this._getTariffHostV3().ui().applyTheme(this); };
   const hassDescriptor = Object.getOwnPropertyDescriptor(Card.prototype,'hass');
   if (hassDescriptor?.set) Object.defineProperty(Card.prototype,'hass',{...hassDescriptor,set(value) {
     try {
@@ -554,14 +555,14 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       this.classList.toggle('bento-dark',value?.themes?.darkMode === true);
       this._tariffHostController?.guard.observe();
       this._render();
-    } finally { this._syncDashboardPlacementV53(); }
+    } finally { this._syncDashboardPlacementV53(); this._applyThemeV150(); }
   }});
   const connected = Card.prototype.connectedCallback;
   Card.prototype.connectedCallback = function() {
     try {
       if (!simple(this) && this.preview !== true) return connected?.call(this);
       this._tariffHostController?.guard.resume(); this._render();
-    } finally { this._syncDashboardPlacementV53(); }
+    } finally { this._syncDashboardPlacementV53(); this._applyThemeV150(); }
   };
   for (const method of ['_repriceTariffV3','_syncAnalysisV53']) {
     const original = Card.prototype[method]; if (!original) continue;
@@ -621,7 +622,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     this._applyCardOptionsV5();
     if (restoreBack) this.shadowRoot.querySelector('[data-energy-back]')?.focus({preventScroll:true});
     return result;
-    } finally { this._syncDashboardPlacementV53(); }
+    } finally { this._syncDashboardPlacementV53(); this._applyThemeV150(); }
   };
   Card.prototype._applyCardOptionsV5 = function() {
     this._syncDashboardPlacementV53();

@@ -18,6 +18,45 @@ function createUiV3({ language = 'en' } = {}) {
     const result = status(value);
     return `<span class="ht-result-state ht-result-state--${result.code}" data-result-state="${result.code}"><span aria-hidden="true">${result.icon}</span> ${result.label}</span>`;
   };
+  const parseColor = value => {
+    const text = typeof value === 'string' ? value.trim() : '';
+    const hex = /^#([a-f0-9]{3}|[a-f0-9]{6})$/i.exec(text);
+    if (hex) return (hex[1].length === 3 ? [...hex[1]].map(c=>c+c).join('') : hex[1]).match(/../g).map(c=>parseInt(c,16));
+    const rgb = /^rgba?\(\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)\s*,\s*(\d+(?:\.\d+)?)(?:\s*,\s*1(?:\.0+)?)?\s*\)$/i.exec(text);
+    return rgb ? rgb.slice(1,4).map(c=>Math.min(255,Math.round(Number(c)))) : null;
+  };
+  const hexColor = rgb => '#' + rgb.map(c=>c.toString(16).padStart(2,'0')).join('');
+  const luminance = rgb => rgb.map(c=>c/255).map(c=>c <= .04045 ? c/12.92 : ((c+.055)/1.055)**2.4)
+    .reduce((sum,c,i)=>sum+c*[.2126,.7152,.0722][i],0);
+  const ratio = (a,b) => (Math.max(luminance(a),luminance(b))+.05)/(Math.min(luminance(a),luminance(b))+.05);
+  const primaryColors = (value, {dark = false} = {}) => {
+    const original = parseColor(value) || parseColor(dark ? '#818cf8' : '#2563eb');
+    const white = [255,255,255], ink = [15,23,42];
+    const foreground = ratio(original,white) >= ratio(original,ink) ? white : ink;
+    const target = foreground === white ? 0 : 255;
+    let fill = original;
+    // The nearest 5% step keeps a supplied theme color when it is readable.
+    for (let step=1; ratio(fill,foreground)<4.5 && step<=20; step++)
+      fill = original.map(c=>Math.round(c+(target-c)*step*.05));
+    return {fill:hexColor(fill),foreground:hexColor(foreground),contrast:ratio(fill,foreground)};
+  };
+  const applyTheme = host => {
+    const view = host?.ownerDocument?.defaultView;
+    if (!host?.isConnected || !view?.getComputedStyle) return null;
+    const raw = view.getComputedStyle(host).getPropertyValue('--primary-color').trim();
+    let resolved = raw;
+    // Resolve ordinary named colors through the browser without a persistent node.
+    if (raw && !parseColor(raw) && !raw.includes('var(') && raw !== 'transparent' && view.CSS?.supports?.('color',raw)) {
+      const probe = host.ownerDocument.createElement('span');
+      probe.style.display = 'none'; probe.style.color = raw;
+      host.append(probe);
+      try { resolved = view.getComputedStyle(probe).color; } finally { probe.remove(); }
+    }
+    const result = primaryColors(resolved,{dark:host.classList.contains('bento-dark') || host.classList.contains('hat-dark')});
+    for (const [key,value] of [['--hat-primary-fill-computed',result.fill],['--hat-on-primary-computed',result.foreground]])
+      if (host.style.getPropertyValue(key) !== value) host.style.setProperty(key,value);
+    return result;
+  };
   // v5.3: public tokens stay inheritable; private defaults follow the HA dark flag.
   const css = `
 :host, .hat {
@@ -98,7 +137,7 @@ function createUiV3({ language = 'en' } = {}) {
 .ht-result-state--not_checked,.ht-result-state--no_data { color:var(--hat-text-2, var(--_hat-text-2)); }
 .ht-result-state--no_data { border-style:dashed; }
 `;
-  return { status, statusHtml, css };
+  return { status, statusHtml, css, primaryColors, applyTheme };
 }
 // Node tests use the canonical factory; this line is excluded from runtime copies.
 if (typeof module !== 'undefined' && module.exports) module.exports = { createUiV3 };
