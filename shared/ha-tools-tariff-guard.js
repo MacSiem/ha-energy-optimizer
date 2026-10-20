@@ -6,7 +6,7 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
   const canonical = value => JSON.stringify(value, (_, v) => v && typeof v === 'object' && !Array.isArray(v)
     ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v);
   let epoch = 0, association, connection, connectionOffline = false, browserOffline = browser?.navigator?.onLine === false;
-  let raw = null, suspended = false;
+  let raw = null, reservation = null, suspended = false;
   const listeners = new Set(), wireListeners = new Set();
   const notify = () => { epoch++; for (const listener of [...listeners]) listener(); };
   const connectionEvent = event => {
@@ -46,9 +46,19 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
     const now = observe();
     return token?.epoch === now.epoch && equal(token, Object.fromEntries(Object.entries(now).filter(([k]) => k !== 'epoch'))) && available(now) && (!admin || now.admin);
   };
-  const call = (token, payload, admin = false) => {
+  const reserve = token => {
+    if (!current(token)) throw { code: 'authority_changed' };
+    if (raw || reservation) throw { code: 'wire_occupied' };
+    const owner = { release: () => {
+      if (reservation !== owner) return;
+      reservation = null;
+      if (!raw) for (const listener of [...wireListeners]) listener();
+    } };
+    reservation = owner; return owner;
+  };
+  const call = (token, payload, admin = false, owner = null) => {
     if (!current(token, admin)) return Promise.reject({ code: 'authority_changed' });
-    if (raw) return Promise.reject({ code: 'wire_occupied' });
+    if (raw || reservation && reservation !== owner) return Promise.reject({ code: 'wire_occupied' });
     let resolvePublic, rejectPublic, finished = false;
     const result = new Promise((resolve, reject) => { resolvePublic = resolve; rejectPublic = reject; });
     const slot = {}; raw = slot;
@@ -59,12 +69,13 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
     // Both branches handle late settlement; no floating rejected finally promise.
     const settled = () => {
       clearTimeout(timer); if (raw === slot) raw = null;
-      for (const listener of [...wireListeners]) listener();
     };
+    const notifySettled = () => { for (const listener of [...wireListeners]) listener(); };
     request.then(value => {
       settled();
       if (!finished) { finished = true; current(token, admin) ? resolvePublic(value) : rejectPublic({ code: 'authority_changed' }); }
-    }, error => { settled(); if (!finished) { finished = true; rejectPublic(error); } });
+      notifySettled();
+    }, error => { settled(); if (!finished) { finished = true; rejectPublic(error); } notifySettled(); });
     return result;
   };
   const suspend = () => {
@@ -87,7 +98,7 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
     notify(); listeners.clear(); wireListeners.clear(); // Raw occupancy intentionally survives disposal.
   };
   observe(); // Observe typed edges before the card/editor is ever mounted.
-  return { snapshot, observe, current, available, call, occupied: () => raw !== null,
+  return { snapshot, observe, current, available, call, reserve, occupied: () => raw !== null || reservation !== null,
     subscribeWire: listener => { wireListeners.add(listener); return () => wireListeners.delete(listener); },
     subscribe: listener => { listeners.add(listener); return () => listeners.delete(listener); }, invalidate: notify, suspend, resume, dispose };
 }

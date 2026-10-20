@@ -47,30 +47,33 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
   async function pump(){
     if(!observe()||!pending||raw||guard.occupied())return;
     pending=false;const e=epoch,s={...selection},token=guard.snapshot();
+    // Reserve the complete read sequence; snapshot/report listeners share this guard.
+    const reservation=guard.reserve?.(token);
+    const call=request=>guard.call(token,request,false,reservation);
     const lane={};raw=lane;view.status='loading';emit();
     try {
-      const caps=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
+      const caps=await call({type:'ha_tools_email/feature_capabilities'});
       if(!current(e)||!capabilities(caps))return;
       // Subscribe only after schema negotiation; confirm grants again after ACK
       // to close the policy-change gap before the first authoritative model read.
       if(!ack){
         if(!await subscribe()||!current(e))return;
-        const confirmed=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
+        const confirmed=await call({type:'ha_tools_email/feature_capabilities'});
         if(!current(e)||!capabilities(confirmed))return;
       }
       if(view.capabilities.energy_analysis?.visible!==true||view.capabilities.energy_analysis?.read!==true){view.status='ready';emit();return;}
       emit();
-      const model=await guard.call(token,{type:'ha_tools_email/energy_report',...s,representation:'model'});
+      const model=await call({type:'ha_tools_email/energy_report',...s,representation:'model'});
       if(!current(e))return;
       if(!validModel(model,s))throw Error('invalid_energy_model');
       view.model=clone(model);view.status='ready';emit();
       // Independent today snapshot. Do not infer current zone/price from a full period.
-      let live=null;try{live=await guard.call(token,{type:'ha_tools_email/energy_report',period:'day',mode:'so_far',representation:'model'});}catch(error){if(['unauthorized','not_allowed'].includes(error?.code))throw error;}
+      let live=null;try{live=await call({type:'ha_tools_email/energy_report',period:'day',mode:'so_far',representation:'model'});}catch(error){if(['unauthorized','not_allowed'].includes(error?.code))throw error;}
       if(!current(e))return;
       if(validModel(live,{period:'day'}))view.current=clone(live.current||null);
       emit();
     } catch(error){if(current(e)){view.model=null;view.current=null;view.preview=null;view.capabilities=null;if(error?.code==='unknown_command'&&view.supported!==true){view.supported=false;view.status='legacy';}else view.status=['unauthorized','not_allowed'].includes(error?.code)?'denied':'error';view.error=error?.code||error?.message||'unavailable';emit();}}
-    finally{if(raw===lane)raw=null;if(pending)void pump();}
+    finally{if(raw===lane)raw=null;reservation?.release();emit();if(pending)void pump();}
   }
   function update(next=selection){
     if(!['day','week','month','year'].includes(next.period)||!['full','so_far'].includes(next.mode||'full'))throw Error('invalid_energy_selection');

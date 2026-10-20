@@ -48,7 +48,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
   }
   function reports(card){
     if(!createReports||typeof card._getTariffHostV3().guard.call!=='function')return null;
-    return card._build1ReportsV53 ||= createReports({card,format,guard:card._getTariffHostV3().guard,getCapabilities:()=>client(card).state().capabilities,isActive:()=>active(card)&&card._build1SectionV53==='reports',onChange:()=>{if(!painting.has(card))paint(card);}});
+    return card._build1ReportsV53 ||= createReports({card,format,isModelBusy:()=>client(card).state().busy,guard:card._getTariffHostV3().guard,getCapabilities:()=>client(card).state().capabilities,isActive:()=>active(card)&&card._build1SectionV53==='reports',onChange:()=>{if(!painting.has(card))paint(card);}});
   }
   function options(card){return card._build1ConfigV53||card._config||{};}
   function paint(card){

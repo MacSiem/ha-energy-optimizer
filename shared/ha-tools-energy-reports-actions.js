@@ -1,6 +1,6 @@
 'use strict';
 // Existing server stores and send_now dispatcher; no scheduler, SMTP setup or auto retry.
-function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>false,onChange=()=>{},format=null,createSchedules=typeof createHaToolsEmailSchedules==='function'?createHaToolsEmailSchedules:null}){
+function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>false,isModelBusy=()=>false,onChange=()=>{},format=null,createSchedules=typeof createHaToolsEmailSchedules==='function'?createHaToolsEmailSchedules:null}){
  const copy=v=>v==null?v:JSON.parse(JSON.stringify(v)),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const pl=()=>String(card._hass?.locale?.language||card._hass?.language||'en').startsWith('pl'),t=(en,polish)=>pl()?polish:en;
  const cadenceLabel=c=>({daily:t('Daily','Dzienny'),weekly:t('Weekly','Tygodniowy'),monthly:t('Monthly','Miesięczny')}[c]||String(c||''));
@@ -52,24 +52,24 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   store=createSchedules({kind:'energy_report',recipientEditor:true,changed:storeChanged,contextLost:()=>{form=null;}});store.setContext(proxy);return store;
  }
  async function load(){
-  if(!observe()||loaded||raw||guard.occupied())return;
-  pending=false;loaded=true;const e=epoch,token=guard.snapshot(),lane={};raw=lane;state.status='loading';emit();
+  if(!observe()||loaded||raw||isModelBusy()||guard.occupied())return;
+  pending=false;const e=epoch,token=guard.snapshot(),lane={};raw=lane;state.status='loading';emit();
   try{
    // Safe bounded household facts; never get_config or get_attempt_history here.
-   try{state.reportStatus=await guard.call(token,{type:'ha_tools_email/get_report_status',purpose:'energy_report'});}catch(_){state.reportStatus=null;}
+   try{state.reportStatus=await guard.call(token,{type:'ha_tools_email/get_report_status',purpose:'energy_report'});}catch(error){state.reportStatus=null;throw error;}
    if(!current(e,token))return;
    if(executable()){
     try{const targets=await guard.call(token,{type:'ha_tools_email/list_delivery_targets'});if(!current(e,token))return;
      state.targets=Array.isArray(targets)?targets.filter(r=>r&&typeof r.id==='string'&&(r.id==='email'||r.id==='persistent_notification'||/^notify\.[a-z0-9_]{1,128}$/.test(r.id))).map(r=>({id:r.id,name:String(r.name||r.id),default:r.default===true})):[];
-    }catch(_){state.targets=[];}
+    }catch(error){state.targets=[];throw error;}
    }
    if(card._hass?.user?.is_admin===true){
     try{const history=await guard.call(token,{type:'ha_tools_email/get_attempt_history'},true);if(!current(e,token))return;
      state.deliveries=(history?.schema===1&&Array.isArray(history.attempts)?history.attempts:[]).filter(r=>r.kind==='energy_report'&&typeof r.id==='string'&&typeof r.timestamp==='string'&&Number.isFinite(Date.parse(r.timestamp))).slice(0,5).map(r=>({id:r.id,at:r.timestamp,name:cadenceLabel(r.cadence),cadence:r.cadence,channel:r.channel||(['accepted_by_smtp'].includes(r.outcome)?'email':null),status:failed.has(r.outcome)?'failed':r.outcome,retryable:failed.has(r.outcome)}));
-    }catch(_){state.deliveries=[];}
+    }catch(error){state.deliveries=[];throw error;}
    }
-   if(!current(e,token))return;state.status='ready';
-  }catch(_){if(current(e,token))state.status='error';}finally{if(raw===lane)raw=null;if(current(e,token)){emit();if(card._hass?.user?.is_admin===true){const c=schedules();if(refreshSchedules){refreshSchedules=false;await c?.refresh?.();}else await c?.ensureRead?.();}}}
+   if(!current(e,token))return;loaded=true;state.status='ready';
+  }catch(error){if(current(e,token)){if(error?.code==='wire_occupied'){pending=true;state.status='loading';}else{loaded=true;state.status='error';}}}finally{if(raw===lane)raw=null;if(current(e,token)){emit();if(state.status==='ready'&&card._hass?.user?.is_admin===true){const c=schedules();if(refreshSchedules){refreshSchedules=false;await c?.refresh?.();}else await c?.ensureRead?.();}}}
  }
  function update(){
   if(!unwire)unwire=guard.subscribeWire(()=>queueMicrotask(()=>{if(pending)void load();else emit();}));
@@ -152,6 +152,7 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   const button=(action,label,disabled=false)=>`<button type="button" data-report-action="${action}" ${disabled?'disabled':''}>${label}</button>`;
   const field=(key,label,type='text',value='')=>`<label>${label}<input type="${type}" data-report-field="${key}" value="${esc(value)}"></label>`;
   let html='<style>[data-build1-reports-host] label{display:grid;gap:4px;margin:8px 0}[data-build1-reports-host] input,[data-build1-reports-host] select,[data-build1-reports-host] button{min-height:44px;font:inherit;max-width:100%}[data-build1-reports-host] fieldset{min-width:0;margin:12px 0}</style>';
+  if(state.status==='error')html+=`<p role="status">${t('Report status could not be loaded. Refresh to retry.','Nie udało się wczytać stanu raportów. Odśwież, aby ponowić.')}</p>`;
   if(state.outcome)html+=`<p role="status">${esc(status[state.outcome]||state.outcome)}</p>`;
   const next=state.reportStatus?.schema===1&&state.reportStatus?.purpose==='energy_report'&&state.reportStatus?.schedule_state==='enabled'?state.reportStatus.next_report_at:null;
   if(typeof next==='string'&&Number.isFinite(Date.parse(next)))html+=`<p>${t('Next report','Następny raport')}: ${esc(format?.forHass?.(card._hass)?.dateTime(next)||next)}</p>`;

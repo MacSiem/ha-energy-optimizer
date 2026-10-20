@@ -200,7 +200,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       wireEditor=createSettings({root,getHass:()=>card._hass,language,state:saved,validate:createModel,guard,wireProfile:true,
         ui:()=>createUi({language:language()}),
         onSaved:()=>{backend.invalidate();cachedKey=undefined;cachedModel=undefined;card._analysisHostV53?.invalidate();card._build1ClientV53?.refresh();},
-        onCancel:()=>{card._tariffProfileModeV53=false;bind();card.shadowRoot?.querySelector('[data-tariff-details]>summary')?.focus();}});
+        onCancel:()=>{card._tariffSettingsOpen=false;const details=card.shadowRoot?.querySelector('[data-tariff-details]');if(details){details.open=false;details.querySelector('summary')?.focus();}}});
     }
     wireEditor.render();
   };
