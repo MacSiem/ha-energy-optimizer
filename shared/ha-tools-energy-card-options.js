@@ -300,7 +300,13 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
         !Array.isArray(rows) || rows.length > 48) return;
     const measured = row => row.complete === true && row.expected_seconds === (row.to-row.from)/1000 && row.measured_seconds === row.expected_seconds &&
       (typeof row.kwh === 'number' || typeof row.kwh === 'string' && row.kwh.trim() !== '') && Number.isFinite(Number(row.kwh)) && Number(row.kwh) >= 0 && String(row.recorded_kwh) === String(row.kwh);
-    const maximum = Math.max(0,...rows.filter(measured).map(row=>Number(row.kwh)));
+    const comparison=analysis.comparisons?.previous,baseline=comparison?.baseline_analysis;
+    const previousRows=comparison?.status==='ready' && comparison.reason===null && comparison.comparison_scope==='calendar_totals' &&
+      baseline?.schema===2 && baseline.period?.kind==='day' && baseline.period.timezone===p.timezone &&
+      baseline.chart?.status==='ready' && baseline.chart.timezone===p.timezone && baseline.chart.coverage_kind==='complete_household_hours' &&
+      baseline.chart.fixed_fee_scope==='household_period_only' && Array.isArray(baseline.chart.bins) && baseline.chart.bins.length<=48 ? baseline.chart.bins : [];
+    // Geometry shares the largest proven measured hour today/yesterday; no quantities or costs are recomputed.
+    const maximum = Math.max(0,...[...rows,...previousRows].filter(measured).map(row=>Number(row.kwh)));
     let last = start;
     for (const row of rows) {
       if (!Number.isFinite(row.from) || !Number.isFinite(row.to) || row.to <= row.from || row.from < last || row.from < start || row.to > observed ||

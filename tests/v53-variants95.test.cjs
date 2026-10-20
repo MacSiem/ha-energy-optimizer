@@ -237,3 +237,8 @@ for(const language of ['en','pl'])test(`compact caption names only the active pr
  const dto=clone(producer);dto.alternatives.find(r=>r.tariff_id===dto.active_tariff_id).tariff_name='QA G12';const before=JSON.stringify(dto),f=setup(names[0],{language,reply:()=>clone(dto)});
  try{await f.mount();const label=f.card.shadowRoot.querySelector('[data-energy-primary-label]');assert.match(label.textContent,language==='pl'?/Do .* · Taryfa QA G12/:/Through .* · Tariff QA G12/);assert.equal(label.title,label.textContent);assert.equal(JSON.stringify(dto),before);assert.equal(f.requests.some(q=>q.type==='ha_tools_email/get_tariff'),false,'no extra private settings read for a caption');f.quiet();}finally{f.close();}
 });
+
+test('compact measured bars use the larger proven previous-day hour for geometry without changing any facts',async()=>{
+ const dto=clone(producer),prior=dto.comparisons.previous.baseline_analysis.chart.bins[0];prior.kwh=prior.recorded_kwh='100';
+ const before=JSON.stringify(dto),f=setup(names[0],{reply:()=>clone(dto)});try{await f.mount();const bar=f.card.shadowRoot.querySelector('[data-energy-zonebar]');assert.ok(Math.abs(Number.parseFloat(bar.children[0].style.height)-4)<1e-9);assert.equal(JSON.stringify(dto),before);f.quiet();}finally{f.close();}
+});
