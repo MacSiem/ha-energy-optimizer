@@ -5521,7 +5521,7 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
   function clear(status='idle',resetSupport=false){epoch++;pending=false;const supported=resetSupport?null:view.supported;view={status,model:null,current:null,preview:null,capabilities:null,supported,error:null};emit();}
   function dispose(){for(const fn of unsub){try{fn();}catch(_){}}unsub=[];ack=false;subscribing=null;}
   function stop(){enabled=false;dispose();identity=null;authority?.();wire?.();authority=wire=null;clear('idle',true);}
-  function observe(){const next=context();if(!same(identity,next)){dispose();identity=next;clear('idle',true);pending=available();}return available();}
+  function observe(){const next=context();if(!same(identity,next)){const keepLegacy=view.supported===false&&identity&&identity[0]===next[0]&&identity[1]===next[1];dispose();identity=next;clear(keepLegacy?'legacy':'idle',!keepLegacy);pending=available()&&!keepLegacy;}return available();}
   const current=e=>e===epoch&&available()&&same(identity,context());
   function invalidate(){if(!enabled)return;clear(available()?'loading':'idle');pending=available();queueMicrotask(()=>{if(observe())pump();});}
   async function subscribe(){
@@ -5716,7 +5716,8 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
   const aliases={dashboard:'overview',daily:'breakdown',weekly:'breakdown',monthly:'breakdown',compare:'costs',recommendations:'costs',schedule:'reports',preview:'reports',send:'reports',history:'reports'};
   const canonical=v=>['overview','breakdown','costs','reports'].includes(v)?v:aliases[v];
   const baseTab={overview:name==='ha-energy-optimizer'?'dashboard':'overview',breakdown:name==='ha-energy-insights'?'daily':name==='ha-energy-optimizer'?'dashboard':'overview',costs:name==='ha-energy-optimizer'?'recommendations':'overview',reports:name==='ha-energy-email'?'overview':name==='ha-energy-optimizer'?'dashboard':'overview'};
-  const eligible=card=>!card._build1CompatLegacyV53&&!card._build1LegacyV53&&(!(card._config?.compact&&!card._config?.variant))&&(!['tile','compact'].includes(card._config?.variant)||card._optionsExpandedV5);
+  const nativeReportRoute=card=>name==='ha-energy-email'&&(card._build1ConfigV53?.default_tab==='preview'||card._optionsExpandedV5&&card[key]==='send');
+  const eligible=card=>!nativeReportRoute(card)&&!card._build1CompatLegacyV53&&!card._build1LegacyV53&&(!(card._config?.compact&&!card._config?.variant))&&(!['tile','compact'].includes(card._config?.variant)||card._optionsExpandedV5);
   const full=card=>eligible(card)&&card._build1ClientV53?.state().supported===true;
   const active=card=>eligible(card)&&card.isConnected&&card.preview!==true;
   const pl=card=>String(card._hass?.locale?.language||card._hass?.language||'en').startsWith('pl');
