@@ -10,7 +10,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   guard ||= createTariffGuardV3({ getHass: () => card._hass, getContext: () => card._config, timeoutMs: readTimeoutMs });
   const identity = () => guard.snapshot();
   const same = (a, b) => a?.epoch === b?.epoch && a?.user === b?.user && a?.connection === b?.connection;
-  let confirmedRevision = null, confirmedUpdatedAt = null, pending = null, attemptedEpoch = null, cachedKey, cachedModel, editorRoot, editor, focusKey = null;
+  let confirmedRevision = null, confirmedUpdatedAt = null, pending = null, attemptedEpoch = null, cachedKey, cachedModel, editorRoot, editor, focusKey = null, wireRoot, wireEditor;
   const state = () => (card._tariffEditorState ||= { profile: null, revision: null, status: 'not_checked', busy: false });
   const effectiveConfig = () => {
     const config = card._config || {};
@@ -76,6 +76,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     card._sharedTariffProfile = null; card._sharedTariffAssociation = null;
     card._sharedTariffLoadedAt = 0; card._tariffEditorState = null; confirmedRevision = null; confirmedUpdatedAt = null;
     card._sharedTariffReadStatus = 'not_checked'; card._tariffSettingsOpen = false;
+    wireEditor?.dispose?.();wireRoot?.replaceChildren();wireRoot=null;wireEditor=null;card._tariffWireEditorState=null;card._tariffProfileModeV53=false;
     backend.invalidate();
     cachedKey = undefined; cachedModel = undefined; editorRoot?.replaceChildren(); editor?.dispose?.(); editorRoot = null; editor = null; focusKey = null;
     for (const mount of card.shadowRoot?.querySelectorAll('[data-tariff-mount]') || []) mount.replaceChildren();
@@ -133,7 +134,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     const active = card.shadowRoot?.activeElement;
     focusKey = active?.closest('[data-tariff-details]') ? {
       summary: active.tagName === 'SUMMARY', path: active.dataset.path,
-      action: active.dataset.action, weekday: active.dataset.weekday, feed: active.dataset.feed,
+      action: active.dataset.action, weekday: active.dataset.weekday, feed: active.dataset.feed, wire:active.dataset.wireFocus,
       selection: typeof active.selectionStart === 'number' ? { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection } : null
     } : null;
     return `<style>
@@ -152,7 +153,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     ${card._energyPriceStatusV5 === 'backend_request_limit' ? `<p role="status">${text('This history exceeds the pricing limit. Choose a shorter period or simplify the tariff, then reload the tariff.', 'Ta historia przekracza limit wyceny. Wybierz krótszy okres lub uprość taryfę i wczytaj ją ponownie.')}</p>` : card._energyPriceStatusV5 === 'backend_unavailable' ? `<p role="status">${text('Energy pricing is unavailable. Check HA Tools Email and reload the tariff; unknown cost is not zero.', 'Wycena energii jest niedostępna. Sprawdź HA Tools Email i wczytaj taryfę ponownie; nieznany koszt nie oznacza zera.')}</p>` : ''}
     <details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
     ${Object.hasOwn(card._config || {}, 'tariff_profile') ? `<p>${text('This card uses its own configured tariff. Shared settings apply to cards using the shared profile.', 'Ta karta używa własnej skonfigurowanej taryfy. Ustawienia współdzielone dotyczą kart korzystających ze wspólnego profilu.')}</p>` : ''}
-    <div data-tariff-mount></div></details>`;
+    <div data-tariff-mount></div><div data-tariff-wire-mount hidden></div></details>`;
   };
   const mount = root => {
     if (editorRoot !== root || !editor) {
@@ -192,6 +193,25 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     if (!Object.hasOwn(state(), '_draftBaseline')) state()._draftBaseline = clone(state().draft);
     editor.render();
   };
+  const mountWire = root => {
+    if(wireRoot!==root || !wireEditor){
+      wireEditor?.dispose?.();wireRoot=root;
+      const saved=card._tariffWireEditorState ||= {profile:null,revision:null,status:'not_checked',busy:false,backendAvailable:false};
+      wireEditor=createSettings({root,getHass:()=>card._hass,language,state:saved,validate:createModel,guard,wireProfile:true,
+        ui:()=>createUi({language:language()}),
+        onSaved:()=>{backend.invalidate();cachedKey=undefined;cachedModel=undefined;card._analysisHostV53?.invalidate();card._build1ClientV53?.refresh();},
+        onCancel:()=>{card._tariffProfileModeV53=false;bind();card.shadowRoot?.querySelector('[data-tariff-details]>summary')?.focus();}});
+    }
+    wireEditor.render();
+  };
+  const openProfile = async (mode='edit') => {
+    if(!['edit','history','templates'].includes(mode))return false;
+    card._tariffSettingsOpen=true;card._tariffProfileModeV53=true;
+    const details=card.shadowRoot?.querySelector('[data-tariff-details]');if(!details)return false;
+    details.open=true;bind();await wireEditor?.openMode?.(mode);
+    if(guard.available(identity()))wireRoot?.querySelector(mode==='templates'?'[data-wire-template]':'[data-wire-history]')?.focus();
+    return true;
+  };
   const bind = () => {
     guard.observe();
     backend.snapshot();
@@ -228,20 +248,23 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     if (!details) return;
     let root = details.querySelector('[data-tariff-mount]');
     if (editorRoot && editor && root !== editorRoot) { root.replaceWith(editorRoot); root = editorRoot; }
+    let wire=details.querySelector('[data-tariff-wire-mount]');
+    if(wireRoot && wire!==wireRoot){wire.replaceWith(wireRoot);wire=wireRoot;}
+    root.hidden=card._tariffProfileModeV53===true;wire.hidden=!root.hidden;
     if (!details.dataset.bound) {
       details.dataset.bound = 'true';
       details.addEventListener('toggle', () => {
         card._tariffSettingsOpen = details.open;
-        if (details.open) mount(root);
+        if (details.open) {if(card._tariffProfileModeV53)mountWire(wire);else mount(root);}
       });
     }
-    if (details.open) mount(root);
+    if (details.open) {if(card._tariffProfileModeV53)mountWire(wire);else mount(root);}
     if (focusKey) {
       const key = focusKey; focusKey = null;
       const target = key.summary ? details.querySelector('summary') : details.open &&
-        [...root.querySelectorAll('input,select,textarea,button')].find(el =>
+        [...(card._tariffProfileModeV53?wire:root).querySelectorAll('input,select,textarea,button')].find(el =>
           (key.path && el.dataset.path === key.path) || (key.action && el.dataset.action === key.action) ||
-          (key.weekday && el.dataset.weekday === key.weekday) || (key.feed && el.dataset.feed === key.feed));
+          (key.weekday && el.dataset.weekday === key.weekday) || (key.feed && el.dataset.feed === key.feed) || (key.wire && el.dataset.wireFocus===key.wire));
       if (target && !target.disabled) {
         target.focus({ preventScroll: true });
         if (key.selection && typeof target.selectionStart === 'number') {
@@ -259,7 +282,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   const reportStatus = ({onChange,isActive,getSourceKey,wantsExecute} = {}) => createReportStatusV53({card,guard,purpose:'energy_report',onChange,isActive,wantsExecute,getSourceKey:getSourceKey || (() => guard.snapshot().epoch)});
   const statistics = options => createEnergyStatisticsUiV53({card,guard,...options});
-  return { createGuard: createTariffGuardV3, statistics, reportStatus, summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
+  return { createGuard: createTariffGuardV3, statistics, reportStatus, summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, openProfile, guard, backend, ui: () => createUi({ language: language() }) };
 }
 
 if (typeof module !== 'undefined' && module.exports) module.exports = { createTariffHostV3 };

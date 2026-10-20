@@ -128,7 +128,8 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
       for(const b of root.querySelectorAll('[data-energy-build1]')){
         const action=b.dataset.energyBuild1;
         if(!implemented.has(action)){b.disabled=true;b.title=text(card,'This action is not connected in this version.','Ta akcja nie jest podłączona w tej wersji.');}
-        if(['tariff-edit','tariff-history','tariff-template'].includes(action))b.disabled=s.capabilities?.energy_tariff?.execute!==true;
+        if(['tariff-edit','tariff-template'].includes(action))b.disabled=s.capabilities?.energy_tariff?.execute!==true;
+        if(action==='tariff-history')b.disabled=s.capabilities?.energy_tariff?.visible!==true||s.capabilities?.energy_tariff?.read!==true;
         if(action==='preview-load')b.disabled=s.busy||s.capabilities?.energy_reports?.read!==true||s.capabilities?.energy_reports?.visible!==true;
         if(['previous','next'].includes(action))b.disabled=!s.model;
         if(['preview-device','preview-theme'].includes(action))b.setAttribute('aria-pressed',String(b.dataset.value===(action==='preview-device'?card._build1DeviceV53||'desktop':card._build1ThemeV53||'light')));
@@ -168,7 +169,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
     else if(action==='preview-device'){card._build1DeviceV53=value;paint(card);}
     else if(action==='preview-theme'){card._build1ThemeV53=value;paint(card);}
     else if(action==='more'){card._build1OverflowV53=!card._build1OverflowV53;paint(card);}
-    else if(['tariff-edit','tariff-history','tariff-template'].includes(action)){if(s.capabilities?.energy_tariff?.execute!==true)return;card._tariffSettingsOpen=true;paint(card);const details=card.shadowRoot.querySelector('[data-tariff-details]');if(details){details.open=true;card._getTariffHostV3().bind();details.querySelector('summary')?.focus();}}
+    else if(['tariff-edit','tariff-history','tariff-template'].includes(action)){const grant=s.capabilities?.energy_tariff;if(grant?.visible!==true||grant?.read!==true||action!=='tariff-history'&&grant.execute!==true)return;card._tariffSettingsOpen=true;paint(card);await card._getTariffHostV3().openProfile(action==='tariff-history'?'history':action==='tariff-template'?'templates':'edit');}
     else if(action==='configure-energy'){history.pushState(null,'','/energy');window.dispatchEvent(new CustomEvent('location-changed'));}
   }
   const set=Card.prototype.setConfig;
