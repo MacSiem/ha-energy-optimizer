@@ -7608,6 +7608,12 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
 function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>false,isModelBusy=()=>false,onChange=()=>{},format=null,createSchedules=typeof createHaToolsEmailSchedules==='function'?createHaToolsEmailSchedules:null}){
  const copy=v=>v==null?v:JSON.parse(JSON.stringify(v)),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
  const pl=()=>String(card._hass?.locale?.language||card._hass?.language||'en').startsWith('pl'),t=(en,polish)=>pl()?polish:en;
+ const channelLabels=()=>({email:t('Email','E-mail'),persistent_notification:t('HA notification','Powiadomienie HA'),'notify.persistent_notification':t('HA notification','Powiadomienie HA'),'notify.send_message':t('HA message','Wiadomość HA')});
+ const channelLabel=(id,name)=>{
+  const supplied=name??state.targets.find(target=>target.id===id)?.name;
+  if(supplied&&supplied!==id)return supplied;
+  const labels=channelLabels();return Object.hasOwn(labels,id)?labels[id]:supplied||id;
+ };
  const cadenceLabel=c=>({daily:t('Daily','Dzienny'),weekly:t('Weekly','Tygodniowy'),monthly:t('Monthly','Miesięczny')}[c]||String(c||''));
  const weekdays=()=>[t('Monday','Poniedziałek'),t('Tuesday','Wtorek'),t('Wednesday','Środa'),t('Thursday','Czwartek'),t('Friday','Piątek'),t('Saturday','Sobota'),t('Sunday','Niedziela')];
  const grants=()=>getCapabilities()?.energy_reports,readable=()=>grants()?.visible===true&&grants()?.read===true;
@@ -7626,9 +7632,29 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
  function observe(){if(getCapabilities()?.energy_reports)knownGrants=copy(getCapabilities().energy_reports);const next=context();if(!same(identity,next)){identity=next;clear();}return available();}
  function stop(){identity=null;knownGrants=null;clear();unwire?.();unauthority?.();unwire=unauthority=null;root=null;}
  function storeChanged(){if(!store||!available())return;if(!store.model().draft)scheduleReview=null;state.schedules=store.model().rows.filter(r=>r.kind==='energy_report').map(r=>({...r,channel:(r.channels||['email']).join(', '),editable:true}));emit();}
+ // An ACK is not readback. Keep an accepted write associated while a secured
+ // update refreshes model grants; subsequent reads wait and require fresh grants.
+ const associated=(e,token)=>e===epoch&&isActive()&&card.isConnected&&card.preview!==true&&same(identity,context())&&guard.current(token);
+ function acquireScheduleRead(e,token){
+  return new Promise(resolve=>{
+   let finished=false,unwire=()=>{},unauthority=()=>{};
+   const finish=owner=>{if(finished)return;finished=true;unwire();unauthority();resolve(owner);};
+   const check=()=>{
+    if(finished)return;
+    if(!associated(e,token)){finish(null);return;}
+    if(isModelBusy()||guard.occupied())return;
+    if(!current(e,token)){finish(null);return;}
+    try{finish(guard.reserve?.(token)||{release:()=>{}});}catch(_){finish(null);}
+   };
+   unwire=guard.subscribeWire(check);unauthority=guard.subscribe(check);check();
+  });
+ }
  async function protectedCall(request){
   const e=epoch,token=guard.snapshot(),admin=card._hass?.user?.is_admin===true;
-  if(!current(e,token)||!admin||guard.occupied())throw {code:'stale_context'};
+  let owner=null;
+  const readback=['manifest/get','ha_tools_email/list_schedules'].includes(request.type);
+  if(readback&&(isModelBusy()||guard.occupied()))owner=await acquireScheduleRead(e,token);
+  if(!current(e,token)||!admin||(!owner&&guard.occupied())){owner?.release();throw {code:'stale_context'};}
   if(request.type==='ha_tools_email/set_schedule'){
    if(!executable())throw {code:'unauthorized'};
    const caps=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
@@ -7645,9 +7671,11 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
    }
 
   }
-  const result=await guard.call(token,request,true);
-  if(!current(e,token))throw {code:'stale_context'};
-  return result;
+  try{
+   const result=await guard.call(token,request,true,owner);
+   if(!(request.type==='ha_tools_email/set_schedule'?associated(e,token):current(e,token)))throw {code:'stale_context'};
+   return result;
+  }finally{owner?.release();}
  }
  function schedules(){
   if(store||!createSchedules||card._hass?.user?.is_admin!==true)return store;
@@ -7730,7 +7758,9 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   observe();const sm=store?.model();
   if(!executable()||raw||guard.occupied()||!scheduleReview||scheduleReview.consumed||!sm?.draft||sm.reading||sm.writing||sm.locked)return false;
   if(scheduleReview.signature!==JSON.stringify({draft:sm.draft,recipients:store.recipientModel()||[]})){scheduleReview=null;emit();return false;}
-  scheduleReview.consumed=true;emit();await store.save();return store.model().status.state==='success';
+  const scheduleStore=store;
+  scheduleReview.consumed=true;emit();await scheduleStore.save();
+  return store===scheduleStore&&executable()&&scheduleStore.model().status.state==='success';
  }
  function scheduleAction(action,id){
   observe();if(!executable()||raw||guard.occupied())return false;
@@ -7765,8 +7795,8 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
   if(form){
    const locked=form.consumed||raw!==null;
    html+=`<fieldset><legend>${t('Send a new energy report','Wyślij nowy raport energii')}</legend><p>${t('Previous completed calendar period. This does not send the selected historical preview.','Poprzedni zakończony okres kalendarzowy. Nie wysyła wybranego podglądu historycznego.')}</p>`;
-   if(form.phase==='review')html+=`<p>${esc(cadenceLabel(form.cadence))} · ${esc(form.channel)}${form.channel==='email'?' · '+esc(form.recipients):''}</p>${button('confirm',t('Confirm send once','Potwierdź jedną wysyłkę'),locked)}${button('edit-send',t('Edit','Edytuj'),locked)}`;
-   else html+=`<label>${t('Channel','Kanał')}<select data-report-field="channel"><option value="">${t('Choose a channel','Wybierz kanał')}</option>${state.targets.map(r=>`<option value="${esc(r.id)}" ${r.id===form.channel?'selected':''}>${esc(r.name)}</option>`).join('')}</select></label><label>${t('Period','Okres')}<select data-report-field="cadence">${['daily','weekly','monthly'].map(c=>`<option value="${c}" ${form.cadence===c?'selected':''}>${esc(cadenceLabel(c))}</option>`).join('')}</select></label>${field('recipients',t('Email recipients (used only for email)','Odbiorcy e-mail (tylko dla kanału e-mail)'),'text',form.recipients)}${button('review',t('Review delivery','Sprawdź wysyłkę'),locked||!form.channel)}`;
+   if(form.phase==='review')html+=`<p>${esc(cadenceLabel(form.cadence))} · ${esc(channelLabel(form.channel))}${form.channel==='email'?' · '+esc(form.recipients):''}</p>${button('confirm',t('Confirm send once','Potwierdź jedną wysyłkę'),locked)}${button('edit-send',t('Edit','Edytuj'),locked)}`;
+   else html+=`<label>${t('Channel','Kanał')}<select data-report-field="channel"><option value="">${t('Choose a channel','Wybierz kanał')}</option>${state.targets.map(r=>`<option value="${esc(r.id)}" ${r.id===form.channel?'selected':''}>${esc(channelLabel(r.id,r.name))}</option>`).join('')}</select></label><label>${t('Period','Okres')}<select data-report-field="cadence">${['daily','weekly','monthly'].map(c=>`<option value="${c}" ${form.cadence===c?'selected':''}>${esc(cadenceLabel(c))}</option>`).join('')}</select></label>${field('recipients',t('Email recipients (used only for email)','Odbiorcy e-mail (tylko dla kanału e-mail)'),'text',form.recipients)}${button('review',t('Review delivery','Sprawdź wysyłkę'),locked||!form.channel)}`;
    html+=button('cancel',t('Cancel','Anuluj'),locked)+'</fieldset>';
   }
   const sm=store?.model(),d=sm?.draft;
@@ -7775,9 +7805,9 @@ function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>
    const selected=d.channels||['email'],missing=selected.filter(id=>!state.targets.some(target=>target.id===id));
    if(scheduleReview){
     const plan=scheduleReview,channels=plan.draft.channels||['email'];
-    html+=`<fieldset><legend>${t('Review recurring report','Sprawdź raport cykliczny')}</legend><p>${esc(cadenceLabel(plan.draft.cadence))} · ${esc(plan.draft.time)} · ${esc(plan.draft.timezone||card._hass?.config?.time_zone||'HA')} · ${plan.draft.enabled?t('Enabled','Włączony'):t('Disabled','Wyłączony')}</p>${plan.draft.cadence==='weekly'?`<p>${t('Weekday','Dzień tygodnia')}: ${esc(weekdays()[plan.draft.weekday])}</p>`:plan.draft.cadence==='monthly'?`<p>${t('Day of month','Dzień miesiąca')}: ${esc(plan.draft.month_day)}</p>`:''}<p>${esc(channels.join(', '))}</p>${channels.includes('email')?`<p>${esc(plan.recipients.join(', '))}</p>`:''}${button('confirm-schedule',t('Confirm schedule save','Potwierdź zapis harmonogramu'),plan.consumed||sm.writing||sm.reading||sm.locked)}${button('edit-schedule',t('Edit','Edytuj'),sm.writing||sm.locked)}${button('cancel-schedule',t('Cancel','Anuluj'),sm.writing)}</fieldset>`;
+    html+=`<fieldset><legend>${t('Review recurring report','Sprawdź raport cykliczny')}</legend><p>${esc(cadenceLabel(plan.draft.cadence))} · ${esc(plan.draft.time)} · ${esc(plan.draft.timezone||card._hass?.config?.time_zone||'HA')} · ${plan.draft.enabled?t('Enabled','Włączony'):t('Disabled','Wyłączony')}</p>${plan.draft.cadence==='weekly'?`<p>${t('Weekday','Dzień tygodnia')}: ${esc(weekdays()[plan.draft.weekday])}</p>`:plan.draft.cadence==='monthly'?`<p>${t('Day of month','Dzień miesiąca')}: ${esc(plan.draft.month_day)}</p>`:''}<p>${esc(channels.map(id=>channelLabel(id)).join(', '))}</p>${channels.includes('email')?`<p>${esc(plan.recipients.join(', '))}</p>`:''}${button('confirm-schedule',t('Confirm schedule save','Potwierdź zapis harmonogramu'),plan.consumed||sm.writing||sm.reading||sm.locked)}${button('edit-schedule',t('Edit','Edytuj'),sm.writing||sm.locked)}${button('cancel-schedule',t('Cancel','Anuluj'),sm.writing)}</fieldset>`;
    }else{
-    html+=`<fieldset><legend>${t('Recurring energy report','Cykliczny raport energii')}</legend><label>${t('Channels (select one or more)','Kanały (wybierz co najmniej jeden)')}<select multiple data-schedule-channels>${state.targets.map(target=>`<option value="${esc(target.id)}" ${selected.includes(target.id)?'selected':''}>${esc(target.name)}</option>`).join('')}</select></label>${missing.length?`<p role="status">${t('Unavailable selected targets; choose current targets: ','Niedostępne wybrane cele; wybierz aktualne cele: ')}${esc(missing.join(', '))}</p>`:''}<label>${t('Cadence','Częstotliwość')}<select data-schedule-field="cadence">${['daily','weekly','monthly'].map(c=>`<option value="${c}" ${d.cadence===c?'selected':''}>${esc(cadenceLabel(c))}</option>`).join('')}</select></label>${entry('time',t('Time','Godzina'),'time')}${entry('timezone',t('Time zone (empty: HA)','Strefa czasu (pusta: HA)'))}${d.cadence==='weekly'?`<label>${t('Weekday','Dzień tygodnia')}<select data-schedule-field="weekday">${weekdays().map((label,index)=>`<option value="${index}" ${d.weekday===index?'selected':''}>${esc(label)}</option>`).join('')}</select></label>`:d.cadence==='monthly'?entry('month_day',t('Day of month 1–31','Dzień miesiąca 1–31'),'number'):''}<label><input type="checkbox" data-schedule-field="enabled" ${d.enabled?'checked':''}>${t('Enabled','Włączony')}</label>${selected.includes('email')?`<label>${t('Email recipients','Odbiorcy e-mail')}<input data-schedule-recipients value="${esc((store.recipientModel()||[]).join(', '))}"></label>`:''}${button('save-schedule',t('Review schedule','Sprawdź harmonogram'),sm.writing||sm.reading||sm.locked)}${button('cancel-schedule',t('Cancel','Anuluj'),sm.writing)}</fieldset>`;
+    html+=`<fieldset><legend>${t('Recurring energy report','Cykliczny raport energii')}</legend><label>${t('Channels (select one or more)','Kanały (wybierz co najmniej jeden)')}<select multiple data-schedule-channels>${state.targets.map(target=>`<option value="${esc(target.id)}" ${selected.includes(target.id)?'selected':''}>${esc(channelLabel(target.id,target.name))}</option>`).join('')}</select></label>${missing.length?`<p role="status">${t('Unavailable selected targets; choose current targets: ','Niedostępne wybrane cele; wybierz aktualne cele: ')}${esc(missing.map(id=>channelLabel(id)).join(', '))}</p>`:''}<label>${t('Cadence','Częstotliwość')}<select data-schedule-field="cadence">${['daily','weekly','monthly'].map(c=>`<option value="${c}" ${d.cadence===c?'selected':''}>${esc(cadenceLabel(c))}</option>`).join('')}</select></label>${entry('time',t('Time','Godzina'),'time')}${entry('timezone',t('Time zone (empty: HA)','Strefa czasu (pusta: HA)'))}${d.cadence==='weekly'?`<label>${t('Weekday','Dzień tygodnia')}<select data-schedule-field="weekday">${weekdays().map((label,index)=>`<option value="${index}" ${d.weekday===index?'selected':''}>${esc(label)}</option>`).join('')}</select></label>`:d.cadence==='monthly'?entry('month_day',t('Day of month 1–31','Dzień miesiąca 1–31'),'number'):''}<label><input type="checkbox" data-schedule-field="enabled" ${d.enabled?'checked':''}>${t('Enabled','Włączony')}</label>${selected.includes('email')?`<label>${t('Email recipients','Odbiorcy e-mail')}<input data-schedule-recipients value="${esc((store.recipientModel()||[]).join(', '))}"></label>`:''}${button('save-schedule',t('Review schedule','Sprawdź harmonogram'),sm.writing||sm.reading||sm.locked)}${button('cancel-schedule',t('Cancel','Anuluj'),sm.writing)}</fieldset>`;
    }
 
   }
@@ -7832,7 +7862,19 @@ function createEnergyBuild1ViewV53({format, language = format?.language || 'en'}
   // Number conversions below only size bars or convert ratios to display percentages.
   const width=(value,max)=>valid(value)&&max>0?Math.max(0,Math.min(100,Number(value)/max*100)):0;
   const isUnmeasured=r=>r.id==='_unmeasured'||r.area_id==='_unmeasured'||r.color==='unmeasured';
-  const itemName=r=>isUnmeasured(r)?t('Unmeasured','Niezmierzone'):r.name||unknown();
+  const itemName=(r,group)=>{
+    if(isUnmeasured(r))return t('Unmeasured','Niezmierzone');
+    // grouped() uses an explicit null identity for the unassigned bucket. A
+    // matching name alone is never enough to translate a real HA area/device.
+    if(group==='rooms'&&r.area_id===null&&r.name==='Bez pokoju')return t('No room','Bez pokoju');
+    if(group==='floors'&&r.floor_id===null&&r.name==='Bez piętra')return t('No floor','Bez piętra');
+    return r.name||unknown();
+  };
+  const channelLabels={email:t('Email','E-mail'),persistent_notification:t('HA notification','Powiadomienie HA'),'notify.persistent_notification':t('HA notification','Powiadomienie HA'),'notify.send_message':t('HA message','Wiadomość HA')};
+  const channelText=value=>{
+    const text=String(value||unknown()),ids=text.split(',').map(id=>id.trim());
+    return ids.some(id=>Object.hasOwn(channelLabels,id))?ids.map(id=>Object.hasOwn(channelLabels,id)?channelLabels[id]:id).join(', '):text;
+  };
   // Backend model/1 may use its semantic key as the label. Translate only this
   // allowlist; already descriptive/custom labels remain producer-owned text.
   const comparisonLabels={
@@ -7887,7 +7929,7 @@ function createEnergyBuild1ViewV53({format, language = format?.language || 'en'}
     const rows=(group==='devices'?list(m.ranking).length?list(m.ranking):list(m.devices):list(m[group])).filter(r=>!(group==='rooms'&&r.area_id===null&&valid(r.kwh)&&Number(r.kwh)===0));
     const safe=rows.filter(r=>!(double&&isUnmeasured(r))),max=Math.max(0,...safe.filter(r=>valid(r.kwh)).map(r=>Number(r.kwh)));
     const value=(r,f)=>double&&isUnmeasured(r)?esc(doubleMessage()):f();
-    const one=(r,i,child=false)=>`<div class="rk2${child?' child':''}"><div class="nm"><i class="sw${isUnmeasured(r)?' hatch':''}" style="background:${color(r,i)}"></i><span>${child?'↳ ':''}${esc(itemName(r))}${child?` <small>(${t('included','w tym')})</small>`:''}${r.count!==undefined?`<small>${exact(r.count)} ${formatted('reportPlural',r.count,pl?{one:'urządzenie',few:'urządzenia',many:'urządzeń'}:{one:'device',other:'devices'})}</small>`:''}</span></div><div class="bar"><i class="${isUnmeasured(r)?'hatch':''}" style="width:${double&&isUnmeasured(r)?0:width(r.kwh,max)}%;background:${color(r,i)}"></i></div><div class="v">${value(r,()=>energy(r.kwh,period))}</div><div class="p">${partial||double?'—':ratio(r.share)}</div><div class="c">${child?'':value(r,()=>money(r.cost,m.currency))}</div></div>`;
+    const one=(r,i,child=false)=>`<div class="rk2${child?' child':''}"><div class="nm"><i class="sw${isUnmeasured(r)?' hatch':''}" style="background:${color(r,i)}"></i><span>${child?'↳ ':''}${esc(itemName(r,child?undefined:group))}${child?` <small>(${t('included','w tym')})</small>`:''}${r.count!==undefined?`<small>${exact(r.count)} ${formatted('reportPlural',r.count,pl?{one:'urządzenie',few:'urządzenia',many:'urządzeń'}:{one:'device',other:'devices'})}</small>`:''}</span></div><div class="bar"><i class="${isUnmeasured(r)?'hatch':''}" style="width:${double&&isUnmeasured(r)?0:width(r.kwh,max)}%;background:${color(r,i)}"></i></div><div class="v">${value(r,()=>energy(r.kwh,period))}</div><div class="p">${partial||double?'—':ratio(r.share)}</div><div class="c">${child?'':value(r,()=>money(r.cost,m.currency))}</div></div>`;
     return `<div class="seg2">${Object.entries(groups).map(([key,label])=>action('group',label,key,`aria-pressed="${group===key}"`)).join('')}</div>${heading(`${energy(m.totals?.import_kwh,period)} ${t('imported','importu')}`,t('Energy dashboard devices · hourly zone costs','Urządzenia z panelu Energia · koszt wg stref każdej godziny'))}<div class="compbar" aria-hidden="true">${safe.map((r,i)=>`<i class="${isUnmeasured(r)?'hatch':''}" style="width:${width(r.kwh,Number(m.totals?.import_kwh))}%;background:${color(r,i)}"></i>`).join('')}</div>${rows.length?rows.map((r,i)=>`${r.id==='_other_measured'?`<details data-energy-build1-disclosure="other-measured"><summary>${t('Other measured devices','Pozostałe zmierzone')}</summary>${one(r,i)}${list(r.children).map(c=>one(c,i,true)).join('')}${list(r.children).length?'':`<p class="info">${t('Individual readings are unavailable in this snapshot.','Odczyty poszczególnych urządzeń nie są dostępne w tym stanie.')}</p>`}</details>`:one(r,i)+list(r.children).map(c=>one(c,i,true)).join('')}`).join(''):empty()}<p class="info">${t('Unmeasured = import minus top-level devices. Included children are not counted twice. Rooms follow HA areas; no proportional allocation.','Niezmierzone = import − suma urządzeń najwyższego poziomu. Urządzenia „w tym” nie są liczone drugi raz. Pokoje według obszarów HA; bez podziału proporcjonalnego.')}</p>`;
   }
   function costs(m,o){
@@ -7900,7 +7942,7 @@ function createEnergyBuild1ViewV53({format, language = format?.language || 'en'}
     const schedules=list(o.schedules),deliveries=list(o.deliveries).slice(0,5),editable=o.canManageReports===true;
     const disabled=editable?'':'disabled',scheduleDisabled=(o.canManageSchedules??editable)?'':'disabled';
     const status={delivered:t('Delivered','Dostarczone'),failed:t('Failed','Błąd'),pending:t('Pending','Oczekuje'),accepted_by_notify:t('Accepted by HA','Przyjęte przez HA'),accepted_by_smtp:t('Accepted by SMTP','Przyjęte przez SMTP'),outcome_unknown:t('Outcome unknown','Wynik nieznany'),transport_outcome_unknown:t('Outcome unknown','Wynik nieznany'),partial_acceptance:t('Partly accepted','Częściowo przyjęte'),sent:t('Sent','Wysłano')};
-    return `${heading(t('Schedule','Harmonogram'),t('HA notification or email','Powiadomienie HA lub e-mail'))}<div class="list">${schedules.length?schedules.map(s=>`<div class="it"><div class="txt">${esc(s.name||s.cadence||unknown())}<small>${esc(s.cadence||'')} · ${esc(s.time||unknown())} · ${esc(s.channel||unknown())}</small></div>${action('schedule-toggle',s.enabled===true?t('Enabled','Włączony'):s.enabled===false?t('Disabled','Wyłączony'):unknown(),s.id,`${s.editable===false?'disabled':scheduleDisabled} aria-pressed="${s.enabled===true}"`)}${action('schedule-edit',t('Edit','Edytuj'),s.id,s.editable===false?'disabled':scheduleDisabled)}</div>`).join(''):`<p>${t('No schedules supplied.','Nie dostarczono harmonogramów.')}</p>`}</div><div class="hat-acts">${action('send-now',t('Send daily now','Wyślij dzienny teraz'),'day',disabled)}${action('schedule-add',t('+ Report','+ Raport'),'',scheduleDisabled)}${action('email-add',t('Add email','Dodaj e-mail'),'',disabled)}</div>${heading(t('Preview','Podgląd'),t('The same report as in the email','Ten sam raport co w e-mailu'))}<div class="preview-controls">${action('preview-device',t('Phone','Telefon'),'phone')}${action('preview-device',t('Desktop','Komputer'),'desktop')}${action('preview-theme',t('Light','Jasny'),'light')}${action('preview-theme',t('Dark','Ciemny'),'dark')}${action('preview-load',t('Load preview','Wczytaj podgląd'))}</div><div class="prev" data-energy-build1-preview>${typeof o.previewText==='string'?`<pre>${esc(o.previewText)}</pre>`:`<p>${t('Load the report preview.','Wczytaj podgląd raportu.')}</p>`}</div>${heading(t('Recent deliveries','Ostatnie wysyłki'))}<div class="list">${deliveries.length?deliveries.map(d=>`<div class="it"><div class="txt">${when(d.at)} · ${esc(d.name||'')}<small>${esc(d.channel||unknown())}</small></div><span class="status">${esc(status[d.status]||d.status||unknown())}</span>${d.status==='failed'&&d.retryable!==false?action('delivery-retry',t('New report','Nowy raport'),d.id,disabled):''}</div>`).join(''):`<p>${t('No delivery history supplied.','Nie dostarczono historii wysyłek.')}</p>`}</div>`;
+    return `${heading(t('Schedule','Harmonogram'),t('HA notification or email','Powiadomienie HA lub e-mail'))}<div class="list">${schedules.length?schedules.map(s=>`<div class="it"><div class="txt">${esc(s.name||s.cadence||unknown())}<small>${esc(s.cadence||'')} · ${esc(s.time||unknown())} · ${esc(channelText(s.channel))}</small></div>${action('schedule-toggle',s.enabled===true?t('Enabled','Włączony'):s.enabled===false?t('Disabled','Wyłączony'):unknown(),s.id,`${s.editable===false?'disabled':scheduleDisabled} aria-pressed="${s.enabled===true}"`)}${action('schedule-edit',t('Edit','Edytuj'),s.id,s.editable===false?'disabled':scheduleDisabled)}</div>`).join(''):`<p>${t('No schedules supplied.','Nie dostarczono harmonogramów.')}</p>`}</div><div class="hat-acts">${action('send-now',t('Send daily now','Wyślij dzienny teraz'),'day',disabled)}${action('schedule-add',t('+ Report','+ Raport'),'',scheduleDisabled)}${action('email-add',t('Add email','Dodaj e-mail'),'',disabled)}</div>${heading(t('Preview','Podgląd'),t('The same report as in the email','Ten sam raport co w e-mailu'))}<div class="preview-controls">${action('preview-device',t('Phone','Telefon'),'phone')}${action('preview-device',t('Desktop','Komputer'),'desktop')}${action('preview-theme',t('Light','Jasny'),'light')}${action('preview-theme',t('Dark','Ciemny'),'dark')}${action('preview-load',t('Load preview','Wczytaj podgląd'))}</div><div class="prev" data-energy-build1-preview>${typeof o.previewText==='string'?`<pre>${esc(o.previewText)}</pre>`:`<p>${t('Load the report preview.','Wczytaj podgląd raportu.')}</p>`}</div>${heading(t('Recent deliveries','Ostatnie wysyłki'))}<div class="list">${deliveries.length?deliveries.map(d=>`<div class="it"><div class="txt">${when(d.at)} · ${esc(d.name||'')}<small>${esc(channelText(d.channel))}</small></div><span class="status">${esc(status[d.status]||d.status||unknown())}</span>${d.status==='failed'&&d.retryable!==false?action('delivery-retry',t('New report','Nowy raport'),d.id,disabled):''}</div>`).join(''):`<p>${t('No delivery history supplied.','Nie dostarczono historii wysyłek.')}</p>`}</div>`;
   }
   function markup(model,options={}){
     const m=model&&typeof model==='object'?model:{},o=options,section=Object.hasOwn(sections,o.section)?o.section:'overview';
