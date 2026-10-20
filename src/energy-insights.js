@@ -310,7 +310,7 @@ createFormatUi.forHass = hass => {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=56728b1cc313dba4eae9ab23f8b065139a410c06b6a5d9e8aae6e8cef16b17a2
+      // HA_TARIFF_V3_START sha256=0d37d0cb51a6707158fc45e6b25a6a41ef07b1d19a65b828d31bba2ec7572249
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -819,7 +819,7 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
 
 // Vendor inside each card's closure. The parent owns state and its mount; no
 // global registration, helper services, SMTP configuration or browser storage.
-function createTariffSettingsV3({ root, getHass, language = 'en', state, validate, onSaved, onLoaded, onCancel, ui, guard }) {
+function createTariffSettingsV3({ root, getHass, language = 'en', state, validate, onSaved, onLoaded, onCancel, ui, guard, wireProfile = false }) {
   if (!root || !state || typeof getHass !== 'function' || typeof validate !== 'function') throw new TypeError('tariff_settings_adapter');
   const translations = new Map();
   const pl = () => String(typeof language === 'function' ? language() : language).startsWith('pl');
@@ -839,7 +839,25 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     return object(v) ? Object.fromEntries(Object.keys(v).sort().map(k => [k, v[k]])) : v;
   });
   const equal = (a, b) => canonical(a) === canonical(b);
-  const validProfile = profile => { try { return validate(profile)?.valid === true; } catch (_) { return false; } };
+  const validateDraft = (profile, saving=true) => {
+    if (!wireProfile) return validate(profile);
+    if (!object(profile) || profile.schema !== 2 || !Array.isArray(profile.fixed) || 'tariffs' in profile)
+      return {valid:false,errors:[{path:'profile',reason:'wire_profile_required'}]};
+    if (saving && (!profile.name || !profile.validFrom || profile.validTo && profile.validTo <= profile.validFrom || profile.requiresHolidayDates === true))
+      return {valid:false,errors:[{path:'validFrom/name/holidays',reason:'explicit_values_required'}]};
+    if(profile.fixed.length>128 || new Set(profile.fixed.map(f=>f.id)).size!==profile.fixed.length || profile.fixed.some(f=>!object(f)||typeof f.id!=='string'||!f.id||typeof f.label!=='string'||!f.label||f.monthly!==null&&(!Number.isFinite(f.monthly)||f.monthly<0)))return {valid:false,errors:[{path:'fixed',reason:'invalid_fee_rows'}]};
+    if(saving && profile.templateSource && profile.zones?.some(z=>z.energyRate===null||z.variableRate===null))return {valid:false,errors:[{path:'zones',reason:'template_prices_required'}]};
+    const engine=clone(profile);engine.schema=1;delete engine.fixed;delete engine.fixedMonthly;
+    // Only local field validation; the server remains the schedule/history proof.
+    return validate(engine);
+  };
+  const validProfile = profile => { try {
+    return validateDraft(profile,false)?.valid === true;
+  } catch (_) { return false; } };
+  const canEdit = token => wireProfile
+    ? state.wireCapabilities?.energy_tariff?.visible === true && state.wireCapabilities?.energy_tariff?.read === true
+      && state.wireCapabilities?.energy_tariff?.execute === true && !state.wireMigrationRequired
+    : token.admin;
   // The server returns only this bounded marker when persisted validation fails.
   // Its confirmed revision lets an administrator explicitly replace the profile.
   const invalidMarker = profile => object(profile) && profile.schema === 0 && Object.keys(profile).length === 1;
@@ -847,9 +865,9 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     unconfirmed: t('Unconfirmed', 'Niepotwierdzony'), error: t('Error', 'Błąd'),
     not_checked: t('Not checked', 'Nie sprawdzono'), no_data: t('No data', 'Brak danych') });
   const statusHtml = () => family()?.statusHtml(state.status) || `<span data-result-state="${esc(state.status)}"><span aria-hidden="true">${({ success: '✓', partial: '½', unconfirmed: '?', error: '✕', not_checked: '–', no_data: '∅' })[state.status] || '–'}</span> ${esc(statuses()[state.status] || statuses().not_checked)}</span>`;
-  const blank = () => ({ schema: 1, type: 'Custom', name: '', currency: getHass()?.config?.currency || '',
+  const blank = () => ({ schema: wireProfile ? 2 : 1, type: 'Custom', name: '', currency: getHass()?.config?.currency || '',
     timezone: getHass()?.config?.time_zone || '', clock: { mode: 'civil' }, priceBasis: 'gross',
-    fixedMonthly: null, defaultZone: null, zones: [], rules: [], exceptions: [] });
+    ...(wireProfile ? {fixed:[]} : {fixedMonthly:null}), defaultZone: null, zones: [], rules: [], exceptions: [] });
   const seed = profile => invalidMarker(profile) ? blank() : clone(profile) || blank();
   if (!object(state.draft) || invalidMarker(state.draft)) state.draft = seed(state.profile);
   if (!statuses()[state.status]) state.status = 'not_checked';
@@ -859,15 +877,46 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   const observe = () => (association = guard.observe());
   const available = a => guard.available(a);
   const ticket = () => ({ ...observe(), operation: ++operation });
-  const current = (token, admin = false) => token.operation === operation && guard.current(token, admin);
-  const call = (token, payload, admin = false) => current(token, admin)
-    ? guard.call(token, payload, admin) : Promise.reject({ code: 'authority_changed' });
+  const current = (token, admin = false) => token.operation === operation && guard.current(token, admin && !wireProfile);
+  const call = async (token, payload, admin = false) => {
+    if (!current(token, admin)) throw {code:'authority_changed'};
+    if (!wireProfile) return guard.call(token,payload,admin);
+    const authorized = caps => caps?.status==='ready' && Number.isSafeInteger(caps.revision) && caps.revision>=0
+      && caps.capabilities?.energy_tariff?.visible===true && caps.capabilities.energy_tariff.read===true
+      && (!admin || caps.capabilities.energy_tariff.execute===true);
+    const rejectAuthority = caps => {
+      const grant=caps?.capabilities?.energy_tariff;
+      if(caps?.status==='ready'&&grant?.visible===true&&grant.read===true)state.wireCapabilities=clone(caps.capabilities);
+      else{state.wireCapabilities=null;state.wireEnvelope=null;state.wireTemplates=[];state.wireDrafts={};state.draft=blank();state.profile=null;root.replaceChildren();}
+    };
+    const before=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
+    if (!current(token) || !authorized(before)) {rejectAuthority(before);throw {code:'unauthorized'};}
+    let request=payload;
+    if(payload.type==='ha_tools_email/get_tariff'){
+      const select=state.wireReadback || state.wireRequested || {};
+      request={type:'ha_tools_email/get_tariff_profile',...(select.tariff_id?{tariff_id:select.tariff_id}:{}),...(select.version_id?{version_id:select.version_id}:{})};
+    }else if(payload.type==='ha_tools_email/set_tariff'){
+      request={...payload,type:'ha_tools_email/set_tariff_profile',historical_edit_ack:state.wireHistoricalAck===true,
+        ...(state.wireEnvelope?.tariff_id?{tariff_id:state.wireEnvelope.tariff_id}:{})};
+    }
+    let result;try{result=await guard.call(token,request);}catch(error){if(['unauthorized','not_allowed'].includes(error?.code))rejectAuthority(null);throw error;}
+    const after=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
+    if(!current(token) || !authorized(after) || after.revision!==before.revision){rejectAuthority(after);throw {code:'unauthorized'};}
+    state.wireCapabilities=clone(after.capabilities);
+    if(request.type==='ha_tools_email/get_tariff_profile'){
+      if(!object(result)||!['ready','empty','inactive','migration_required'].includes(result.status)||!Array.isArray(result.tariff_profiles)||result.tariff_profiles.length>32||!Array.isArray(result.tariffs)||result.tariffs.length>8||result.tariff_profiles.some(v=>!object(v)||typeof v.version_id!=='string'||!object(v.profile)||v.profile.schema!==2||typeof v.profile.name!=='string'||!Array.isArray(v.profile.fixed))||result.tariffs.some(tariff=>!object(tariff)||typeof tariff.id!=='string'||typeof tariff.name!=='string'))throw {code:'malformed'};
+      state.wireEnvelope=clone(result);
+    }
+    if(request.type==='ha_tools_email/set_tariff_profile')state.wireReadback={tariff_id:result.tariff_id,version_id:result.version_id};
+    return result;
+  };
   const unsubscribe = guard.subscribe(() => {
     if (disposed) return;
     operation++; resumeFocus = null;
     state.profile = null; state.revision = null; state.updated_at = null;
     state.draft = blank(); state._draftBaseline = clone(state.draft);
     state.feedText = undefined; state.feedError = null; state.backendAvailable = false;
+    if(wireProfile){state.wireCapabilities=null;state.wireEnvelope=null;state.wireTemplates=[];state.wireDrafts={};state.wireRequested=null;state.wireReadback=null;state.wireKey=null;state.wireHistoricalAck=false;}
     state.busy = false; state.status = 'unconfirmed'; state.message = '';
     // This mount may already have been detached; erase it too, synchronously.
     root.replaceChildren();
@@ -884,19 +933,36 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     if (disposed || state.busy || guard.occupied()) return;
     const token = ticket();
     if (!available(token)) { message('error', t('Tariff backend unavailable.', 'Backend taryf jest niedostępny.')); render(); return; }
-    const pristine = equal(state.draft, seed(state.profile)), draft = clone(state.draft);
+    const pristine = equal(state.draft, seed(state.profile)), draft = clone(state.draft), draftRevision=state.revision;
+    if(wireProfile)state.wireReadback=null;
     state.busy = true; state.message = t('Loading stored tariff…', 'Wczytywanie zapisanej taryfy…'); render();
     try {
       const result = await call(token, { type: 'ha_tools_email/get_tariff' });
       if (!current(token)) return;
+      if(wireProfile && result?.status==='migration_required'){
+        state.wireMigrationRequired=true;state.backendAvailable=false;
+        message('unconfirmed',t('Legacy tariff semantics need explicit migration before editing. No prices were inferred.', 'Semantyka starej taryfy wymaga jawnej migracji przed edycją. Nie przyjęto stawek.'));return;
+      }
       if (!envelope(result)) throw { code: 'malformed' };
+      if(wireProfile){state.wireMigrationRequired=false;state.wireHistoricalAck=false;}
       state.profile = clone(result.profile); state.revision = result.revision; state.updated_at = result.updated_at;
       state.backendAvailable = true; state.writeUnconfirmed = false;
-      state.draft = pristine ? seed(result.profile) : draft;
+      const switchKey=wireProfile && state.wireSwitch?.startsWith('tariff:') ? 'version:'+result.tariff_id+':'+result.version_id : state.wireSwitch;
+      state.draft = wireProfile && state.wireSwitch
+        ? clone(state.wireDrafts?.[switchKey]?.draft) || seed(result.profile)
+        : pristine ? seed(result.profile) : draft;
+      if(wireProfile){
+        const cached=switchKey&&state.wireDrafts?.[switchKey];
+        const oldRevision=cached&&!equal(cached.draft,seed(cached.profile))?cached.revision:!switchKey&&!pristine?draftRevision:null;
+        state.wireConflict=Number.isSafeInteger(oldRevision)&&oldRevision!==result.revision;
+        if(state.wireConflict){state.revision=oldRevision;state.writeUnconfirmed=true;}
+        state.wireKey=switchKey || state.wireKey || 'version:'+result.tariff_id+':'+result.version_id;state.wireSwitch=null;state._draftBaseline=seed(result.profile);
+      }
       if (pristine) { state.feedText = undefined; state.feedError = null; }
       if (invalidMarker(result.profile)) message('error', t('The stored tariff is invalid. Review and save a replacement; costs stay unavailable until a valid profile is confirmed.',
         'Zapisana taryfa jest niepoprawna. Sprawdź i zapisz nowy profil; koszty pozostają niedostępne do potwierdzenia poprawnej taryfy.'));
       else message(result.profile ? 'not_checked' : 'no_data', t('Stored tariff loaded. Review the fields before saving.', 'Wczytano taryfę. Sprawdź pola przed zapisem.'));
+      if(wireProfile && state.wireConflict)message('unconfirmed',t('Your draft has an older revision. Compare it with the saved version; explicitly use the stored profile before editing again.', 'Szkic ma starszą rewizję. Porównaj go z zapisaną wersją; przed dalszą edycją jawnie wybierz zapisany profil.'));
       if (current(token) && typeof onLoaded === 'function') onLoaded(clone(result));
     } catch (_) {
       if (current(token)) { state.backendAvailable = false; message('error', t('Tariff backend unavailable or response invalid. Draft preserved.', 'Backend taryf jest niedostępny lub odpowiedź jest błędna. Zachowano szkic.')); }
@@ -905,18 +971,19 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
   const save = async () => {
     if (disposed || state.busy || guard.occupied()) return;
     const token = ticket();
-    if (!available(token) || !token.admin || state.writeUnconfirmed || state.backendAvailable === false || !Number.isSafeInteger(state.revision)) {
+    if (!available(token) || !canEdit(token) || state.writeUnconfirmed || state.backendAvailable === false || !Number.isSafeInteger(state.revision)) {
       message('error', t('Admin access and a loaded tariff backend are required.', 'Wymagane uprawnienia administratora i wczytany backend taryf.')); render(); return;
     }
     if (state.feedError) { message('error', state.feedError); render(); return; }
     const proposed = clone(state.draft);
     let result;
-    try { result = validate(proposed); } catch (_) { result = { valid: false }; }
+    try { result = validateDraft(proposed); } catch (_) { result = { valid: false }; }
     if (!result?.valid) {
       message('error', t('Invalid tariff. Check the marked paths: ', 'Niepoprawna taryfa. Sprawdź wskazane pola: ') +
         (result?.errors || []).map(e => `${e.path}: ${e.reason}`).join('; ')); render(); return;
     }
     const previousRevision = state.revision;
+    if(wireProfile)state.wireSaving=true;
     state.busy = true; message('not_checked', t('Saving; waiting for stored readback…', 'Zapis; oczekiwanie na odczyt zapisanego profilu…')); render();
     try {
       const written = await call(token, { type: 'ha_tools_email/set_tariff', profile: proposed, expected_revision: previousRevision }, true);
@@ -927,14 +994,19 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
       if (!envelope(stored) || stored.updated_at === null || stored.revision !== written.revision || !equal(stored.profile, proposed)) { unknown(); return; }
       state.writeUnconfirmed = false;
       state.profile = clone(stored.profile); state.draft = clone(stored.profile); state.revision = stored.revision; state.updated_at = stored.updated_at;
+      if(wireProfile){state.wireReadback=null;state.wireKey='version:'+stored.tariff_id+':'+stored.version_id;state.wireRequested={tariff_id:stored.tariff_id,version_id:stored.version_id};state._draftBaseline=clone(stored.profile);state.wireHistoricalAck=false;state.wireConflict=false;}
       message('success', t('Tariff saved and confirmed by stored readback.', 'Taryfa zapisana i potwierdzona odczytem.'));
       if (current(token, true) && typeof onSaved === 'function') onSaved(clone(stored));
     } catch (error) {
-      if (current(token, true) && ['conflict', 'revision_conflict', 'tariff_revision_conflict'].includes(error?.code)) {
+      if(wireProfile && current(token) && error?.code==='historical_edit_ack_required'){
+        message('error',t('Historical dates change. Review the version and explicitly acknowledge before saving.', 'Zmieniają się daty historyczne. Sprawdź wersję i jawnie potwierdź przed zapisem.'));
+      }else if(wireProfile && current(token) && error?.code==='invalid_tariff_profile'){
+        message('error',t('The server rejected the profile. Correct the fields; your draft is preserved.', 'Serwer odrzucił profil. Popraw pola; szkic został zachowany.'));
+      }else if (current(token, true) && ['conflict', 'revision_conflict', 'tariff_revision_conflict'].includes(error?.code)) {
         state.writeUnconfirmed = true;
         message('error', t('Revision conflict. Load the stored tariff and reconcile your draft.', 'Konflikt wersji. Wczytaj zapisaną taryfę i porównaj ze szkicem.'));
       } else if (current(token)) unknown();
-    } finally { if (current(token)) { state.busy = false; render(); } }
+    } finally { if (current(token)) { state.busy = false;if(wireProfile)state.wireSaving=false; render(); } }
   };
   const cancel = () => {
     // A dispatched save cannot be undone safely. The button remains disabled.
@@ -948,7 +1020,7 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     for (const key of keys.slice(0, -1)) { if (!object(at[key]) && !Array.isArray(at[key])) at[key] = {}; at = at[key]; }
     at[keys.at(-1)] = value;
   };
-  const mutable = () => observe().admin && !state.busy && !guard.occupied() && available(association);
+  const mutable = () => canEdit(observe()) && !state.busy && !guard.occupied() && available(association);
   const field = (path, label, kind = 'text', choices) => {
     const value = read(path);
     const attrs = `data-path="${esc(path)}" aria-label="${esc(label)}"${mutable() ? '' : ' disabled'}`;
@@ -972,30 +1044,85 @@ function createTariffSettingsV3({ root, getHass, language = 'en', state, validat
     intervals(kind, i, row)}${mutable() ? button(`remove-row:${kind}:${i}`, t('Remove rule', 'Usuń regułę')) : ''}</fieldset>`).join('');
   const css = `.ht-tariff-v3{box-sizing:border-box;color:var(--primary-text-color,#172033);font:inherit;width:100%;min-width:0;max-width:100%;padding:12px;background:var(--ha-card-background,var(--card-background-color,#fff));border-radius:var(--bento-radius,20px)}
 .ht-tariff-v3 *{box-sizing:border-box;min-width:0}.ht-tariff-v3 h3,.ht-tariff-v3 p{overflow-wrap:anywhere}.ht-tariff-v3 fieldset{border:1px solid var(--divider-color,#d8dce5);border-radius:14px;margin:12px 0;padding:12px}.ht-tariff-v3 legend{max-width:100%;overflow-wrap:anywhere}.ht-tariff-v3 .ht-tariff-grid,.ht-tariff-v3 .ht-tariff-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:12px;margin:8px 0}.ht-tariff-v3 .ht-tariff-field{display:flex;flex-direction:column;gap:6px;overflow-wrap:anywhere}.ht-tariff-v3 input,.ht-tariff-v3 select,.ht-tariff-v3 textarea,.ht-tariff-v3 button{font:inherit;color:inherit;border:1px solid var(--divider-color,#c7cdd9);border-radius:10px;background:var(--secondary-background-color,#f7f8fa);min-height:44px;max-width:100%;width:100%;padding:10px}.ht-tariff-v3 textarea{resize:vertical;min-height:110px}.ht-tariff-v3 button{cursor:pointer;width:auto;white-space:normal;overflow-wrap:anywhere}.ht-tariff-v3 button:disabled{cursor:default;opacity:.6}.ht-tariff-v3 :is(input,select,textarea,button):focus-visible{outline:3px solid var(--primary-color,#395fd1);outline-offset:2px}.ht-tariff-v3 .ht-tariff-days,.ht-tariff-v3 .ht-tariff-actions{display:flex;flex-wrap:wrap;gap:8px}.ht-tariff-v3 .ht-tariff-days label{display:flex;align-items:center;gap:8px;min-height:44px}.ht-tariff-v3 input[type=checkbox]{width:24px;min-height:24px;height:24px}.ht-tariff-v3 [role=status]{padding:12px;border-radius:12px;overflow-wrap:anywhere;background:var(--secondary-background-color,#f1f3f6);margin:12px 0}.ht-tariff-v3 [data-status=success]{color:var(--bento-success,#16804a);background:var(--bento-success-light,#e8f5ed)}.ht-tariff-v3 [data-status=error]{color:var(--error-color,#ba1a1a)}.ht-tariff-v3 [data-status=unconfirmed],.ht-tariff-v3 [data-status=partial]{color:var(--warning-color,#a15b00)}.ht-tariff-v3 details{margin:12px 0}.ht-tariff-v3 summary{min-height:44px;cursor:pointer}`;
+  const stashWire = () => {state.wireDrafts ||= {};if(state.wireKey)state.wireDrafts[state.wireKey]={draft:clone(state.draft),profile:clone(state.profile),revision:state.revision};};
+  const wireFields = () => `<fieldset data-wire-panel><legend>${esc(t('Saved versions and server templates','Zapisane wersje i szablony serwera'))}</legend>
+    <button type="button" data-wire-action="history" data-wire-focus="reload"${state.busy?' disabled':''}>${esc(t('Reload history','Wczytaj historię'))}</button>
+    <button type="button" data-wire-action="templates" data-wire-focus="templates"${state.busy?' disabled':''}>${esc(t('Load G11 / G12 / G12w templates','Wczytaj szablony G11 / G12 / G12w'))}</button>
+    ${state.wireConflict?`<button type="button" data-wire-action="stored"${state.busy?' disabled':''}>${esc(t('Use the newly loaded stored profile','Użyj właśnie wczytanego zapisanego profilu'))}</button>`:''}
+    <label>${esc(t('Saved tariff','Zapisana taryfa'))}<select data-wire-tariff data-wire-focus="tariff"${state.busy?' disabled':''}><option value="">${esc(t('Choose explicitly','Wybierz jawnie'))}</option>${(state.wireEnvelope?.tariffs||[]).map(tariff=>`<option value="${esc(tariff.id)}">${esc(tariff.name)}</option>`).join('')}</select></label>
+    <label>${esc(t('Saved version','Zapisana wersja'))}<select data-wire-history data-wire-focus="history"${state.busy?' disabled':''}><option value="">${esc(t('Choose explicitly','Wybierz jawnie'))}</option>${(state.wireEnvelope?.tariff_profiles||[]).map(v=>`<option value="${esc(v.version_id)}">${esc(v.profile.name)} · ${esc(v.profile.validFrom||t('Unknown start','Nieznany początek'))} → ${esc(v.profile.validTo||t('Open end','Bez daty końca'))}</option>`).join('')}</select></label>
+    <label>${esc(t('Server template (draft only)','Szablon serwera (tylko szkic)'))}<select data-wire-template data-wire-focus="template"${!mutable()?' disabled':''}><option value="">${esc(t('Choose explicitly','Wybierz jawnie'))}</option>${(state.wireTemplates||[]).map(item=>`<option value="${esc(item.id)}">${esc(item.id)}</option>`).join('')}</select></label>
+    <p>${esc(t('A template never saves or activates itself. Set your effective date and prices. Existing fixed fees are retained. Drafts are kept when switching versions.', 'Szablon nie zapisuje ani nie aktywuje taryfy. Ustaw datę obowiązywania i własne ceny. Dotychczasowe opłaty stałe pozostają. Szkice są zachowane przy zmianie wersji.'))}</p></fieldset>
+    <fieldset><legend>${esc(t('Fixed monthly fee rows','Składniki opłat stałych'))}</legend>${(state.draft.fixed||[]).map((f,i)=>`<div class="ht-tariff-grid">${field('fixed.'+i+'.id',t('Identifier','Identyfikator'))}${field('fixed.'+i+'.label',t('Label','Etykieta'))}${field('fixed.'+i+'.monthly',t('Monthly amount (blank = unknown)','Kwota miesięczna (pusta = nieznana)'),'number')}${button('remove-fixed:'+i,t('Remove fee row','Usuń składnik'))}</div>`).join('')}${button('add-fixed',t('Add fixed fee','Dodaj opłatę stałą'))}</fieldset>
+    ${state.draft.requiresHolidayDates===true?`<label><input type="checkbox" data-wire-holidays data-wire-focus="holidays"${!mutable()?' disabled':''}>${esc(t('I reviewed the public holiday exceptions below; an empty list means no holidays selected.', 'Sprawdzono wyjątki świąteczne poniżej; pusta lista oznacza brak wybranych świąt.'))}</label>`:''}
+    <label><input type="checkbox" data-wire-historical data-wire-focus="ack"${state.wireHistoricalAck?' checked':''}${!mutable()?' disabled':''}>${esc(t('I acknowledge edits to the selected historical version. Archived reports stay unchanged.', 'Potwierdzam edycję wybranej wersji historycznej. Archiwalne raporty pozostają bez zmian.'))}</label>`;
+  const fetchTemplates = async () => {
+    if(!wireProfile || disposed || state.busy || guard.occupied())return;
+    const token=ticket();state.busy=true;render();
+    try{const result=await call(token,{type:'ha_tools_email/list_tariff_templates'});
+      if(!current(token))return;
+      if(!Array.isArray(result?.templates)||result.templates.length>8||result.templates.some(x=>!['G11','G12','G12w'].includes(x.id)||x.profile?.schema!==2||!Array.isArray(x.profile.zones)||!Array.isArray(x.profile.fixed)||!Array.isArray(x.profile.rules)||!Array.isArray(x.profile.exceptions)||x.profile.zones.some(z=>!object(z)||z.energyRate!==null||z.variableRate!==null)))throw {code:'malformed'};
+      state.wireTemplates=clone(result.templates);message('not_checked',t('Choose a server template explicitly. No changes have been saved.', 'Wybierz jawnie szablon serwera. Niczego nie zapisano.'));
+    }catch(_){if(current(token)){state.wireTemplates=[];message('error',t('Templates could not be confirmed. Draft preserved.','Nie potwierdzono szablonów. Zachowano szkic.'));}}
+    finally{if(current(token)){state.busy=false;render();}}
+  };
+  async function openMode(mode='edit'){
+    if(!wireProfile || disposed)return;
+    await load();if(mode==='templates'&&!state.wireMigrationRequired)await fetchTemplates();
+  }
+  const bindWire = () => {
+    if(!wireProfile)return;
+    root.querySelector('[data-wire-action="stored"]')?.addEventListener('click',()=>{if(state.busy||guard.occupied())return;stashWire();state.draft=seed(state.profile);state.revision=state.wireEnvelope?.revision;state.writeUnconfirmed=false;state.wireConflict=false;state.feedText=undefined;state.feedError=null;render();});
+    root.querySelector('[data-wire-action="history"]')?.addEventListener('click',()=>void load());
+    root.querySelector('[data-wire-action="templates"]')?.addEventListener('click',()=>void fetchTemplates());
+    root.querySelector('[data-wire-tariff]')?.addEventListener('change',event=>{
+      const id=event.target.value;if(!id||state.busy||guard.occupied())return;
+      stashWire();state.wireSwitch='tariff:'+id;state.wireRequested={tariff_id:id};void load();
+    });
+    root.querySelector('[data-wire-history]')?.addEventListener('change',event=>{
+      const id=event.target.value;if(!id||state.busy||guard.occupied())return;
+      stashWire();state.wireSwitch='version:'+state.wireEnvelope?.tariff_id+':'+id;state.wireRequested={tariff_id:state.wireEnvelope?.tariff_id,version_id:id};void load();
+    });
+    root.querySelector('[data-wire-template]')?.addEventListener('change',event=>{
+      if(!mutable())return;
+      const item=state.wireTemplates?.find(row=>row.id===event.target.value);if(!item)return;
+      stashWire();const key='template:'+(state.wireEnvelope?.tariff_id||'')+':'+item.id,base=state.draft,template=clone(item.profile);
+      state.draft=clone(state.wireDrafts?.[key]?.draft)||{...clone(base),...template,
+        fixed:clone(base.fixed||template.fixed),origin:clone(base.origin||template.origin),
+        templateSource:clone(item.origin),rateSemantics:'components',validityClock:'civil',validFrom:null,validTo:null};
+      if(!state.wireDrafts?.[key]){delete state.draft.dynamic;delete state.draft.provenance;}state.wireKey=key;state.wireHistoricalAck=false;state.feedText=undefined;state.feedError=null;
+      message('not_checked',t('Template draft only: enter effective date and every energy price before saving.','To tylko szkic szablonu: wpisz datę i wszystkie ceny energii przed zapisem.'));render();
+      root.querySelector('[data-path="validFrom"]')?.focus();
+    });
+    root.querySelector('[data-wire-historical]')?.addEventListener('change',event=>{if(mutable())state.wireHistoricalAck=event.target.checked;});
+    root.querySelector('[data-wire-holidays]')?.addEventListener('change',event=>{if(mutable()&&event.target.checked){state.draft.requiresHolidayDates=false;render();}});
+  };
   function render() {
     if (disposed) return;
     const active = root.getRootNode().activeElement;
     const focused = active && root.contains(active) ? active : root.querySelector(':focus');
-    const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed,
+    const focusKey = focused ? { path: focused.dataset.path, action: focused.dataset.action, weekday: focused.dataset.weekday, feed: focused.dataset.feed, wire: focused.dataset.wireFocus,
       selection: typeof focused.selectionStart === 'number' ? { start: focused.selectionStart, end: focused.selectionEnd, direction: focused.selectionDirection } : null } : resumeFocus;
     const documentFocus = root.ownerDocument.activeElement, ownerRoot = root.getRootNode();
     const externalFocus = documentFocus && documentFocus !== root.ownerDocument.body &&
       documentFocus !== ownerRoot.host && !root.contains(documentFocus);
     if (focused && state.busy) resumeFocus = focusKey;
     const a = observe();
-    if (state.busy && (!available(a) || !a.admin) && state.message) unknown();
+    if (state.busy && (!wireProfile || state.wireSaving) && (!available(a) || !canEdit(a)) && state.message) unknown();
     const p = state.draft;
-    root.innerHTML = `<style>${css}${family()?.css || ''}</style><section class="ht-tariff-v3" aria-label="${esc(t('Tariff settings', 'Ustawienia taryfy'))}"><h3>${esc(t('Your electricity tariff', 'Twoja taryfa energii'))}</h3><p>${esc(t('Enter your own rates and hours. Names G11/G12/G12w/G12n do not fill rates, holidays or schedules.', 'Wpisz własne ceny i godziny. Nazwy G11/G12/G12w/G12n nie uzupełniają cen, świąt ani harmonogramu.'))}</p>${
-      !a.admin ? `<p>${esc(t('Household access: read only.', 'Dostęp domownika: tylko odczyt.'))}</p>` : ''}${
+    root.innerHTML = `<style>${css}${family()?.css || ''}</style><section class="ht-tariff-v3" aria-label="${esc(t('Tariff settings', 'Ustawienia taryfy'))}"><h3>${esc(t('Your electricity tariff', 'Twoja taryfa energii'))}</h3><p>${esc(wireProfile ? t('Choose server hours explicitly, then enter your prices, effective date and holiday exceptions.', 'Wybierz jawnie godziny serwera, a potem wpisz ceny, datę obowiązywania i wyjątki świąteczne.') : t('Enter your own rates and hours. Names G11/G12/G12w/G12n do not fill rates, holidays or schedules.', 'Wpisz własne ceny i godziny. Nazwy G11/G12/G12w/G12n nie uzupełniają cen, świąt ani harmonogramu.'))}</p>${
+      !canEdit(a) ? `<p>${esc(t('Household access: read only.', 'Dostęp domownika: tylko odczyt.'))}</p>` : ''}${
       !available(a) || state.backendAvailable === false ? `<p>${esc(t('Tariff backend unavailable. No local fallback.', 'Backend taryf jest niedostępny. Brak lokalnego zapisu zastępczego.'))}</p>` :
         !Number.isSafeInteger(state.revision) ? `<p>${esc(t('Backend availability not checked. Load the tariff first.', 'Dostępność backendu nie została sprawdzona. Najpierw wczytaj taryfę.'))}</p>` : ''}
 ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is invalid. Create and save a valid replacement. No rates were guessed.', 'Zapisana taryfa jest niepoprawna. Utwórz i zapisz poprawny profil. Nie przyjęto domyślnych stawek.'))}</p>` : ''}
-<div class="ht-tariff-grid">${field('type', t('Tariff name type', 'Typ nazwy taryfy'), 'text', ['Custom', 'G11', 'G12', 'G12w', 'G12n'].map(v => [v, v]))}${field('name', t('Tariff name (optional)', 'Nazwa taryfy (opcjonalna)'))}${field('currency', t('Currency ISO 4217', 'Waluta ISO 4217'))}${field('timezone', t('IANA timezone', 'Strefa czasowa IANA'))}${field('clock.mode', t('Tariff clock', 'Zegar taryfy'), 'text', [['civil', t('Civil time (DST)', 'Czas lokalny (zmiana czasu)')], ['fixed', t('Fixed UTC offset', 'Stałe przesunięcie UTC')]])}${field('clock.offsetMinutes', t('Fixed offset minutes', 'Stałe przesunięcie w minutach'), 'number')}${field('priceBasis', t('Price basis', 'Podstawa ceny'), 'text', [['gross', t('Gross', 'Brutto')], ['net', t('Net', 'Netto')]])}${field('validFrom', t('Valid from (optional)', 'Ważna od (opcjonalnie)'), 'date')}${field('validTo', t('Valid to (optional)', 'Ważna do (opcjonalnie)'), 'date')}${field('fixedMonthly', t('Fixed monthly fee (separate)', 'Opłata stała miesięczna (osobno)'), 'number')}</div>
-<h3>${esc(t('Energy and variable fees per kWh', 'Energia i opłaty zmienne za kWh'))}</h3><p>${esc(t('Empty = unknown; zero is a known zero. Fixed monthly fees are shown separately, never prorated.', 'Puste = nieznane; zero jest znaną wartością zero. Opłata stała jest osobna, bez proporcjonalnego naliczania.'))}</p>${
+<div class="ht-tariff-grid">${field('type', t('Tariff name type', 'Typ nazwy taryfy'), 'text', ['Custom', 'G11', 'G12', 'G12w', 'G12n'].map(v => [v, v]))}${field('name', wireProfile?t('Tariff name (required)', 'Nazwa taryfy (wymagana)'):t('Tariff name (optional)', 'Nazwa taryfy (opcjonalna)'))}${field('currency', t('Currency ISO 4217', 'Waluta ISO 4217'))}${field('timezone', t('IANA timezone', 'Strefa czasowa IANA'))}${field('clock.mode', t('Tariff clock', 'Zegar taryfy'), 'text', [['civil', t('Civil time (DST)', 'Czas lokalny (zmiana czasu)')], ['fixed', t('Fixed UTC offset', 'Stałe przesunięcie UTC')]])}${field('clock.offsetMinutes', t('Fixed offset minutes', 'Stałe przesunięcie w minutach'), 'number')}${field('priceBasis', t('Price basis', 'Podstawa ceny'), 'text', [['gross', t('Gross', 'Brutto')], ['net', t('Net', 'Netto')]])}${field('validFrom', wireProfile?t('Valid from (required)', 'Obowiązuje od (wymagane)'):t('Valid from (optional)', 'Ważna od (opcjonalnie)'), 'date')}${field('validTo', wireProfile?t('Valid until (exclusive)', 'Do dnia (bez tego dnia)'):t('Valid to (optional)', 'Ważna do (opcjonalnie)'), 'date')}${wireProfile ? '' : field('fixedMonthly', t('Fixed monthly fee (separate)', 'Opłata stała miesięczna (osobno)'), 'number')}</div>
+${wireProfile ? wireFields() : ''}
+<h3>${esc(t('Energy and variable fees per kWh', 'Energia i opłaty zmienne za kWh'))}</h3><p>${esc(wireProfile ? t('Empty fees stay unknown; zero is a known zero. Calendar fee shares are calculated by the backend.', 'Puste opłaty pozostają nieznane; zero jest znaną wartością. Udział opłat za okres oblicza backend.') : t('Empty = unknown; zero is a known zero. Fixed monthly fees are shown separately, never prorated.', 'Puste = nieznane; zero jest znaną wartością zero. Opłata stała jest osobna, bez proporcjonalnego naliczania.'))}</p>${
 (p.zones || []).map((_, i) => `<fieldset><legend>${esc(t('Zone', 'Strefa'))} ${i + 1}</legend><div class="ht-tariff-grid">${field(`zones.${i}.id`, t('Zone ID', 'ID strefy'))}${field(`zones.${i}.label`, t('Zone label', 'Etykieta strefy'))}${field(`zones.${i}.energyRate`, t('Energy / kWh', 'Energia / kWh'), 'number')}${field(`zones.${i}.variableRate`, t('Variable fees / kWh (optional)', 'Opłaty zmienne / kWh (opcjonalne)'), 'number')}${field(`zones.${i}.classification`, t('Zone type (optional)', 'Rodzaj strefy (opcjonalnie)'), 'text', [['', t('Unknown', 'Nieznana')], ['cheap', t('Cheap', 'Tania')], ['expensive', t('Expensive', 'Droga')], ['mixed', t('Mixed', 'Mieszana')]])}</div>${mutable() ? button(`remove-zone:${i}`, t('Remove zone', 'Usuń strefę')) : ''}</fieldset>`).join('')}${mutable() ? button('add-zone', t('Add zone', 'Dodaj strefę')) : ''}${field('defaultZone', t('Default zone (optional)', 'Strefa domyślna (opcjonalna)'), 'text', zoneChoices())}
 <h3>${esc(t('Schedule rules', 'Reguły harmonogramu'))}</h3>${rows('rules')}${mutable() ? button('add-rule', t('Add rule', 'Dodaj regułę')) : ''}<h3>${esc(t('Date exceptions', 'Wyjątki dat'))}</h3>${rows('exceptions')}${mutable() ? button('add-exception', t('Add date exception', 'Dodaj wyjątek daty')) : ''}
 <details><summary>${esc(t('Advanced: absolute dynamic price feed', 'Zaawansowane: bezwzględne przedziały cen dynamicznych'))}</summary><p>${esc(t('Optional dynamic feed overrides schedule prices. Use explicit UTC/offset timestamps. Only this feed uses JSON. Each interval may include classification: cheap, expensive or mixed; omission means unknown.', 'Opcjonalny feed dynamiczny zastępuje ceny harmonogramu. Użyj znaczników UTC lub z przesunięciem. JSON służy wyłącznie temu feedowi. Przedział może mieć classification: cheap, expensive lub mixed; brak oznacza nieznaną strefę.'))}</p><label class="ht-tariff-field"><span>${esc(t('Dynamic feed JSON (empty = off)', 'Feed dynamiczny JSON (pusty = wyłączony)'))}</span><textarea data-feed="true"${mutable() ? '' : ' disabled'}>${esc(state.feedText ?? (p.dynamic == null ? '' : JSON.stringify(p.dynamic, null, 2)))}</textarea></label>${field('allowNegativeEnergy', t('Negative energy prices', 'Ujemne ceny energii'), 'text', [['false', t('Disabled', 'Wyłączone')], ['true', t('Explicitly allowed', 'Jawnie dozwolone')]])}</details>
-<div role="status" aria-live="polite" data-status="${esc(state.status)}">${statusHtml()}${state.message ? ': ' + esc(localMessage()) : ''}</div><div class="ht-tariff-actions"><button type="button" data-action="load"${state.busy || guard.occupied() || !available(a) ? ' disabled' : ''}>${esc(t('Load stored tariff', 'Wczytaj zapisaną taryfę'))}</button>${a.admin ? `<button type="button" data-action="save"${state.busy || guard.occupied() || !available(a) || state.writeUnconfirmed || state.backendAvailable === false || !Number.isSafeInteger(state.revision) ? ' disabled' : ''}>${esc(t('Save tariff', 'Zapisz taryfę'))}</button><button type="button" data-action="cancel"${state.busy || guard.occupied() ? ' disabled' : ''}>${esc(t('Cancel', 'Anuluj'))}</button>` : ''}</div></section>`;
+<div role="status" aria-live="polite" data-status="${esc(state.status)}">${statusHtml()}${state.message ? ': ' + esc(localMessage()) : ''}</div><div class="ht-tariff-actions"><button type="button" data-action="load"${state.busy || guard.occupied() || !available(a) ? ' disabled' : ''}>${esc(t('Load stored tariff', 'Wczytaj zapisaną taryfę'))}</button>${canEdit(a) ? `<button type="button" data-action="save"${state.busy || guard.occupied() || !available(a) || state.writeUnconfirmed || state.backendAvailable === false || !Number.isSafeInteger(state.revision) ? ' disabled' : ''}>${esc(t('Save tariff', 'Zapisz taryfę'))}</button><button type="button" data-action="cancel"${state.busy || guard.occupied() ? ' disabled' : ''}>${esc(t('Cancel', 'Anuluj'))}</button>` : ''}</div></section>`;
+    bindWire();
     root.querySelectorAll('[data-path]').forEach(el => el.addEventListener('input', () => {
       if (!mutable()) { render(); return; }
       const path = el.dataset.path;
@@ -1039,7 +1166,10 @@ ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is 
       if (!mutable()) return;
       if (action === 'save') { void save(); return; }
       if (action === 'cancel') { cancel(); return; }
-      if (action === 'add-zone') {
+      if(wireProfile && action==='add-fixed'){
+        p.fixed ||= [];let id='fee-'+(p.fixed.length+1);while(p.fixed.some(f=>f.id===id))id+='-new';p.fixed.push({id,label:'',monthly:null});
+      }else if(wireProfile && action==='remove-fixed')p.fixed.splice(Number(args[0]),1);
+      else if (action === 'add-zone') {
         p.zones ||= []; let id = `zone-${p.zones.length + 1}`;
         while (p.zones.some(z => z.id === id)) id += '-new';
         p.zones.push({ id, label: '', energyRate: null, variableRate: null });
@@ -1056,7 +1186,7 @@ ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is 
     if (focusKey) {
       const target = [...root.querySelectorAll('input,select,textarea,button')].find(el =>
         (focusKey.path && el.dataset.path === focusKey.path) || (focusKey.action && el.dataset.action === focusKey.action) ||
-        (focusKey.weekday && el.dataset.weekday === focusKey.weekday) || (focusKey.feed && el.dataset.feed === focusKey.feed));
+        (focusKey.weekday && el.dataset.weekday === focusKey.weekday) || (focusKey.feed && el.dataset.feed === focusKey.feed) || (focusKey.wire && el.dataset.wireFocus===focusKey.wire));
       if (target && !target.disabled && !externalFocus) {
         target.focus();
         if (focusKey.selection && typeof target.selectionStart === 'number') {
@@ -1067,7 +1197,7 @@ ${invalidMarker(state.profile) ? `<p role="alert">${esc(t('The stored tariff is 
     }
     if (!state.busy) resumeFocus = null;
   }
-  return { render, load, cancel, dispose: () => { disposed = true; operation++; unsubscribe(); unsubscribeWire(); } };
+  return { render, load, cancel, openMode, dispose: () => { disposed = true; operation++; unsubscribe(); unsubscribeWire(); } };
 }
 
 // Pricing stays in HA Tools Email. This controller only queues bounded reads,
@@ -1666,7 +1796,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   guard ||= createTariffGuardV3({ getHass: () => card._hass, getContext: () => card._config, timeoutMs: readTimeoutMs });
   const identity = () => guard.snapshot();
   const same = (a, b) => a?.epoch === b?.epoch && a?.user === b?.user && a?.connection === b?.connection;
-  let confirmedRevision = null, confirmedUpdatedAt = null, pending = null, attemptedEpoch = null, cachedKey, cachedModel, editorRoot, editor, focusKey = null;
+  let confirmedRevision = null, confirmedUpdatedAt = null, pending = null, attemptedEpoch = null, cachedKey, cachedModel, editorRoot, editor, focusKey = null, wireRoot, wireEditor;
   const state = () => (card._tariffEditorState ||= { profile: null, revision: null, status: 'not_checked', busy: false });
   const effectiveConfig = () => {
     const config = card._config || {};
@@ -1732,6 +1862,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     card._sharedTariffProfile = null; card._sharedTariffAssociation = null;
     card._sharedTariffLoadedAt = 0; card._tariffEditorState = null; confirmedRevision = null; confirmedUpdatedAt = null;
     card._sharedTariffReadStatus = 'not_checked'; card._tariffSettingsOpen = false;
+    wireEditor?.dispose?.();wireRoot?.replaceChildren();wireRoot=null;wireEditor=null;card._tariffWireEditorState=null;card._tariffProfileModeV53=false;
     backend.invalidate();
     cachedKey = undefined; cachedModel = undefined; editorRoot?.replaceChildren(); editor?.dispose?.(); editorRoot = null; editor = null; focusKey = null;
     for (const mount of card.shadowRoot?.querySelectorAll('[data-tariff-mount]') || []) mount.replaceChildren();
@@ -1789,7 +1920,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     const active = card.shadowRoot?.activeElement;
     focusKey = active?.closest('[data-tariff-details]') ? {
       summary: active.tagName === 'SUMMARY', path: active.dataset.path,
-      action: active.dataset.action, weekday: active.dataset.weekday, feed: active.dataset.feed,
+      action: active.dataset.action, weekday: active.dataset.weekday, feed: active.dataset.feed, wire:active.dataset.wireFocus,
       selection: typeof active.selectionStart === 'number' ? { start: active.selectionStart, end: active.selectionEnd, direction: active.selectionDirection } : null
     } : null;
     return `<style>
@@ -1808,7 +1939,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     ${card._energyPriceStatusV5 === 'backend_request_limit' ? `<p role="status">${text('This history exceeds the pricing limit. Choose a shorter period or simplify the tariff, then reload the tariff.', 'Ta historia przekracza limit wyceny. Wybierz krótszy okres lub uprość taryfę i wczytaj ją ponownie.')}</p>` : card._energyPriceStatusV5 === 'backend_unavailable' ? `<p role="status">${text('Energy pricing is unavailable. Check HA Tools Email and reload the tariff; unknown cost is not zero.', 'Wycena energii jest niedostępna. Sprawdź HA Tools Email i wczytaj taryfę ponownie; nieznany koszt nie oznacza zera.')}</p>` : ''}
     <details data-tariff-details${card._tariffSettingsOpen ? ' open' : ''}><summary>${text('Tariff settings', 'Ustawienia taryfy')}</summary>
     ${Object.hasOwn(card._config || {}, 'tariff_profile') ? `<p>${text('This card uses its own configured tariff. Shared settings apply to cards using the shared profile.', 'Ta karta używa własnej skonfigurowanej taryfy. Ustawienia współdzielone dotyczą kart korzystających ze wspólnego profilu.')}</p>` : ''}
-    <div data-tariff-mount></div></details>`;
+    <div data-tariff-mount></div><div data-tariff-wire-mount hidden></div></details>`;
   };
   const mount = root => {
     if (editorRoot !== root || !editor) {
@@ -1848,6 +1979,25 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     if (!Object.hasOwn(state(), '_draftBaseline')) state()._draftBaseline = clone(state().draft);
     editor.render();
   };
+  const mountWire = root => {
+    if(wireRoot!==root || !wireEditor){
+      wireEditor?.dispose?.();wireRoot=root;
+      const saved=card._tariffWireEditorState ||= {profile:null,revision:null,status:'not_checked',busy:false,backendAvailable:false};
+      wireEditor=createSettings({root,getHass:()=>card._hass,language,state:saved,validate:createModel,guard,wireProfile:true,
+        ui:()=>createUi({language:language()}),
+        onSaved:()=>{backend.invalidate();cachedKey=undefined;cachedModel=undefined;card._analysisHostV53?.invalidate();card._build1ClientV53?.refresh();},
+        onCancel:()=>{card._tariffProfileModeV53=false;bind();card.shadowRoot?.querySelector('[data-tariff-details]>summary')?.focus();}});
+    }
+    wireEditor.render();
+  };
+  const openProfile = async (mode='edit') => {
+    if(!['edit','history','templates'].includes(mode))return false;
+    card._tariffSettingsOpen=true;card._tariffProfileModeV53=true;
+    const details=card.shadowRoot?.querySelector('[data-tariff-details]');if(!details)return false;
+    details.open=true;bind();await wireEditor?.openMode?.(mode);
+    if(guard.available(identity()))wireRoot?.querySelector(mode==='templates'?'[data-wire-template]':'[data-wire-history]')?.focus();
+    return true;
+  };
   const bind = () => {
     guard.observe();
     backend.snapshot();
@@ -1884,20 +2034,23 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
     if (!details) return;
     let root = details.querySelector('[data-tariff-mount]');
     if (editorRoot && editor && root !== editorRoot) { root.replaceWith(editorRoot); root = editorRoot; }
+    let wire=details.querySelector('[data-tariff-wire-mount]');
+    if(wireRoot && wire!==wireRoot){wire.replaceWith(wireRoot);wire=wireRoot;}
+    root.hidden=card._tariffProfileModeV53===true;wire.hidden=!root.hidden;
     if (!details.dataset.bound) {
       details.dataset.bound = 'true';
       details.addEventListener('toggle', () => {
         card._tariffSettingsOpen = details.open;
-        if (details.open) mount(root);
+        if (details.open) {if(card._tariffProfileModeV53)mountWire(wire);else mount(root);}
       });
     }
-    if (details.open) mount(root);
+    if (details.open) {if(card._tariffProfileModeV53)mountWire(wire);else mount(root);}
     if (focusKey) {
       const key = focusKey; focusKey = null;
       const target = key.summary ? details.querySelector('summary') : details.open &&
-        [...root.querySelectorAll('input,select,textarea,button')].find(el =>
+        [...(card._tariffProfileModeV53?wire:root).querySelectorAll('input,select,textarea,button')].find(el =>
           (key.path && el.dataset.path === key.path) || (key.action && el.dataset.action === key.action) ||
-          (key.weekday && el.dataset.weekday === key.weekday) || (key.feed && el.dataset.feed === key.feed));
+          (key.weekday && el.dataset.weekday === key.weekday) || (key.feed && el.dataset.feed === key.feed) || (key.wire && el.dataset.wireFocus===key.wire));
       if (target && !target.disabled) {
         target.focus({ preventScroll: true });
         if (key.selection && typeof target.selectionStart === 'number') {
@@ -1915,7 +2068,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   const reportStatus = ({onChange,isActive,getSourceKey,wantsExecute} = {}) => createReportStatusV53({card,guard,purpose:'energy_report',onChange,isActive,wantsExecute,getSourceKey:getSourceKey || (() => guard.snapshot().epoch)});
   const statistics = options => createEnergyStatisticsUiV53({card,guard,...options});
-  return { createGuard: createTariffGuardV3, statistics, reportStatus, summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, guard, backend, ui: () => createUi({ language: language() }) };
+  return { createGuard: createTariffGuardV3, statistics, reportStatus, summary, analysis: () => createEnergyAnalysisHostV53({card}), model, profile: activeProfile, currency, reset, load, snapshot, markup, bind, openProfile, guard, backend, ui: () => createUi({ language: language() }) };
 }
 "use strict";
 
@@ -4603,6 +4756,379 @@ ${this._getTariffHostV3().ui().css}
     connectedCallback() { this._render(); }
   }
   // HA_ENERGY_BUILD1_V53_START
+// Pure frontend controller; the existing integration owns scheduling and DST.
+// Vendor the exported factory inside consumer IIFEs; no global or second scheduler.
+function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
+  kind = 'log_digest', recipientEditor = false, projectPreview = null, contextLost = () => {} } = {}) {
+  if (!['log_digest', 'energy_report'].includes(kind)) throw new Error('Unsupported schedule kind');
+  // Addresses are deliberately separate from controller metadata/history/export.
+  recipientEditor = recipientEditor === true && kind === 'energy_report';
+  let privateRows = new Map(), privateDraft = null, pendingRecipients = null;
+  let connectionOffline = false, browserOffline = globalThis.navigator?.onLine === false, watchedConnection = null;
+  let unwatch = () => {};
+  const recipients = value => {
+    if (!Array.isArray(value) || value.length > 128 || value.some(v => typeof v !== 'string' || !v.trim() || v.length > 255 || /[\r\n]/.test(v)))
+      throw { code: 'invalid_recipients' };
+    return [...value];
+  };
+  // Missing channels is the historical email contract. Never infer a target
+  // from list position; native defaults/availability belong to the host UI.
+  const normalizeChannels = (value, allowEmpty = false) => {
+    if (!Array.isArray(value) || value.length > 32 || (!allowEmpty && !value.length)) throw {code:'invalid_channels'};
+    const result=[];
+    for (let target of value) {
+      if (typeof target === 'string' && target.startsWith('notify:')) target='notify.'+target.slice(7);
+      if (typeof target !== 'string' || !(['email','persistent_notification'].includes(target) || /^notify\.[a-z0-9_]{1,128}$/.test(target))) throw {code:'invalid_channels'};
+      if (!result.includes(target)) result.push(target);
+    }
+    return result;
+  };
+  const cloneRow = row => ({...row,...(Array.isArray(row.channels)?{channels:[...row.channels]}:{})});
+  const editable = ['id', 'kind', 'cadence', 'time', 'enabled', 'timezone', 'weekday', 'month_day', 'channels'];
+  let hass = null, context = null, epoch = 0, checked = false, rows = [], draft = null;
+  let calendarCompatible = false, mailCompatible = false;
+  let reading = null, writing = false, previewing = null, pendingExpected = null, preview = null;
+  let status = { state: 'not_checked', reason: 'initial' }, previewStatus = { state: 'not_checked', reason: 'initial' };
+  const cancellations = new Set();
+  const capture = value => ({ user: value?.user?.id ?? value?.user ?? null, admin: value?.user?.is_admin === true,
+    connection: value?.connection ?? null, online: !!value && !browserOffline && !connectionOffline && value.connected !== false && value.connection?.connected !== false });
+  const allowed = () => !!hass && context?.admin && context?.online && !browserOffline && !connectionOffline && hass.user?.is_admin === true && hass.connected !== false && hass.connection?.connected !== false;
+  const notify = () => changed();
+  const reset = () => {
+    epoch++; for (const cancel of [...cancellations]) cancel(); cancellations.clear();
+    calendarCompatible = false; mailCompatible = false; checked = false; rows = []; draft = null; privateRows = new Map(); privateDraft = null; pendingRecipients = null; reading = null; writing = false; previewing = null;
+    pendingExpected = null; preview = null; status = { state: 'not_checked', reason: 'initial' };
+    previewStatus = { state: 'not_checked', reason: 'initial' };
+  };
+  const request = (source, message, holder = null) => new Promise((resolve, reject) => {
+    let done = false;
+    const finish = (fn, value) => { if (done) return; done = true; clearTimeout(timer); cancellations.delete(cancel); fn(value); };
+    const cancel = () => finish(reject, { code: 'stale_context' });
+    const timer = setTimeout(() => finish(reject, { code: 'request_timeout' }), timeoutMs);
+    cancellations.add(cancel);
+    if (holder) holder.cancel = cancel;
+    Promise.resolve().then(() => { if (!done && allowed()) return source.callWS(message); if (!done) throw { code: 'stale_context' }; }).then(value => finish(resolve, value), error => finish(reject, error));
+  });
+  const same = (expected, actual) => expected.deleted ? !actual : !!actual && editable.every(key =>
+    key === 'channels' ? JSON.stringify(expected.channels || ['email']) === JSON.stringify(actual.channels || ['email']) : Object.prototype.hasOwnProperty.call(expected, key) ? actual[key] === expected[key] : key !== 'timezone' || actual[key] === undefined) &&
+    (pendingRecipients === null || JSON.stringify(pendingRecipients) === JSON.stringify(privateRows.get(expected.id)));
+  const cleanRows = result => {
+    if (!result || !Array.isArray(result.schedules) || result.schedules.length > 500) throw { code: 'invalid_response' };
+    const ids = new Set(), nextPrivate = new Map();
+    const cleanList = result.schedules.map(raw => {
+      if (!raw || typeof raw.id !== 'string' || !/^[\w.:-]{1,255}$/.test(raw.id) || ids.has(raw.id) || typeof raw.kind !== 'string') throw { code: 'invalid_response' };
+      ids.add(raw.id);
+      // Only allowlisted calendar metadata is exposed; arbitrary stored fields stay on the server.
+      if (recipientEditor && raw.kind === kind) nextPrivate.set(raw.id, recipients(raw.recipients ?? []));
+      const clean = { id: raw.id, kind: ['log_digest', 'energy_report'].includes(raw.kind) ? raw.kind : 'unknown' };
+      if (raw.kind === kind) {
+        if(Object.hasOwn(raw,'channels')&&kind!=='energy_report')throw {code:'invalid_response'};
+        for (const key of editable.filter(key => !['id', 'kind'].includes(key))) if (Object.prototype.hasOwnProperty.call(raw, key)) clean[key] = key === 'channels' ? normalizeChannels(raw[key]) : raw[key];
+        if (raw.timezone !== undefined && typeof raw.timezone !== 'string') throw { code: 'invalid_response' };
+        if (raw.weekday !== undefined && (!Number.isInteger(raw.weekday) || raw.weekday < 0 || raw.weekday > 6)) throw { code: 'invalid_response' };
+        if (raw.month_day !== undefined && (!Number.isInteger(raw.month_day) || raw.month_day < 1 || raw.month_day > 31)) throw { code: 'invalid_response' };
+        if (raw.timezone) try { new Intl.DateTimeFormat('en', { timeZone: raw.timezone }); } catch (_) { throw { code: 'invalid_response' }; }
+        clean.next_fire = typeof raw.next_fire === 'string' && /^\d{4}-\d{2}-\d{2}T[\d:.]+(?:Z|[+-]\d{2}:\d{2})$/.test(raw.next_fire) && Number.isFinite(Date.parse(raw.next_fire)) ? raw.next_fire : null;
+        clean.effective_timezone = null;
+        if (typeof raw.effective_timezone === 'string' && raw.effective_timezone.length <= 128)
+          try { new Intl.DateTimeFormat('en', { timeZone: raw.effective_timezone }); clean.effective_timezone = raw.effective_timezone; } catch (_) {}
+      }
+      if (raw.kind === kind && (!['daily', 'weekly', 'monthly'].includes(raw.cadence) ||
+        !/^([01]\d|2[0-3]):[0-5]\d$/.test(raw.time) || typeof raw.enabled !== 'boolean')) throw { code: 'invalid_response' };
+      return clean;
+    });
+    privateRows = nextPrivate;
+    return cleanList;
+  };
+  // list_schedules also exists in 2.1.2, which silently drops calendar fields.
+  // Confirm the loaded integration through HA's manifest API before any mutation.
+  const supportsCalendar = (manifest, minimumMinor = 2) => {
+    if (manifest?.domain !== 'ha_tools_email' || typeof manifest.version !== 'string' ||
+      !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(manifest.version)) return false;
+    const version = manifest.version.split('.').map(Number);
+    return version.every(Number.isSafeInteger) && version.join('.') === manifest.version && (version[0] > 2 || version[0] === 2 && version[1] >= minimumMinor);
+  };
+  const unavailable = error => ['unknown_command', 'not_found'].includes(error?.code);
+  const read = () => {
+    if (!allowed()) return Promise.resolve();
+    if (typeof hass.callWS !== 'function') { checked = true; status = { state: 'not_checked', reason: 'unavailable' }; notify(); return Promise.resolve(); }
+    if (reading) return reading.promise;
+    const token = { epoch, promise: null }, source = hass;
+    reading = token; calendarCompatible = false; mailCompatible = false; checked = true; status = { state: pendingExpected ? 'unconfirmed' : 'not_checked', reason: 'loading' };
+    token.promise = (async () => {
+      try {
+        const manifest = await request(source, { type: 'manifest/get', integration: 'ha_tools_email' }, token);
+        if (epoch !== token.epoch || reading !== token || !allowed()) return;
+        mailCompatible = supportsCalendar(manifest, 3);
+        if (!supportsCalendar(manifest)) throw { code: 'not_found' };
+        const response = await request(source, { type: 'ha_tools_email/list_schedules' }, token);
+        if (epoch !== token.epoch || reading !== token || !allowed()) return;
+        rows = cleanRows(response); calendarCompatible = true;
+        if (pendingExpected) {
+          if (same(pendingExpected, rows.find(row => row.id === pendingExpected.id))) {
+            const deleted = pendingExpected.deleted;
+            pendingExpected = null; pendingRecipients = null; privateDraft = null; draft = null; status = { state: 'success', reason: deleted ? 'deleted' : 'saved' };
+          } else status = { state: 'unconfirmed', reason: 'readback_mismatch' };
+        } else status = { state: rows.some(row => row.kind === kind) ? 'success' : 'no_data', reason: 'loaded' };
+      } catch (error) {
+        if (epoch !== token.epoch || reading !== token || !allowed()) return;
+        rows = []; privateRows.clear();
+        status = { state: pendingExpected ? 'unconfirmed' : 'not_checked',
+          reason: unavailable(error) ? 'unavailable' : error?.code === 'request_timeout' ? 'read_timeout' : 'read_failed' };
+      } finally { if (epoch === token.epoch && reading === token) { reading = null; notify(); } }
+    })();
+    notify(); return token.promise;
+  };
+  const validate = value => {
+    if (Object.hasOwn(value,'channels')) { if(kind !== 'energy_report')throw {code:'invalid_channels'}; normalizeChannels(value.channels); }
+    if (!['daily', 'weekly', 'monthly'].includes(value.cadence) || !/^([01]\d|2[0-3]):[0-5]\d$/.test(value.time)) throw { code: 'invalid_fields' };
+    if (value.timezone) {
+      if (value.timezone.length > 128 || /^(posix\/|right\/)|^(localtime|posixrules)$/.test(value.timezone)) throw { code: 'invalid_timezone' };
+      try { new Intl.DateTimeFormat('en', { timeZone: value.timezone }); } catch (_) { throw { code: 'invalid_timezone' }; }
+    }
+    if (value.cadence === 'weekly' && (!Number.isInteger(value.weekday) || value.weekday < 0 || value.weekday > 6)) throw { code: 'invalid_fields' };
+    if (value.cadence === 'monthly' && (!Number.isInteger(value.month_day) || value.month_day < 1 || value.month_day > 31)) throw { code: 'invalid_fields' };
+  };
+  const save = async () => {
+    if (!allowed() || !calendarCompatible || !draft || writing || reading || pendingExpected || !['success', 'no_data', 'error'].includes(status.state)) return;
+    let expected;
+    try {
+      validate(draft);
+      expected = { id: draft.id, kind, cadence: draft.cadence, time: draft.time, enabled: draft.enabled === true };
+      if (Object.hasOwn(draft,'channels')) expected.channels=normalizeChannels(draft.channels);
+      if (draft.timezone) expected.timezone = draft.timezone;
+      if (draft.cadence === 'weekly') expected.weekday = draft.weekday;
+      if (draft.cadence === 'monthly') expected.month_day = draft.month_day;
+      if (recipientEditor && privateDraft !== null) expected.recipients = recipients(privateDraft);
+    } catch (error) { status = { state: 'error', reason: error.code || 'invalid_fields' }; notify(); return; }
+    const useHaTimezone = !!rows.find(row => row.id === draft.id)?.timezone && !draft.timezone;
+    const requestEpoch = epoch, source = hass;
+    pendingRecipients = expected.recipients ? [...expected.recipients] : null;
+    pendingExpected = Object.fromEntries(Object.entries(expected).filter(([key]) => key !== 'recipients')); writing = true; status = { state: 'not_checked', reason: 'saving' }; notify();
+    try {
+      await request(source, { type: 'ha_tools_email/set_schedule', action: 'upsert', schedule: useHaTimezone ? { ...expected, use_ha_timezone: true } : expected });
+      if (requestEpoch !== epoch || !allowed()) return;
+      // The acknowledgement (and its embedded schedules) cannot confirm storage: use a separate read.
+      await read();
+    } catch (error) {
+      if (requestEpoch !== epoch || !allowed()) return;
+      const rejected = ['invalid_payload', 'unauthorized', 'unknown_command', 'not_found'].includes(error?.code);
+      if (rejected) { pendingExpected = null; pendingRecipients = null; }
+      status = { state: rejected ? 'error' : 'unconfirmed', reason: rejected ? 'save_rejected' : 'write_unknown' };
+    } finally { if (requestEpoch === epoch) { writing = false; notify(); } }
+  };
+  const previewRead = (manual = null) => {
+    if (!allowed() || (!manual && !calendarCompatible) || reading || previewing || writing || pendingExpected) return previewing?.promise || Promise.resolve();
+    const selection = manual || draft || rows.find(row => row.kind === kind);
+    if (!selection) return Promise.resolve();
+    try { if (manual) {
+      if (!['daily', 'weekly', 'monthly'].includes(selection.cadence) || !['rolling', 'calendar'].includes(selection.period_mode)) throw { code: 'invalid_fields' };
+    } else validate(selection); } catch (error) { previewStatus = { state: 'error', reason: error.code }; notify(); return Promise.resolve(); }
+    const token = { epoch, promise: null }, source = hass;
+    const message = { type: 'ha_tools_email/' + (kind === 'energy_report' ? 'preview_energy_report' : 'preview_log_digest'), cadence: selection.cadence };
+    if (kind === 'energy_report') message.calendar_period = true;
+    if (selection.timezone) message.timezone = selection.timezone;
+    previewing = token; preview = null; previewStatus = { state: 'not_checked', reason: 'loading' };
+    token.promise = (async () => {
+      try {
+        if (manual) {
+          const manifest = await request(source, { type: 'manifest/get', integration: 'ha_tools_email' }, token);
+          if (epoch !== token.epoch || previewing !== token || !allowed()) return;
+          if (!supportsCalendar(manifest, 3)) throw { code: 'mail_upgrade_required' };
+        }
+        if (manual || mailCompatible) {
+          delete message.calendar_period;
+          message.format = 'mail'; message.period_mode = manual?.period_mode || 'calendar';
+          if (kind === 'log_digest' && manual?.max_entries !== undefined) message.max_entries = manual.max_entries;
+        }
+        const response = await request(source, message, token);
+        if (epoch !== token.epoch || previewing !== token || !allowed()) return;
+        if (message.format === 'mail') {
+          if (!response || response.cadence !== message.cadence || typeof response.subject !== 'string' ||
+            typeof response.body !== 'string' || typeof response.html !== 'string' || response.html.length > 2000000 ||
+            typeof response.period?.from !== 'string' || typeof response.period?.to !== 'string' ||
+            !Number.isFinite(Date.parse(response.period.from)) || !Number.isFinite(Date.parse(response.period.to)) ||
+            Date.parse(response.period.from) >= Date.parse(response.period.to) ||
+            response.period.semantics !== (message.period_mode === 'calendar' ? 'previous_completed_calendar_period' :
+              kind === 'log_digest' ? 'rolling_retained_last_observed' : 'rolling_completed_hours') ||
+            typeof response.source !== 'object' || response.source === null ||
+            response.source.name !== (kind === 'log_digest' ? 'system_log' : 'recorder') ||
+            typeof response.source.complete !== 'boolean' ||
+            typeof response.generated_at !== 'string' || !Number.isFinite(Date.parse(response.generated_at))) throw { code: 'invalid_response' };
+          preview = { cadence: response.cadence, subject: response.subject, body: response.body, html: response.html,
+            period: { ...response.period }, source: { ...response.source }, generated_at: response.generated_at,
+            effective_timezone: response.effective_timezone };
+          previewStatus = { state: response.source.status === 'no_data' ? 'no_data' : response.source.complete === false ? 'partial' : 'success', reason: 'loaded' }; return;
+        }
+        if (kind === 'energy_report') {
+          if (typeof projectPreview !== 'function') throw { code: 'invalid_response' };
+          const projected = projectPreview(response, message);
+          if (!projected || !['success', 'partial', 'no_data'].includes(projected.state)) throw { code: 'invalid_response' };
+          preview = projected.value; previewStatus = { state: projected.state, reason: 'loaded' };
+          return;
+        }
+        if (!response || response.cadence !== message.cadence || !(response.total === null || (Number.isInteger(response.total) && response.total >= 0)) ||
+          typeof response.period?.from !== 'string' || typeof response.period?.to !== 'string' ||
+          response.period.semantics !== 'previous_completed_calendar_period' || typeof response.effective_timezone !== 'string' ||
+          response.source?.name !== 'system_log' || response.source.count_semantics !== 'retained_aggregates' ||
+          typeof response.source.complete !== 'boolean' || !Number.isInteger(response.source.retained_entries) ||
+          response.source.retained_entries < 0) throw { code: 'invalid_response' };
+        preview = { cadence: response.cadence, total: response.total,
+          unique_problems: Number.isInteger(response.unique_problems) && response.unique_problems >= 0 ? response.unique_problems : null,
+          counts_complete: response.counts_complete === true,
+          period: { from: response.period.from, to: response.period.to, semantics: response.period.semantics },
+          effective_timezone: response.effective_timezone,
+          source: { name: response.source.name, complete: response.source.complete, count_semantics: response.source.count_semantics, retained_entries: response.source.retained_entries } };
+        previewStatus = { state: response.source.complete ? (response.source.retained_entries ? 'success' : 'no_data') : 'partial', reason: 'loaded' };
+      } catch (error) {
+        if (epoch !== token.epoch || previewing !== token || !allowed()) return;
+        preview = null; previewStatus = { state: 'not_checked', reason: error?.code === 'mail_upgrade_required' ? 'mail_upgrade_required' : unavailable(error) ? 'unavailable' : error?.code === 'request_timeout' ? 'read_timeout' : 'read_failed' };
+      } finally { if (epoch === token.epoch && previewing === token) { previewing = null; notify(); } }
+    })();
+    notify(); return token.promise;
+  };
+  return {
+    setContext(value) {
+      if (watchedConnection !== (value?.connection ?? null)) {
+        unwatch(); connectionOffline = false; watchedConnection = value?.connection ?? null;
+        const source = watchedConnection;
+        const disconnect = () => { if (watchedConnection !== source) return; connectionOffline = true; reset(); if (context) context.online = false; contextLost(); notify(); };
+        const ready = () => { if (watchedConnection !== source) return; connectionOffline = false; reset(); if (context) context.online = !browserOffline && hass?.connected !== false; contextLost(); notify(); };
+        const offline = () => { browserOffline = true; reset(); if (context) context.online = false; contextLost(); notify(); };
+        const online = () => { browserOffline = false; reset(); if (context) context.online = !connectionOffline && hass?.connected !== false && source?.connected !== false; contextLost(); notify(); };
+        source?.addEventListener?.('disconnected', disconnect); source?.addEventListener?.('ready', ready);
+        globalThis.addEventListener?.('offline', offline); globalThis.addEventListener?.('online', online);
+        unwatch = () => { source?.removeEventListener?.('disconnected', disconnect); source?.removeEventListener?.('ready', ready);
+          globalThis.removeEventListener?.('offline', offline); globalThis.removeEventListener?.('online', online); };
+      }
+      const next = capture(value);
+      if (!context || Object.keys(next).some(key => next[key] !== context[key]) || !next.admin || !next.online) reset();
+      hass = value; context = next;
+    },
+    discard() { unwatch(); watchedConnection = null; reset(); hass = null; context = null; },
+    online() { return allowed(); },
+    recipientsFor(id) { return allowed() && recipientEditor && privateRows.has(id) ? [...privateRows.get(id)] : null; },
+    recipientModel() { return allowed() && recipientEditor && draft && privateDraft !== null ? [...privateDraft] : null; },
+    updateRecipients(value) {
+      if (!allowed() || !recipientEditor || !draft || writing || pendingExpected) return;
+      privateDraft = [...value];
+    },
+    ensureRead() { if (!checked && allowed()) return read(); },
+    refresh() { if (!writing) return read(); },
+    edit(id) {
+      if (!allowed() || !calendarCompatible || writing || pendingExpected || reading || !['success', 'no_data', 'error'].includes(status.state)) return;
+      const row = rows.find(value => value.id === id && value.kind === kind);
+      if (!row) return;
+      previewing?.cancel?.(); previewing = null;
+      privateDraft = recipientEditor ? [...(privateRows.get(id) || [])] : null;
+      draft = { ...cloneRow(row), timezone: row.timezone || '', weekday: row.weekday ?? 0, month_day: row.month_day ?? 1 };
+      preview = null; previewStatus = { state: 'not_checked', reason: 'initial' }; notify();
+    },
+    create(options = {}) {
+      if (!allowed() || !calendarCompatible || reading || writing || pendingExpected || !['success', 'no_data'].includes(status.state)) return;
+      let newChannels;
+      if(Object.hasOwn(options,'channels')) {try {if(kind!=='energy_report')throw {code:'invalid_channels'};newChannels=normalizeChannels(options.channels,true);}catch(error){status={state:'error',reason:error.code};notify();return;}}
+      // New IDs are allocated only after the explicit New action, never on open.
+      let id;
+      try {
+        if (globalThis.crypto?.randomUUID) id = globalThis.crypto.randomUUID();
+        else {
+          const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+          bytes[6] = (bytes[6] & 15) | 64; bytes[8] = (bytes[8] & 63) | 128;
+          const hex = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+          id = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+        }
+      } catch (_) { status = { state: 'error', reason: 'id_unavailable' }; notify(); return; }
+      previewing?.cancel?.(); previewing = null;
+      privateDraft = recipientEditor ? [] : null;
+      draft = { id, kind, cadence: 'daily', time: '08:00', enabled: false,
+        timezone: '', weekday: 0, month_day: 1, ...(newChannels?{channels:newChannels}:{}) };
+      preview = null; previewStatus = { state: 'not_checked', reason: 'initial' }; notify();
+    },
+    update(key, value) {
+      if (!allowed() || !draft || writing || pendingExpected || !editable.includes(key) || ['id', 'kind'].includes(key)) return;
+      if(key==='channels') {try {if(kind!=='energy_report')throw {code:'invalid_channels'};value=normalizeChannels(value,true);}catch(error){status={state:'error',reason:error.code};notify();return;}}
+      draft = { ...draft, [key]: value };
+      // A preview belongs to its exact selection; invalidate callbacks after an edit.
+      if (previewing) { previewing.cancel?.(); previewing = null; }
+      preview = null; previewStatus = { state: 'not_checked', reason: 'initial' };
+    },
+    cancel() { draft = null; privateDraft = null; preview = null; previewing?.cancel?.(); previewing = null; previewStatus = { state: 'not_checked', reason: 'initial' }; notify(); },
+    save, preview: () => previewRead(), previewMail: selection => previewRead({ ...selection }),
+    clearPreview() { previewing?.cancel?.(); previewing = null; preview = null; previewStatus = { state: 'not_checked', reason: 'initial' }; },
+    async remove(id) {
+      if (!allowed() || !calendarCompatible || reading || writing || pendingExpected || !rows.some(row => row.id === id && row.kind === kind) || !['success', 'no_data', 'error'].includes(status.state)) return;
+      const requestEpoch = epoch, source = hass;
+      pendingExpected = { id, deleted: true }; pendingRecipients = null; writing = true;
+      status = { state: 'not_checked', reason: 'saving' }; notify();
+      try {
+        await request(source, { type: 'ha_tools_email/set_schedule', action: 'delete', schedule_id: id });
+        if (requestEpoch === epoch && allowed()) await read();
+      } catch (error) {
+        if (requestEpoch !== epoch || !allowed()) return;
+        const rejected = ['invalid_payload', 'unauthorized', 'unknown_command', 'not_found'].includes(error?.code);
+        if (rejected) pendingExpected = null;
+        status = { state: rejected ? 'error' : 'unconfirmed', reason: rejected ? 'save_rejected' : 'write_unknown' };
+      } finally { if (requestEpoch === epoch) { writing = false; notify(); } }
+    },
+    model() { return { rows: rows.map(cloneRow), draft: draft ? cloneRow(draft) : null, status: { ...status },
+      reading: !!reading, writing, locked: !!pendingExpected, previewing: !!previewing,
+      preview: preview ? { ...preview } : null, previewStatus: { ...previewStatus } }; }
+  };
+}
+
+
+// Local presentation only: consumers supply the existing immutable backend HTML.
+// Reuse this factory for Log manual/schedule frames without sharing card/user state.
+function createHaToolsMailPresentation({ escape = value => String(value), language = () => 'en' } = {}) {
+  let states = new Map();
+  const stateFor = id => {
+    if (!states.has(id)) states.set(id, { device: 'phone', theme: 'light' });
+    return states.get(id);
+  };
+  const supportsTheme = html => /<meta\b(?=[^>]*\sname\s*=\s*["']ha-tools-mail-presentation["'])(?=[^>]*\scontent\s*=\s*["']1["'])[^>]*>/i.test(html.replace(/<!--[\s\S]*?-->/g, ''));
+  const csp = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src 'none'; connect-src 'none'; frame-src 'none'; form-action 'none'; base-uri 'none'; object-src 'none'">`;
+  const text = (pl, en) => language() === 'pl' ? pl : en;
+  return {
+    clear() { states = new Map(); },
+    render(html, id, title) {
+      const state = stateFor(id), themed = supportsTheme(html);
+      if (!themed) state.theme = 'light';
+      const button = (group, value, label, disabled = false) => `<button type="button" data-mail-preview-${group}="${value}" aria-pressed="${state[group] === value}" ${disabled ? 'disabled' : ''} style="min-height:44px;min-width:44px;padding:8px 12px;font:inherit;cursor:pointer">${label}</button>`;
+      return `<div data-mail-presentation="${escape(id)}" style="min-width:0;max-width:100%">
+        <div role="group" aria-label="${text('Rozmiar podglądu', 'Preview size')}" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0"><span>${text('Rozmiar:', 'Size:')}</span>${button('device', 'phone', text('Telefon', 'Phone'))}${button('device', 'desktop', text('Komputer', 'Computer'))}</div>
+        <div role="group" aria-label="${text('Motyw podglądu', 'Preview theme')}" style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0"><span>${text('Motyw:', 'Theme:')}</span>${button('theme', 'light', text('Jasny', 'Light'))}${button('theme', 'dark', text('Ciemny', 'Dark'), !themed)}</div>
+        ${!themed ? `<p role="status">${text('Ciemny podgląd wymaga HA Tools Email 2.4+.', 'Dark preview requires HA Tools Email 2.4+.')}</p>` : ''}
+        <div data-mail-preview-scroll style="max-width:100%;min-width:0;overflow-x:auto"><iframe id="${escape(id)}" title="${escape(title)}" sandbox="" referrerpolicy="no-referrer" style="display:block;box-sizing:border-box;width:${state.device === 'phone' ? 390 : 680}px;max-width:none;height:600px;border:1px solid var(--divider-color,#ddd);background:white"></iframe></div></div>`;
+    },
+    bind(root, id, html) {
+      const frame = root.getElementById(id), state = stateFor(id), themed = supportsTheme(html);
+      const controls = frame?.closest('[data-mail-presentation]');
+      if (!controls) return;
+      if (!themed) state.theme = 'light';
+      const paint = () => {
+        frame.style.width = `${state.device === 'phone' ? 390 : 680}px`;
+        // Prefix before CSP and the untouched payload: explicit light also beats OS dark.
+        const srcdoc = `<html data-mail-preview-theme="${state.theme}">` + csp + html;
+        if (frame.srcdoc !== srcdoc) frame.srcdoc = srcdoc;
+        for (const button of controls.querySelectorAll('button')) {
+          const selected = button.dataset.mailPreviewDevice ? state.device === button.dataset.mailPreviewDevice : state.theme === button.dataset.mailPreviewTheme;
+          button.setAttribute('aria-pressed', String(selected));
+          button.style.fontWeight = selected ? '700' : '400';
+          button.style.boxShadow = selected ? 'inset 0 0 0 2px var(--primary-color,#395fd1)' : '';
+        }
+      };
+      for (const button of controls.querySelectorAll('button')) button.onclick = () => {
+        if (button.disabled) return;
+        const device = button.dataset.mailPreviewDevice, theme = button.dataset.mailPreviewTheme;
+        if (device === 'phone' || device === 'desktop') state.device = device;
+        if (themed && (theme === 'light' || theme === 'dark')) state.theme = theme;
+        paint();
+      };
+      paint();
+    }
+  };
+}
 // Per-card transport; raw calls stay occupied across every identity/selection edge.
 function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>true}) {
   const clone=v=>v==null?v:JSON.parse(JSON.stringify(v));
@@ -4630,9 +5156,7 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
       if(!current(e)){off?.();return false;}
       if(typeof off!=='function')throw Error('subscription_unavailable');
       unsub.push(off);ack=true;
-      if(typeof c.subscribeEvents==='function') {
-        Promise.resolve(c.subscribeEvents(()=>{if(enabled&&same(association,context()))invalidate();},'ha_tools_email_energy_updated')).then(fn=>{if(!enabled||!same(association,context())||!ack){fn?.();return;}if(typeof fn==='function')unsub.push(fn);}).catch(()=>{});
-      }
+      // The secured subscription already includes server energy ticks.
       return true;
     })();subscribing=task;
     try{return await task;}finally{if(subscribing===task)subscribing=null;}
@@ -4643,10 +5167,10 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
       view.supported=false;view.status='legacy';view.capabilities=null;emit();return false;
     }
     view.supported=true;
-    if(caps.status!=='ready'||!Number.isSafeInteger(caps.revision)||!caps.capabilities?.energy_analysis)throw Error('invalid_capabilities');
+    if(caps.status!=='ready'||!Number.isSafeInteger(caps.revision)||!caps.capabilities||typeof caps.capabilities!=='object')throw Error('invalid_capabilities');
     view.capabilities=clone(caps.capabilities);
-    const grant=view.capabilities.energy_analysis;
-    if(grant.visible!==true||grant.read!==true){view.status='denied';emit();return false;}
+    const allowed=feature=>view.capabilities[feature]?.visible===true&&view.capabilities[feature]?.read===true;
+    if(!allowed('energy_analysis')&&!allowed('energy_reports')){view.status='denied';emit();return false;}
     return true;
   }
   const validModel=(m,s)=>m?.schema==='ha_tools.energy_report/1'&&m.period?.kind===s.period&&m.period?.timezone===card._hass?.config?.time_zone&&Number.isFinite(Date.parse(m.period.start))&&Number.isFinite(Date.parse(m.period.end))&&m.totals&&typeof m.totals==='object'&&m.coverage&&Array.isArray(m.hourly);
@@ -4664,6 +5188,7 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
         const confirmed=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
         if(!current(e)||!capabilities(confirmed))return;
       }
+      if(view.capabilities.energy_analysis?.visible!==true||view.capabilities.energy_analysis?.read!==true){view.status='ready';emit();return;}
       emit();
       const model=await guard.call(token,{type:'ha_tools_email/energy_report',...s,representation:'model'});
       if(!current(e))return;
@@ -4699,6 +5224,195 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
   }
   function state(){observe();return clone({...view,busy:!!raw,selection});}
   return {update,state,preview,stop,refresh:invalidate};
+}
+// Existing server stores and send_now dispatcher; no scheduler, SMTP setup or auto retry.
+function createEnergyReportsActionsV53({card,guard,getCapabilities,isActive=()=>false,onChange=()=>{},format=null,createSchedules=typeof createHaToolsEmailSchedules==='function'?createHaToolsEmailSchedules:null}){
+ const copy=v=>v==null?v:JSON.parse(JSON.stringify(v)),esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const pl=()=>String(card._hass?.locale?.language||card._hass?.language||'en').startsWith('pl'),t=(en,polish)=>pl()?polish:en;
+ const cadenceLabel=c=>({daily:t('Daily','Dzienny'),weekly:t('Weekly','Tygodniowy'),monthly:t('Monthly','Miesięczny')}[c]||String(c||''));
+ const weekdays=()=>[t('Monday','Poniedziałek'),t('Tuesday','Wtorek'),t('Wednesday','Środa'),t('Thursday','Czwartek'),t('Friday','Piątek'),t('Saturday','Sobota'),t('Sunday','Niedziela')];
+ const grants=()=>getCapabilities()?.energy_reports,readable=()=>grants()?.visible===true&&grants()?.read===true;
+ const executable=()=>readable()&&grants()?.execute===true&&card._hass?.user?.is_admin===true;
+ let knownGrants=null;
+ const context=()=>{const h=card._hass,token=guard.observe(),g=getCapabilities()?.energy_reports||knownGrants;return [h?.connection,h?.callWS,h?.user?.id,h?.user?.is_admin,h?.user?.is_active,h?.connected,h?.connection?.connected,token.epoch,isActive(),g?.visible===true&&g?.read===true,g?.execute];};
+ const same=(a,b)=>a&&a.length===b.length&&a.every((v,i)=>v===b[i]);
+ const available=()=>isActive()&&readable()&&card.isConnected&&card.preview!==true&&card._hass?.user?.is_active!==false&&guard.available(guard.snapshot());
+ let scheduleReview=null;
+ let identity=null,epoch=0,raw=null,pending=false,loaded=false,refreshSchedules=false,root=null,store=null,proxy=null,unwire=null,unauthority=null,form=null,serial=0;
+ let state={status:'idle',schedules:[],deliveries:[],targets:[],reportStatus:null,outcome:null,message:null};
+ const failed=new Set(['preparation_failed','authentication_failed','recipients_refused','tls_failed','send_failed']);
+ function emit(){paint();onChange();}
+ function clear(){epoch++;pending=false;loaded=false;form=null;scheduleReview=null;state={status:'idle',schedules:[],deliveries:[],targets:[],reportStatus:null,outcome:null,message:null};store?.discard?.();store=null;proxy=null;if(root){root.replaceChildren();root._reportMarkup=null;}}
+ const current=(e,token)=>e===epoch&&available()&&same(identity,context())&&guard.current(token);
+ function observe(){if(getCapabilities()?.energy_reports)knownGrants=copy(getCapabilities().energy_reports);const next=context();if(!same(identity,next)){identity=next;clear();}return available();}
+ function stop(){identity=null;knownGrants=null;clear();unwire?.();unauthority?.();unwire=unauthority=null;root=null;}
+ function storeChanged(){if(!store||!available())return;if(!store.model().draft)scheduleReview=null;state.schedules=store.model().rows.filter(r=>r.kind==='energy_report').map(r=>({...r,channel:(r.channels||['email']).join(', '),editable:true}));emit();}
+ async function protectedCall(request){
+  const e=epoch,token=guard.snapshot(),admin=card._hass?.user?.is_admin===true;
+  if(!current(e,token)||!admin||guard.occupied())throw {code:'stale_context'};
+  if(request.type==='ha_tools_email/set_schedule'){
+   if(!executable())throw {code:'unauthorized'};
+   const caps=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
+   if(!current(e,token)||caps?.status!=='ready'||caps?.capabilities?.energy_reports?.read!==true||caps?.capabilities?.energy_reports?.execute!==true||caps?.capabilities?.energy_reports?.visible!==true)throw {code:'unauthorized'};
+   if(request.action!=='delete'){
+    const wanted=request.schedule?.channels||['email'];
+    const targets=await guard.call(token,{type:'ha_tools_email/list_delivery_targets'});
+    if(!current(e,token))throw {code:'stale_context'};
+    if(!Array.isArray(targets)||!wanted.length||wanted.some(id=>!targets.some(t=>t&&t.id===id))){
+      if(Array.isArray(targets))state.targets=targets.filter(t=>t&&typeof t.id==='string'&&(t.id==='email'||t.id==='persistent_notification'||/^notify\.[a-z0-9_]{1,128}$/.test(t.id))).map(t=>({id:t.id,name:String(t.name||t.id),default:t.default===true}));
+      state.message=t('A selected delivery target is unavailable. Choose a current target and review again.','Wybrany cel dostarczenia jest niedostępny. Wybierz aktualny cel i sprawdź ponownie.');emit();
+      throw {code:'invalid_payload'};
+    }
+   }
+
+  }
+  const result=await guard.call(token,request,true);
+  if(!current(e,token))throw {code:'stale_context'};
+  return result;
+ }
+ function schedules(){
+  if(store||!createSchedules||card._hass?.user?.is_admin!==true)return store;
+  // An existing controller instance keeps the exact same backend store/protocol.
+  // Proxy every raw request through this card's shared wire fence.
+  proxy={...card._hass,callWS:protectedCall};
+  store=createSchedules({kind:'energy_report',recipientEditor:true,changed:storeChanged,contextLost:()=>{form=null;}});store.setContext(proxy);return store;
+ }
+ async function load(){
+  if(!observe()||loaded||raw||guard.occupied())return;
+  pending=false;loaded=true;const e=epoch,token=guard.snapshot(),lane={};raw=lane;state.status='loading';emit();
+  try{
+   // Safe bounded household facts; never get_config or get_attempt_history here.
+   try{state.reportStatus=await guard.call(token,{type:'ha_tools_email/get_report_status',purpose:'energy_report'});}catch(_){state.reportStatus=null;}
+   if(!current(e,token))return;
+   if(executable()){
+    try{const targets=await guard.call(token,{type:'ha_tools_email/list_delivery_targets'});if(!current(e,token))return;
+     state.targets=Array.isArray(targets)?targets.filter(r=>r&&typeof r.id==='string'&&(r.id==='email'||r.id==='persistent_notification'||/^notify\.[a-z0-9_]{1,128}$/.test(r.id))).map(r=>({id:r.id,name:String(r.name||r.id),default:r.default===true})):[];
+    }catch(_){state.targets=[];}
+   }
+   if(card._hass?.user?.is_admin===true){
+    try{const history=await guard.call(token,{type:'ha_tools_email/get_attempt_history'},true);if(!current(e,token))return;
+     state.deliveries=(history?.schema===1&&Array.isArray(history.attempts)?history.attempts:[]).filter(r=>r.kind==='energy_report'&&typeof r.id==='string'&&typeof r.timestamp==='string'&&Number.isFinite(Date.parse(r.timestamp))).slice(0,5).map(r=>({id:r.id,at:r.timestamp,name:cadenceLabel(r.cadence),cadence:r.cadence,channel:r.channel||(['accepted_by_smtp'].includes(r.outcome)?'email':null),status:failed.has(r.outcome)?'failed':r.outcome,retryable:failed.has(r.outcome)}));
+    }catch(_){state.deliveries=[];}
+   }
+   if(!current(e,token))return;state.status='ready';
+  }catch(_){if(current(e,token))state.status='error';}finally{if(raw===lane)raw=null;if(current(e,token)){emit();if(card._hass?.user?.is_admin===true){const c=schedules();if(refreshSchedules){refreshSchedules=false;await c?.refresh?.();}else await c?.ensureRead?.();}}}
+ }
+ function update(){
+  if(!unwire)unwire=guard.subscribeWire(()=>queueMicrotask(()=>{if(pending)void load();else emit();}));
+  if(!unauthority)unauthority=guard.subscribe(()=>{clear();identity=null;emit();});
+  if(!observe())return;
+  if(!loaded){pending=true;void load();}
+ }
+ function defaultChannel(){return state.targets.find(r=>r.default&&r.id.startsWith('notify.mobile_app_'))?.id||state.targets.find(r=>r.id==='persistent_notification')?.id||'';}
+ function openSend({email=false,retryId=null}={}){
+  observe();if(!executable()||raw||guard.occupied())return false;
+  const row=retryId?state.deliveries.find(r=>r.id===retryId&&r.retryable):null;if(retryId&&!row)return false;
+  form={id:++serial,phase:'draft',channel:email?(state.targets.some(r=>r.id==='email')?'email':''):defaultChannel(),recipients:'',cadence:['daily','weekly','monthly'].includes(row?.cadence)?row.cadence:'daily',retryId:row?.id||null,consumed:false};state.outcome=null;state.message=email&&!form.channel?t('Configure email in HA Tools Email to enable email delivery.','Skonfiguruj e-mail w HA Tools Email, aby włączyć ten kanał.'):null;emit();root?.querySelector('[data-report-field="channel"]')?.focus();return true;
+ }
+ const recipients=text=>String(text).split(',').map(v=>v.trim()).filter(Boolean);
+ function review(){
+  observe();if(!executable()||!form||form.consumed||raw||guard.occupied())return false;
+  if(!state.targets.some(r=>r.id===form.channel)){state.message=t('Choose an available channel.','Wybierz dostępny kanał.');emit();return false;}
+  const to=recipients(form.recipients);if(form.channel==='email'&&(!to.length||to.length>128||to.some(v=>v.length>255||/[\r\n]/.test(v)||!v.includes('@')))){state.message=t('Enter the email recipients before confirming.','Wpisz odbiorców e-mail przed potwierdzeniem.');emit();return false;}
+  form.phase='review';state.message=null;emit();root?.querySelector('[data-report-action="confirm"]')?.focus();return true;
+ }
+ async function confirm(){
+  observe();if(!executable()||!form||form.phase!=='review'||form.consumed||raw||guard.occupied())return false;
+  const plan=copy(form),e=epoch,token=guard.snapshot(),lane={};form.consumed=true;raw=lane;state.outcome='pending';emit();let dispatched=false;
+  try{
+   const caps=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
+   if(!current(e,token)||caps?.status!=='ready'||caps?.capabilities?.energy_reports?.visible!==true||caps?.capabilities?.energy_reports?.execute!==true)throw {code:'unauthorized'};
+   const targets=await guard.call(token,{type:'ha_tools_email/list_delivery_targets'});
+   if(!current(e,token)||!Array.isArray(targets)||!targets.some(r=>r.id===plan.channel))throw {code:'target_unavailable'};
+   const request={type:'ha_tools_email/send_now',kind:'energy_report',cadence:plan.cadence,period_mode:'calendar',channels:[plan.channel]};
+   if(plan.channel==='email')request.recipients=recipients(plan.recipients);
+   dispatched=true;
+   const result=await guard.call(token,request,true);
+   if(!current(e,token)){if(e===epoch&&same(identity,context())){state.outcome='outcome_unknown';form=null;emit();}return false;}
+   const parts=Array.isArray(result?.channels)?result.channels:Array.isArray(result?.results)?result.results:[result];
+   const statuses=parts.map(r=>r?.status);
+   const accepted=result?.ok===true&&parts.length>0&&parts.every(r=>r?.ok===true&&['accepted_by_notify','accepted_by_smtp'].includes(r.status)&&typeof r.attempt_id==='string'&&r.attempt_id.length>0);
+   state.outcome=accepted?(statuses.every(s=>s==='accepted_by_notify')?'accepted_by_notify':'accepted_by_smtp'):'outcome_unknown';
+   form=null;emit();return accepted;
+  }catch(error){if(current(e,token)){state.outcome=dispatched?'outcome_unknown':'not_sent';state.message=null;form=null;emit();}return false;}
+  finally{if(raw===lane)raw=null;emit();}
+ }
+ function reviewSchedule(){
+  observe();const sm=store?.model(),d=sm?.draft;
+  if(!executable()||raw||guard.occupied()||!d||sm.reading||sm.writing||sm.locked)return false;
+  if(!['daily','weekly','monthly'].includes(d.cadence)||!/^([01]\d|2[0-3]):[0-5]\d$/.test(d.time)){state.message=t('Check schedule cadence and time.','Sprawdź częstotliwość i godzinę harmonogramu.');emit();return false;}
+  if(d.cadence==='weekly'&&(!Number.isInteger(d.weekday)||d.weekday<0||d.weekday>6)||d.cadence==='monthly'&&(!Number.isInteger(d.month_day)||d.month_day<1||d.month_day>31)){state.message=t('Check the selected day.','Sprawdź wybrany dzień.');emit();return false;}
+  const selected=d.channels||['email'],to=store.recipientModel()||[];
+  if(!selected.length||selected.some(id=>!state.targets.some(t=>t.id===id))){state.message=t('Choose available delivery channels before reviewing.','Wybierz dostępne kanały przed sprawdzeniem.');emit();return false;}
+  if(selected.includes('email')&&(!to.length||to.some(v=>!v.includes('@')||/[\r\n]/.test(v)))){state.message=t('Enter explicit email recipients before reviewing this schedule.','Wpisz odbiorców e-mail przed sprawdzeniem harmonogramu.');emit();return false;}
+  scheduleReview={signature:JSON.stringify({draft:d,recipients:to}),draft:copy(d),recipients:[...to],consumed:false};state.message=null;emit();root?.querySelector('[data-report-action="confirm-schedule"]')?.focus();return true;
+ }
+ async function confirmSchedule(){
+  observe();const sm=store?.model();
+  if(!executable()||raw||guard.occupied()||!scheduleReview||scheduleReview.consumed||!sm?.draft||sm.reading||sm.writing||sm.locked)return false;
+  if(scheduleReview.signature!==JSON.stringify({draft:sm.draft,recipients:store.recipientModel()||[]})){scheduleReview=null;emit();return false;}
+  scheduleReview.consumed=true;emit();await store.save();return store.model().status.state==='success';
+ }
+ function scheduleAction(action,id){
+  observe();if(!executable()||raw||guard.occupied())return false;
+  const c=schedules();if(!c)return false;const m=c.model();if(m.reading||m.writing||m.locked)return false;scheduleReview=null;state.message=null;
+  if(action==='add'){c.create({channels:defaultChannel()?[defaultChannel()]:[]});}
+  else if(action==='edit')c.edit(id);
+  else if(action==='toggle'){c.edit(id);const d=c.model().draft;if(d){c.update('enabled',!d.enabled);reviewSchedule();}}
+  emit();return !!c.model().draft;
+ }
+ function mount(next){if(root!==next){root=next;if(root){root.addEventListener('input',input);root.addEventListener('change',input);root.addEventListener('click',click);}}update();paint();}
+ function input(event){
+  if(!available())return;const node=event.target;
+  if(node.dataset.reportField&&form&&!form.consumed){form[node.dataset.reportField]=node.value;form.phase='draft';const reviewButton=root.querySelector('[data-report-action="review"]');if(reviewButton)reviewButton.disabled=!form.channel;}
+  if(node.dataset.scheduleField&&executable()){scheduleReview=null;const key=node.dataset.scheduleField;store?.update(key,node.type==='checkbox'?node.checked:['weekday','month_day'].includes(key)?Number(node.value):node.value);}
+  if(node.dataset.scheduleRecipients!==undefined&&executable()){scheduleReview=null;store?.updateRecipients(recipients(node.value));}
+  if(node.dataset.scheduleChannels!==undefined&&executable()){scheduleReview=null;store?.update('channels',[...node.selectedOptions].map(o=>o.value));paint();}
+ }
+ function click(event){const button=event.target.closest?.('[data-report-action]');if(!button||button.disabled||!root?.contains(button))return;const a=button.dataset.reportAction;
+  if(a==='review')review();else if(a==='confirm')void confirm();else if(a==='cancel'){form=null;emit();}else if(a==='edit-send'){if(form&&!form.consumed)form.phase='draft';emit();}else if(a==='save-schedule')reviewSchedule();else if(a==='confirm-schedule')void confirmSchedule();else if(a==='edit-schedule'){scheduleReview=null;emit();}else if(a==='cancel-schedule'){scheduleReview=null;store?.cancel();emit();}else if(a==='new')openSend();else if(a==='reload'){refreshSchedules=true;loaded=false;pending=true;void load();}
+ }
+ function paint(){
+  if(!root||!available())return;
+  const status={accepted_by_notify:t('Accepted by Home Assistant; phone delivery is not confirmed.','Przyjęte przez Home Assistant; doręczenie na telefon nie jest potwierdzone.'),accepted_by_smtp:t('Accepted by SMTP; inbox delivery is not confirmed.','Przyjęte przez SMTP; doręczenie do skrzynki nie jest potwierdzone.'),outcome_unknown:t('Outcome unknown. Check history before creating a new report. No automatic retry.','Wynik nieznany. Sprawdź historię przed utworzeniem nowego raportu. Brak automatycznej ponownej wysyłki.'),pending:t('Sending…','Wysyłanie…'),not_sent:t('Not sent. Check access and available channels.','Nie wysłano. Sprawdź dostęp i kanały.')};
+  const button=(action,label,disabled=false)=>`<button type="button" data-report-action="${action}" ${disabled?'disabled':''}>${label}</button>`;
+  const field=(key,label,type='text',value='')=>`<label>${label}<input type="${type}" data-report-field="${key}" value="${esc(value)}"></label>`;
+  let html='<style>[data-build1-reports-host] label{display:grid;gap:4px;margin:8px 0}[data-build1-reports-host] input,[data-build1-reports-host] select,[data-build1-reports-host] button{min-height:44px;font:inherit;max-width:100%}[data-build1-reports-host] fieldset{min-width:0;margin:12px 0}</style>';
+  if(state.outcome)html+=`<p role="status">${esc(status[state.outcome]||state.outcome)}</p>`;
+  const next=state.reportStatus?.schema===1&&state.reportStatus?.purpose==='energy_report'&&state.reportStatus?.schedule_state==='enabled'?state.reportStatus.next_report_at:null;
+  if(typeof next==='string'&&Number.isFinite(Date.parse(next)))html+=`<p>${t('Next report','Następny raport')}: ${esc(format?.forHass?.(card._hass)?.dateTime(next)||next)}</p>`;
+  if(state.message)html+=`<p role="status">${esc(state.message)}</p>`;
+  if(form){
+   const locked=form.consumed||raw!==null;
+   html+=`<fieldset><legend>${t('Send a new energy report','Wyślij nowy raport energii')}</legend><p>${t('Previous completed calendar period. This does not send the selected historical preview.','Poprzedni zakończony okres kalendarzowy. Nie wysyła wybranego podglądu historycznego.')}</p>`;
+   if(form.phase==='review')html+=`<p>${esc(cadenceLabel(form.cadence))} · ${esc(form.channel)}${form.channel==='email'?' · '+esc(form.recipients):''}</p>${button('confirm',t('Confirm send once','Potwierdź jedną wysyłkę'),locked)}${button('edit-send',t('Edit','Edytuj'),locked)}`;
+   else html+=`<label>${t('Channel','Kanał')}<select data-report-field="channel"><option value="">${t('Choose a channel','Wybierz kanał')}</option>${state.targets.map(r=>`<option value="${esc(r.id)}" ${r.id===form.channel?'selected':''}>${esc(r.name)}</option>`).join('')}</select></label><label>${t('Period','Okres')}<select data-report-field="cadence">${['daily','weekly','monthly'].map(c=>`<option value="${c}" ${form.cadence===c?'selected':''}>${esc(cadenceLabel(c))}</option>`).join('')}</select></label>${field('recipients',t('Email recipients (used only for email)','Odbiorcy e-mail (tylko dla kanału e-mail)'),'text',form.recipients)}${button('review',t('Review delivery','Sprawdź wysyłkę'),locked||!form.channel)}`;
+   html+=button('cancel',t('Cancel','Anuluj'),locked)+'</fieldset>';
+  }
+  const sm=store?.model(),d=sm?.draft;
+  if(d&&executable()){
+   const entry=(key,label,type='text')=>`<label>${label}<input type="${type}" data-schedule-field="${key}" value="${esc(d[key]??'')}"></label>`;
+   const selected=d.channels||['email'],missing=selected.filter(id=>!state.targets.some(target=>target.id===id));
+   if(scheduleReview){
+    const plan=scheduleReview,channels=plan.draft.channels||['email'];
+    html+=`<fieldset><legend>${t('Review recurring report','Sprawdź raport cykliczny')}</legend><p>${esc(cadenceLabel(plan.draft.cadence))} · ${esc(plan.draft.time)} · ${esc(plan.draft.timezone||card._hass?.config?.time_zone||'HA')} · ${plan.draft.enabled?t('Enabled','Włączony'):t('Disabled','Wyłączony')}</p>${plan.draft.cadence==='weekly'?`<p>${t('Weekday','Dzień tygodnia')}: ${esc(weekdays()[plan.draft.weekday])}</p>`:plan.draft.cadence==='monthly'?`<p>${t('Day of month','Dzień miesiąca')}: ${esc(plan.draft.month_day)}</p>`:''}<p>${esc(channels.join(', '))}</p>${channels.includes('email')?`<p>${esc(plan.recipients.join(', '))}</p>`:''}${button('confirm-schedule',t('Confirm schedule save','Potwierdź zapis harmonogramu'),plan.consumed||sm.writing||sm.reading||sm.locked)}${button('edit-schedule',t('Edit','Edytuj'),sm.writing||sm.locked)}${button('cancel-schedule',t('Cancel','Anuluj'),sm.writing)}</fieldset>`;
+   }else{
+    html+=`<fieldset><legend>${t('Recurring energy report','Cykliczny raport energii')}</legend><label>${t('Channels (select one or more)','Kanały (wybierz co najmniej jeden)')}<select multiple data-schedule-channels>${state.targets.map(target=>`<option value="${esc(target.id)}" ${selected.includes(target.id)?'selected':''}>${esc(target.name)}</option>`).join('')}</select></label>${missing.length?`<p role="status">${t('Unavailable selected targets; choose current targets: ','Niedostępne wybrane cele; wybierz aktualne cele: ')}${esc(missing.join(', '))}</p>`:''}<label>${t('Cadence','Częstotliwość')}<select data-schedule-field="cadence">${['daily','weekly','monthly'].map(c=>`<option value="${c}" ${d.cadence===c?'selected':''}>${esc(cadenceLabel(c))}</option>`).join('')}</select></label>${entry('time',t('Time','Godzina'),'time')}${entry('timezone',t('Time zone (empty: HA)','Strefa czasu (pusta: HA)'))}${d.cadence==='weekly'?`<label>${t('Weekday','Dzień tygodnia')}<select data-schedule-field="weekday">${weekdays().map((label,index)=>`<option value="${index}" ${d.weekday===index?'selected':''}>${esc(label)}</option>`).join('')}</select></label>`:d.cadence==='monthly'?entry('month_day',t('Day of month 1–31','Dzień miesiąca 1–31'),'number'):''}<label><input type="checkbox" data-schedule-field="enabled" ${d.enabled?'checked':''}>${t('Enabled','Włączony')}</label>${selected.includes('email')?`<label>${t('Email recipients','Odbiorcy e-mail')}<input data-schedule-recipients value="${esc((store.recipientModel()||[]).join(', '))}"></label>`:''}${button('save-schedule',t('Review schedule','Sprawdź harmonogram'),sm.writing||sm.reading||sm.locked)}${button('cancel-schedule',t('Cancel','Anuluj'),sm.writing)}</fieldset>`;
+   }
+
+  }
+  if(sm?.status?.state==='error')html+=`<p role="status">${t('Schedule not saved. Check its fields, access and current delivery targets.','Harmonogram nie został zapisany. Sprawdź pola, dostęp i aktualne cele dostarczenia.')}</p>`;
+  if(sm?.status?.state==='unconfirmed')html+=`<p role="status">${t('Schedule save is unconfirmed. Reload before another change.','Zapis harmonogramu niepotwierdzony. Wczytaj przed kolejną zmianą.')}</p>`;
+  html+=button('reload',t('Refresh report status and history','Odśwież stan raportów i historię'),!!raw||guard.occupied());
+  if(state.outcome==='outcome_unknown'||state.outcome==='accepted_by_notify'||state.outcome==='accepted_by_smtp')html+=button('new',t('New report','Nowy raport'),!!raw||!executable());
+  if(root._reportMarkup===html)return;
+  const focus=root.getRootNode().activeElement,selector=focus?.dataset?.reportField?['reportField',focus.dataset.reportField]:focus?.dataset?.scheduleField?['scheduleField',focus.dataset.scheduleField]:focus?.dataset?.scheduleRecipients!==undefined?['scheduleRecipients','']:focus?.dataset?.scheduleChannels!==undefined?['scheduleChannels','']:null;
+  const selection=focus&&typeof focus.selectionStart==='number'?[focus.selectionStart,focus.selectionEnd,focus.selectionDirection]:null;
+  root.innerHTML=html;root._reportMarkup=html;
+  if(selector){const next=[...root.querySelectorAll('input,select')].find(n=>n.dataset[selector[0]]===selector[1]);next?.focus({preventScroll:true});if(next&&selection)next.setSelectionRange(...selection);}
+ }
+ function snapshot(){observe();const sm=store?.model();return copy({...state,busy:!!raw||guard.occupied(),canExecute:executable(),canManageSchedules:executable()&&!!store&&!sm.reading&&!sm.writing&&!sm.locked,formOpen:!!form});}
+ return {mount,update,stop,state:snapshot,openSend,review,confirm,scheduleAction,reviewSchedule,confirmSchedule,refresh:()=>{refreshSchedules=true;loaded=false;pending=true;void load();}};
 }
 /** Pure Build1 presentation. No clock, persistence, network or HA calls.
  * markup accepts an energy_report/1 and options:
@@ -4784,19 +5498,20 @@ function createEnergyBuild1ViewV53({format, language = format?.language || 'en'}
   }
   function reports(m,o){
     const schedules=list(o.schedules),deliveries=list(o.deliveries).slice(0,5),editable=o.canManageReports===true;
-    const disabled=editable?'':'disabled';
-    const status={delivered:t('Delivered','Dostarczone'),failed:t('Failed','Błąd'),pending:t('Pending','Oczekuje'),sent:t('Sent','Wysłano')};
-    return `${heading(t('Schedule','Harmonogram'),t('HA notification or email','Powiadomienie HA lub e-mail'))}<div class="list">${schedules.length?schedules.map(s=>`<div class="it"><div class="txt">${esc(s.name||s.cadence||unknown())}<small>${esc(s.cadence||'')} · ${esc(s.time||unknown())} · ${esc(s.channel||unknown())}</small></div>${action('schedule-toggle',s.enabled===true?t('Enabled','Włączony'):s.enabled===false?t('Disabled','Wyłączony'):unknown(),s.id,`${disabled} aria-pressed="${s.enabled===true}"`)}</div>`).join(''):`<p>${t('No schedules supplied.','Nie dostarczono harmonogramów.')}</p>`}</div><div class="hat-acts">${action('send-now',t('Send daily now','Wyślij dzienny teraz'),'day',disabled)}${action('schedule-add',t('+ Report','+ Raport'),'',disabled)}${action('email-add',t('Add email','Dodaj e-mail'),'',disabled)}</div>${heading(t('Preview','Podgląd'),t('The same report as in the email','Ten sam raport co w e-mailu'))}<div class="preview-controls">${action('preview-device',t('Phone','Telefon'),'phone')}${action('preview-device',t('Desktop','Komputer'),'desktop')}${action('preview-theme',t('Light','Jasny'),'light')}${action('preview-theme',t('Dark','Ciemny'),'dark')}${action('preview-load',t('Load preview','Wczytaj podgląd'))}</div><div class="prev" data-energy-build1-preview>${typeof o.previewText==='string'?`<pre>${esc(o.previewText)}</pre>`:`<p>${t('Load the report preview.','Wczytaj podgląd raportu.')}</p>`}</div>${heading(t('Recent deliveries','Ostatnie wysyłki'))}<div class="list">${deliveries.length?deliveries.map(d=>`<div class="it"><div class="txt">${when(d.at)} · ${esc(d.name||'')}<small>${esc(d.channel||unknown())}</small></div><span class="status">${esc(status[d.status]||d.status||unknown())}</span>${d.status==='failed'?action('delivery-retry',t('Retry','Ponów'),d.id,disabled):''}</div>`).join(''):`<p>${t('No delivery history supplied.','Nie dostarczono historii wysyłek.')}</p>`}</div>`;
+    const disabled=editable?'':'disabled',scheduleDisabled=(o.canManageSchedules??editable)?'':'disabled';
+    const status={delivered:t('Delivered','Dostarczone'),failed:t('Failed','Błąd'),pending:t('Pending','Oczekuje'),accepted_by_notify:t('Accepted by HA','Przyjęte przez HA'),accepted_by_smtp:t('Accepted by SMTP','Przyjęte przez SMTP'),outcome_unknown:t('Outcome unknown','Wynik nieznany'),transport_outcome_unknown:t('Outcome unknown','Wynik nieznany'),partial_acceptance:t('Partly accepted','Częściowo przyjęte'),sent:t('Sent','Wysłano')};
+    return `${heading(t('Schedule','Harmonogram'),t('HA notification or email','Powiadomienie HA lub e-mail'))}<div class="list">${schedules.length?schedules.map(s=>`<div class="it"><div class="txt">${esc(s.name||s.cadence||unknown())}<small>${esc(s.cadence||'')} · ${esc(s.time||unknown())} · ${esc(s.channel||unknown())}</small></div>${action('schedule-toggle',s.enabled===true?t('Enabled','Włączony'):s.enabled===false?t('Disabled','Wyłączony'):unknown(),s.id,`${s.editable===false?'disabled':scheduleDisabled} aria-pressed="${s.enabled===true}"`)}${action('schedule-edit',t('Edit','Edytuj'),s.id,s.editable===false?'disabled':scheduleDisabled)}</div>`).join(''):`<p>${t('No schedules supplied.','Nie dostarczono harmonogramów.')}</p>`}</div><div class="hat-acts">${action('send-now',t('Send daily now','Wyślij dzienny teraz'),'day',disabled)}${action('schedule-add',t('+ Report','+ Raport'),'',scheduleDisabled)}${action('email-add',t('Add email','Dodaj e-mail'),'',disabled)}</div>${heading(t('Preview','Podgląd'),t('The same report as in the email','Ten sam raport co w e-mailu'))}<div class="preview-controls">${action('preview-device',t('Phone','Telefon'),'phone')}${action('preview-device',t('Desktop','Komputer'),'desktop')}${action('preview-theme',t('Light','Jasny'),'light')}${action('preview-theme',t('Dark','Ciemny'),'dark')}${action('preview-load',t('Load preview','Wczytaj podgląd'))}</div><div class="prev" data-energy-build1-preview>${typeof o.previewText==='string'?`<pre>${esc(o.previewText)}</pre>`:`<p>${t('Load the report preview.','Wczytaj podgląd raportu.')}</p>`}</div>${heading(t('Recent deliveries','Ostatnie wysyłki'))}<div class="list">${deliveries.length?deliveries.map(d=>`<div class="it"><div class="txt">${when(d.at)} · ${esc(d.name||'')}<small>${esc(d.channel||unknown())}</small></div><span class="status">${esc(status[d.status]||d.status||unknown())}</span>${d.status==='failed'&&d.retryable!==false?action('delivery-retry',t('New report','Nowy raport'),d.id,disabled):''}</div>`).join(''):`<p>${t('No delivery history supplied.','Nie dostarczono historii wysyłek.')}</p>`}</div>`;
   }
   function markup(model,options={}){
     const m=model&&typeof model==='object'?model:{},o=options,section=Object.hasOwn(sections,o.section)?o.section:'overview';
     const issues=list(m.issues),double=m.unmeasured?.status==='double_counting'||issues.some(i=>i.code==='double_counting');
     const partial=m.coverage?.complete!==true,missing=issues.some(i=>i.code==='no_grid_meter');
-    const currentPeriod=Object.hasOwn(periods,m.period?.kind)?m.period.kind:'day';
+    const currentPeriod=Object.hasOwn(periods,m.period?.kind)?m.period.kind:Object.hasOwn(periods,o.period)?o.period:'day';
     const header=`<div class="ehd"><ha-icon icon="mdi:lightning-bolt" class="hat-ic"></ha-icon><div class="txt"><div class="t">${esc(o.title||t('Energy','Energia'))}</div><div class="s">${t('Tariff','Taryfa')} ${esc(m.tariff?.name||unknown())} · ${t('HA Energy dashboard data','Dane z panelu Energia HA')}</div></div><div class="seg2">${Object.entries(periods).map(([key,label])=>action('period',label,key,`aria-pressed="${key===currentPeriod}"`)).join('')}</div><div class="nav">${action('previous','‹','',`aria-label="${t('Previous period','Poprzedni okres')}"`)}<b>${formatted('range',m.period?.start,m.period?.end)}</b>${action('next','›','',`aria-label="${t('Next period','Następny okres')}"`)}</div></div>`;
     const tabs=`<nav class="tabs2" aria-label="${t('Energy sections','Sekcje energii')}">${Object.entries(sections).map(([key,label])=>action('section',label,key,`aria-current="${key===section?'page':'false'}"`)).join('')}${action('more','⋯','',`aria-label="${t('More sections','Więcej sekcji')}"`)}</nav>`;
     let content;
     if(o.loading)content=`<div class="skeleton" role="status" aria-busy="true">${t('Loading…','Wczytywanie…')}</div>`;
+    else if(section==='reports'&&o.reportAccess===true)content=reports(m,o);
     else if(missing)content=`<p>${t('The Energy dashboard is not configured.','Panel Energia nie jest skonfigurowany.')}</p>${action('configure-energy',t('Configure Energy','Skonfiguruj Energię'))}`;
     else if(m.schema!=='ha_tools.energy_report/1')content=`<p role="status">${t('Energy report unavailable.','Raport energii niedostępny.')}</p>`;
     else content=(partial?`<p class="notice" role="status">${t('Incomplete data','Dane niepełne')} (${exact(m.coverage?.measured_hours)}/${exact(m.coverage?.expected_hours)} h)</p>`:'')+(double?`<p class="notice" role="alert">${doubleMessage()}</p>`:'')+(section==='overview'?overview(m,o,partial):section==='breakdown'?breakdown(m,o,partial,double):section==='costs'?costs(m,o):reports(m,o));
@@ -4828,7 +5543,7 @@ function energyBuild1PreviewDocumentV53(html,theme,document){
   return '<!doctype html>'+parsed.documentElement.outerHTML;
 }
 // Installed outside generated constructor bodies, before customElements.define.
-function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyModelV53,createView=createEnergyBuild1ViewV53}) {
+function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyModelV53,createView=createEnergyBuild1ViewV53,createReports=typeof createEnergyReportsActionsV53==='function'?createEnergyReportsActionsV53:null}) {
   const key=name==='ha-energy-optimizer'?'_currentTab':'_activeTab';
   const defaults=name==='ha-energy-insights'?'breakdown':name==='ha-energy-email'?'reports':'overview';
   const aliases={dashboard:'overview',daily:'breakdown',weekly:'breakdown',monthly:'breakdown',compare:'costs',recommendations:'costs',schedule:'reports',preview:'reports',send:'reports',history:'reports'};
@@ -4847,7 +5562,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
     if(full(card)){paint(card);return;}
     // Pending/old capability replies must leave existing forms, focus and startup alone.
     if(!card._build1MountedV53)return;
-    card._build1MountedV53=false;card._domBuilt=false;presentations.delete(card);
+    card._build1ReportsV53?.stop();card._build1MountedV53=false;card._domBuilt=false;presentations.delete(card);
     card.shadowRoot?.replaceChildren();
     queueMicrotask(()=>{if(card.isConnected&&!full(card))hass?.set?.call(card,card._hass);});
   }
@@ -4858,6 +5573,10 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
     if(card._analysisHostV53?.legacyAllowed?.()===true&&!card._build1ClientV53)return;
     client(card).update(card._build1SelectionV53||{period:options(card).period_default||'day',mode:'full'});
   }
+  function reports(card){
+    if(!createReports||typeof card._getTariffHostV3().guard.call!=='function')return null;
+    return card._build1ReportsV53 ||= createReports({card,format,guard:card._getTariffHostV3().guard,getCapabilities:()=>client(card).state().capabilities,isActive:()=>active(card)&&card._build1SectionV53==='reports',onChange:()=>{if(!painting.has(card))paint(card);}});
+  }
   function options(card){return card._build1ConfigV53||card._config||{};}
   function paint(card){
     if(!full(card)||!card.shadowRoot||painting.has(card))return;
@@ -4866,7 +5585,12 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
       const c=options(card),ctl=client(card),s=ctl.state(),ui=format.forHass(card._hass),v=createView({format:ui,language:ui.language});
       if(!card._build1MountedV53){card._analysisHostV53?.stop();card._reportHostV53?.stop();}
       card._build1MountedV53=true;
-      const section=card._build1SectionV53||defaults;
+      const analysisAllowed=s.capabilities?.energy_analysis?.visible===true&&s.capabilities?.energy_analysis?.read===true;
+      const reportAllowed=s.capabilities?.energy_reports?.visible===true&&s.capabilities?.energy_reports?.read===true;
+      const section=!analysisAllowed&&reportAllowed?'reports':card._build1SectionV53||defaults;card._build1SectionV53=section;
+      const reportActions=section==='reports'?reports(card):null;
+      if(section!=='reports')card._build1ReportsV53?.stop();
+      reportActions?.update();const reportState=reportActions?.state();
       const sectionFeature=section==='reports'?'energy_reports':section==='costs'?'energy_tariff':'energy_analysis';
       const sectionGrant=s.capabilities?.[sectionFeature];
       const sectionAllowed=sectionGrant?.visible===true&&sectionGrant?.read===true;
@@ -4888,10 +5612,10 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
       if(!scopeChanged&&scrollers.length)memory.scrolls=scrollers.map(node=>[node.scrollLeft,node.scrollTop]);
       card._applyThemeV150?.();
       // A stable connected shell keeps the existing tariff editor and its inputs alive.
-      if(!root.querySelector('[data-build1-content]')){root.innerHTML='<style data-build1-style></style><ha-card><div data-build1-content></div><div data-build1-extra></div><div data-build1-tariff-host></div></ha-card>';memory.markup=null;}
+      if(!root.querySelector('[data-build1-content]')){root.innerHTML='<style data-build1-style></style><ha-card><div data-build1-content></div><div data-build1-extra></div><div data-build1-tariff-host></div><div data-build1-reports-host></div></ha-card>';memory.markup=null;}
       const style=root.querySelector('[data-build1-style]');if(style.textContent!==v.styles())style.textContent=v.styles();
       const panel=root.querySelector('[data-build1-content]');
-      const markup=v.markup(sectionAllowed?s.model:null,{section,group:card._build1GroupV53,current:s.current||{},title:c.title,showAlternatives:c.show_alternatives!==false,loading:s.status==='loading',canManageReports:false});
+      const markup=v.markup(sectionAllowed?s.model:null,{section,group:card._build1GroupV53,current:s.current||{},title:c.title,showAlternatives:c.show_alternatives!==false,loading:s.status==='loading',reportAccess:section==='reports'&&reportAllowed,period:s.selection?.period,canManageReports:reportState?.canExecute===true&&!reportState?.busy,canManageSchedules:reportState?.canManageSchedules===true&&!reportState?.busy,schedules:reportState?.schedules,deliveries:reportState?.deliveries});
       const replaced=memory.markup!==markup;
       if(replaced){panel.innerHTML=markup;memory.markup=markup;}
       for(const details of panel.querySelectorAll('[data-energy-build1-disclosure]'))if(memory.details.has(details.dataset.energyBuild1Disclosure))details.open=memory.details.get(details.dataset.energyBuild1Disclosure);
@@ -4899,7 +5623,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
       const visible=c.tabs?.map(canonical).filter(Boolean);
       for(const button of panel.querySelectorAll('[data-energy-build1="section"]')){
         const tab=button.dataset.value,feature=tab==='reports'?'energy_reports':tab==='costs'?'energy_tariff':null;
-        button.hidden=!!(visible?.length&&!visible.includes(tab)||feature&&s.capabilities?.[feature]?.visible===false);
+        button.hidden=!!(['overview','breakdown','costs'].includes(tab)&&!analysisAllowed||visible?.length&&!visible.includes(tab)||feature&&s.capabilities?.[feature]?.visible===false);
       }
       const extra=root.querySelector('[data-build1-extra]'),extraKey=JSON.stringify([s.status,section,card._build1OverflowV53,card._hass?.user?.is_admin,ui.language]);
       const extraChanged=memory.extraKey!==extraKey;
@@ -4926,11 +5650,13 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
           const srcdoc=energyBuild1PreviewDocumentV53(s.preview.html,card._build1ThemeV53||'light',doc);if(frame.srcdoc!==srcdoc)frame.srcdoc=srcdoc;
         }
       }else panel.querySelector('[data-energy-build1-preview] iframe')?.remove();
-      const implemented=new Set(['section','group','period','previous','next','more','preview-load','preview-device','preview-theme','tariff-edit','configure-energy']);
+      let reportsArea=root.querySelector('[data-build1-reports-host]');if(!reportsArea){reportsArea=doc.createElement('div');reportsArea.setAttribute('data-build1-reports-host','');root.querySelector('ha-card').append(reportsArea);}reportsArea.hidden=section!=='reports';if(reportActions)reportActions.mount(reportsArea);
+      const implemented=new Set(['section','group','period','previous','next','more','preview-load','preview-device','preview-theme','tariff-edit','tariff-history','tariff-template','configure-energy',...(reportActions?['send-now','email-add','schedule-toggle','schedule-add','schedule-edit','delivery-retry']:[])]);
       for(const b of root.querySelectorAll('[data-energy-build1]')){
         const action=b.dataset.energyBuild1;
         if(!implemented.has(action)){b.disabled=true;b.title=text(card,'This action is not connected in this version.','Ta akcja nie jest podłączona w tej wersji.');}
-        if(action==='tariff-edit')b.disabled=s.capabilities?.energy_tariff?.execute!==true;
+        if(['tariff-edit','tariff-template'].includes(action))b.disabled=s.capabilities?.energy_tariff?.execute!==true;
+        if(action==='tariff-history')b.disabled=s.capabilities?.energy_tariff?.visible!==true||s.capabilities?.energy_tariff?.read!==true;
         if(action==='preview-load')b.disabled=s.busy||s.capabilities?.energy_reports?.read!==true||s.capabilities?.energy_reports?.visible!==true;
         if(['previous','next'].includes(action))b.disabled=!s.model;
         if(['preview-device','preview-theme'].includes(action))b.setAttribute('aria-pressed',String(b.dataset.value===(action==='preview-device'?card._build1DeviceV53||'desktop':card._build1ThemeV53||'light')));
@@ -4960,18 +5686,24 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
       if(!s.model)return;const period=s.selection.period,parts=new Intl.DateTimeFormat('en-CA',{timeZone:card._hass.config.time_zone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(s.model.period.start));const f=Object.fromEntries(parts.map(p=>[p.type,p.value]));const d=new Date(`${f.year}-${f.month}-${f.day}T12:00:00Z`),n=action==='next'?1:-1;
       if(period==='year')d.setUTCFullYear(d.getUTCFullYear()+n);else if(period==='month')d.setUTCMonth(d.getUTCMonth()+n);else d.setUTCDate(d.getUTCDate()+n*(period==='week'?7:1));
       card._build1SelectionV53={period,mode:'full',date:d.toISOString().slice(0,10)};ctl.update(card._build1SelectionV53);paint(card);
-    } else if(action==='preview-load')await ctl.preview();
+    } else if(action==='send-now'){reports(card)?.openSend();}
+    else if(action==='email-add'){reports(card)?.openSend({email:true});}
+    else if(action==='delivery-retry'){reports(card)?.openSend({retryId:value});}
+    else if(action==='schedule-add'){reports(card)?.scheduleAction('add');}
+    else if(action==='schedule-toggle'){reports(card)?.scheduleAction('toggle',value);}
+    else if(action==='schedule-edit'){reports(card)?.scheduleAction('edit',value);}
+    else if(action==='preview-load')await ctl.preview();
     else if(action==='preview-device'){card._build1DeviceV53=value;paint(card);}
     else if(action==='preview-theme'){card._build1ThemeV53=value;paint(card);}
     else if(action==='more'){card._build1OverflowV53=!card._build1OverflowV53;paint(card);}
-    else if(action==='tariff-edit'){if(s.capabilities?.energy_tariff?.execute!==true)return;card._tariffSettingsOpen=true;paint(card);const details=card.shadowRoot.querySelector('[data-tariff-details]');if(details){details.open=true;card._getTariffHostV3().bind();details.querySelector('summary')?.focus();}}
+    else if(['tariff-edit','tariff-history','tariff-template'].includes(action)){const grant=s.capabilities?.energy_tariff;if(grant?.visible!==true||grant?.read!==true||action!=='tariff-history'&&grant.execute!==true)return;card._tariffSettingsOpen=true;paint(card);await card._getTariffHostV3().openProfile(action==='tariff-history'?'history':action==='tariff-template'?'templates':'edit');}
     else if(action==='configure-energy'){history.pushState(null,'','/energy');window.dispatchEvent(new CustomEvent('location-changed'));}
   }
   const set=Card.prototype.setConfig;
   Card.prototype.setConfig=function(config={}){
     if(config.period_default!==undefined&&!['day','week','month','year'].includes(config.period_default))throw Error('period_default: day / week / month / year');
     if(config.show_alternatives!==undefined&&typeof config.show_alternatives!=='boolean')throw Error('show_alternatives: boolean');
-    presentations.delete(this);this._build1MountedV53=false;this._build1ClientV53?.stop();this._build1CompatLegacyV53=false;this._build1ConfigV53={...config};this._build1LegacyV53=['patterns','tips','config'].includes(config.default_tab);this._build1SectionV53=canonical(config.default_tab)||(config.tabs?.map(canonical).filter(Boolean).includes(defaults)?defaults:config.tabs?.map(canonical).find(Boolean))||defaults;this._build1SelectionV53={period:config.period_default||'day',mode:'full'};
+    this._build1ReportsV53?.stop();presentations.delete(this);this._build1MountedV53=false;this._build1ClientV53?.stop();this._build1CompatLegacyV53=false;this._build1ConfigV53={...config};this._build1LegacyV53=['patterns','tips','config'].includes(config.default_tab);this._build1SectionV53=canonical(config.default_tab)||(config.tabs?.map(canonical).filter(Boolean).includes(defaults)?defaults:config.tabs?.map(canonical).find(Boolean))||defaults;this._build1SelectionV53={period:config.period_default||'day',mode:'full'};
     const nativeTabs=name==='ha-energy-optimizer'?['dashboard','patterns','recommendations','compare']:name==='ha-energy-insights'?['overview','daily','weekly','monthly','tips']:['overview','schedule','preview','send','config','history'];
     const translate=v=>nativeTabs.includes(v)?v:baseTab[canonical(v)]||v;
     const legacyConfig={...config};if(config.default_tab)legacyConfig.default_tab=translate(config.default_tab);if(config.tabs)legacyConfig.tabs=[...new Set(config.tabs.map(translate))];
@@ -4994,7 +5726,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
     else{connected?.call(this);probe(this);}
   };
   const disconnected=Card.prototype.disconnectedCallback;
-  Card.prototype.disconnectedCallback=function(){presentations.delete(this);this._build1ClientV53?.stop();return disconnected?.call(this);};
+  Card.prototype.disconnectedCallback=function(){this._build1ReportsV53?.stop();presentations.delete(this);this._build1ClientV53?.stop();return disconnected?.call(this);};
 }
 // HA_ENERGY_BUILD1_V53_END
 // HA_DASHBOARD_PLACEMENT_V53_START
