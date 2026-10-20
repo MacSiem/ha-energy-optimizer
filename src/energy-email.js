@@ -1340,7 +1340,7 @@ function createFeatureAccessV53({card, guard}) {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=72c7993c3137c0c637e63c85782bd984c2de7acad399f137976d236d65a8a632
+      // HA_TARIFF_V3_START sha256=56728b1cc313dba4eae9ab23f8b065139a410c06b6a5d9e8aae6e8cef16b17a2
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -3301,7 +3301,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const options={minimumFractionDigits:minimum,maximumFractionDigits:places};
     const shown=number(value,options),direction=compare(value,'0');
     if(direction && shown.replace(/^[-+−]/,'')===number('0',options))
-      return (direction<0?'>−':'<')+number('0.'+'0'.repeat(places-1)+'1',options);
+      return (direction<0?'>−':'<')+number(places===0?'1':'0.'+'0'.repeat(places-1)+'1',options);
     return (signed&&direction>0?'+':'')+shown;
   };
   const briefEnergy=(value,signed=false)=>valid(value)?`${briefNumber(value,1,1,signed)} kWh`:unknown();
@@ -3389,14 +3389,14 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   };
   // Describe the displayed household total only with a matching producer delta.
   // Paired/common measurements may be useful in Comparison, but are a different total.
-  const kpiComparison = snapshot => {
+  const kpiComparison = (snapshot,data=false) => {
     const kind=snapshot.context?.comparison_kind || 'previous', c=snapshot.comparisons?.[kind];
     if (!comparisons[kind] || c?.status!=='ready' || c.reason!=null || c.comparison_scope!=='calendar_totals' ||
         snapshot.coverage?.complete!==true || snapshot.totals?.measurement_complete!==true ||
         !valid(c.current_kwh) || !valid(snapshot.totals.kwh) || compare(c.current_kwh,snapshot.totals.kwh)!==0 || !valid(c.delta_kwh))
       return t('No comparable baseline — incomplete or unavailable data','Brak porównywalnego odniesienia — dane niepełne lub niedostępne');
     const direction=compare(c.delta_kwh,'0'), text=direction<0?t('Decrease','Spadek'):direction>0?t('Increase','Wzrost'):t('No change','Bez zmian');
-    return `${comparisons[kind]} · ${text} ${quantity(c.delta_kwh,'kWh',true)}${valid(c.percent)?' · '+quantity(c.percent,'%',true):''}`;
+    return `${comparisons[kind]} · ${text} ${data?quantity(c.delta_kwh,'kWh',true):briefEnergy(c.delta_kwh,true)}${valid(c.percent)?' · '+(data?quantity(c.percent,'%',true):briefNumber(c.percent,0,0,true)+'%'):''}`;
   };
   const peakClock = (snapshot,peak) => {
     const plain=ui.clock(peak.start), start=Date.parse(peak.start);
@@ -3414,11 +3414,11 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
       native ? [t('Source','Źródło'),'Home Assistant Energy'] : [t('Effective price','Cena efektywna'),(data?money(total.effective_price,total.currency):briefRate(total.effective_price,total.currency)) + (valid(total.effective_price) ? '/kWh' : '')],
       [t('Measurement coverage','Pokrycie pomiarów'),coverage(snapshot.coverage)]
     ];
-    if(!supplied)return `<div class="analysis-tiles">${base.map(([label,value],index)=>`<div class="analysis-tile ${index<2?'analysis-tile-primary':'analysis-tile-secondary'}"><span>${esc(label)}</span><strong>${esc(value)}</strong>${index===0?`<span data-analysis-kpi-comparison>${esc(kpiComparison(snapshot))}</span>`:''}</div>`).join('')}</div>`;
+    if(!supplied)return `<div class="analysis-tiles">${base.map(([label,value],index)=>`<div class="analysis-tile ${index<2?'analysis-tile-primary':'analysis-tile-secondary'}"><span>${esc(label)}</span><strong>${esc(value)}</strong>${index===0?`<span data-analysis-kpi-comparison>${esc(kpiComparison(snapshot,data))}</span>`:''}</div>`).join('')}</div>`;
     const frame=periodWindow(snapshot),share=shareProof(snapshot,frame),peak=peakProof(snapshot,frame);
     const knownPeak=peak&&peak.kwh!==null,localPeak=knownPeak&&peak.reason!=='measurement_timezone_unavailable',partialPeak=peak&&(peak.status==='partial'||knownPeak&&!snapshot.totals?.measurement_complete);
     const shareNote=share?.reason==='zero_total_kwh'?t('No share for a zero energy total','Brak udziału przy zerowym zużyciu'):share?.status==='ready'?(data?quantity(share.known_cheap_kwh):briefEnergy(share.known_cheap_kwh)):t('Full-period share unavailable','Brak udziału za cały okres');
-    return `<div class="analysis-tiles">${base.slice(0,2).map(([label,value],index)=>`<div class="analysis-tile analysis-tile-primary"><span>${esc(label)}</span><strong>${esc(value)}</strong>${index===0?`<span data-analysis-kpi-comparison>${esc(kpiComparison(snapshot))}</span>`:''}${index===1?`<span>${esc(base[2][0])}: ${esc(base[2][1])}</span>`:''}</div>`).join('')}
+    return `<div class="analysis-tiles">${base.slice(0,2).map(([label,value],index)=>`<div class="analysis-tile analysis-tile-primary"><span>${esc(label)}</span><strong>${esc(value)}</strong>${index===0?`<span data-analysis-kpi-comparison>${esc(kpiComparison(snapshot,data))}</span>`:''}${index===1?`<span>${esc(base[2][0])}: ${esc(base[2][1])}</span>`:''}</div>`).join('')}
       <div class="analysis-tile analysis-tile-secondary" data-analysis-cheap-share><span>${esc(t('Cheap-zone share','Udział taniej strefy'))}</span><strong>${esc(share?.status==='ready'?(data?percentage(share.ratio):briefPercent(share.ratio)):unknown())}</strong><span>${esc(shareNote)}</span></div>
       <div class="analysis-tile analysis-tile-secondary" data-analysis-peak${knownPeak?` data-analysis-peak-id="${esc(peak.id)}"`:''}><span>${esc(partialPeak?t('Highest observed hour','Najwyższe zarejestrowane zużycie'):t('Highest hour','Godzina szczytu'))}</span><strong>${esc(localPeak?peakClock(snapshot,peak)||unknown():unknown())}</strong><span>${esc(knownPeak?(data?quantity(peak.kwh):briefEnergy(peak.kwh))+(localPeak?' · '+date(peak.start):''):unknown())}</span>${partialPeak?`<span>${esc(t('Incomplete period','Niepełny okres'))}</span>`:''}${peak?.reason==='measurement_timezone_unavailable'?`<span>${esc(t('Measurement time zone unavailable','Brak strefy czasu pomiarów'))}</span>`:''}</div></div>`;
   };
@@ -7556,7 +7556,13 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
         !Array.isArray(rows) || rows.length > 48) return;
     const measured = row => row.complete === true && row.expected_seconds === (row.to-row.from)/1000 && row.measured_seconds === row.expected_seconds &&
       (typeof row.kwh === 'number' || typeof row.kwh === 'string' && row.kwh.trim() !== '') && Number.isFinite(Number(row.kwh)) && Number(row.kwh) >= 0 && String(row.recorded_kwh) === String(row.kwh);
-    const maximum = Math.max(0,...rows.filter(measured).map(row=>Number(row.kwh)));
+    const comparison=analysis.comparisons?.previous,baseline=comparison?.baseline_analysis;
+    const previousRows=comparison?.status==='ready' && comparison.reason===null && comparison.comparison_scope==='calendar_totals' &&
+      baseline?.schema===2 && baseline.period?.kind==='day' && baseline.period.timezone===p.timezone &&
+      baseline.chart?.status==='ready' && baseline.chart.timezone===p.timezone && baseline.chart.coverage_kind==='complete_household_hours' &&
+      baseline.chart.fixed_fee_scope==='household_period_only' && Array.isArray(baseline.chart.bins) && baseline.chart.bins.length<=48 ? baseline.chart.bins : [];
+    // Geometry shares the largest proven measured hour today/yesterday; no quantities or costs are recomputed.
+    const maximum = Math.max(0,...[...rows,...previousRows].filter(measured).map(row=>Number(row.kwh)));
     let last = start;
     for (const row of rows) {
       if (!Number.isFinite(row.from) || !Number.isFinite(row.to) || row.to <= row.from || row.from < last || row.from < start || row.to > observed ||
@@ -7671,12 +7677,18 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     const recipients = attempt?.recipient_count !== null && attempt?.recipient_count !== undefined ? format.number(attempt.recipient_count) : unknown;
     const numeric = value => (typeof value === 'number' || typeof value === 'string' && value.trim() !== '') && Number.isFinite(Number(value));
     const total = analysis?.totals, elapsed = elapsedComparison(analysis);
-    const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${format.number(total.kwh,{minimumFractionDigits:1,maximumFractionDigits:1})} kWh` : unknown;
+    // Display bounds preserve a nonzero producer reading that rounds below the visible unit.
+    const brief = (value,places) => {
+      const options={minimumFractionDigits:places,maximumFractionDigits:places},shown=format.number(value,options),raw=String(value).trim();
+      return /[1-9]/.test(raw.split(/[eE]/)[0]) && shown.replace(/^[-+−]/,'')===format.number('0',options)
+        ? (raw.startsWith('-')?'>−':'<')+format.number('0.'+'0'.repeat(places-1)+'1',options) : shown;
+    };
+    const energy = total?.measurement_complete !== false && numeric(total?.kwh) ? `${brief(total.kwh,1)} kWh` : unknown;
     const native = !analysis?.active_tariff_id && analysis?.native_pricing?.source === 'ha_energy' && analysis?.native_pricing?.schema === 1 ? analysis.native_pricing.period_cost : null;
     const nativeReady = native?.status === 'ready' && native.coverage?.complete === true && numeric(native.amount) && /^[A-Z]{3}$/.test(native.currency || '');
     const bookReady = total?.pricing_complete === true && numeric(total.usage_cost) && /^[A-Z]{3}$/.test(total.currency || '');
     const money = total?.pricing_complete === true && numeric(total.usage_cost) && /^[A-Z]{3}$/.test(total.currency || '')
-      ? `${format.number(total.usage_cost,{minimumFractionDigits:2,maximumFractionDigits:2})} ${total.currency}` : nativeReady ? `${format.number(native.amount,{minimumFractionDigits:2,maximumFractionDigits:2})} ${native.currency}` : unknown;
+      ? `${brief(total.usage_cost,2)} ${total.currency}` : nativeReady ? `${brief(native.amount,2)} ${native.currency}` : unknown;
     const difference = elapsed ? `${format.number(elapsed.percent,{maximumFractionDigits:1,signDisplay:'exceptZero'})}%` : unknown;
     const comparisonName = elapsed ? `${t(host,'vs yesterday through','vs wczoraj do')} ${format.clock(elapsed.cutoff)}` : t(host,'Yesterday at same hour','Wczoraj o tej samej godzinie');
     const zones = {cheap:t(host,'Cheap','Tania'),expensive:t(host,'Expensive','Droga'),mixed:t(host,'Mixed','Mieszana')};
@@ -7746,13 +7758,17 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       short.textContent = email ? shortReport : nextKnown ? `${zone} · ${format.clock(next.start) || unknown}` : `${zone} · ${nextLabel}`;
     } else if (email) primary.textContent = nextReport;
     else {
-      primary.replaceChildren(document.createTextNode(total?.measurement_complete !== false && numeric(total?.kwh) ? format.number(total.kwh,{minimumFractionDigits:1,maximumFractionDigits:1}) + ' ' : unknown));
+      primary.replaceChildren(document.createTextNode(total?.measurement_complete !== false && numeric(total?.kwh) ? brief(total.kwh,1) + ' ' : unknown));
       if (energy !== unknown) { const unit = document.createElement('span'); unit.dataset.energyUnit = ''; unit.textContent = 'kWh'; primary.append(unit); }
     }
     primary.title = email ? `${t(host,'Scheduled report','Zaplanowany raport')}: ${nextReport}` : mode === 'tile' ? `${zone} · ${nextKnown ? t(host,'Cheap from','Tania od') + ' ' : ''}${nextLabel}` : primary.textContent;
     primary.setAttribute('aria-label',primary.title);
     if (mode === 'compact') {
-      section.querySelector('[data-energy-primary-label]').textContent = email ? t(host,'Scheduled report','Zaplanowany raport') : analysis?.period?.end ? `${t(host,'Through','Do')} ${format.clock(analysis.period.end) || unknown}` : unknown;
+      const primaryLabel=section.querySelector('[data-energy-primary-label]');
+      const activeTariff=analysis?.active_tariff_id ? analysis.alternatives?.find(row=>row.tariff_id===analysis.active_tariff_id)?.tariff_name : null;
+      const tariffLabel=typeof activeTariff==='string' && activeTariff.trim() ? activeTariff : unknown;
+      primaryLabel.textContent = email ? t(host,'Scheduled report','Zaplanowany raport') : analysis?.period?.end ? `${t(host,'Through','Do')} ${format.clock(analysis.period.end) || unknown} · ${nativeReady?t(host,'Home Assistant Energy','Home Assistant Energy'):t(host,'Tariff','Taryfa')+' '+tariffLabel}` : unknown;
+      primaryLabel.title=primaryLabel.textContent;
       section.querySelector('[data-energy-cost]').textContent = email ? `${t(host,'Last attempt','Ostatnia próba')}: ${lastAttempt}` : money;
       const costLine = section.querySelector('[data-energy-cost]');
       if (!email && money !== unknown) {
@@ -7762,7 +7778,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       }
       costLine.title = !email && !bookReady && nativeReady ? `${t(host,'Cost recorded in HA','Koszt zapisany w HA')}: ${costLine.textContent}. ${t(host,'Source: Home Assistant Energy. Cost breakdown and fixed fees are unknown; this is not a complete bill.','Źródło: Home Assistant Energy. Rozbicie kosztu i opłaty stałe są nieznane; to nie jest pełny rachunek.')}` : email ? costLine.textContent : `${t(host,'Usage cost','Koszt zużycia')}: ${money}`;
       costLine.setAttribute('aria-label',costLine.title);
-      section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : elapsed ? `${difference} ${comparisonName}${numeric(elapsed.baseline) ? ` (${format.number(elapsed.baseline,{minimumFractionDigits:1,maximumFractionDigits:1})} kWh)` : ''}` : `${comparisonName}: ${difference}`;
+      section.querySelector('[data-energy-comparison]').textContent = email ? `${t(host,'Result','Wynik')}: ${result} · ${t(host,'Recipients of that attempt','Odbiorcy tej próby')}: ${recipients}` : elapsed ? `${difference} ${comparisonName}${numeric(elapsed.baseline) ? ` (${brief(elapsed.baseline,1)} kWh)` : ''}` : `${comparisonName}: ${difference}`;
       const caption = section.querySelector('[data-energy-zone-caption]');
       if (caption) caption.textContent = t(host,'Measured day energy','Zmierzona energia w ciągu dnia');
       paintZoneBar(section.querySelector('[data-energy-zonebar]'),analysis,host,format);
