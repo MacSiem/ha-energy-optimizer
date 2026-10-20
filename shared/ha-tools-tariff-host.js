@@ -20,10 +20,14 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   const activeProfile = () => legacyProfile(effectiveConfig(), card._hass?.config, kind);
   const describe = () => {
-    const shared = !Object.hasOwn(card._config || {}, 'tariff_profile') && card._sharedTariffProfile != null &&
+    const confirmedShared = !Object.hasOwn(card._config || {}, 'tariff_profile') &&
       card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, identity());
+    const shared = confirmedShared && card._sharedTariffProfile != null;
     return {profile: activeProfile() ?? null, source: shared ? 'shared' : 'override', revision: shared ? confirmedRevision : null,
-      ready: Object.hasOwn(card._config || {}, 'tariff_profile') || card._sharedTariffReadStatus === 'success'};
+      ready: Object.hasOwn(card._config || {}, 'tariff_profile') || card._sharedTariffReadStatus === 'success',
+      // The public household snapshot belongs to the server's active book.
+      // Legacy price queries retain their profile and currency contract.
+      ...(confirmedShared ? {snapshot:{source:'shared',revision:confirmedRevision}} : {})};
   };
   const backend = createEnergyBackendV5({card,guard,describe,
     onPrices: () => {

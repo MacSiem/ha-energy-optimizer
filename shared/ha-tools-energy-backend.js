@@ -115,11 +115,13 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
     }
     busy=true;
     const request={type:`ha_tools_email/${isSnapshot?'energy_snapshot':'energy_price_queries'}`};
-    if(descriptor.source==='override') request.profile=copy(descriptor.profile);
+    const bookSnapshot = isSnapshot && descriptor.snapshot?.source === 'shared';
+    const wireDescriptor = bookSnapshot ? {...descriptor,...descriptor.snapshot} : descriptor;
+    if(wireDescriptor.source==='override') request.profile=copy(wireDescriptor.profile);
     if(!isSnapshot) request.queries=batch.map(j=>({buckets:j.buckets}));
     try {
       const result=await guard.call(token,request);
-      if(!still(token,version,key) || isSnapshot && snapshotSlot !== batch[0] || !envelope(result,descriptor)) return;
+      if(!still(token,version,key) || isSnapshot && snapshotSlot !== batch[0] || !envelope(result,wireDescriptor)) return;
       if(isSnapshot) {
         const r=result;
         if(!['ready','partial','unavailable'].includes(r.status) || !finite(stamp(r.generated_at)) || !r.current || typeof r.current.available!=='boolean' ||
@@ -128,7 +130,7 @@ function createEnergyBackendV5({card, guard, describe, onPrices = () => {}, onRe
           !(r.currency===null || typeof r.currency==='string' && /^[A-Z]{3}$/.test(r.currency)) ||
           !r.next_cheap || !['known','unknown','not_found_in_horizon'].includes(r.next_cheap.status) ||
           r.next_cheap.status==='known' && !finite(stamp(r.next_cheap.start))) throw Error('invalid_backend_response');
-        if(r.currency !== (descriptor.profile?.currency ?? null)) throw Error('invalid_backend_response');
+        if(!bookSnapshot && r.currency !== (wireDescriptor.profile?.currency ?? null)) throw Error('invalid_backend_response');
         // Compact uses a bounded projection, never arbitrary backend extensions.
         card._energySnapshotV5={schema:1,generated_at:r.generated_at,tariff_revision:r.tariff_revision,profile_source:r.profile_source,status:r.status,currency:r.currency,
           current:{available:r.current.available,zone_class:r.current.zone_class,cheap:r.current.cheap,energy_rate:r.current.energy_rate,variable_rate:r.current.variable_rate,usage_rate:r.current.usage_rate},

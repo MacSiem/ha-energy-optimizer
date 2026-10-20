@@ -302,6 +302,21 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   };
   const compactActionsStyle = '[data-energy-simple=compact] [data-energy-actions]{grid-column:1/-1;display:flex;gap:8px;flex-wrap:wrap}[data-energy-simple=compact] [data-energy-actions] button{flex:1 1 120px;min-width:0}';
   const reportStatusStyle = '[data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}[data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:8em;font-size:12px;line-height:18px}';
+  // Six native HA columns can be only183px wide at a390px viewport.
+  // Stack the primary label and use the full line for secondary facts.
+  const narrowSimpleStyle = `:host{container-type:inline-size;container-name:energy-simple-card}
+  @container energy-simple-card (max-width:240px){
+    [data-energy-simple=compact]{grid-template-columns:minmax(0,1fr);gap:4px;padding:8px}
+    [data-energy-simple=compact] h2{min-width:0;line-height:18px}
+    [data-energy-simple=compact] [data-energy-name]{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+    [data-energy-simple=compact] [data-energy-primary]{grid-column:1;grid-row:2;font-size:22px;line-height:28px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+    [data-energy-simple=compact] [data-energy-primary-label]{grid-column:1;grid-row:3;justify-self:start;line-height:16px}
+    [data-energy-simple=compact] [data-energy-secondary]{display:grid;gap:0;font-size:12px;line-height:16px}
+    [data-energy-report-status][data-energy-simple=compact]{padding:6px;gap:2px}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary]{font-size:14px;line-height:20px}
+    [data-energy-report-status][data-energy-simple=compact] [data-energy-primary-label]{max-inline-size:none;line-height:16px}
+  }`;
+
   const emailStatusFor = host => host._emailStatusV100 ||= (() => {
     let scheduled = false;
     const active = () => name === 'ha-energy-email' && host.isConnected && host.preview !== true && simple(host);
@@ -386,7 +401,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
+      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><section data-energy-simple="${mode}"><h2><ha-icon></ha-icon><span data-energy-name></span></h2><div data-energy-primary role="status"></div>${mode === 'compact' ? '<p data-energy-primary-label></p><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' + (!email ? '<div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div></div>' : '') : ''}${email && mode === 'compact' ? '<div data-energy-actions>' : ''}<button type="button" data-energy-open></button>${email && mode === 'compact' ? '</div>' : ''}</section>`;
       section = root.querySelector('[data-energy-simple]');
       section.querySelector('button').addEventListener('click', () => open(host));
       section.querySelector('button').addEventListener('keydown', event => {
