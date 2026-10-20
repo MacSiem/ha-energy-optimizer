@@ -5513,49 +5513,63 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
   const clone=v=>v==null?v:JSON.parse(JSON.stringify(v));
   let enabled=false,identity=null,epoch=0,raw=null,pending=false,ack=false,selection={period:'day',mode:'full'};
   let unsub=[],wire=null,authority=null,subscribing=null;
-  let view={status:'idle',model:null,current:null,preview:null,capabilities:null,error:null};
+  let view={status:'idle',model:null,current:null,preview:null,capabilities:null,supported:null,error:null};
   const context=()=>{const h=card._hass,t=guard.observe();return [h?.connection,h?.callWS,h?.user?.id,h?.user?.is_active,h?.user?.is_admin,h?.connected,h?.connection?.connected,card.isConnected,JSON.stringify(h?.locale||{}),h?.config?.time_zone,t.epoch,isActive()];};
   const same=(a,b)=>a&&a.length===b.length&&a.every((v,i)=>v===b[i]);
   const available=()=>enabled&&isActive()&&card.isConnected&&card.preview!==true&&!!card._hass?.user?.id&&card._hass.user.is_active!==false&&card._hass.connected!==false&&guard.available(guard.snapshot());
   const emit=()=>onChange();
-  function clear(status='idle'){epoch++;pending=false;view={status,model:null,current:null,preview:null,capabilities:null,error:null};emit();}
+  function clear(status='idle',resetSupport=false){epoch++;pending=false;const supported=resetSupport?null:view.supported;view={status,model:null,current:null,preview:null,capabilities:null,supported,error:null};emit();}
   function dispose(){for(const fn of unsub){try{fn();}catch(_){}}unsub=[];ack=false;subscribing=null;}
-  function stop(){enabled=false;dispose();identity=null;authority?.();wire?.();authority=wire=null;clear();}
-  function observe(){const next=context();if(!same(identity,next)){dispose();identity=next;clear();pending=available();}return available();}
+  function stop(){enabled=false;dispose();identity=null;authority?.();wire?.();authority=wire=null;clear('idle',true);}
+  function observe(){const next=context();if(!same(identity,next)){dispose();identity=next;clear('idle',true);pending=available();}return available();}
   const current=e=>e===epoch&&available()&&same(identity,context());
   function invalidate(){if(!enabled)return;clear(available()?'loading':'idle');pending=available();queueMicrotask(()=>{if(observe())pump();});}
   async function subscribe(){
-    if(ack||subscribing||!available())return;
+    if(ack)return true;
+    if(subscribing)return subscribing;
+    if(!available())return false;
     const e=epoch,c=card._hass.connection,association=identity;
     const task=(async()=>{
-      try {
-        if(typeof c?.subscribeMessage!=='function')throw Error('subscription_unavailable');
-        const off=await c.subscribeMessage(()=>{if(enabled&&same(association,context()))invalidate();},{type:'ha_tools_email/subscribe_analysis_updates'});
-        if(!current(e)){off?.();return;}
-        if(typeof off!=='function')throw Error('subscription_unavailable');
-        unsub.push(off);ack=true;
-        // This event is an invalidation hint only: never trust a public payload as data/ACL.
-        if(typeof c.subscribeEvents==='function') {
-          Promise.resolve(c.subscribeEvents(()=>{if(enabled&&same(association,context()))invalidate();},'ha_tools_email_energy_updated')).then(fn=>{if(!enabled||!same(association,context())||!ack){fn?.();return;}if(typeof fn==='function')unsub.push(fn);}).catch(()=>{});
-        }
-        pump();
-      } catch(error){if(current(e)){pending=false;view.status=error?.code==='unauthorized'?'denied':'error';view.error='subscription_unavailable';emit();}}
-    })();subscribing=task;await task;if(subscribing===task)subscribing=null;
+      if(typeof c?.subscribeMessage!=='function')throw Error('subscription_unavailable');
+      const off=await c.subscribeMessage(()=>{if(enabled&&same(association,context()))invalidate();},{type:'ha_tools_email/subscribe_analysis_updates'});
+      if(!current(e)){off?.();return false;}
+      if(typeof off!=='function')throw Error('subscription_unavailable');
+      unsub.push(off);ack=true;
+      if(typeof c.subscribeEvents==='function') {
+        Promise.resolve(c.subscribeEvents(()=>{if(enabled&&same(association,context()))invalidate();},'ha_tools_email_energy_updated')).then(fn=>{if(!enabled||!same(association,context())||!ack){fn?.();return;}if(typeof fn==='function')unsub.push(fn);}).catch(()=>{});
+      }
+      return true;
+    })();subscribing=task;
+    try{return await task;}finally{if(subscribing===task)subscribing=null;}
+  }
+  function capabilities(caps){
+    // An old capability envelope is a compatibility result, not malformed new data.
+    if(caps?.energy_model_schema!=='ha_tools.energy_report/1'){
+      view.supported=false;view.status='legacy';view.capabilities=null;emit();return false;
+    }
+    view.supported=true;
+    if(caps.status!=='ready'||!Number.isSafeInteger(caps.revision)||!caps.capabilities?.energy_analysis)throw Error('invalid_capabilities');
+    view.capabilities=clone(caps.capabilities);
+    const grant=view.capabilities.energy_analysis;
+    if(grant.visible!==true||grant.read!==true){view.status='denied';emit();return false;}
+    return true;
   }
   const validModel=(m,s)=>m?.schema==='ha_tools.energy_report/1'&&m.period?.kind===s.period&&m.period?.timezone===card._hass?.config?.time_zone&&Number.isFinite(Date.parse(m.period.start))&&Number.isFinite(Date.parse(m.period.end))&&m.totals&&typeof m.totals==='object'&&m.coverage&&Array.isArray(m.hourly);
   async function pump(){
     if(!observe()||!pending||raw||guard.occupied())return;
-    if(!ack){void subscribe();return;}
     pending=false;const e=epoch,s={...selection},token=guard.snapshot();
     const lane={};raw=lane;view.status='loading';emit();
     try {
       const caps=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
-      if(!current(e))return;
-      if(caps?.status!=='ready'||!Number.isSafeInteger(caps.revision)||!caps.capabilities?.energy_analysis)throw Error('invalid_capabilities');
-      if(caps.energy_model_schema!=='ha_tools.energy_report/1'){view.status='legacy';emit();return;}
-      view.capabilities=clone(caps.capabilities);
-      const grant=view.capabilities.energy_analysis;
-      if(grant.visible!==true||grant.read!==true){view.status='denied';emit();return;}
+      if(!current(e)||!capabilities(caps))return;
+      // Subscribe only after schema negotiation; confirm grants again after ACK
+      // to close the policy-change gap before the first authoritative model read.
+      if(!ack){
+        if(!await subscribe()||!current(e))return;
+        const confirmed=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
+        if(!current(e)||!capabilities(confirmed))return;
+      }
+      emit();
       const model=await guard.call(token,{type:'ha_tools_email/energy_report',...s,representation:'model'});
       if(!current(e))return;
       if(!validModel(model,s))throw Error('invalid_energy_model');
@@ -5565,7 +5579,7 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
       if(!current(e))return;
       if(validModel(live,{period:'day'}))view.current=clone(live.current||null);
       emit();
-    } catch(error){if(current(e)){view.model=null;view.current=null;view.preview=null;view.capabilities=null;view.status=['unauthorized','not_allowed'].includes(error?.code)?'denied':'error';view.error=error?.code||error?.message||'unavailable';emit();}}
+    } catch(error){if(current(e)){view.model=null;view.current=null;view.preview=null;view.capabilities=null;if(error?.code==='unknown_command'&&view.supported!==true){view.supported=false;view.status='legacy';}else view.status=['unauthorized','not_allowed'].includes(error?.code)?'denied':'error';view.error=error?.code||error?.message||'unavailable';emit();}}
     finally{if(raw===lane)raw=null;if(pending)void pump();}
   }
   function update(next=selection){
@@ -5702,19 +5716,36 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
   const aliases={dashboard:'overview',daily:'breakdown',weekly:'breakdown',monthly:'breakdown',compare:'costs',recommendations:'costs',schedule:'reports',preview:'reports',send:'reports',history:'reports'};
   const canonical=v=>['overview','breakdown','costs','reports'].includes(v)?v:aliases[v];
   const baseTab={overview:name==='ha-energy-optimizer'?'dashboard':'overview',breakdown:name==='ha-energy-insights'?'daily':name==='ha-energy-optimizer'?'dashboard':'overview',costs:name==='ha-energy-optimizer'?'recommendations':'overview',reports:name==='ha-energy-email'?'overview':name==='ha-energy-optimizer'?'dashboard':'overview'};
-  const full=card=>!card._build1CompatLegacyV53&&!card._build1LegacyV53&&(!(card._config?.compact&&!card._config?.variant))&&(!['tile','compact'].includes(card._config?.variant)||card._optionsExpandedV5);
-  const active=card=>full(card)&&card.isConnected&&card.preview!==true;
+  const eligible=card=>!card._build1CompatLegacyV53&&!card._build1LegacyV53&&(!(card._config?.compact&&!card._config?.variant))&&(!['tile','compact'].includes(card._config?.variant)||card._optionsExpandedV5);
+  const full=card=>eligible(card)&&card._build1ClientV53?.state().supported===true;
+  const active=card=>eligible(card)&&card.isConnected&&card.preview!==true;
   const pl=card=>String(card._hass?.locale?.language||card._hass?.language||'en').startsWith('pl');
   const text=(card,en,polish)=>pl(card)?polish:en;
   let painting=new WeakSet();
-  function client(card){return card._build1ClientV53 ||= createClient({card,guard:card._getTariffHostV3().guard,format,isActive:()=>active(card),onChange:()=>paint(card)});}
+  function client(card){return card._build1ClientV53 ||= createClient({card,guard:card._getTariffHostV3().guard,format,isActive:()=>active(card),onChange:()=>changed(card)});}
+  function changed(card){
+    if(full(card)){paint(card);return;}
+    // Pending/old capability replies must leave existing forms, focus and startup alone.
+    if(!card._build1MountedV53)return;
+    card._build1MountedV53=false;card._domBuilt=false;
+    card.shadowRoot?.replaceChildren();
+    queueMicrotask(()=>{if(card.isConnected&&!full(card))hass?.set?.call(card,card._hass);});
+  }
+  function probe(card){
+    if(!active(card)||!card._hass?.user?.id||card._hass.user.is_active===false||card._hass.connected===false||typeof card._hass?.callWS!=='function'||typeof card._hass?.connection?.subscribeMessage!=='function')return;
+    // Reuse the existing host's confirmed legacy classification. Do not disturb
+    // its Recorder lane or restart already completed compatibility discovery.
+    if(card._analysisHostV53?.legacyAllowed?.()===true&&!card._build1ClientV53)return;
+    client(card).update(card._build1SelectionV53||{period:options(card).period_default||'day',mode:'full'});
+  }
   function options(card){return card._build1ConfigV53||card._config||{};}
   function paint(card){
     if(!full(card)||!card.shadowRoot||painting.has(card))return;
     painting.add(card);
     try {
       const c=options(card),ctl=client(card),s=ctl.state(),ui=format.forHass(card._hass),v=createView({format:ui,language:ui.language});
-      if(s.status==='legacy'){card._build1CompatLegacyV53=true;card._domBuilt=false;queueMicrotask(()=>card._render());return;}
+      if(!card._build1MountedV53){card._analysisHostV53?.stop();card._reportHostV53?.stop();}
+      card._build1MountedV53=true;
       const section=card._build1SectionV53||defaults;
       const sectionFeature=section==='reports'?'energy_reports':section==='costs'?'energy_tariff':'energy_analysis';
       const sectionGrant=s.capabilities?.[sectionFeature];
@@ -5726,6 +5757,12 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
       for(const [tab,feature] of [['reports','energy_reports'],['costs','energy_tariff']])if(s.capabilities?.[feature]?.visible===false)root.querySelectorAll('[data-energy-build1="section"]').forEach(b=>{if(b.dataset.value===tab)b.remove();});
       if(visible?.length)for(const b of root.querySelectorAll('[data-energy-build1="section"]'))if(!visible.includes(b.dataset.value))b.remove();
       const extra=root.querySelector('[data-build1-extra]');
+      if(['tile','compact'].includes(c.variant)&&card._optionsExpandedV5){
+        const back=document.createElement('button');back.type='button';back.setAttribute('data-energy-back','');back.textContent=text(card,'Back','Wróć');back.style.cssText='min-height:44px';
+        back.onclick=()=>{card._optionsExpandedV5=false;card._build1MountedV53=false;ctl.stop();card._domBuilt=false;card._render();card.shadowRoot.querySelector('[data-energy-open]')?.focus({preventScroll:true});};
+        root.querySelector('ha-card').prepend(back);
+      }
+
       if(s.status==='error'||s.status==='denied'){const p=document.createElement('p');p.setAttribute('role','status');p.textContent=s.status==='denied'?text(card,'Access unavailable for this account.','Dostęp dla tego konta jest niedostępny.'):text(card,'Energy report unavailable. Check HA Tools Email and retry.','Raport energii niedostępny. Sprawdź HA Tools Email i ponów.');extra.append(p);const retry=document.createElement('button');retry.textContent=text(card,'Retry','Ponów');retry.onclick=()=>ctl.refresh();extra.append(retry);}
       // Existing editor owns tariffs, migrations, validation, and write authority.
       if(section==='costs'&&sectionAllowed){const mount=document.createElement('div');mount.innerHTML=card._getTariffHostV3().markup();extra.append(mount);card._getTariffHostV3().bind();}
@@ -5749,8 +5786,8 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
       }
     }finally{painting.delete(card);}
   }
-  function render(card){if(!full(card))return false;if(!card._hass||!card.shadowRoot)return true;client(card).update(card._build1SelectionV53||{period:options(card).period_default||'day',mode:'full'});paint(card);return true;}
-  function legacy(card,tab){card._build1LegacyV53=true;card._build1OverflowV53=false;card._build1ClientV53?.stop();card._domBuilt=false;card[key]=tab;card._render();const b=document.createElement('button');b.textContent=text(card,'Back to Energy','Wróć do Energii');b.onclick=()=>{card._build1LegacyV53=false;card._domBuilt=false;render(card);};card.shadowRoot.prepend(b);}
+  function render(card){if(!full(card)||!card._hass?.user?.id||!card.shadowRoot)return false;client(card).update(card._build1SelectionV53||{period:options(card).period_default||'day',mode:'full'});paint(card);return true;}
+  function legacy(card,tab){card._build1LegacyV53=true;card._build1OverflowV53=false;card._build1MountedV53=false;card._build1ClientV53?.stop();card._domBuilt=false;card[key]=tab;card._render();const b=document.createElement('button');b.textContent=text(card,'Back to Energy','Wróć do Energii');b.onclick=()=>{card._build1LegacyV53=false;card._domBuilt=false;card._render();probe(card);};card.shadowRoot.prepend(b);}
   async function actionFor(card,action,value){
     if(!active(card))return;
     const ctl=client(card),s=ctl.state();
@@ -5772,15 +5809,28 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
   Card.prototype.setConfig=function(config={}){
     if(config.period_default!==undefined&&!['day','week','month','year'].includes(config.period_default))throw Error('period_default: day / week / month / year');
     if(config.show_alternatives!==undefined&&typeof config.show_alternatives!=='boolean')throw Error('show_alternatives: boolean');
-    this._build1ClientV53?.stop();this._build1CompatLegacyV53=false;this._build1ConfigV53={...config};this._build1LegacyV53=['patterns','tips','config'].includes(config.default_tab);this._build1SectionV53=canonical(config.default_tab)||(config.tabs?.map(canonical).filter(Boolean).includes(defaults)?defaults:config.tabs?.map(canonical).find(Boolean))||defaults;this._build1SelectionV53={period:config.period_default||'day',mode:'full'};
-    const legacyConfig={...config};if(canonical(config.default_tab))legacyConfig.default_tab=baseTab[canonical(config.default_tab)];if(config.tabs)legacyConfig.tabs=[...new Set(config.tabs.map(v=>baseTab[canonical(v)]||v))];
-    const result=set.call(this,legacyConfig);render(this);return result;
+    this._build1MountedV53=false;this._build1ClientV53?.stop();this._build1CompatLegacyV53=false;this._build1ConfigV53={...config};this._build1LegacyV53=['patterns','tips','config'].includes(config.default_tab);this._build1SectionV53=canonical(config.default_tab)||(config.tabs?.map(canonical).filter(Boolean).includes(defaults)?defaults:config.tabs?.map(canonical).find(Boolean))||defaults;this._build1SelectionV53={period:config.period_default||'day',mode:'full'};
+    const nativeTabs=name==='ha-energy-optimizer'?['dashboard','patterns','recommendations','compare']:name==='ha-energy-insights'?['overview','daily','weekly','monthly','tips']:['overview','schedule','preview','send','config','history'];
+    const translate=v=>nativeTabs.includes(v)?v:baseTab[canonical(v)]||v;
+    const legacyConfig={...config};if(config.default_tab)legacyConfig.default_tab=translate(config.default_tab);if(config.tabs)legacyConfig.tabs=[...new Set(config.tabs.map(translate))];
+    const result=set.call(this,legacyConfig);probe(this);render(this);return result;
   };
   const hass=Object.getOwnPropertyDescriptor(Card.prototype,'hass');
-  if(hass?.set)Object.defineProperty(Card.prototype,'hass',{...hass,set(value){if(!full(this)){this._build1ClientV53?.stop();return hass.set.call(this,value);}this._hass=value;this._lang=String(value?.locale?.language||value?.language||'en').startsWith('pl')?'pl':'en';this._tariffHostController?.guard.observe();render(this);}});
-  for(const method of ['_render','_renderTab','_renderCurrentTab','_updateContent']){const old=Card.prototype[method];if(old)Card.prototype[method]=function(...args){if(render(this))return;this._build1ClientV53?.stop();return old.apply(this,args);};}
+  if(hass?.set)Object.defineProperty(Card.prototype,'hass',{...hass,set(value){
+    // The original setter owns first discovery, context purges, quiet recovery,
+    // and existing form/transport lifetimes until this identity confirms schema.
+    if(full(this)){
+      this._hass=value;this._lang=String(value?.locale?.language||value?.language||'en').startsWith('pl')?'pl':'en';this._build1ClientV53.update(this._build1SelectionV53);
+      if(render(this))return;
+    }
+    const result=hass.set.call(this,value);probe(this);return result;
+  }});
+  for(const method of ['_render','_renderTab','_renderCurrentTab','_updateContent']){const old=Card.prototype[method];if(old)Card.prototype[method]=function(...args){if(render(this))return;if(!eligible(this))this._build1ClientV53?.stop();const result=old.apply(this,args);if(this._optionsExpandedV5)probe(this);return result;};}
   const connected=Card.prototype.connectedCallback;
-  Card.prototype.connectedCallback=function(){if(full(this)){this._tariffHostController?.guard.resume();render(this);}else connected?.call(this);};
+  Card.prototype.connectedCallback=function(){
+    if(full(this)){this._tariffHostController?.guard.resume();probe(this);render(this);}
+    else{connected?.call(this);probe(this);}
+  };
   const disconnected=Card.prototype.disconnectedCallback;
   Card.prototype.disconnectedCallback=function(){this._build1ClientV53?.stop();return disconnected?.call(this);};
 }
