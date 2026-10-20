@@ -3836,9 +3836,9 @@ this._installTariffConsumerV3();
     _createTariffConsumerV3(createGuard) {
       const guard = createGuard({ getHass: () => this._hass, getContext: () => this._tariffContextV3() });
       const call = guard.call;
-      guard.call = (token, request, admin = false) => {
+      guard.call = (token, request, admin = false, owner = null) => {
         const dispatched = request.type === 'ha_tools_email/set_tariff' && !guard.occupied() && guard.current(token, admin);
-        const result = call(token, request, admin);
+        const result = call(token, request, admin, owner);
         if (dispatched && guard.occupied()) {
           // Persists across mount/authority purges. An ACK cannot clear this fence.
           this._tariffWriteUnconfirmedV3 = true;

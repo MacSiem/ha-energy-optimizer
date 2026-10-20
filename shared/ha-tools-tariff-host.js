@@ -85,16 +85,42 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
   };
   guard.subscribe(purge);
   const reset = (...nextHass) => guard.observe(...nextHass);
+  // An explicit read blocked by another raw request waits for real settlement.
+  // Acquire synchronously in the listener so queued snapshot jobs cannot steal it.
+  const acquireRead = token => new Promise(resolve => {
+    let finished = false, unWire = () => {}, unAuthority = () => {};
+    const finish = owner => {
+      if (finished) return;
+      finished = true; unWire(); unAuthority(); resolve(owner);
+    };
+    const check = () => {
+      if (finished) return;
+      if (!guard.current(token)) { finish(null); return; }
+      if (guard.occupied()) return;
+      try { finish(guard.reserve?.(token) || { release: () => {} }); }
+      catch (_) { finish(null); }
+    };
+    unWire = guard.subscribeWire(check);
+    unAuthority = guard.subscribe(check);
+    check();
+  });
   const load = async (force = false, minimumRevision = 0) => {
     const token = identity();
     if (!guard.available(token)) return false;
     if (card._sharedTariffReadStatus === 'success' && same(card._sharedTariffAssociation, token) && confirmedRevision >= minimumRevision) return true;
     if (pending) return pending;
-    if (guard.occupied() || (!force && attemptedEpoch === token.epoch)) return false;
+    // A timed-out tariff read keeps its original raw fence; never queue its replay.
+    if (guard.occupied() && attemptedEpoch === token.epoch) return false;
+    if (!force && attemptedEpoch === token.epoch) return false;
     attemptedEpoch = token.epoch;
     const operation = (async () => {
+      let owner = null;
+      if (guard.occupied()) {
+        owner = await acquireRead(token);
+        if (!owner) return false;
+      }
       try {
-        const result = await guard.call(token, { type: 'ha_tools_email/get_tariff' });
+        const result = await guard.call(token, { type: 'ha_tools_email/get_tariff' }, false, owner);
         if (!guard.current(token)) return false;
         if (!result || !Object.hasOwn(result, 'profile') || !Number.isSafeInteger(result.revision) || result.revision < minimumRevision ||
           !Object.hasOwn(result, 'updated_at') || (result.updated_at !== null &&
@@ -117,7 +143,7 @@ function createTariffHostV3({ card, kind, createModel, legacyProfile, createSett
       } catch (_) {
         if (guard.current(token)) card._sharedTariffReadStatus = 'unconfirmed';
         return false;
-      }
+      } finally { owner?.release(); }
     })();
     pending = operation;
     operation.then(() => { if (pending === operation) pending = null; }, () => { if (pending === operation) pending = null; });
