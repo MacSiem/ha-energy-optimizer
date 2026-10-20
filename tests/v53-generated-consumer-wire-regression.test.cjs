@@ -54,3 +54,35 @@ test('queued tariff reconfirmation is discarded on authority loss before raw set
  const host=createTariffHostV3({card,kind:'insights',createModel:createEnergyTariffV3,legacyProfile:c=>c.tariff_profile||null,createSettings:()=>{},createUi:()=>({})});
  try{const raw=host.guard.call(host.guard.snapshot(),{type:'occupied'}).catch(e=>e);const waiting=host.load();card._hass.user.is_active=false;host.reset();assert.equal(await waiting,false);release({});await raw;await tick();assert.equal(calls.filter(q=>q.type==='ha_tools_email/get_tariff').length,0);assert.equal(card._sharedTariffProfile,null);assert.equal(host.guard.occupied(),false);}finally{release?.({});host.backend.invalidate();host.guard.dispose();}
 });
+
+
+test('three native card startups do not saturate the four-slot Recorder admission with obsolete reads',async()=>{
+ const dom=new JSDOM('',{runScripts:'outside-only',url:'http://localhost/'}),w=dom.window,calls=[],held=[];
+ w.eval(['src/optimizer.js','src/energy-insights.js','src/energy-email.js'].map(p=>readFileSync(join(__dirname,'..',p),'utf8')).join(''));
+ const connection=new w.EventTarget();connection.connected=true;connection.subscribeMessage=async()=>()=>{};
+ let pending=0,maximum=0;
+ const caps={status:'ready',revision:1,energy_model_schema:'ha_tools.energy_report/1',capabilities:{energy_analysis:{visible:true,read:true},energy_reports:{visible:false,read:false},energy_tariff:{visible:false,read:false}}};
+ const hass={user:{id:'startup',is_admin:true,is_active:true},connection,connected:true,states:{},services:{},config:{time_zone:'UTC',currency:'EUR'},locale:{language:'en'},callWS:async q=>{
+  calls.push(q);
+  if(q.type.endsWith('feature_capabilities'))return structuredClone(caps);
+  if(q.type.endsWith('get_config'))return {schedules:[]};
+  if(/preview_energy_report|energy_analysis$/.test(q.type)||q.representation==='model'){
+   if(pending>=4)throw {code:q.representation==='model'?'energy_report_unavailable':'energy_analysis_unavailable'};
+   pending++;maximum=Math.max(maximum,pending);
+   await new Promise(r=>held.push(r));pending--;
+   if(q.representation==='model')return {schema:'ha_tools.energy_report/1',period:{kind:q.period,timezone:'UTC',start:'2026-10-20T00:00:00Z',end:'2026-10-21T00:00:00Z'},totals:{},coverage:{},hourly:[]};
+   return {};
+  }
+  throw {code:'unknown_command'};
+ }};
+ const cards=['ha-energy-optimizer','ha-energy-insights','ha-energy-email'].map(type=>{
+  const c=w.document.createElement(type);c._schedule=()=>{};c.setConfig({show_support:false});w.document.body.append(c);c.hass=hass;return c;
+ });
+ try{
+  for(let i=0;i<8;i++){await tick();held.splice(0).forEach(r=>r());}
+  await tick();
+  assert.deepEqual(cards.map(c=>c._build1ClientV53?.state().status),['ready','ready','ready']);
+  assert.equal(calls.filter(q=>/preview_energy_report|energy_analysis$/.test(q.type)).length,0,'schema model replaces obsolete automatic analysis and three eager mail previews');
+  assert.ok(maximum<=3);
+ }finally{held.splice(0).forEach(r=>r());for(const c of cards){c.remove();c._tariffHostController?.backend.invalidate();c._tariffHostController?.guard.dispose();}dom.window.close();}
+});
