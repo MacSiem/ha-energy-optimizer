@@ -25,3 +25,13 @@ test('tiny nonzero summary values are bounded instead of displayed as measured z
  const d=render(dto,'en');try{const tiles=d.window.document.querySelectorAll('.analysis-tile-primary strong');assert.equal(tiles[0].textContent,'<0.1 kWh');assert.equal(tiles[1].textContent,'>−0.01 EUR');}finally{d.window.close();}
  dto.totals.kwh='0';dto.totals.total_cost='0';const z=render(dto,'en');try{const tiles=z.window.document.querySelectorAll('.analysis-tile-primary strong');assert.equal(tiles[0].textContent,'0.0 kWh');assert.equal(tiles[1].textContent,'0.00 EUR');}finally{z.window.close();}
 });
+test('current rate and cost cards use display precision with exact history and Data',()=>{
+ const dto=structuredClone(actual);dto.rates[0].profile.zones[0].energyRate='0.123456789';dto.totals.total_cost='12345.6789';
+ const format=createFormatUi('en','Europe/Warsaw'),view=createEnergyAnalysisViewV53({format});
+ const d=new JSDOM(view.markup(dto,{section:'rates'}));try{
+  assert.equal(d.window.document.querySelector('[data-analysis-rate76-current] dd').textContent,'0.1235 EUR');
+  assert.equal(d.window.document.querySelector('[data-analysis-rate76-cost] p strong').textContent,'12,345.68 EUR');
+  assert.ok(d.window.document.querySelector('[data-analysis-rate-history]').textContent.includes('0.123456789 EUR'));
+ }finally{d.window.close();}
+ const data=new JSDOM(view.markup(dto,{section:'rates',view:'data'}));try{assert.equal(data.window.document.querySelector('[data-analysis-rate76-current] dd').textContent,'0.123456789 EUR');}finally{data.window.close();}
+});
