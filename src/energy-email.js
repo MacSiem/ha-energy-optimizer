@@ -1340,7 +1340,7 @@ function createFeatureAccessV53({card, guard}) {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=100e5e0bfabf2780b4e5930917eeb27b787b530b21561ae467a50da399a4fec2
+      // HA_TARIFF_V3_START sha256=5925ee42507139fb4e806c8e2491c35a6e7219bb92aa38d25812a1fa580546a3
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1361,18 +1361,85 @@ function createUiV3({ language = 'en' } = {}) {
     const result = status(value);
     return `<span class="ht-result-state ht-result-state--${result.code}" data-result-state="${result.code}"><span aria-hidden="true">${result.icon}</span> ${result.label}</span>`;
   };
+  // v5.3: public tokens stay inheritable; private defaults follow the HA dark flag.
   const css = `
-.ht-result-state { display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border:1px solid currentColor;border-radius:6px;font-size:12px;line-height:1.4;white-space:normal; }
-.ht-result-state--success { color:#237b3d;background:rgba(35,123,61,.10); }
-.ht-result-state--partial { color:#966400;background:rgba(150,100,0,.10); }
-.ht-result-state--unconfirmed { color:#ad5200;background:rgba(173,82,0,.10); }
-.ht-result-state--error { color:#c32b2b;background:rgba(195,43,43,.10); }
-.ht-result-state--not_checked,.ht-result-state--no_data { color:var(--secondary-text-color,#666);background:transparent; }
+:host, .hat {
+  color-scheme: light;
+  /* powierzchnie i tekst — z motywu HA, w nawiasie wartość domyślna */
+  --_hat-bg:       var(--primary-background-color, #f3f4f6);
+  --_hat-card:     var(--ha-card-background, var(--card-background-color, #ffffff));
+  --_hat-chip:     var(--secondary-background-color, #f3f4f6);
+  --_hat-border:   var(--ha-card-border-color, var(--divider-color, #e5e7eb));
+  --_hat-text:     var(--primary-text-color, #111827);
+  --_hat-text-2:   var(--secondary-text-color, #4b5563);
+  --_hat-text-3:   var(--hat-text-3-theme, #6b7280);   /* tylko na tle karty; ≥ 12 px */
+  --_hat-grid:     color-mix(in srgb, var(--hat-text, var(--_hat-text)) 6%, var(--hat-card, var(--_hat-card)));
+  --_hat-radius:   var(--ha-card-border-radius, 12px);
+
+  /* Computed values supplied by the host when available; literals are explicit fallback colors, not dynamic contrast. */
+  --_hat-primary:      var(--primary-color, #2563eb);
+  --_hat-primary-fill: var(--hat-primary-fill-computed, #2563eb);
+  --_hat-on-primary:   var(--hat-on-primary-computed, #ffffff);
+
+  /* stany: wypełnienie (≥ 3:1) i tekst (≥ 4,5:1) */
+  --_hat-good: #0ca30c;  --_hat-good-text: #15803d;
+  --_hat-warn: #fab219;  --_hat-warn-text: #a16207;
+  --_hat-crit: #d03b3b;  --_hat-crit-text: #b91c1c;
+
+  /* serie (W23) */
+  --_hat-s1: #2a78d6; --_hat-s2: #eb6834; --_hat-s3: #1baf7a; --_hat-s4: #eda100; --_hat-s5: #e87ba4;
+  --_hat-zone-cheap: #1baf7a; --_hat-zone-exp: #2a78d6;
+  --_hat-d1: #eb6834; --_hat-d2: #6250d6; --_hat-d3: #e87ba4; --_hat-d4: #eda100;
+  --_hat-unmeasured: #9ca3af;
+
+  /* typografia (W16: treść ≥ 14, metadane ≥ 12, wersaliki ≥ 11) */
+  --_hat-font: var(--ha-font-family-body, Roboto, Inter, system-ui, sans-serif);
+  --_hat-fs-display: 28px;  --_hat-fs-number2: 20px;  --_hat-fs-title: 16px;
+  --_hat-fs-body: 14px;     --_hat-fs-meta: 12px;     --_hat-fs-caps: 11px;
+  --_hat-fw-regular: 400;   --_hat-fw-medium: 500;    --_hat-fw-bold: 600;
+
+  /* odstępy (siatka 4 px) i rozmiary */
+  --_hat-space-1: 4px; --_hat-space-2: 8px; --_hat-space-3: 12px; --_hat-space-4: 16px; --_hat-space-5: 24px;
+  --_hat-icon-lg: 36px; --_hat-icon-lg-glyph: 20px;   /* nagłówek, kafelek */
+  --_hat-icon-md: 28px; --_hat-icon-md-glyph: 16px;   /* wiersz, launcher */
+  --_hat-icon-sm: 24px; --_hat-icon-sm-glyph: 14px;   /* odznaka */
+  --_hat-tint: 18%;                                   /* tło ikony = akcent 18 % */
+  --_hat-pill-h: 32px;  --_hat-pill-h-mini: 28px;  --_hat-target: 44px;
+  --_hat-row-h: 56px;   --_hat-gap: 8px;           /* siatka Sections HA */
+  --_hat-motion: 150ms ease;
+  font-family: var(--hat-font, var(--_hat-font));
+  color: var(--hat-text, var(--_hat-text));
+}
+
+/* ---------- 2. Tokeny: ciemny (hass.themes.darkMode → klasa .hat-dark) ---------- */
+:host(.hat-dark), :host(.bento-dark), .hat.hat-dark {
+  --_hat-bg:     var(--primary-background-color, #111214);
+  --_hat-card:   var(--ha-card-background, var(--card-background-color, #1c1c1e));
+  --_hat-chip:   var(--secondary-background-color, #26272b);
+  --_hat-border: var(--ha-card-border-color, var(--divider-color, #2e2f33));
+  --_hat-text:   var(--primary-text-color, #e5e7eb);
+  --_hat-text-2: var(--secondary-text-color, #a1a1aa);
+  --_hat-text-3: var(--hat-text-3-theme, #8b8b93);
+  --_hat-primary-fill: var(--hat-primary-fill-computed, #818cf8);
+  --_hat-on-primary:   var(--hat-on-primary-computed, #0f172a);
+  --_hat-good: #22c55e;  --_hat-good-text: #22c55e;
+  --_hat-warn: #fab219;  --_hat-warn-text: #fab219;
+  --_hat-crit: #e05252;  --_hat-crit-text: #f87171;
+  --_hat-s1: #3987e5; --_hat-s2: #d95926; --_hat-s3: #199e70; --_hat-s4: #c98500; --_hat-s5: #d55181;
+  --_hat-zone-cheap: #199e70; --_hat-zone-exp: #3987e5;
+  --_hat-d1: #d95926; --_hat-d2: #9085e9; --_hat-d3: #d55181; --_hat-d4: #c98500;
+  --_hat-unmeasured: #6b7280;
+  color-scheme: dark;
+}
+
+
+
+.ht-result-state { display:inline-flex;align-items:center;gap:var(--hat-space-1,4px);min-height:24px;padding:0 10px;border:1px solid currentColor;border-radius:999px;font-size:var(--hat-fs-meta,12px);font-weight:600;line-height:16px;white-space:normal;background:transparent; }
+.ht-result-state--success { color:var(--hat-good-text, var(--_hat-good-text)); }
+.ht-result-state--partial,.ht-result-state--unconfirmed { color:var(--hat-warn-text, var(--_hat-warn-text)); }
+.ht-result-state--error { color:var(--hat-crit-text, var(--_hat-crit-text)); }
+.ht-result-state--not_checked,.ht-result-state--no_data { color:var(--hat-text-2, var(--_hat-text-2)); }
 .ht-result-state--no_data { border-style:dashed; }
-:host(.bento-dark) .ht-result-state--success { color:#81cf99; }
-:host(.bento-dark) .ht-result-state--partial { color:#efd080; }
-:host(.bento-dark) .ht-result-state--unconfirmed { color:#ffb97b; }
-:host(.bento-dark) .ht-result-state--error { color:#ff9999; }
 `;
   return { status, statusHtml, css };
 }
@@ -3190,7 +3257,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     ? `${signed && !String(value).startsWith('-') && /[1-9]/.test(String(value).split(/[eE]/)[0]) ? '+' : ''}${number(value)}${unit === '%' ? '' : ' '}${unit}` : unknown();
   const money = (value, currency, signed = false) => quantity(value, currency || t('currency unknown','waluta nieznana'), signed);
   // Presentation only: exact server values remain in Data and named details.
-  const briefEnergy=value=>valid(value)?`${number(value,{maximumSignificantDigits:6})} kWh`:unknown();
+  const briefEnergy=value=>valid(value)?`${number(value,{minimumFractionDigits:1,maximumFractionDigits:1})} kWh`:unknown();
   const dateTime = value => {
     // Dynamic tariffs allow epoch milliseconds as well as ISO instants.
     if (typeof value === 'number') {
@@ -3387,10 +3454,10 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   const zoneColor=(version,zone,snapshot)=>{
     const rates=(snapshot?.rates||[]).filter(rate=>rate.version_id===version);
     const matches=rates.length===1?rates[0].profile?.zones?.filter(row=>row.id===zone)||[]:[];
-    if(matches.length===1&&matches[0].classification==='cheap')return 'var(--analysis-zone-cheap,#1baf7a)';
-    if(matches.length===1&&matches[0].classification==='expensive')return 'var(--analysis-zone-expensive,#2a78d6)';
+    if(matches.length===1&&matches[0].classification==='cheap')return 'var(--analysis-zone-cheap,var(--hat-zone-cheap, var(--_hat-zone-cheap)))';
+    if(matches.length===1&&matches[0].classification==='expensive')return 'var(--analysis-zone-expensive,var(--hat-zone-exp, var(--_hat-zone-exp)))';
     let hash=0;for(const char of JSON.stringify([version,zone]))hash=(hash*31+char.charCodeAt(0))>>>0;
-    return ['#287fd1','#8754b3','#c76428','#bc447b','#238782','#92821a','#64748b','#a54444'][hash%8];
+    return ['var(--hat-s1, var(--_hat-s1))','var(--hat-d2, var(--_hat-d2))','var(--hat-s2, var(--_hat-s2))','var(--hat-s5, var(--_hat-s5))','var(--hat-s3, var(--_hat-s3))','var(--hat-s4, var(--_hat-s4))','var(--hat-unmeasured, var(--_hat-unmeasured))','var(--hat-crit, var(--_hat-crit))'][hash%8];
   };
   const zoneEntries=(snapshot,row,{period=false}={})=>{
     const proof=zoneProof(row,{period});if(!proof)return null;
@@ -3604,7 +3671,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const note=series.markers.size?`<p data-analysis-baseline="${series.reconciles?'ready':'partial'}">${esc(series.reconciles?t('Comparison covers the displayed intervals.','Porównanie obejmuje wyświetlone przedziały.'):t('Comparison is available for selected intervals only; it does not cover the whole period.','Porównanie obejmuje wybrane przedziały, ale nie cały okres.'))}</p>`:baselineNote();
     return `<section data-analysis-chart><div class="analysis-section-title"><h3>${esc(t('Consumption over time','Zużycie w czasie'))}</h3><div class="analysis-switch">${button('view','chart',t('Chart','Wykres'),options.view !== 'data')}${button('view','data',t('Data','Dane'),options.view === 'data')}</div></div>
       <p data-analysis-series-legend><span class="analysis-series-current">${esc(currentLabel)}</span> · <span class="analysis-series-baseline">${esc(baselineLabel)}</span>${series.common?' · '+esc(t('Selected amounts can differ from whole-household energy. Unmatched intervals retain household bars; their common comparison value is unavailable.','Wybrane ilości mogą różnić się od energii całego gospodarstwa. Bez dopasowania pozostaje słupek gospodarstwa; brak wartości wspólnego porównania.')):''}</p>
-      ${zoneLegend}${options.view === 'data'?table(t('Measured intervals · usage cost without fixed fees','Przedziały pomiarowe · koszt zużycia bez opłat stałych'),[t('Period','Okres'),currentLabel+' kWh',t('Household usage cost','Koszt zużycia gospodarstwa'),baselineLabel+' kWh',t('Real baseline intervals','Rzeczywiste przedziały odniesienia'),...(series.common?[t('Whole household kWh','Całe gospodarstwo kWh')]:[]),...(hasZones?[t('Tariff zones in this interval','Strefy taryfy w przedziale')]:[])],rows,'','data-analysis-bin'):`<div class="analysis-chart-scroll"><div class="analysis-chart" style="--analysis-point-count:${Math.max(1,points.length)}" role="group" aria-label="${esc(t('Current and baseline consumption, select a point for values','Bieżące zużycie i odniesienie, wybierz punkt, aby odczytać wartości'))}">${points.map(p=>`<button type="button" class="analysis-point${p.visualCurrent==null?' analysis-missing':''}" data-analysis-action="point" data-analysis-value="${p.index}" aria-pressed="${String(options.selected)===String(p.index)}" aria-label="${esc(pointText(p))}"><span class="analysis-column analysis-series-current" aria-hidden="true" ${columnZones.get(p.index)?` data-analysis-column-zone="${esc(columnZones.get(p.index).key)}"`:''} style="height:${width(p.visualCurrent,max)*1.68}px${columnZones.get(p.index)?';background:'+columnZones.get(p.index).color:options.section==='comparison'?'':';background:var(--secondary-text-color,#718096)'}"></span>${p.marker?`<span data-analysis-marker class="analysis-baseline-line analysis-series-baseline" aria-label="${esc(pointText(p))}" style="bottom:${40+width(p.marker.baseline,max)*1.68}px"></span>`:''}<span class="analysis-point-label"${axisLabels.has(p.index)&&!majorTicks.has(p.index)?' data-analysis-axis-minor':''} aria-hidden="true">${esc(axisLabels.get(p.index)||'')}</span></button>`).join('')}</div></div>`}
+      ${zoneLegend}${options.view === 'data'?table(t('Measured intervals · usage cost without fixed fees','Przedziały pomiarowe · koszt zużycia bez opłat stałych'),[t('Period','Okres'),currentLabel+' kWh',t('Household usage cost','Koszt zużycia gospodarstwa'),baselineLabel+' kWh',t('Real baseline intervals','Rzeczywiste przedziały odniesienia'),...(series.common?[t('Whole household kWh','Całe gospodarstwo kWh')]:[]),...(hasZones?[t('Tariff zones in this interval','Strefy taryfy w przedziale')]:[])],rows,'','data-analysis-bin'):`<div class="analysis-chart-scroll"><div class="analysis-chart" style="--analysis-point-count:${Math.max(1,points.length)}" role="group" aria-label="${esc(t('Current and baseline consumption, select a point for values','Bieżące zużycie i odniesienie, wybierz punkt, aby odczytać wartości'))}">${points.map(p=>`<button type="button" class="analysis-point${p.visualCurrent==null?' analysis-missing':''}" data-analysis-action="point" data-analysis-value="${p.index}" aria-pressed="${String(options.selected)===String(p.index)}" aria-label="${esc(pointText(p))}"><span class="analysis-column analysis-series-current" aria-hidden="true" ${columnZones.get(p.index)?` data-analysis-column-zone="${esc(columnZones.get(p.index).key)}"`:''} style="height:${width(p.visualCurrent,max)*1.68}px${columnZones.get(p.index)?';background:'+columnZones.get(p.index).color:options.section==='comparison'?'':';background:var(--secondary-text-color,var(--hat-unmeasured, var(--_hat-unmeasured)))'}"></span>${p.marker?`<span data-analysis-marker class="analysis-baseline-line analysis-series-baseline" aria-label="${esc(pointText(p))}" style="bottom:${40+width(p.marker.baseline,max)*1.68}px"></span>`:''}<span class="analysis-point-label"${axisLabels.has(p.index)&&!majorTicks.has(p.index)?' data-analysis-axis-minor':''} aria-hidden="true">${esc(axisLabels.get(p.index)||'')}</span></button>`).join('')}</div></div>`}
       ${!points.length?`<p role="status">${esc(unknown())}</p>`:''}${selection}${note}<p class="analysis-note">${esc(t('Fixed fees apply once to the household period. Missing measurements are not zero.','Opłaty stałe dotyczą jednokrotnie całego okresu gospodarstwa. Brak pomiaru nie oznacza zera.'))}</p></section>`;
   };
   const groupsView = (snapshot,level,options={}) => {
@@ -3759,22 +3826,22 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   };
   const styles = () => `
 
-.energy-analysis-v53 .analysis-rate76{font-size:14px;line-height:1.45;min-width:0;--analysis-rate76-energy:#287fd1;--analysis-rate76-distribution:#8754b3;--analysis-rate76-fixed:#64748b;--analysis-rate76-legacy:#238782}
-.energy-analysis-v53 .analysis-rate76-meta{font-size:12px;color:var(--secondary-text-color);overflow-wrap:anywhere}
+.energy-analysis-v53 .analysis-rate76{font-size:14px;line-height:20px;min-width:0;--analysis-rate76-energy:var(--hat-s1, var(--_hat-s1));--analysis-rate76-distribution:var(--hat-d2, var(--_hat-d2));--analysis-rate76-fixed:var(--hat-text-2, var(--_hat-text-2));--analysis-rate76-legacy:var(--hat-s3, var(--_hat-s3))}
+.energy-analysis-v53 .analysis-rate76-meta{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2));overflow-wrap:anywhere}
 .energy-analysis-v53 .analysis-rate76-heading{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
-.energy-analysis-v53 .analysis-rate76-card{min-width:0;border:1px solid var(--divider-color);border-radius:10px;background:var(--card-background-color);padding:12px;overflow-wrap:anywhere}
+.energy-analysis-v53 .analysis-rate76-card{min-width:0;border:1px solid var(--hat-border, var(--_hat-border));border-radius:var(--hat-radius, var(--_hat-radius));background:var(--hat-card, var(--_hat-card));padding:12px;overflow-wrap:anywhere}
 .energy-analysis-v53 .analysis-rate76-card h4{margin-top:0}
 .energy-analysis-v53 .analysis-rate76-current{display:grid;gap:12px}
 .energy-analysis-v53 .analysis-rate76-layout{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;align-items:start}
 .energy-analysis-v53 .analysis-rate76-layout>div{min-width:0}
 .energy-analysis-v53 .analysis-rate76-rate-list,.energy-analysis-v53 .analysis-rate76-monthly,.energy-analysis-v53 .analysis-rate76-legend,.energy-analysis-v53 .analysis-rate76-zone-list,.energy-analysis-v53 .analysis-rate76-rank-list{list-style:none;padding:0;margin:8px 0}
-.energy-analysis-v53 .analysis-rate76-rate-list>li{display:grid;grid-template-columns:minmax(80px,.6fr) minmax(0,1.2fr) minmax(0,1.2fr);gap:12px;align-items:start;padding:10px 0;border-top:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-rate76-rate-list>li{display:grid;grid-template-columns:minmax(80px,.6fr) minmax(0,1.2fr) minmax(0,1.2fr);gap:12px;align-items:start;padding:12px 0;border-top:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-rate76-schedule p{margin:0 0 4px}
 .energy-analysis-v53 .analysis-rate76-rate-values{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:0;font-variant-numeric:tabular-nums}
-.energy-analysis-v53 .analysis-rate76-rate-values dt{font-size:12px;color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-rate76-rate-values dt{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-rate76-rate-values dd{font-weight:600;margin:4px 0 0}
 .energy-analysis-v53 .analysis-rate76-monthly{display:flex;flex-wrap:wrap;gap:8px 16px}
-.energy-analysis-v53 .analysis-rate76-track{display:flex;height:14px;min-width:0;max-width:100%;background:var(--secondary-background-color);border-radius:4px;overflow:hidden;margin:10px 0}
+.energy-analysis-v53 .analysis-rate76-track{display:flex;height:14px;min-width:0;max-width:100%;background:var(--hat-chip, var(--_hat-chip));border-radius:4px;overflow:hidden;margin:10px 0}
 .energy-analysis-v53 .analysis-rate76-track>span{display:block;min-width:0;height:100%;flex-shrink:0}
 .energy-analysis-v53 .analysis-rate76-energy_cost{background:var(--analysis-rate76-energy)}
 .energy-analysis-v53 .analysis-rate76-variable_cost{background:var(--analysis-rate76-distribution)}
@@ -3782,25 +3849,24 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
 .energy-analysis-v53 .analysis-rate76-legacy_combined_cost{background:var(--analysis-rate76-legacy)}
 .energy-analysis-v53 .analysis-rate76-legend{display:flex;flex-wrap:wrap;gap:8px 16px}
 .energy-analysis-v53 .analysis-rate76-legend>li,.energy-analysis-v53 .analysis-rate76-zone-list>li{display:flex;align-items:baseline;gap:6px;min-width:0}
-.energy-analysis-v53 .analysis-rate76-zone-list>li{padding:8px 0;border-bottom:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-rate76-zone-list>li{padding:8px 0;border-bottom:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-rate76-swatch{display:inline-block;width:10px;height:10px;flex:0 0 10px;border-radius:2px}
-.energy-analysis-v53 .analysis-rate76-rank-list>li{padding:10px 0;border-bottom:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-rate76-rank-list>li{padding:12px 0;border-bottom:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-rate76-rank-value{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px 12px;font-variant-numeric:tabular-nums}
-.energy-analysis-v53 .analysis-rate76-unmeasured .analysis-rate76-track>span{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--secondary-text-color) 3px,var(--secondary-text-color) 4px)!important;border:1px solid var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-rate76-unmeasured .analysis-rate76-track>span{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 4px)!important;border:1px solid var(--hat-unmeasured, var(--_hat-unmeasured))}
 .energy-analysis-v53 .analysis-rate76-alternatives{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:12px}
-.energy-analysis-v53 .analysis-rate76-history{border-top:1px solid var(--divider-color);margin-top:12px}
+.energy-analysis-v53 .analysis-rate76-history{border-top:1px solid var(--hat-border, var(--_hat-border));margin-top:12px}
 .energy-analysis-v53 .analysis-rate76-history .analysis-table-wrap{overflow:visible}
 .energy-analysis-v53 .analysis-rate76-history table,.energy-analysis-v53 .analysis-rate76-table{table-layout:fixed;width:100%;overflow-wrap:anywhere}
-:host(.bento-dark) .energy-analysis-v53 .analysis-rate76{--analysis-rate76-energy:#3987e5;--analysis-rate76-distribution:#a696ea;--analysis-rate76-fixed:#94a3b8;--analysis-rate76-legacy:#41a69f}
-@container energy-analysis (max-width:600px){.energy-analysis-v53 .analysis-rate76-layout{grid-template-columns:minmax(0,1fr);gap:0}.energy-analysis-v53 .analysis-rate76-rate-list>li{grid-template-columns:minmax(0,1fr);gap:6px}.energy-analysis-v53 .analysis-rate76-card{padding:10px}.energy-analysis-v53 .analysis-rate76-rate-values{gap:8px}.energy-analysis-v53 .analysis-rate76-history th,.energy-analysis-v53 .analysis-rate76-history td{padding:8px 4px}}
-.energy-analysis-v53{font-family:var(--paper-font-body1_-_font-family,inherit);font-size:14px;line-height:1.45;color:var(--primary-text-color);min-width:0;max-width:100%;width:100%;overflow-wrap:anywhere;container-type:inline-size;container-name:energy-analysis}
+@container energy-analysis (max-width:600px){.energy-analysis-v53 .analysis-rate76-layout{grid-template-columns:minmax(0,1fr);gap:0}.energy-analysis-v53 .analysis-rate76-rate-list>li{grid-template-columns:minmax(0,1fr);gap:6px}.energy-analysis-v53 .analysis-rate76-card{padding:12px}.energy-analysis-v53 .analysis-rate76-rate-values{gap:8px}.energy-analysis-v53 .analysis-rate76-history th,.energy-analysis-v53 .analysis-rate76-history td{padding:8px 4px}}
+.energy-analysis-v53{font-family:var(--hat-font, var(--_hat-font));font-size:14px;line-height:20px;color:var(--hat-text, var(--_hat-text));min-width:0;max-width:100%;width:100%;overflow-wrap:anywhere;container-type:inline-size;container-name:energy-analysis}
 .energy-analysis-v53 *{box-sizing:border-box}
 .energy-analysis-v53 h3,.energy-analysis-v53 h4{font-size:1em;margin:12px 0 8px}
 .energy-analysis-v53 p{margin:8px 0}
 .energy-analysis-v53 section{min-width:0;margin-block:12px}
 .energy-analysis-v53 .analysis-switch,.energy-analysis-v53 .analysis-section-title,.energy-analysis-v53 .analysis-period-controls{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .energy-analysis-v53 .analysis-period-controls{justify-content:space-between}
-.energy-analysis-v53 .analysis-period{font-size:12px;color:var(--secondary-text-color);margin:4px 0}
+.energy-analysis-v53 .analysis-period{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2));margin:4px 0}
 .energy-analysis-v53 .analysis-controls{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));gap:12px;align-items:end;margin-block:16px}
 .energy-analysis-v53 .analysis-section-title{justify-content:space-between}
 .energy-analysis-v53 .analysis-calendar-fields{display:grid;gap:12px;padding-block:8px}
@@ -3808,75 +3874,76 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
 .energy-analysis-v53 [data-analysis-calendar-options] summary{min-height:44px}
 .energy-analysis-v53 label{display:flex;flex-direction:column;gap:4px;max-width:100%;min-width:0;font-size:12px}
 .energy-analysis-v53 .analysis-controls select,.energy-analysis-v53 .analysis-controls input{width:100%;min-width:0;font-size:14px}
-.energy-analysis-v53 button,.energy-analysis-v53 select,.energy-analysis-v53 input{font:inherit;color:var(--primary-text-color);background:var(--card-background-color);border:1px solid var(--divider-color);border-radius:8px;min-height:44px;min-width:44px;padding:8px;max-width:100%}
+.energy-analysis-v53 button,.energy-analysis-v53 select,.energy-analysis-v53 input{font:inherit;color:var(--hat-text, var(--_hat-text));background:var(--hat-card, var(--_hat-card));border:1px solid var(--hat-border, var(--_hat-border));border-radius:8px;min-height:44px;min-width:44px;padding:8px;max-width:100%}
 .energy-analysis-v53 button{cursor:pointer;white-space:normal}
-.energy-analysis-v53 button[aria-pressed="true"]{border-color:var(--primary-color);box-shadow:inset 0 0 0 1px var(--primary-color)}
-.energy-analysis-v53 button:focus-visible,.energy-analysis-v53 select:focus-visible,.energy-analysis-v53 input:focus-visible,.energy-analysis-v53 summary:focus-visible{outline:2px solid var(--primary-color);outline-offset:2px}
+.energy-analysis-v53 button[aria-pressed="true"]{border-color:var(--hat-primary, var(--_hat-primary));box-shadow:inset 0 0 0 1px var(--hat-primary, var(--_hat-primary))}
+.energy-analysis-v53 button:focus-visible,.energy-analysis-v53 select:focus-visible,.energy-analysis-v53 input:focus-visible,.energy-analysis-v53 summary:focus-visible{outline:2px solid var(--hat-primary, var(--_hat-primary));outline-offset:2px}
 .energy-analysis-v53 summary{min-height:44px;padding:12px 0;cursor:pointer}
 .energy-analysis-v53 .analysis-tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:12px 0}
-.energy-analysis-v53 .analysis-tile{min-width:0;border:1px solid var(--divider-color);border-radius:10px;padding:10px 12px;background:var(--card-background-color);box-shadow:none}
+.energy-analysis-v53 .analysis-tile{min-width:0;border:1px solid var(--hat-border, var(--_hat-border));border-radius:var(--hat-radius, var(--_hat-radius));padding:12px 16px;background:var(--hat-card, var(--_hat-card));box-shadow:none}
 .energy-analysis-v53 .analysis-tile span,.energy-analysis-v53 .analysis-tile strong{display:block}
-.energy-analysis-v53 .analysis-tile span{font-size:12px;color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-tile span{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-tile strong{font-size:1.35em;margin-top:4px;font-variant-numeric:tabular-nums}
 .energy-analysis-v53 .analysis-period-zones{list-style:none;margin:8px 0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:8px}
-.energy-analysis-v53 .analysis-period-zones li{min-width:0;display:grid;gap:4px;padding:8px 10px;border:1px solid var(--divider-color);border-radius:8px}
-.energy-analysis-v53 .analysis-period-zones li>span:last-child{font-size:12px;color:var(--secondary-text-color)}
-.energy-analysis-v53 [data-analysis-period-summary-details]{border-top:1px solid var(--divider-color);margin-top:8px}
-.energy-analysis-v53 .analysis-note{color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-period-zones li{min-width:0;display:grid;gap:4px;padding:8px 10px;border:1px solid var(--hat-border, var(--_hat-border));border-radius:8px}
+.energy-analysis-v53 .analysis-period-zones li>span:last-child{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
+.energy-analysis-v53 [data-analysis-period-summary-details]{border-top:1px solid var(--hat-border, var(--_hat-border));margin-top:8px}
+.energy-analysis-v53 .analysis-note{color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-table-wrap{overflow:auto;max-width:100%}
 .energy-analysis-v53 table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums;text-align:start}
 .energy-analysis-v53 caption{text-align:start;font-weight:600;padding:8px 0}
-.energy-analysis-v53 th,.energy-analysis-v53 td{padding:10px 8px;border-bottom:1px solid var(--divider-color);vertical-align:top;text-align:start}
+.energy-analysis-v53 th,.energy-analysis-v53 td{padding:12px 8px;border-bottom:1px solid var(--hat-border, var(--_hat-border));vertical-align:top;text-align:start}
 .energy-analysis-v53 th{font-weight:600}
 .energy-analysis-v53 .analysis-chart-scroll{min-width:0;max-width:100%;width:100%;overflow:visible;padding:4px 2px}
 .energy-analysis-v53 .analysis-chart{display:grid;grid-template-columns:repeat(var(--analysis-point-count),minmax(0,1fr));align-items:stretch;height:212px;min-width:0;max-width:100%;width:100%;gap:2px}
 .energy-analysis-v53 .analysis-point{position:relative;display:flex;align-items:flex-end;justify-content:center;min-width:0;max-width:100%;width:100%;height:212px;padding:0 0 40px;border:0;border-radius:0;background:transparent;touch-action:manipulation}
 .energy-analysis-v53 .analysis-point:focus-visible{outline-offset:0;z-index:1}
-.energy-analysis-v53 .analysis-point[aria-pressed="true"]{box-shadow:inset 0 0 0 1px var(--primary-color)}
-.energy-analysis-v53 .analysis-column{display:block;width:100%;max-height:168px;background:var(--energy-grid-consumption-color,#287fd1);border-radius:3px 3px 0 0;min-height:1px}
-.energy-analysis-v53 .analysis-baseline-line{display:block;position:absolute;inset-inline:0;height:0;border-top:3px dashed #8754b3;pointer-events:none}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-current:before{content:"● ";color:var(--secondary-text-color,#718096)}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-baseline:before{content:"━ ";color:#8754b3}\n.energy-analysis-v53 [data-analysis-baseline-range]{display:inline-block}\n.energy-analysis-v53 .analysis-point-label{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);width:max-content;font-size:12px;line-height:1.2}
+.energy-analysis-v53 .analysis-point[aria-pressed="true"]{box-shadow:inset 0 0 0 1px var(--hat-primary, var(--_hat-primary))}
+.energy-analysis-v53 .analysis-column{display:block;width:100%;max-height:168px;background:var(--energy-grid-consumption-color,var(--hat-s1, var(--_hat-s1)));border-radius:3px 3px 0 0;min-height:1px}
+.energy-analysis-v53 .analysis-baseline-line{display:block;position:absolute;inset-inline:0;height:0;border-top:3px dashed var(--hat-d2, var(--_hat-d2));pointer-events:none}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-current:before{content:"● ";color:var(--secondary-text-color,var(--hat-unmeasured, var(--_hat-unmeasured)))}\n.energy-analysis-v53 [data-analysis-series-legend] .analysis-series-baseline:before{content:"━ ";color:var(--hat-d2, var(--_hat-d2))}\n.energy-analysis-v53 [data-analysis-baseline-range]{display:inline-block}\n.energy-analysis-v53 .analysis-point-label{position:absolute;bottom:6px;left:50%;transform:translateX(-50%);width:max-content;font-size:12px;line-height:16px}
 .energy-analysis-v53 .analysis-point:first-child .analysis-point-label{left:0;transform:none}
 .energy-analysis-v53 .analysis-point:last-child .analysis-point-label{left:auto;right:0;transform:none}
-.energy-analysis-v53 .analysis-missing{background:repeating-linear-gradient(135deg,transparent,transparent 5px,var(--divider-color) 5px,var(--divider-color) 6px)}
+.energy-analysis-v53 .analysis-missing{background:repeating-linear-gradient(135deg,transparent,transparent 5px,var(--hat-border, var(--_hat-border)) 5px,var(--hat-border, var(--_hat-border)) 6px)}
 .energy-analysis-v53 .analysis-flow{display:grid;grid-template-columns:minmax(120px,.3fr) minmax(0,1fr);gap:16px;align-items:start}
-.energy-analysis-v53 .analysis-flow-source{display:flex;flex-direction:column;gap:4px;padding:12px;border-inline-start:4px solid var(--energy-grid-consumption-color,#287fd1);background:var(--secondary-background-color);border-radius:8px;min-width:0}
-.energy-analysis-v53 .analysis-flow-source>span:first-child{font-size:12px;color:var(--secondary-text-color)}
+.energy-analysis-v53 .analysis-flow-source{display:flex;flex-direction:column;gap:4px;padding:12px;border-inline-start:4px solid var(--energy-grid-consumption-color,var(--hat-s1, var(--_hat-s1)));background:var(--hat-chip, var(--_hat-chip));border-radius:8px;min-width:0}
+.energy-analysis-v53 .analysis-flow-source>span:first-child{font-size:12px;color:var(--hat-text-2, var(--_hat-text-2))}
 .energy-analysis-v53 .analysis-flow-destination{min-width:0}
 .energy-analysis-v53 .analysis-flow-destination h4{margin-top:0}
-.energy-analysis-v53 [data-analysis-group-details],.energy-analysis-v53 [data-analysis-rate-history],.energy-analysis-v53 [data-analysis-fee-details],.energy-analysis-v53 [data-analysis-source-details]{border-top:1px solid var(--divider-color);margin-top:12px}
+.energy-analysis-v53 [data-analysis-group-details],.energy-analysis-v53 [data-analysis-rate-history],.energy-analysis-v53 [data-analysis-fee-details],.energy-analysis-v53 [data-analysis-source-details]{border-top:1px solid var(--hat-border, var(--_hat-border));margin-top:12px}
 .energy-analysis-v53 .analysis-ranking,.energy-analysis-v53 .analysis-deltas{list-style:none;margin:0;padding:0}
-.energy-analysis-v53 .analysis-ranking li,.energy-analysis-v53 .analysis-deltas li{padding:8px 0;border-bottom:1px solid var(--divider-color)}
+.energy-analysis-v53 .analysis-ranking li,.energy-analysis-v53 .analysis-deltas li{padding:8px 0;border-bottom:1px solid var(--hat-border, var(--_hat-border))}
 .energy-analysis-v53 .analysis-ranking li>div:first-child,.energy-analysis-v53 .analysis-deltas li>div:first-child{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px}
-.energy-analysis-v53 .analysis-track,.energy-analysis-v53 .analysis-delta-track{height:8px;background:var(--secondary-background-color);border-radius:3px;margin-top:6px;position:relative}
-.energy-analysis-v53 .analysis-rank{display:block;height:100%;background:var(--energy-device-consumption-color,#df6635)}
-.energy-analysis-v53 .rank-0{background:var(--analysis-rank-0,#eb6834)}.energy-analysis-v53 .rank-1{background:var(--analysis-rank-1,#6250d6)}.energy-analysis-v53 .rank-2{background:var(--analysis-rank-2,#e87ba4)}.energy-analysis-v53 .rank-3{background:var(--analysis-rank-3,#eda100)}.energy-analysis-v53 .rank-4{background:var(--analysis-rank-4,#718096)}
-:host(.bento-dark) .energy-analysis-v53 .rank-0{background:#d95926}:host(.bento-dark) .energy-analysis-v53 .rank-1{background:#9085e9}:host(.bento-dark) .energy-analysis-v53 .rank-2{background:#d55181}:host(.bento-dark) .energy-analysis-v53 .rank-3{background:#c98500}
-.energy-analysis-v53 .analysis-unmeasured .analysis-rank{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--secondary-text-color) 3px,var(--secondary-text-color) 4px);border:1px solid var(--secondary-text-color)}
-.energy-analysis-v53 .analysis-delta-track:before{content:'';position:absolute;left:50%;height:100%;border-left:1px solid var(--secondary-text-color)}
-.energy-analysis-v53 .analysis-decrease{position:absolute;right:50%;height:100%;background:#287fd1}
-.energy-analysis-v53 .analysis-increase{position:absolute;left:50%;height:100%;background:#cf4040}
+.energy-analysis-v53 .analysis-track,.energy-analysis-v53 .analysis-delta-track{height:8px;background:var(--hat-chip, var(--_hat-chip));border-radius:999px;margin-top:8px;position:relative}
+.energy-analysis-v53 .analysis-rank{display:block;height:100%;background:var(--energy-device-consumption-color,var(--hat-d1, var(--_hat-d1)))}
+.energy-analysis-v53 .rank-0{background:var(--analysis-rank-0,var(--hat-d1, var(--_hat-d1)))}.energy-analysis-v53 .rank-1{background:var(--analysis-rank-1,var(--hat-d2, var(--_hat-d2)))}.energy-analysis-v53 .rank-2{background:var(--analysis-rank-2,var(--hat-d3, var(--_hat-d3)))}.energy-analysis-v53 .rank-3{background:var(--analysis-rank-3,var(--hat-d4, var(--_hat-d4)))}.energy-analysis-v53 .rank-4{background:var(--analysis-rank-4,var(--hat-unmeasured, var(--_hat-unmeasured)))}
+.energy-analysis-v53 .analysis-unmeasured .analysis-rank{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 3px,var(--hat-unmeasured, var(--_hat-unmeasured)) 4px);border:1px solid var(--hat-unmeasured, var(--_hat-unmeasured))}
+.energy-analysis-v53 .analysis-delta-track:before{content:'';position:absolute;left:50%;height:100%;border-left:1px solid var(--hat-text-2, var(--_hat-text-2))}
+.energy-analysis-v53 .analysis-decrease{position:absolute;right:50%;height:100%;background:var(--hat-s1, var(--_hat-s1))}
+.energy-analysis-v53 .analysis-increase{position:absolute;left:50%;height:100%;background:var(--hat-crit, var(--_hat-crit))}
 
-.energy-analysis-v53{--analysis-zone-cheap:#1baf7a;--analysis-zone-expensive:#2a78d6;--analysis-rank-0:#eb6834;--analysis-rank-1:#6250d6;--analysis-rank-2:#e87ba4;--analysis-rank-3:#eda100;--analysis-rank-4:#718096}
-:host(.bento-dark) .energy-analysis-v53{--analysis-zone-cheap:#199e70;--analysis-zone-expensive:#3987e5;--analysis-rank-0:#d95926;--analysis-rank-1:#9085e9;--analysis-rank-2:#d55181;--analysis-rank-3:#c98500}
-.energy-analysis-v53 .analysis-group-summary{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:20px;align-items:start}
+.energy-analysis-v53{--analysis-zone-cheap:var(--hat-zone-cheap, var(--_hat-zone-cheap));--analysis-zone-expensive:var(--hat-zone-exp, var(--_hat-zone-exp));--analysis-rank-0:var(--hat-d1, var(--_hat-d1));--analysis-rank-1:var(--hat-d2, var(--_hat-d2));--analysis-rank-2:var(--hat-d3, var(--_hat-d3));--analysis-rank-3:var(--hat-d4, var(--_hat-d4));--analysis-rank-4:var(--hat-unmeasured, var(--_hat-unmeasured))}
+.energy-analysis-v53 .analysis-group-summary{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(0,1fr);gap:24px;align-items:start}
 .energy-analysis-v53 .analysis-group-summary>div{min-width:0}
 .energy-analysis-v53 .analysis-sankey-wrap{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2fr) minmax(0,1fr);align-items:center;gap:12px}
-.energy-analysis-v53 .analysis-sankey{display:block;width:100%;height:250px;color:var(--primary-text-color)}
-.energy-analysis-v53 [data-analysis-flow-side]>path{stroke:var(--primary-text-color);stroke-width:.3}
+.energy-analysis-v53 .analysis-sankey{display:block;width:100%;height:250px;color:var(--hat-text, var(--_hat-text))}
+.energy-analysis-v53 [data-analysis-flow-side]>path{stroke:var(--hat-text, var(--_hat-text));stroke-width:.3}
 .energy-analysis-v53 .analysis-household{text-align:center;font-weight:600}
 .energy-analysis-v53 .analysis-flow-labels{list-style:none;padding:0;margin:0;min-width:0;display:grid;gap:12px}
 .energy-analysis-v53 .analysis-flow-labels li{min-width:0;display:flex;align-items:baseline;gap:6px}
-.energy-analysis-v53 .analysis-flow-swatch{display:inline-block;flex:none;width:12px;height:12px;margin-inline-end:5px;border:1px solid var(--primary-text-color);border-radius:2px;vertical-align:baseline}
-.energy-analysis-v53 .analysis-composition{display:flex;height:16px;max-width:100%;border:1px solid var(--primary-text-color);border-radius:4px;overflow:hidden}
-.energy-analysis-v53 .analysis-composition>span{height:100%;min-width:0;border-inline-end:1px solid var(--primary-text-color)}
-.energy-analysis-v53 .analysis-hatched{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--primary-text-color) 3px,var(--primary-text-color) 4px)}
+.energy-analysis-v53 .analysis-flow-swatch{display:inline-block;flex:none;width:12px;height:12px;margin-inline-end:5px;border:1px solid var(--hat-text, var(--_hat-text));border-radius:2px;vertical-align:baseline}
+.energy-analysis-v53 .analysis-composition{display:flex;height:16px;max-width:100%;border:1px solid var(--hat-text, var(--_hat-text));border-radius:4px;overflow:hidden}
+.energy-analysis-v53 .analysis-composition>span{height:100%;min-width:0;border-inline-end:1px solid var(--hat-text, var(--_hat-text))}
+.energy-analysis-v53 .analysis-hatched{background:repeating-linear-gradient(135deg,transparent,transparent 3px,var(--hat-text, var(--_hat-text)) 3px,var(--hat-text, var(--_hat-text)) 4px)}
 .energy-analysis-v53 .analysis-zone-legend{display:flex;flex-wrap:wrap;gap:6px 12px;font-size:12px}
 .energy-analysis-v53 .analysis-mobile-composition{display:none}
 @container energy-analysis (max-width:600px){.energy-analysis-v53 .analysis-group-summary{grid-template-columns:minmax(0,1fr);gap:8px}.energy-analysis-v53 .analysis-sankey{display:none}.energy-analysis-v53 .analysis-sankey-wrap{display:none}.energy-analysis-v53 .analysis-mobile-composition{display:block}.energy-analysis-v53 .analysis-flow-labels{display:flex;flex-wrap:wrap;gap:6px 12px;margin-block:8px}}
 @container energy-analysis (max-width:480px){.energy-analysis-v53 [data-analysis-axis-minor]{visibility:hidden}.energy-analysis-v53 .analysis-flow{grid-template-columns:minmax(0,1fr);gap:12px}.energy-analysis-v53 .analysis-flow-source{flex-direction:row;flex-wrap:wrap;align-items:baseline;gap:6px 12px}.energy-analysis-v53 .analysis-period-controls{align-items:flex-start}.energy-analysis-v53 th,.energy-analysis-v53 td{padding:8px 4px}.energy-analysis-v53 .analysis-switch{gap:4px}}
-@container energy-analysis (max-width:360px){.energy-analysis-v53 .analysis-controls{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.energy-analysis-v53 .analysis-controls>label:last-child{grid-column:1/-1}.energy-analysis-v53 .analysis-chart{gap:1px}.energy-analysis-v53 .analysis-tile{padding:10px}.energy-analysis-v53 .analysis-ranking li>div:first-child{display:grid;gap:2px}.energy-analysis-v53 .analysis-tile strong{font-size:1.2em}}
+@container energy-analysis (max-width:360px){.energy-analysis-v53 .analysis-controls{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.energy-analysis-v53 .analysis-controls>label:last-child{grid-column:1/-1}.energy-analysis-v53 .analysis-chart{gap:1px}.energy-analysis-v53 .analysis-tile{padding:12px}.energy-analysis-v53 .analysis-ranking li>div:first-child{display:grid;gap:2px}.energy-analysis-v53 .analysis-tile strong{font-size:1.2em}}
 /* Mobile keeps two primary readings and a compact secondary pair. No values are hidden. */
 @container energy-analysis (max-width:480px){.energy-analysis-v53 .analysis-tiles{grid-template-columns:repeat(2,minmax(0,1fr))}.energy-analysis-v53 .analysis-tile-secondary{padding:6px 10px;border:0;border-radius:0;background:transparent}.energy-analysis-v53 .analysis-tile-secondary strong{font-size:14px;margin-top:2px}.energy-analysis-v53 .analysis-tile-secondary span{font-size:12px}}
+
+.energy-analysis-v53 :is(button,select,input){font:14px/20px var(--hat-font, var(--_hat-font))}
+.energy-analysis-v53 :is(label,.analysis-period,.analysis-rate76-meta,.analysis-zone-legend,.analysis-point-label){font-size:12px;line-height:16px}
 `;
   return {markup,styles};
 }
@@ -7570,7 +7637,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
       host._analysisHostV53?.stop(); host._optionsResizeV5?.disconnect();
       host._featureAccessV53?.stop(); host._reportHostV53?.stop();
       host._timers?.forEach(timer => clearTimeout(timer)); host._timers?.clear(); host._renderScheduled = false;
-      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><ha-card data-energy-simple="${mode}" role="button" tabindex="0"${!email ? ' data-energy-open' : ''}><div data-energy-heading><ha-icon aria-hidden="true"></ha-icon><div data-energy-heading-text><h2><span data-energy-name></span></h2>${mode === 'compact' ? '<p data-energy-primary-label></p>' : '<div data-energy-primary role="status"></div>'}</div></div>${mode === 'compact' ? email ? '<div data-energy-primary role="status"></div><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : '<div data-energy-values><div data-energy-primary role="status"></div><span data-energy-cost></span><span data-energy-comparison></span></div><div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div><div data-energy-zone-legend></div></div>' : ''}${email ? mode === 'compact' ? '<div data-energy-actions><button type="button" data-energy-open></button></div>' : '<button type="button" data-energy-open></button>' : ''}</ha-card>`;
+      root.innerHTML = `<style>${simpleStyle}${email ? compactActionsStyle + reportStatusStyle : ''}${narrowSimpleStyle}</style><ha-card data-energy-simple="${mode}" role="button" tabindex="0"${!email ? ' data-energy-open' : ''}><div data-energy-heading><ha-icon aria-hidden="true"></ha-icon><div data-energy-heading-text><h2><span data-energy-name></span></h2>${mode === 'compact' ? '<p data-energy-primary-label></p>' : '<div data-energy-primary role="status"></div>'}</div></div>${mode === 'compact' ? email ? '<div data-energy-primary role="status"></div><div data-energy-secondary><span data-energy-cost></span><span data-energy-comparison></span></div>' : '<div data-energy-values><div data-energy-primary role="status"></div><span data-energy-cost></span><span data-energy-comparison></span></div><div data-energy-zone-wrapper><p data-energy-zone-caption></p><div data-energy-zonebar role="img"></div><div data-energy-zone-axis></div><div data-energy-zone-legend></div></div>' : ''}${email ? mode === 'compact' ? '<div data-energy-actions><button type="button" data-energy-open></button></div>' : '<button type="button" data-energy-open></button>' : ''}</ha-card>`;
       section = root.querySelector('[data-energy-simple]');
       section.addEventListener('click', event => {
         if (event.target.closest?.('button,a,input,select,textarea')) return;
