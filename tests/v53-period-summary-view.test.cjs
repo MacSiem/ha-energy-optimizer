@@ -88,3 +88,12 @@ test('the full server share Decimal is retained in details through the shared pe
 
 test('period summary binds the literal captured window, even when another ISO spelling names the same instant',()=>{const dto=fixture();dto.period_summary.window.start='2026-10-25T00:00:00Z';use(dto,root=>{assert.match(node(root,'[data-analysis-cheap-share] strong').textContent,/No data/);assert.match(node(root,'[data-analysis-period-zone-total]').textContent,/unavailable/);});});
 test('rendering all sections never mutates the authoritative summary or pricing snapshot',()=>{const dto=fixture(),before=JSON.stringify(dto);for(const section of ['overview','rates','comparison'])use(dto,()=>{},{section});assert.equal(JSON.stringify(dto),before);});
+
+test('ordinary peak clock in the measurement zone omits redundant offset and preserves 12-hour preferences',()=>{
+ const dto=fixture();const day=24*H;dto.period.start='2026-10-26T00:00:00+00:00';dto.period.end='2026-10-26T02:00:00+00:00';dto.period_summary.window={...dto.period};
+ Object.assign(dto.period_summary.peak_hour,{from:A+day,to:A+day+H,id:(A+day)+':'+(A+day+H),start:dto.period.start,end:'2026-10-26T01:00:00+00:00',local_start:'2026-10-26T01:00:00+01:00',local_end:'2026-10-26T02:00:00+01:00',fold:0,end_fold:0});
+ for(const hourCycle of ['h23','h12']){const format=createFormatUi('en','Europe/Warsaw',{hourCycle});use(dto,(root,v,ui)=>{assert.equal(node(root,'[data-analysis-peak] strong').textContent,ui.clock(dto.period.start));assert.ok(node(root,'[data-analysis-period-summary-details]').textContent.includes(ui.pointLabel(dto.period.start)));},{zone:'Europe/Warsaw',format});}
+});
+test('both occurrences of repeated DST peak hour keep an offset even in the same display zone',()=>{
+ for(const second of [false,true]){const dto=fixture();if(second)Object.assign(dto.period_summary.peak_hour,{from:A+H,to:A+2*H,id:(A+H)+':'+(A+2*H),start:'2026-10-25T01:00:00+00:00',end:dto.period.end,local_start:'2026-10-25T02:00:00+01:00',local_end:'2026-10-25T03:00:00+01:00',fold:1,end_fold:0});use(dto,(root,v,ui)=>assert.equal(node(root,'[data-analysis-peak] strong').textContent,ui.clock(dto.period_summary.peak_hour.start,true)),{zone:'Europe/Warsaw'});}
+});

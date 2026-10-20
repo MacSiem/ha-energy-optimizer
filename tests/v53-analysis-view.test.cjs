@@ -206,3 +206,21 @@ test('every explicit calendar rule date keeps its year while seasonal dates omit
   assert.doesNotMatch(row.textContent,/2000/);
  },dto,{section:'rates'},'en',createFormatUi('en','America/Los_Angeles'));
 });
+
+// W24: the overview explains its own total using published comparable facts.
+for(const language of ['en','pl'])test('overview KPI includes signed producer comparison context '+language,()=>{
+ const dto=fixture();dto.totals.measurement_complete=true;
+ withView(root=>{const note=root.querySelector('[data-analysis-kpi-comparison]');assert.ok(note);assert.match(note.textContent,language==='pl'?/Poprzedni okres/:/Previous period/);assert.match(note.textContent,/-1 kWh/);assert.match(note.textContent,/-25%/);assert.match(note.textContent,language==='pl'?/Spadek/:/Decrease/);},dto,{section:'overview'},language);
+});
+for(const change of [c=>{c.status='unknown';},c=>{c.comparison_scope='common_measurements';},c=>{c.current_kwh='2';},c=>{c.delta_kwh=null;},c=>{c.reason='incomplete';}])test('overview never places an unrelated or incomplete delta under the household total',()=>{
+ const dto=fixture();dto.totals.measurement_complete=true;change(dto.comparisons.previous);
+ withView(root=>{const note=root.querySelector('[data-analysis-kpi-comparison]');assert.ok(note);assert.match(note.textContent,/No comparable baseline/);assert.doesNotMatch(note.textContent,/-1 kWh|-25%/);},dto,{section:'overview'},'en');
+});
+test('overview preserves producer zero delta and unknown percentage without dividing zero baseline',()=>{
+ const dto=fixture();dto.totals.measurement_complete=true;Object.assign(dto.comparisons.previous,{baseline_kwh:'0',delta_kwh:'0',percent:null});
+ withView(root=>{const note=root.querySelector('[data-analysis-kpi-comparison]');assert.ok(note);assert.match(note.textContent,/No change.*0 kWh/);assert.doesNotMatch(note.textContent,/%|NaN|Infinity/);},dto,{section:'overview'},'en');
+});
+test('overview uses the requested baseline rather than a different available comparison',()=>{
+ const dto=fixture();dto.totals.measurement_complete=true;dto.context.comparison_kind='year_ago';
+ withView(root=>assert.match(root.querySelector('[data-analysis-kpi-comparison]').textContent,/No comparable baseline/),dto,{section:'overview'},'en');
+});
