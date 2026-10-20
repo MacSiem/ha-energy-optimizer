@@ -43,3 +43,8 @@ for(const language of ['pl','en'])test(`KPI comparison is brief in Chart and exa
  const data=render(dto,language,'data');try{assert.ok(data.window.document.querySelector('[data-analysis-kpi-comparison]').textContent.includes(f.number(c.delta_kwh)));}finally{data.window.close();}
  assert.equal(JSON.stringify(dto),before);
 });
+
+for(const [percent,expected] of [['0.001','<1%'],['-0.001','>−1%']])test(`tiny whole-percent comparison keeps a truthful bound for ${percent}`,()=>{
+ const dto=structuredClone(actual);dto.comparisons.previous.percent=percent;
+ const d=render(dto,'en');try{assert.ok(d.window.document.querySelector('[data-analysis-kpi-comparison]').textContent.includes(expected));}finally{d.window.close();}
+});

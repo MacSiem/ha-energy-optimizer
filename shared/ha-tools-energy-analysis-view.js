@@ -21,7 +21,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const options={minimumFractionDigits:minimum,maximumFractionDigits:places};
     const shown=number(value,options),direction=compare(value,'0');
     if(direction && shown.replace(/^[-+−]/,'')===number('0',options))
-      return (direction<0?'>−':'<')+number('0.'+'0'.repeat(places-1)+'1',options);
+      return (direction<0?'>−':'<')+number(places===0?'1':'0.'+'0'.repeat(places-1)+'1',options);
     return (signed&&direction>0?'+':'')+shown;
   };
   const briefEnergy=(value,signed=false)=>valid(value)?`${briefNumber(value,1,1,signed)} kWh`:unknown();
