@@ -63,6 +63,34 @@ function createEnergyAnalysisV53({card, onChange = () => {}, refreshMs = 300000}
     }
     return result;
   };
+  // Additive HA facts are separate from tariff-book totals. Reject malformed facts
+  // before caching: neither a current price nor a partial amount is a period bill.
+  const validateNativePricing = native => {
+    if (native === null || native === undefined) return true;
+    const keys = (v, allowed) => object(v) && Object.keys(v).every(k=>allowed.includes(k));
+    const text = v => typeof v === 'string' && v.length > 0 && v.length <= 256;
+    const reason = v => v === null || text(v);
+    const amount = v => v === null || typeof v === 'string' && v.length <= 1024 && decimal(v);
+    const currency = v => v === null || typeof v === 'string' && /^[A-Z]{3}$/.test(v);
+    const integer = v => Number.isSafeInteger(v) && v >= 0;
+    if (!keys(native,['schema','source','period_cost','current_prices','provenance']) || native.schema !== 1 || native.source !== 'ha_energy' ||
+      !Array.isArray(native.current_prices) || native.current_prices.length > 512 || !Array.isArray(native.provenance) || native.provenance.length > 512) return false;
+    const p=native.period_cost, c=p?.coverage;
+    if (!keys(p,['status','amount','recorded_amount','currency','scope','coverage','components_status','fixed_fees_status','reason']) ||
+      !['ready','partial','unavailable','not_configured'].includes(p.status) || !amount(p.amount) || !amount(p.recorded_amount) || !currency(p.currency) ||
+      p.scope !== 'grid_import_recorded_cost' || p.components_status !== 'unknown' || p.fixed_fees_status !== 'unknown' || !reason(p.reason) ||
+      !keys(c,['complete','expected_source_hours','measured_source_hours']) || typeof c.complete !== 'boolean' || !integer(c.expected_source_hours) ||
+      !integer(c.measured_source_hours) || c.measured_source_hours > c.expected_source_hours ||
+      c.complete !== (c.expected_source_hours > 0 && c.measured_source_hours === c.expected_source_hours)) return false;
+    if (p.status === 'ready' ? !c.complete || p.amount === null || p.recorded_amount === null || p.currency === null || p.reason !== null : p.amount !== null || c.complete) return false;
+    if (p.status === 'partial' && (p.recorded_amount === null || p.currency === null) ||
+      ['unavailable','not_configured'].includes(p.status) && p.recorded_amount !== null) return false;
+    return native.current_prices.every(row=>keys(row,['source_id','origin','price','currency','energy_unit','observed_at','historical','status','reason']) &&
+      text(row.source_id) && ['number_energy_price','entity_energy_price'].includes(row.origin) && amount(row.price) && currency(row.currency) &&
+      row.energy_unit === 'kWh' && Number.isFinite(stamp(row.observed_at)) && row.historical === false && reason(row.reason) &&
+      (row.status === 'ready' ? row.price !== null && row.currency !== null && row.reason === null : row.status === 'unavailable' && row.price === null)) &&
+      native.provenance.every(row=>keys(row,['energy_source_id','cost_statistic_id']) && text(row.energy_source_id) && (row.cost_statistic_id === null || text(row.cost_statistic_id)));
+  };
   const validate = (dto, selection, ctx) => {
     if (!object(dto) || dto.schema !== 2 || !hash(dto.snapshot_id) || !hash(dto.measurement_fingerprint) ||
       !Number.isFinite(stamp(dto.generated_at)) || !object(dto.context) || dto.context.measurement_timezone !== ctx.zone ||
@@ -102,7 +130,7 @@ function createEnergyAnalysisV53({card, onChange = () => {}, refreshMs = 300000}
       if (object(value)) return Object.entries(value).every(([k,v])=>walk(v,k,depth+1));
       return ['string','boolean'].includes(typeof value);
     };
-    return walk(dto);
+    return validateNativePricing(dto.native_pricing) && walk(dto);
   };
   const validatePatterns = (dto, selection, ctx) => {
     const hour=3600000,calendarDate=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&
