@@ -8015,8 +8015,20 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
   const text=(card,en,polish)=>pl(card)?polish:en;
   let painting=new WeakSet();
   const presentations=new WeakMap();
+  const startupReads=new WeakMap();
+  function settleStartup(card){
+    const support=card._build1ClientV53?.state().supported;
+    if(support==null)return;
+    const waiting=startupReads.get(card);if(!waiting)return;startupReads.delete(card);
+    queueMicrotask(()=>{for(const task of waiting.values()){
+      if(support===false&&card.isConnected&&card._hass===task.hass){
+        try{Promise.resolve(task.run()).then(task.resolve,task.reject);}catch(error){task.reject(error);}
+      }else task.resolve(null);
+    }});
+  }
   function client(card){return card._build1ClientV53 ||= createClient({card,guard:card._getTariffHostV3().guard,format,isActive:()=>active(card),onChange:()=>changed(card),onScheduleChange:()=>card._build1ReportsV53?.scheduleChanged()});}
   function changed(card){
+    settleStartup(card);
     if(full(card)){paint(card);return;}
     // Pending/old capability replies must leave existing forms, focus and startup alone.
     if(!card._build1MountedV53)return;
@@ -8157,6 +8169,25 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
     else if(['tariff-edit','tariff-history','tariff-template'].includes(action)){const grant=s.capabilities?.energy_tariff;if(grant?.visible!==true||grant?.read!==true||action!=='tariff-history'&&grant.execute!==true)return;card._tariffSettingsOpen=true;paint(card);await card._getTariffHostV3().openProfile(action==='tariff-history'?'history':action==='tariff-template'?'templates':'edit');}
     else if(action==='configure-energy'){history.pushState(null,'','/energy');window.dispatchEvent(new CustomEvent('location-changed'));}
   }
+  // Keep native rendering and forms during negotiation, but start only the
+  // selected protocol's automatic Recorder reads. Three eager legacy mail
+  // previews plus old analyses otherwise fill the backend's four-slot queue.
+  for(const method of ['_syncAnalysisV53','_loadEmailBackendConfig']){
+    const old=Card.prototype[method];if(!old)continue;
+    Card.prototype[method]=function(...args){
+      if(!active(this)||!this._hass?.user?.id||typeof this._hass?.connection?.subscribeMessage!=='function'||this._analysisHostV53?.legacyAllowed?.()===true)return old.apply(this,args);
+      const ctl=client(this),support=ctl.state().supported;
+      if(support===false)return old.apply(this,args);
+      if(support===true)return method==='_loadEmailBackendConfig'?Promise.resolve(null):undefined;
+      let waiting=startupReads.get(this);if(!waiting){waiting=new Map();startupReads.set(this,waiting);}
+      if(!waiting.has(method)){
+        let resolve,reject;const promise=new Promise((ok,no)=>{resolve=ok;reject=no;});
+        waiting.set(method,{hass:this._hass,run:()=>old.apply(this,args),resolve,reject,promise});
+      }
+      probe(this);
+      return method==='_loadEmailBackendConfig'?waiting.get(method).promise:undefined;
+    };
+  }
   const set=Card.prototype.setConfig;
   Card.prototype.setConfig=function(config={}){
     if(config.period_default!==undefined&&!['day','week','month','year'].includes(config.period_default))throw Error('period_default: day / week / month / year');
@@ -8184,7 +8215,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
     else{connected?.call(this);probe(this);}
   };
   const disconnected=Card.prototype.disconnectedCallback;
-  Card.prototype.disconnectedCallback=function(){this._build1ReportsV53?.stop();presentations.delete(this);this._build1ClientV53?.stop();return disconnected?.call(this);};
+  Card.prototype.disconnectedCallback=function(){const waiting=startupReads.get(this);startupReads.delete(this);for(const task of waiting?.values()||[])task.resolve(null);this._build1ReportsV53?.stop();presentations.delete(this);this._build1ClientV53?.stop();return disconnected?.call(this);};
 }
 // HA_ENERGY_BUILD1_V53_END
 // HA_DASHBOARD_PLACEMENT_V53_START
