@@ -33,10 +33,10 @@ const formatProvenance = { path: formatPath, sha256: digest(formatSource), inlin
 if (!process.argv.includes('--write') && JSON.stringify(manifest.sharedFormat) !== JSON.stringify(formatProvenance)) throw new Error('Format factory provenance failed');
 if (process.argv.includes('--write')) manifest.sharedFormat = formatProvenance;
 // Build1 factories live in the outer card scope; tariff modules live inside constructors.
-const build1Paths = ['shared/ha-tools-energy-model.js','shared/ha-tools-energy-build1-view.js','shared/ha-tools-energy-build1-host.js'];
+const build1Paths = ['shared/ha-tools-email-schedules.js','shared/ha-tools-energy-model.js','shared/ha-tools-energy-reports-actions.js','shared/ha-tools-energy-build1-view.js','shared/ha-tools-energy-build1-host.js'];
 const build1Modules = build1Paths.map(file => ({path:file,text:fs.readFileSync(path.join(root,file),'utf8')}));
 const build1Provenance = build1Modules.map(m => ({path:m.path,sha256:digest(m.text)}));
-const build1Inline = build1Modules.map(m => m.text.replace(/^'use strict';\n/,'').replace(/^if\s*\(typeof module[^\n]*$/gm,'').trimEnd()).join('\n');
+const build1Inline = build1Modules.map(m => m.text.replace(/^export /gm,'').replace(/^'use strict';\n/,'').replace(/^if\s*\(typeof module[^\n]*$/gm,'').trimEnd()).join('\n');
 const build1Block = '// HA_ENERGY_BUILD1_V53_START\n' + build1Inline + '\n// HA_ENERGY_BUILD1_V53_END\n';
 if (!process.argv.includes('--write') && JSON.stringify(manifest.sharedEnergyBuild1) !== JSON.stringify(build1Provenance)) throw new Error('Build1 provenance failed');
 if (process.argv.includes('--write')) manifest.sharedEnergyBuild1 = build1Provenance;

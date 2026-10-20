@@ -37,10 +37,10 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
       view.supported=false;view.status='legacy';view.capabilities=null;emit();return false;
     }
     view.supported=true;
-    if(caps.status!=='ready'||!Number.isSafeInteger(caps.revision)||!caps.capabilities?.energy_analysis)throw Error('invalid_capabilities');
+    if(caps.status!=='ready'||!Number.isSafeInteger(caps.revision)||!caps.capabilities||typeof caps.capabilities!=='object')throw Error('invalid_capabilities');
     view.capabilities=clone(caps.capabilities);
-    const grant=view.capabilities.energy_analysis;
-    if(grant.visible!==true||grant.read!==true){view.status='denied';emit();return false;}
+    const allowed=feature=>view.capabilities[feature]?.visible===true&&view.capabilities[feature]?.read===true;
+    if(!allowed('energy_analysis')&&!allowed('energy_reports')){view.status='denied';emit();return false;}
     return true;
   }
   const validModel=(m,s)=>m?.schema==='ha_tools.energy_report/1'&&m.period?.kind===s.period&&m.period?.timezone===card._hass?.config?.time_zone&&Number.isFinite(Date.parse(m.period.start))&&Number.isFinite(Date.parse(m.period.end))&&m.totals&&typeof m.totals==='object'&&m.coverage&&Array.isArray(m.hourly);
@@ -58,6 +58,7 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},isActive=()=>tr
         const confirmed=await guard.call(token,{type:'ha_tools_email/feature_capabilities'});
         if(!current(e)||!capabilities(confirmed))return;
       }
+      if(view.capabilities.energy_analysis?.visible!==true||view.capabilities.energy_analysis?.read!==true){view.status='ready';emit();return;}
       emit();
       const model=await guard.call(token,{type:'ha_tools_email/energy_report',...s,representation:'model'});
       if(!current(e))return;

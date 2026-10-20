@@ -16,7 +16,7 @@ function energyBuild1PreviewDocumentV53(html,theme,document){
   return '<!doctype html>'+parsed.documentElement.outerHTML;
 }
 // Installed outside generated constructor bodies, before customElements.define.
-function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyModelV53,createView=createEnergyBuild1ViewV53}) {
+function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyModelV53,createView=createEnergyBuild1ViewV53,createReports=typeof createEnergyReportsActionsV53==='function'?createEnergyReportsActionsV53:null}) {
   const key=name==='ha-energy-optimizer'?'_currentTab':'_activeTab';
   const defaults=name==='ha-energy-insights'?'breakdown':name==='ha-energy-email'?'reports':'overview';
   const aliases={dashboard:'overview',daily:'breakdown',weekly:'breakdown',monthly:'breakdown',compare:'costs',recommendations:'costs',schedule:'reports',preview:'reports',send:'reports',history:'reports'};
@@ -35,7 +35,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
     if(full(card)){paint(card);return;}
     // Pending/old capability replies must leave existing forms, focus and startup alone.
     if(!card._build1MountedV53)return;
-    card._build1MountedV53=false;card._domBuilt=false;presentations.delete(card);
+    card._build1ReportsV53?.stop();card._build1MountedV53=false;card._domBuilt=false;presentations.delete(card);
     card.shadowRoot?.replaceChildren();
     queueMicrotask(()=>{if(card.isConnected&&!full(card))hass?.set?.call(card,card._hass);});
   }
@@ -46,6 +46,10 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
     if(card._analysisHostV53?.legacyAllowed?.()===true&&!card._build1ClientV53)return;
     client(card).update(card._build1SelectionV53||{period:options(card).period_default||'day',mode:'full'});
   }
+  function reports(card){
+    if(!createReports||typeof card._getTariffHostV3().guard.call!=='function')return null;
+    return card._build1ReportsV53 ||= createReports({card,format,guard:card._getTariffHostV3().guard,getCapabilities:()=>client(card).state().capabilities,isActive:()=>active(card)&&card._build1SectionV53==='reports',onChange:()=>{if(!painting.has(card))paint(card);}});
+  }
   function options(card){return card._build1ConfigV53||card._config||{};}
   function paint(card){
     if(!full(card)||!card.shadowRoot||painting.has(card))return;
@@ -54,7 +58,12 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
       const c=options(card),ctl=client(card),s=ctl.state(),ui=format.forHass(card._hass),v=createView({format:ui,language:ui.language});
       if(!card._build1MountedV53){card._analysisHostV53?.stop();card._reportHostV53?.stop();}
       card._build1MountedV53=true;
-      const section=card._build1SectionV53||defaults;
+      const analysisAllowed=s.capabilities?.energy_analysis?.visible===true&&s.capabilities?.energy_analysis?.read===true;
+      const reportAllowed=s.capabilities?.energy_reports?.visible===true&&s.capabilities?.energy_reports?.read===true;
+      const section=!analysisAllowed&&reportAllowed?'reports':card._build1SectionV53||defaults;card._build1SectionV53=section;
+      const reportActions=section==='reports'?reports(card):null;
+      if(section!=='reports')card._build1ReportsV53?.stop();
+      reportActions?.update();const reportState=reportActions?.state();
       const sectionFeature=section==='reports'?'energy_reports':section==='costs'?'energy_tariff':'energy_analysis';
       const sectionGrant=s.capabilities?.[sectionFeature];
       const sectionAllowed=sectionGrant?.visible===true&&sectionGrant?.read===true;
@@ -76,10 +85,10 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
       if(!scopeChanged&&scrollers.length)memory.scrolls=scrollers.map(node=>[node.scrollLeft,node.scrollTop]);
       card._applyThemeV150?.();
       // A stable connected shell keeps the existing tariff editor and its inputs alive.
-      if(!root.querySelector('[data-build1-content]')){root.innerHTML='<style data-build1-style></style><ha-card><div data-build1-content></div><div data-build1-extra></div><div data-build1-tariff-host></div></ha-card>';memory.markup=null;}
+      if(!root.querySelector('[data-build1-content]')){root.innerHTML='<style data-build1-style></style><ha-card><div data-build1-content></div><div data-build1-extra></div><div data-build1-tariff-host></div><div data-build1-reports-host></div></ha-card>';memory.markup=null;}
       const style=root.querySelector('[data-build1-style]');if(style.textContent!==v.styles())style.textContent=v.styles();
       const panel=root.querySelector('[data-build1-content]');
-      const markup=v.markup(sectionAllowed?s.model:null,{section,group:card._build1GroupV53,current:s.current||{},title:c.title,showAlternatives:c.show_alternatives!==false,loading:s.status==='loading',canManageReports:false});
+      const markup=v.markup(sectionAllowed?s.model:null,{section,group:card._build1GroupV53,current:s.current||{},title:c.title,showAlternatives:c.show_alternatives!==false,loading:s.status==='loading',reportAccess:section==='reports'&&reportAllowed,period:s.selection?.period,canManageReports:reportState?.canExecute===true&&!reportState?.busy,canManageSchedules:reportState?.canManageSchedules===true&&!reportState?.busy,schedules:reportState?.schedules,deliveries:reportState?.deliveries});
       const replaced=memory.markup!==markup;
       if(replaced){panel.innerHTML=markup;memory.markup=markup;}
       for(const details of panel.querySelectorAll('[data-energy-build1-disclosure]'))if(memory.details.has(details.dataset.energyBuild1Disclosure))details.open=memory.details.get(details.dataset.energyBuild1Disclosure);
@@ -87,7 +96,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
       const visible=c.tabs?.map(canonical).filter(Boolean);
       for(const button of panel.querySelectorAll('[data-energy-build1="section"]')){
         const tab=button.dataset.value,feature=tab==='reports'?'energy_reports':tab==='costs'?'energy_tariff':null;
-        button.hidden=!!(visible?.length&&!visible.includes(tab)||feature&&s.capabilities?.[feature]?.visible===false);
+        button.hidden=!!(['overview','breakdown','costs'].includes(tab)&&!analysisAllowed||visible?.length&&!visible.includes(tab)||feature&&s.capabilities?.[feature]?.visible===false);
       }
       const extra=root.querySelector('[data-build1-extra]'),extraKey=JSON.stringify([s.status,section,card._build1OverflowV53,card._hass?.user?.is_admin,ui.language]);
       const extraChanged=memory.extraKey!==extraKey;
@@ -114,11 +123,12 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
           const srcdoc=energyBuild1PreviewDocumentV53(s.preview.html,card._build1ThemeV53||'light',doc);if(frame.srcdoc!==srcdoc)frame.srcdoc=srcdoc;
         }
       }else panel.querySelector('[data-energy-build1-preview] iframe')?.remove();
-      const implemented=new Set(['section','group','period','previous','next','more','preview-load','preview-device','preview-theme','tariff-edit','configure-energy']);
+      let reportsArea=root.querySelector('[data-build1-reports-host]');if(!reportsArea){reportsArea=doc.createElement('div');reportsArea.setAttribute('data-build1-reports-host','');root.querySelector('ha-card').append(reportsArea);}reportsArea.hidden=section!=='reports';if(reportActions)reportActions.mount(reportsArea);
+      const implemented=new Set(['section','group','period','previous','next','more','preview-load','preview-device','preview-theme','tariff-edit','tariff-history','tariff-template','configure-energy',...(reportActions?['send-now','email-add','schedule-toggle','schedule-add','schedule-edit','delivery-retry']:[])]);
       for(const b of root.querySelectorAll('[data-energy-build1]')){
         const action=b.dataset.energyBuild1;
         if(!implemented.has(action)){b.disabled=true;b.title=text(card,'This action is not connected in this version.','Ta akcja nie jest podłączona w tej wersji.');}
-        if(action==='tariff-edit')b.disabled=s.capabilities?.energy_tariff?.execute!==true;
+        if(['tariff-edit','tariff-history','tariff-template'].includes(action))b.disabled=s.capabilities?.energy_tariff?.execute!==true;
         if(action==='preview-load')b.disabled=s.busy||s.capabilities?.energy_reports?.read!==true||s.capabilities?.energy_reports?.visible!==true;
         if(['previous','next'].includes(action))b.disabled=!s.model;
         if(['preview-device','preview-theme'].includes(action))b.setAttribute('aria-pressed',String(b.dataset.value===(action==='preview-device'?card._build1DeviceV53||'desktop':card._build1ThemeV53||'light')));
@@ -148,18 +158,24 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
       if(!s.model)return;const period=s.selection.period,parts=new Intl.DateTimeFormat('en-CA',{timeZone:card._hass.config.time_zone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(s.model.period.start));const f=Object.fromEntries(parts.map(p=>[p.type,p.value]));const d=new Date(`${f.year}-${f.month}-${f.day}T12:00:00Z`),n=action==='next'?1:-1;
       if(period==='year')d.setUTCFullYear(d.getUTCFullYear()+n);else if(period==='month')d.setUTCMonth(d.getUTCMonth()+n);else d.setUTCDate(d.getUTCDate()+n*(period==='week'?7:1));
       card._build1SelectionV53={period,mode:'full',date:d.toISOString().slice(0,10)};ctl.update(card._build1SelectionV53);paint(card);
-    } else if(action==='preview-load')await ctl.preview();
+    } else if(action==='send-now'){reports(card)?.openSend();}
+    else if(action==='email-add'){reports(card)?.openSend({email:true});}
+    else if(action==='delivery-retry'){reports(card)?.openSend({retryId:value});}
+    else if(action==='schedule-add'){reports(card)?.scheduleAction('add');}
+    else if(action==='schedule-toggle'){reports(card)?.scheduleAction('toggle',value);}
+    else if(action==='schedule-edit'){reports(card)?.scheduleAction('edit',value);}
+    else if(action==='preview-load')await ctl.preview();
     else if(action==='preview-device'){card._build1DeviceV53=value;paint(card);}
     else if(action==='preview-theme'){card._build1ThemeV53=value;paint(card);}
     else if(action==='more'){card._build1OverflowV53=!card._build1OverflowV53;paint(card);}
-    else if(action==='tariff-edit'){if(s.capabilities?.energy_tariff?.execute!==true)return;card._tariffSettingsOpen=true;paint(card);const details=card.shadowRoot.querySelector('[data-tariff-details]');if(details){details.open=true;card._getTariffHostV3().bind();details.querySelector('summary')?.focus();}}
+    else if(['tariff-edit','tariff-history','tariff-template'].includes(action)){if(s.capabilities?.energy_tariff?.execute!==true)return;card._tariffSettingsOpen=true;paint(card);const details=card.shadowRoot.querySelector('[data-tariff-details]');if(details){details.open=true;card._getTariffHostV3().bind();details.querySelector('summary')?.focus();}}
     else if(action==='configure-energy'){history.pushState(null,'','/energy');window.dispatchEvent(new CustomEvent('location-changed'));}
   }
   const set=Card.prototype.setConfig;
   Card.prototype.setConfig=function(config={}){
     if(config.period_default!==undefined&&!['day','week','month','year'].includes(config.period_default))throw Error('period_default: day / week / month / year');
     if(config.show_alternatives!==undefined&&typeof config.show_alternatives!=='boolean')throw Error('show_alternatives: boolean');
-    presentations.delete(this);this._build1MountedV53=false;this._build1ClientV53?.stop();this._build1CompatLegacyV53=false;this._build1ConfigV53={...config};this._build1LegacyV53=['patterns','tips','config'].includes(config.default_tab);this._build1SectionV53=canonical(config.default_tab)||(config.tabs?.map(canonical).filter(Boolean).includes(defaults)?defaults:config.tabs?.map(canonical).find(Boolean))||defaults;this._build1SelectionV53={period:config.period_default||'day',mode:'full'};
+    this._build1ReportsV53?.stop();presentations.delete(this);this._build1MountedV53=false;this._build1ClientV53?.stop();this._build1CompatLegacyV53=false;this._build1ConfigV53={...config};this._build1LegacyV53=['patterns','tips','config'].includes(config.default_tab);this._build1SectionV53=canonical(config.default_tab)||(config.tabs?.map(canonical).filter(Boolean).includes(defaults)?defaults:config.tabs?.map(canonical).find(Boolean))||defaults;this._build1SelectionV53={period:config.period_default||'day',mode:'full'};
     const nativeTabs=name==='ha-energy-optimizer'?['dashboard','patterns','recommendations','compare']:name==='ha-energy-insights'?['overview','daily','weekly','monthly','tips']:['overview','schedule','preview','send','config','history'];
     const translate=v=>nativeTabs.includes(v)?v:baseTab[canonical(v)]||v;
     const legacyConfig={...config};if(config.default_tab)legacyConfig.default_tab=translate(config.default_tab);if(config.tabs)legacyConfig.tabs=[...new Set(config.tabs.map(translate))];
@@ -182,6 +198,6 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
     else{connected?.call(this);probe(this);}
   };
   const disconnected=Card.prototype.disconnectedCallback;
-  Card.prototype.disconnectedCallback=function(){presentations.delete(this);this._build1ClientV53?.stop();return disconnected?.call(this);};
+  Card.prototype.disconnectedCallback=function(){this._build1ReportsV53?.stop();presentations.delete(this);this._build1ClientV53?.stop();return disconnected?.call(this);};
 }
 if(typeof module!=='undefined'&&module.exports)module.exports={installEnergyBuild1HostV53,energyBuild1PreviewDocumentV53};
