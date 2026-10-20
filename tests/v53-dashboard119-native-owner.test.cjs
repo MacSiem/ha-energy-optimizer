@@ -66,7 +66,7 @@ function setup(name,{admin=true,language='en',config={type:`custom:${name}`,vari
  async mount(){shell.shadowRoot.append(card);card.hass=hass;await tick();},
  update(next){hass=next;for(const element of providers)element.hass=hass;if(card.isConnected)card.hass=hass;},
  async open(){const button=api.q('[data-energy-dashboard-add]');assert.ok(button,'actual full-card footer trigger');button.click();await tick();},
- async select(){const select=api.q('[data-dashboard]');assert.ok(select);select.value='0';select.dispatchEvent(new w.Event('change',{bubbles:true}));await tick();},
+ async select(){assert.deepEqual(errors,[],'native dialog runtime must initialize');const select=api.q('[data-dashboard]');assert.ok(select);select.value='0';select.dispatchEvent(new w.Event('change',{bubbles:true}));await tick();},
  quiet(){assert.deepEqual(denied,[],'no SMTP/private config/schedule/unsupported requests');assert.deepEqual(network,[]);assert.deepEqual(services,[]);assert.deepEqual(errors,[],'real card runtime must not log ReferenceError or render failures');},
  close(){nativeDialog?.closeDialog();card.remove();card._dashboardPlacementV53?.destroy();card._tariffConsumerUnsubscribeV3?.();card._tariffHostController?.guard.dispose();w.close();}};
  return api;
