@@ -24,7 +24,7 @@ for(const type of ['ha-energy-optimizer','ha-energy-insights','ha-energy-email']
   // Real generated host/consumer installs the production guard.call wrapper.
   // Keep its native startup outside the model assertion; use the real DOM mount.
   const host=card._getTariffHostV3();card.preview=true;dom.window.document.body.append(card);await drainBackend();card.preview=false;calls.length=0;
-  client=createEnergyModelV53({card,guard:host.guard,format:{forHass:()=>({language:'en'})}});client.update();await tick();
+  client=card._build1ClientV53 || createEnergyModelV53({card,guard:host.guard,format:{forHass:()=>({language:'en'})}});client.update();await tick();
   assert.equal(client.state().status,'ready');assert.equal(client.state().model.schema,'ha_tools.energy_report/1');assert.equal(calls.filter(q=>q.representation==='model').length,2);assert.equal(host.guard.occupied(),false);
   const token=host.guard.snapshot(),owner=host.guard.reserve(token);card._hass.user.is_active=false;
   await assert.rejects(host.guard.call(token,{type:'ha_tools_email/feature_capabilities'},false,owner),e=>e.code==='authority_changed');owner.release();
@@ -85,4 +85,22 @@ test('three native card startups do not saturate the four-slot Recorder admissio
   assert.equal(calls.filter(q=>/preview_energy_report|energy_analysis$/.test(q.type)).length,0,'schema model replaces obsolete automatic analysis and three eager mail previews');
   assert.ok(maximum<=3);
  }finally{held.splice(0).forEach(r=>r());for(const c of cards){c.remove();c._tariffHostController?.backend.invalidate();c._tariffHostController?.guard.dispose();}dom.window.close();}
+});
+
+
+test('native Email starts deferred legacy previews once after old-schema discovery',async()=>{
+ const {dom,card}=actual('ha-energy-email'),calls=[];
+ const connection=new dom.window.EventTarget();connection.connected=true;connection.subscribeMessage=async()=>()=>{};
+ const hass={user:{id:'old-schema',is_admin:true,is_active:true},connection,connected:true,states:{},services:{},config:{time_zone:'UTC'},locale:{language:'en'},callWS:async q=>{
+  calls.push(q);if(q.type.endsWith('feature_capabilities'))return {status:'ready',revision:1,capabilities:{energy_analysis:{visible:true,read:true}}};
+  if(q.type.endsWith('get_config'))return {schedules:[]};
+  if(q.type.endsWith('preview_energy_report'))return {status:'ready'};
+  throw {code:'unknown_command'};
+ }};
+ try{dom.window.document.body.append(card);card.hass=hass;await tick();
+  assert.equal(card._build1ClientV53.state().supported,false);
+  assert.equal(calls.filter(q=>q.type.endsWith('get_config')).length,1);
+  assert.deepEqual(calls.filter(q=>q.type.endsWith('preview_energy_report')).map(q=>q.cadence).sort(),['daily','monthly','weekly']);
+  assert.equal(calls.some(q=>q.representation==='model'),false);
+ }finally{card.remove();card._tariffHostController?.backend.invalidate();card._tariffHostController?.guard.dispose();dom.window.close();}
 });
