@@ -5267,11 +5267,138 @@ async _drawComparisonChart() {
   }
 
 // HA_DASHBOARD_PLACEMENT_V53_START
+// Native HA dialog-manager (frontend 20260826.7) owns this transient session.
+// Its provideHass subscription supplies current identity after Lovelace replaces
+// the initiating card. Neither an old card nor a cached hass authorizes Undo.
+function createNativeDashboardPlacementV53(options) {
+  const {host, getHass, getCardConfig, getSourceKey} = options;
+  let ancestor = host;
+  while (ancestor && ancestor.localName !== 'home-assistant')
+    ancestor = ancestor.parentElement || ancestor.getRootNode?.().host;
+  if (!ancestor || typeof ancestor.provideHass !== 'function') return null;
+  const doc = host.ownerDocument, win = doc.defaultView;
+  const tag = 'ha-tools-dashboard-placement-dialog-v53';
+  const copy = value => JSON.parse(JSON.stringify(value));
+  const route = () => win.location.pathname + win.location.search + win.location.hash;
+  if (!win.customElements.get(tag)) {
+    win.customElements.define(tag, class extends win.HTMLElement {
+      set hass(value) {
+        this._hass = value;
+        this._guard?.observe(value);
+        if (this._request && !this._sourceCurrent()) this.closeDialog();
+        this._controller?.update();
+      }
+      get hass() { return this._hass; }
+      _sourceCurrent() {
+        const request = this._request;
+        if (!request || request.cancelled || route() !== request.route) return false;
+        return request.transferred || request.sourceCurrent();
+      }
+      showDialog(request) {
+        this.closeDialog();
+        if (request.cancelled) return;
+        this._request = request; request.owner = this;
+        // HA calls showDialog before appending the native element.
+        win.queueMicrotask(() => this._start());
+      }
+      connectedCallback() { this._start(); }
+      disconnectedCallback() { this.closeDialog(); }
+      _start() {
+        const request = this._request;
+        if (!request || this._guard || !this.isConnected) return;
+        if (!this._sourceCurrent() || this._hass?.connection !== request.connection ||
+            this._hass?.user?.id !== request.user) { this.closeDialog(); return; }
+        const guard = createTariffGuardV3({getHass:() => this._hass,
+          getContext:() => ({card:request.card,route:route()}),browser:win});
+        this._guard = guard; this._token = guard.snapshot();
+        if (!guard.current(this._token,true)) { this.closeDialog(); return; }
+        this._unsubscribe = guard.subscribe(() => this.closeDialog());
+        this._routeChanged = () => { if (!this._sourceCurrent()) this.closeDialog(); };
+        for (const event of ['location-changed','popstate','hashchange']) win.addEventListener(event,this._routeChanged);
+        this._controller ||= createDashboardPlacementV53({host:this,nativeOwned:true,
+          getHass:() => this._sourceCurrent() && this._guard?.current(this._token,true) ? this._hass : null,
+          getCardConfig:() => this._request?.card,
+          getSourceKey:() => this._token?.epoch,
+          onClose:() => { if (this._request) this.closeDialog(); }});
+        if (!this._controller.open()) this.closeDialog();
+      }
+      transfer(request) {
+        // Only a transaction already sent by the user's Add/Undo may outlive
+        // a real source disconnect. A preview or unrelated teardown closes.
+        if (this._request !== request || request.cancelled || route() !== request.route ||
+            !this.isConnected || !this._guard?.current(this._token,true)) return false;
+        // The source is already disconnected when its lifecycle callback runs.
+        // Validate the sent transaction using the live native owner, rather
+        // than requiring that detached source to remain connected.
+        request.transferred = true;
+        if (!this._controller?.acceptsOwnRemount()) { request.transferred = false; return false; }
+        request.sourceCurrent = null; // Release all references to the old source.
+        return true;
+      }
+      closeDialog() {
+        const request = this._request;
+        if (!request) return true;
+        this._request = null; request.cancelled = true; request.owner = null;
+        request.sourceCurrent = null; request.card = null; request.connection = null; request.user = null;
+        this._unsubscribe?.(); this._unsubscribe = null;
+        for (const event of ['location-changed','popstate','hashchange']) win.removeEventListener(event,this._routeChanged);
+        this._routeChanged = null;
+        const guard = this._guard; this._guard = null; this._token = null;
+        this._controller?.close(); // Retain the raw lane until actual settlement.
+        guard?.dispose();
+        this.dispatchEvent(new win.CustomEvent('dialog-closed',{detail:{dialog:tag},bubbles:true,composed:true}));
+        return true;
+      }
+    });
+  }
+  let request = null;
+  function close() {
+    if (!request) return;
+    request.cancelled = true;
+    if (request.owner?._request === request) request.owner.closeDialog();
+    request.sourceCurrent = null; request.card = null; request = null;
+  }
+  return {
+    open() {
+      if (request && !request.cancelled) return true;
+      const hass = getHass();
+      if (!hass || !host.isConnected) return false;
+      const card = copy(getCardConfig());
+      const known = ['custom:ha-energy-optimizer','custom:ha-energy-insights','custom:ha-energy-email'];
+      if (!known.includes(card?.type) || !options.cardTypes.includes(card.type)) return false;
+      const source = JSON.stringify(getSourceKey()), signature = JSON.stringify(card);
+      const next = {card,route:route(),connection:hass.connection,user:hass.user.id,cancelled:false,transferred:false,owner:null,
+        sourceCurrent:() => {
+          const live = getHass();
+          return host.isConnected && live?.connection === next.connection && live?.user?.id === next.user &&
+            JSON.stringify(getCardConfig()) === signature && JSON.stringify(getSourceKey()) === source;
+        }};
+      request = next;
+      host.dispatchEvent(new win.CustomEvent('show-dialog',{bubbles:true,composed:true,detail:{
+        dialogTag:tag,dialogImport:() => Promise.resolve(),dialogParams:next,addHistory:false}}));
+      return true;
+    },
+    close,destroy:close,
+    update() {
+      if (!request || request.cancelled) return;
+      if (!request.transferred && !request.sourceCurrent()) close();
+      else request.owner?._controller?.update();
+    },
+    sourceDisconnected() {
+      if (request?.owner?.transfer(request)) return true;
+      close(); return false;
+    }
+  };
+}
 // Lovelace save has no CAS: compare-before-save reduces, but cannot eliminate,
 // the race with another editor between the final read and the native save.
 function createDashboardPlacementV53({host, getHass, getCardConfig,
   cardTypes = ['custom:ha-energy-optimizer', 'custom:ha-energy-insights', 'custom:ha-energy-email'],
-  getSourceKey = () => null}) {
+  getSourceKey = () => null, nativeOwned = false, onClose = () => {}}) {
+  if (!nativeOwned) {
+    const native = createNativeDashboardPlacementV53({host,getHass,getCardConfig,getSourceKey,cardTypes});
+    if (native) return native;
+  }
   const known = ['custom:ha-energy-optimizer', 'custom:ha-energy-insights', 'custom:ha-energy-email'];
   const allowed = known.filter(type => cardTypes.includes(type));
   const clone = value => JSON.parse(JSON.stringify(value));
@@ -5566,6 +5693,7 @@ dialog[data-ha-tools-placement]{box-sizing:border-box;width:min(640px,calc(100vw
     const node = dialog; dialog = null; node?.remove();
     if (returnFocus?.isConnected) returnFocus.focus({preventScroll:true});
     returnFocus = null;
+    if (old) onClose();
   }
   function update() {
     if (!session || !current(session)) return;
@@ -5574,7 +5702,7 @@ dialog[data-ha-tools-placement]{box-sizing:border-box;width:min(640px,calc(100vw
     paint();
   }
   function destroy() { close(); destroyed = true; }
-  return {open,close,destroy,update};
+  return {open,close,destroy,update,acceptsOwnRemount:() => !!session?.tx && current(session)};
 }
 // HA_DASHBOARD_PLACEMENT_V53_END
 // HA_ENERGY_CARD_OPTIONS_V5_START
@@ -5587,8 +5715,8 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   const variant = config => config.variant || (config.compact ? 'legacy' : 'full');
   const simple = host => ['tile','compact'].includes(variant(host._config || {})) && !host._optionsExpandedV5;
 
-  // Placement uses its own retained raw lane. Unmount closes/purges it but does
-  // not replace the factory while a native save may still be unsettled.
+  // Placement retains its raw lane. A native dialog can take ownership of an
+  // already-sent transaction across the expected Lovelace source remount.
   const placementFull = host => !simple(host) && !(variant(host._config || {}) === 'legacy' && !host._optionsExpandedV5);
   const placementGuard = host => host._getTariffHostV3().guard;
   const placementAllowed = host => {
@@ -5597,7 +5725,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
     return guard.available(token) && guard.current(token,true);
   };
   const stopPlacement = host => {
-    host._dashboardPlacementV53?.close();
+    if (!host._dashboardPlacementV53?.sourceDisconnected?.()) host._dashboardPlacementV53?.close();
     host._energyStatisticsV110?.close();
     host._dashboardPlacementUnsubscribeV53?.(); delete host._dashboardPlacementUnsubscribeV53;
     delete host._dashboardPlacementGuardV53;
