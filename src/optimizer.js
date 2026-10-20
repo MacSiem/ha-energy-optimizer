@@ -6740,6 +6740,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
 }
 // HA_ENERGY_CARD_OPTIONS_V5_END
 createEnergyCardOptionsV5({ Card: HaEnergyOptimizer, Editor: HaEnergyOptimizerEditor, name: "ha-energy-optimizer", title: "Energy Optimizer", tabs: ["dashboard", "patterns", "recommendations", "compare"], labels: [["Overview", "Patterns", "Tariff costs", "Compare"], ["Przegląd", "Wzorce", "Koszty taryfy", "Porównanie"]] });
+installEnergyBuild1HostV53({Card:HaEnergyOptimizer,name:"ha-energy-optimizer",format:createFormatUi});
 if (!customElements.get('ha-energy-optimizer-editor')) customElements.define('ha-energy-optimizer-editor', HaEnergyOptimizerEditor);
 if (!customElements.get('ha-energy-optimizer')) { customElements.define('ha-energy-optimizer', HaEnergyOptimizer); }
 window.customCards = window.customCards || [];

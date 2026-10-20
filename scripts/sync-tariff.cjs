@@ -32,6 +32,14 @@ const formatBlock = '// HA_FORMAT_UI_START\n' + formatInline + '\n// HA_FORMAT_U
 const formatProvenance = { path: formatPath, sha256: digest(formatSource), inlineSha256: digest(formatInline) };
 if (!process.argv.includes('--write') && JSON.stringify(manifest.sharedFormat) !== JSON.stringify(formatProvenance)) throw new Error('Format factory provenance failed');
 if (process.argv.includes('--write')) manifest.sharedFormat = formatProvenance;
+// Build1 factories live in the outer card scope; tariff modules live inside constructors.
+const build1Paths = ['shared/ha-tools-energy-model.js','shared/ha-tools-energy-build1-view.js','shared/ha-tools-energy-build1-host.js'];
+const build1Modules = build1Paths.map(file => ({path:file,text:fs.readFileSync(path.join(root,file),'utf8')}));
+const build1Provenance = build1Modules.map(m => ({path:m.path,sha256:digest(m.text)}));
+const build1Inline = build1Modules.map(m => m.text.replace(/^'use strict';\n/,'').replace(/^if\s*\(typeof module[^\n]*$/gm,'').trimEnd()).join('\n');
+const build1Block = '// HA_ENERGY_BUILD1_V53_START\n' + build1Inline + '\n// HA_ENERGY_BUILD1_V53_END\n';
+if (!process.argv.includes('--write') && JSON.stringify(manifest.sharedEnergyBuild1) !== JSON.stringify(build1Provenance)) throw new Error('Build1 provenance failed');
+if (process.argv.includes('--write')) manifest.sharedEnergyBuild1 = build1Provenance;
 for (const [file, kind] of [['src/optimizer.js', 'optimizer'], ['src/energy-insights.js', 'insights'], ['src/energy-email.js', 'email']]) {
   const target = path.join(root, file), original = fs.readFileSync(target, 'utf8');
   const block = `// HA_TARIFF_V3_START sha256=${sha}\n${runtime}\nthis._tariffHostController = createTariffHostV3({ card: this, kind: '${kind}', createModel: createEnergyTariffV3, legacyProfile: energyTariffProfileV3, createSettings: createTariffSettingsV3, createUi: createUiV3, ...this._createTariffConsumerV3(createTariffGuardV3) });\nthis._installTariffConsumerV3();\n// HA_TARIFF_V3_END`;
@@ -42,7 +50,8 @@ for (const [file, kind] of [['src/optimizer.js', 'optimizer'], ['src/energy-insi
   if (kind === 'email' && !original.includes('// HA_FEATURE_ACCESS_V53_START')) throw new Error('Missing feature access consumer');
   const formatted = withAccess.replace(/\/\/ HA_FORMAT_UI_START\n[\s\S]*?\/\/ HA_FORMAT_UI_END/, formatBlock);
   if (!original.includes('// HA_FORMAT_UI_START')) throw new Error('Missing format factory consumer: ' + file);
-  const next = formatted.replace(/\/\/ HA_TARIFF_V3_START[^\n]*\n[\s\S]*?\/\/ HA_TARIFF_V3_END/, block);
+  const withBuild1 = formatted.includes('// HA_ENERGY_BUILD1_V53_START') ? formatted.replace(/\/\/ HA_ENERGY_BUILD1_V53_START\n[\s\S]*?\/\/ HA_ENERGY_BUILD1_V53_END\n?/,build1Block) : formatted.replace('// HA_ENERGY_CARD_OPTIONS_V5_START',build1Block+'// HA_ENERGY_CARD_OPTIONS_V5_START');
+  const next = withBuild1.replace(/\/\/ HA_TARIFF_V3_START[^\n]*\n[\s\S]*?\/\/ HA_TARIFF_V3_END/, block);
   if (process.argv.includes('--write')) fs.writeFileSync(target, next);
   else if (original !== next) throw new Error(`Tariff source parity failed: ${file}`);
   const source = manifest.sources.find(s => s.path === file);

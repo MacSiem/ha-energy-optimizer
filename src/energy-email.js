@@ -8062,6 +8062,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
 }
 // HA_ENERGY_CARD_OPTIONS_V5_END
 createEnergyCardOptionsV5({ Card: HAEnergyEmail, Editor: HaEnergyEmailEditor, name: "ha-energy-email", title: "Energy Email Reports", tabs: ["overview", "schedule", "preview", "send", "config", "history"], labels: [["Overview", "Schedule", "Preview", "Send now", "Config", "History"], ["Przegląd", "Harmonogram", "Podgląd", "Wyślij teraz", "Ustawienia", "Historia"]] });
+installEnergyBuild1HostV53({Card:HAEnergyEmail,name:"ha-energy-email",format:createFormatUi});
 // Custom elements capture lifecycle callbacks when registered. Install options first.
   if (!customElements.get('ha-energy-email')) customElements.define('ha-energy-email', HAEnergyEmail);
   // Energy Optimizer is the canonical owner of ha-energy-email. The alias below is always
