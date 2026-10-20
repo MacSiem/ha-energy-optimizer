@@ -1340,7 +1340,7 @@ function createFeatureAccessV53({card, guard}) {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=a19622d626bdf2fc4e133bb32659bd9d00c5a1ce1ebccfb903383738a8ecfeb7
+      // HA_TARIFF_V3_START sha256=ec2d9443d4034b0da6508a1f7eb4818c52cb5fe3c91910b5a705e4add4dd93fe
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -2906,6 +2906,34 @@ function createEnergyAnalysisV53({card, onChange = () => {}, refreshMs = 300000}
     }
     return result;
   };
+  // Additive HA facts are separate from tariff-book totals. Reject malformed facts
+  // before caching: neither a current price nor a partial amount is a period bill.
+  const validateNativePricing = native => {
+    if (native === null || native === undefined) return true;
+    const keys = (v, allowed) => object(v) && Object.keys(v).every(k=>allowed.includes(k));
+    const text = v => typeof v === 'string' && v.length > 0 && v.length <= 256;
+    const reason = v => v === null || text(v);
+    const amount = v => v === null || typeof v === 'string' && v.length <= 1024 && decimal(v);
+    const currency = v => v === null || typeof v === 'string' && /^[A-Z]{3}$/.test(v);
+    const integer = v => Number.isSafeInteger(v) && v >= 0;
+    if (!keys(native,['schema','source','period_cost','current_prices','provenance']) || native.schema !== 1 || native.source !== 'ha_energy' ||
+      !Array.isArray(native.current_prices) || native.current_prices.length > 512 || !Array.isArray(native.provenance) || native.provenance.length > 512) return false;
+    const p=native.period_cost, c=p?.coverage;
+    if (!keys(p,['status','amount','recorded_amount','currency','scope','coverage','components_status','fixed_fees_status','reason']) ||
+      !['ready','partial','unavailable','not_configured'].includes(p.status) || !amount(p.amount) || !amount(p.recorded_amount) || !currency(p.currency) ||
+      p.scope !== 'grid_import_recorded_cost' || p.components_status !== 'unknown' || p.fixed_fees_status !== 'unknown' || !reason(p.reason) ||
+      !keys(c,['complete','expected_source_hours','measured_source_hours']) || typeof c.complete !== 'boolean' || !integer(c.expected_source_hours) ||
+      !integer(c.measured_source_hours) || c.measured_source_hours > c.expected_source_hours ||
+      c.complete !== (c.expected_source_hours > 0 && c.measured_source_hours === c.expected_source_hours)) return false;
+    if (p.status === 'ready' ? !c.complete || p.amount === null || p.recorded_amount === null || p.currency === null || p.reason !== null : p.amount !== null || c.complete) return false;
+    if (p.status === 'partial' && (p.recorded_amount === null || p.currency === null) ||
+      ['unavailable','not_configured'].includes(p.status) && p.recorded_amount !== null) return false;
+    return native.current_prices.every(row=>keys(row,['source_id','origin','price','currency','energy_unit','observed_at','historical','status','reason']) &&
+      text(row.source_id) && ['number_energy_price','entity_energy_price'].includes(row.origin) && amount(row.price) && currency(row.currency) &&
+      row.energy_unit === 'kWh' && Number.isFinite(stamp(row.observed_at)) && row.historical === false && reason(row.reason) &&
+      (row.status === 'ready' ? row.price !== null && row.currency !== null && row.reason === null : row.status === 'unavailable' && row.price === null)) &&
+      native.provenance.every(row=>keys(row,['energy_source_id','cost_statistic_id']) && text(row.energy_source_id) && (row.cost_statistic_id === null || text(row.cost_statistic_id)));
+  };
   const validate = (dto, selection, ctx) => {
     if (!object(dto) || dto.schema !== 2 || !hash(dto.snapshot_id) || !hash(dto.measurement_fingerprint) ||
       !Number.isFinite(stamp(dto.generated_at)) || !object(dto.context) || dto.context.measurement_timezone !== ctx.zone ||
@@ -2945,7 +2973,7 @@ function createEnergyAnalysisV53({card, onChange = () => {}, refreshMs = 300000}
       if (object(value)) return Object.entries(value).every(([k,v])=>walk(v,k,depth+1));
       return ['string','boolean'].includes(typeof value);
     };
-    return walk(dto);
+    return validateNativePricing(dto.native_pricing) && walk(dto);
   };
   const validatePatterns = (dto, selection, ctx) => {
     const hour=3600000,calendarDate=value=>typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&
@@ -3223,11 +3251,30 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   };
   const width = (value, max) => valid(value) && Number.isFinite(Number(value)) && max > 0 ? Math.min(100,Math.abs(Number(value))/max*100) : 0;
   const maximum = values => Math.max(0,...values.filter(valid).map(value=>Math.abs(Number(value))).filter(Number.isFinite));
+  const nativeCostLabel = () => t('Cost recorded in HA','Koszt zapisany w HA');
+  const nativeDisclaimer = () => t('Source: Home Assistant Energy, recorded grid-import cost. Cost breakdown and fixed fees are unknown; this is not a complete bill.',
+    'Źródło: Home Assistant Energy, zapisany koszt poboru z sieci. Rozbicie kosztu i opłaty stałe są nieznane; to nie jest pełny rachunek.');
+  const nativeFacts = snapshot => !snapshot.active_tariff_id && snapshot.native_pricing?.schema === 1 && snapshot.native_pricing.source === 'ha_energy' ? snapshot.native_pricing : null;
+  const nativeComplete = snapshot => {
+    const p=nativeFacts(snapshot)?.period_cost;
+    return p?.status === 'ready' && p.coverage?.complete === true && valid(p.amount) && /^[A-Z]{3}$/.test(p.currency || '') ? p : null;
+  };
+  const nativeMoney = p => `${number(p.amount,{minimumFractionDigits:2,maximumFractionDigits:2})} ${p.currency}`;
+  const nativeDetails = snapshot => {
+    const native=nativeFacts(snapshot); if (!native) return '';
+    const p=native.period_cost, complete=nativeComplete(snapshot), c=p.coverage;
+    const label=complete?nativeCostLabel():p.status==='partial'?t('Partial cost recorded in HA','Niepełny koszt zapisany w HA'):t('HA recorded cost unavailable','Zapisany koszt HA niedostępny');
+    const value=complete?nativeMoney(complete):p.status==='partial'?money(p.recorded_amount,p.currency):unknown();
+    const prices=native.current_prices.map(row=>[esc(row.source_id),esc(row.status==='ready'?money(row.price,row.currency)+'/kWh':unknown()),esc(dateTime(row.observed_at))]);
+    return `<section data-analysis-native-pricing><h4>${esc(label)}</h4><p><strong>${esc(value)}</strong>${p.status==='partial'?' · '+esc(t('Recorded subset only; full-period cost unavailable','Tylko zapisany podzbiór; koszt całego okresu niedostępny')):''}</p><p class="analysis-note">${esc(nativeDisclaimer())}</p>
+      <details data-analysis-native-details><summary>${esc(t('Exact HA cost and source details','Dokładny koszt HA i źródło'))}</summary><p>${esc(label)}: ${esc(p.amount ?? p.recorded_amount ?? unknown())} ${esc(p.currency || '')}</p><p>${esc(t('Source hours measured / expected','Godziny źródeł zmierzone / oczekiwane'))}: ${esc(c.measured_source_hours)} / ${esc(c.expected_source_hours)}</p>${p.reason?`<p>${esc(p.reason)}</p>`:''}<ul>${native.provenance.map(row=>`<li>${esc(row.energy_source_id)} · ${esc(row.cost_statistic_id || unknown())}</li>`).join('')}</ul></details>
+      ${prices.length?`<h4>${esc(t('Current prices · now','Bieżące ceny · teraz'))}</h4><p class="analysis-note">${esc(t('Observed now; not a price for the selected period. No historical cost is calculated from these prices.','Odczytane teraz; nie są cenami za wybrany okres. Nie obliczamy z nich kosztu historycznego.'))}</p>${table(t('Current prices · now','Bieżące ceny · teraz'),[t('Source','Źródło'),t('Price now','Cena teraz'),t('Observed at','Czas odczytu')],prices)}<details data-analysis-native-price-details><summary>${esc(t('Exact current price values','Dokładne wartości bieżących cen'))}</summary><ul>${native.current_prices.map(row=>`<li>${esc(row.source_id)}: ${esc(row.price ?? unknown())} ${esc(row.currency || '')}/kWh · ${esc(row.origin)} · ${esc(row.observed_at)}</li>`).join('')}</ul></details>`:''}</section>`;
+  };
   const tiles = (snapshot, overview=false) => {
-    const total=snapshot.totals || {}, supplied=overview&&Object.hasOwn(snapshot,'period_summary');
+    const total=snapshot.totals || {}, supplied=overview&&Object.hasOwn(snapshot,'period_summary'), native=nativeComplete(snapshot);
     const base=[
-      [t('Consumption','Zużycie'),quantity(total.kwh)], [t('Cost','Koszt'),money(total.total_cost,total.currency)],
-      [t('Effective price','Cena efektywna'),money(total.effective_price,total.currency) + (valid(total.effective_price) ? '/kWh' : '')],
+      [t('Consumption','Zużycie'),quantity(total.kwh)], [native?nativeCostLabel():t('Cost','Koszt'),native?nativeMoney(native):money(total.total_cost,total.currency)],
+      native ? [t('Source','Źródło'),'Home Assistant Energy'] : [t('Effective price','Cena efektywna'),money(total.effective_price,total.currency) + (valid(total.effective_price) ? '/kWh' : '')],
       [t('Measurement coverage','Pokrycie pomiarów'),coverage(snapshot.coverage)]
     ];
     if(!supplied)return `<div class="analysis-tiles">${base.map(([label,value],index)=>`<div class="analysis-tile ${index<2?'analysis-tile-primary':'analysis-tile-secondary'}"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`).join('')}</div>`;
@@ -3569,6 +3616,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
   ].filter(Boolean).join(' · ');
   const ratesView = (snapshot,options={}) => {
     const total=snapshot.totals || {}, groups=snapshot.groups || {}, data=options.view==='data';
+    if (nativeFacts(snapshot)) return `<section class="analysis-rate76" data-analysis-rates><h3>${esc(t('Rates and costs','Stawki i koszty'))}</h3>${nativeDetails(snapshot)}</section>`;
     const currencyKnown=typeof total.currency==='string'&&/^[A-Z]{3}$/.test(total.currency)&&['gross','net'].includes(total.price_basis);
     const positive=value=>valid(value)&&compare(value,'0')>=0;
     const componentKeys=['energy_cost','variable_cost','legacy_combined_cost','fixed_cost'];
@@ -3686,7 +3734,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
       <label>${esc(t('Calendar date','Data kalendarzowa'))}<input type="date" data-analysis-action="anchor" data-analysis-value="${esc(anchor)}" value="${esc(anchor)}"></label>
       ${select('comparison',t('Compare with','Porównaj z'),allowed.map(key=>[key,comparisons[key]]),kind)}</div></details></div>`;
     return `<div class="energy-analysis-v53"><div class="analysis-period-controls"><div class="analysis-switch" role="group" aria-label="${esc(t('Period','Okres'))}">${periods.map(([value,label])=>button('period',value,label,period.kind===value)).join('')}</div><p class="analysis-period">${esc(range(period))} · ${esc(ui.timeZone)} · ${esc(coverage(snapshot.coverage))}</p></div>
-      ${section==='overview'?tiles(snapshot,true):''}${section==='rates'?filters+ratesView(snapshot,options):section==='comparison'?comparisonView(snapshot,options,kind)+filters:chart(snapshot,options)+filters+groupsView(snapshot,level,options)}
+      ${section==='overview'?tiles(snapshot,true)+nativeDetails(snapshot):''}${section==='rates'?filters+ratesView(snapshot,options):section==='comparison'?comparisonView(snapshot,options,kind)+filters:chart(snapshot,options)+filters+groupsView(snapshot,level,options)}
       <details data-analysis-source-details><summary>${esc(t('Source and time details','Źródło i szczegóły czasu'))}</summary><p>${esc(t('Measurement calendar','Kalendarz pomiarów'))}: ${esc(period.timezone||unknown())}</p><p>UTC: ${esc(period.start)} – ${esc(period.end)}</p></details></div>`;
   };
   const styles = () => `
