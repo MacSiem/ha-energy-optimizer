@@ -105,3 +105,20 @@ for(const language of ['en','pl'])test(`generated compact preserves the explicit
  const dto=elapsed();dto.comparisons.previous.percent=6.5;const f=setup('ha-energy-optimizer',{language,reply:()=>dto});
  try{await f.mount();assert.match(f.card.shadowRoot.querySelector('[data-energy-comparison]').textContent,language==='pl'?/\+6,5%.*83,2 kWh/:/\+6\.5%.*83\.2 kWh/);f.quiet();}finally{f.close();}
 });
+
+for(const name of names) test(`${name} compact day chart uses measured heights and preserves unknown and zero`,async()=>{
+ const value=clone(producer),original=JSON.stringify(value),f=setup(name,{reply:()=>value});
+ try{
+  await f.mount();const root=f.card.shadowRoot,bar=root.querySelector('[data-energy-zonebar]');
+  const heights=[...bar.children].map(n=>Number.parseFloat(n.style.height));
+  assert.equal(heights.length,value.chart.bins.length);assert.ok(heights.every(n=>Number.isFinite(n)&&n>=0&&n<=100));
+  assert.ok(new Set(heights).size>1,'different measured kWh do not become a uniform tariff strip');
+  assert.match(bar.children[0].title,/4[,.]0 kWh/);assert.ok(root.querySelector('[data-energy-zone-axis]'));
+  assert.equal(JSON.stringify(value),original);f.quiet();
+ }finally{f.close();}
+ const zero=clone(producer),first=zero.chart.bins[0];first.kwh=first.recorded_kwh='0';
+ first.zone_breakdown.zones[0].kwh=first.zone_breakdown.zones[0].recorded_kwh='0';
+ const z=setup(name,{reply:()=>zero});try{await z.mount();assert.equal(z.card.shadowRoot.querySelector('[data-energy-zonebar]').children[0].style.height,'0%');z.quiet();}finally{z.close();}
+ const partial=clone(producer);partial.chart.bins[0].complete=false;
+ const u=setup(name,{reply:()=>partial});try{await u.mount();const segment=u.card.shadowRoot.querySelector('[data-energy-zonebar]').children[0];assert.equal(segment.dataset.energyMeasurement,'unknown');assert.equal(segment.style.height,'');assert.match(segment.title,/Unknown/);u.quiet();}finally{u.close();}
+});
