@@ -38,7 +38,7 @@ function actionsFixture({admin=true,targets=null,rows=[],onWrite=null,timeoutMs=
   if(q.type.endsWith('list_schedules'))return {schedules:clone(stored)};
   if(q.type.endsWith('set_schedule')){stored=[...stored.filter(r=>r.id!==q.schedule.id),clone(q.schedule)];if(onWrite)return onWrite(q);return {schedule:clone(stored.at(-1))};}
   throw {code:'unexpected'};
- }};
+ }}};
  const guard=createTariffGuardV3({getHass:()=>card._hass,browser:null,timeoutMs}),root=dom.window.document.querySelector('div');
  const controller=createEnergyReportsActionsV53({card,guard,getCapabilities:()=>caps,isActive:()=>true,createSchedules:factory()});controller.mount(root);
  return {dom,root,card,guard,controller,caps,calls,targets:value=>{currentTargets=clone(value);},stored:()=>stored,close:()=>{controller.stop();guard.dispose();dom.window.close();}};
