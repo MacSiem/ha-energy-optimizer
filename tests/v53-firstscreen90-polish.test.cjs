@@ -45,8 +45,8 @@ for(const language of ['en','pl'])test('firstscreen hierarchy uses real producer
  const snapshot=clone(producer);snapshot.groups.areas.office.kwh=snapshot.groups.areas.office.recorded_kwh='49.999999999999545';
  const raw=JSON.stringify(snapshot),f=setup({language,snapshot});try{await f.mount();const root=f.card.shadowRoot;
   assert.equal(root.querySelectorAll('.analysis-tile-primary').length,2);assert.equal(root.querySelectorAll('.analysis-tile-secondary').length,2);
-  assert.match(root.querySelector('.analysis-tile-primary strong').textContent,/250 kWh/);
-  assert.match(root.querySelectorAll('.analysis-tile-primary strong')[1].textContent,/247 EUR/);
+  assert.equal(root.querySelector('.analysis-tile-primary strong').textContent,language==='pl'?'250,0 kWh':'250.0 kWh');
+  assert.equal(root.querySelectorAll('.analysis-tile-primary strong')[1].textContent,language==='pl'?'247,00 EUR':'247.00 EUR');
   assert.ok(root.querySelector('.analysis-tile-secondary[data-analysis-cheap-share]'));assert.ok(root.querySelector('.analysis-tile-secondary[data-analysis-peak]'));
   const heading=root.querySelector('.optimizer-heading');assert.ok(heading);assert.ok(heading.querySelector('.card-title'));assert.ok(heading.querySelector('[data-energy-options-help]'));
   assert.equal(root.querySelector('[data-energy-options-help]').open,false);assert.ok(root.querySelector('.optimizer-tools [data-power-setup]'));

@@ -79,7 +79,7 @@ function createUiV3({ language = 'en' } = {}) {
 
   /* stany: wypełnienie (≥ 3:1) i tekst (≥ 4,5:1) */
   --_hat-good: #0ca30c;  --_hat-good-text: #15803d;
-  --_hat-warn: #fab219;  --_hat-warn-text: #a16207;
+  --_hat-warn: #fab219;  --_hat-warn-text: #a16207;  --_hat-warn-readout: #9a5b05;
   --_hat-crit: #d03b3b;  --_hat-crit-text: #b91c1c;
 
   /* serie (W23) */
@@ -119,7 +119,7 @@ function createUiV3({ language = 'en' } = {}) {
   --_hat-primary-fill: var(--hat-primary-fill-computed, #818cf8);
   --_hat-on-primary:   var(--hat-on-primary-computed, #0f172a);
   --_hat-good: #22c55e;  --_hat-good-text: #22c55e;
-  --_hat-warn: #fab219;  --_hat-warn-text: #fab219;
+  --_hat-warn: #fab219;  --_hat-warn-text: #fab219;  --_hat-warn-readout: #fab219;
   --_hat-crit: #e05252;  --_hat-crit-text: #f87171;
   --_hat-s1: #3987e5; --_hat-s2: #d95926; --_hat-s3: #199e70; --_hat-s4: #c98500; --_hat-s5: #d55181;
   --_hat-zone-cheap: #199e70; --_hat-zone-exp: #3987e5;

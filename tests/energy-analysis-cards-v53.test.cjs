@@ -321,10 +321,10 @@ for(const fixtureFile of ['analysis-wholeperiod-v53.json','analysis-wholeperiod7
  try{
   f.update({...f.hass,config:{...f.hass.config,time_zone:'Europe/Warsaw'}});
   await f.mount();assert.ok(f.card.shadowRoot.querySelector('.energy-analysis-v53'),JSON.stringify({state:f.card._analysisHostV53?.state(),zone:f.card._hass?.config?.time_zone,requests:f.analyses,errors:f.errors}));const root=analysisRoot(f);
-  assert.match(root.querySelector('.analysis-tile strong').textContent,/^250 kWh$/);
-  assert.match(root.querySelector('[data-analysis-cheap-share] strong').textContent,/^23[.,]2\s?%$/);
+  assert.match(root.querySelector('.analysis-tile strong').textContent,/^250\.0 kWh$/);
+  assert.match(root.querySelector('[data-analysis-cheap-share] strong').textContent,/^23%$/);
   const peak=root.querySelector('[data-analysis-peak]');assert.equal(peak.dataset.analysisPeakId,snapshot.period_summary.peak_hour.id);
-  assert.match(peak.querySelector('strong').textContent,/18:00/);assert.match(peak.textContent,/22 kWh/);
+  assert.match(peak.querySelector('strong').textContent,/18:00/);assert.match(peak.textContent,/22\.0 kWh/);
   const zones=root.querySelector('[data-analysis-period-zone-total]');assert.ok(zones);assert.equal(zones.querySelectorAll('[data-analysis-period-zone]').length,2);
   assert.match(zones.textContent,/58 kWh/);assert.match(zones.textContent,/192 kWh/);assert.match(zones.textContent,/211.2 EUR/);
   assert.equal(f.card._analysisHostV53.state().snapshot.snapshot_id,snapshot.snapshot_id);
@@ -332,9 +332,9 @@ for(const fixtureFile of ['analysis-wholeperiod-v53.json','analysis-wholeperiod7
   const reads=f.analyses.length;
   if(fixtureFile==='analysis-wholeperiod78-v53.json'&&spec.type==='ha-energy-optimizer'){
    f.tab('recommendations');await settle();const rates=analysisRoot(f).querySelector('[data-analysis-rates]');assert.ok(rates);
-   assert.equal(rates.querySelector('[data-analysis-rate76-total="low"]').textContent,'0.6 EUR');
-   assert.equal(rates.querySelector('[data-analysis-rate76-total="high"]').textContent,'1.1 EUR');
-   assert.match(rates.querySelector('[data-analysis-rate76-cost]').textContent,/247 EUR/);
+   assert.equal(rates.querySelector('[data-analysis-rate76-total="low"]').textContent,'0.60 EUR');
+   assert.equal(rates.querySelector('[data-analysis-rate76-total="high"]').textContent,'1.10 EUR');
+   assert.match(rates.querySelector('[data-analysis-rate76-cost]').textContent,/247\.00 EUR/);
    assert.equal(f.analyses.length,reads,'tab presentation reuses the same authorized snapshot');
    f.tab(spec.home);await settle();assert.equal(f.analyses.length,reads);
   }
