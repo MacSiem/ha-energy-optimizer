@@ -81,7 +81,7 @@ test('three native card startups do not saturate the four-slot Recorder admissio
  try{
   for(let i=0;i<8;i++){await tick();held.splice(0).forEach(r=>r());}
   await tick();
-  assert.deepEqual(cards.map(c=>c._build1ClientV53?.state().status),['ready','ready','ready']);
+  assert.deepEqual(cards.map(c=>c._build1ClientV53?.state().status),['ready','ready','ready'],JSON.stringify({calls:calls.map(q=>q.type),states:cards.map(c=>c._build1ClientV53?.state())}));
   assert.equal(calls.filter(q=>/preview_energy_report|energy_analysis$/.test(q.type)).length,0,'schema model replaces obsolete automatic analysis and three eager mail previews');
   assert.ok(maximum<=3);
  }finally{held.splice(0).forEach(r=>r());for(const c of cards){c.remove();c._tariffHostController?.backend.invalidate();c._tariffHostController?.guard.dispose();}dom.window.close();}
