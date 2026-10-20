@@ -4838,7 +4838,9 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
   };
   const syncPlacement = host => {
     const root = host.shadowRoot;
-    if (!root) return;
+    // Disconnect already closed or transferred placement. A queued render of
+    // the old card must not cancel the session now owned by native HA.
+    if (!root || !host.isConnected) return;
     if (!placementAllowed(host)) {
       host._dashboardPlacementV53?.close();
       host._energyStatisticsV110?.close(); host._energyStatisticsMountV110?.remove();
