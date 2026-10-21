@@ -1,5 +1,10 @@
 # Changelog — Energy Optimizer
 
+## 4.0.1 (2026-10-21)
+
+- Show known source readings and incomplete chart bars separately from the complete-hour household balance. Make unclassified consumption visible without claiming it is cheap energy, and explain single-price-zone tariffs.
+- List the actual largest consumers for the selected period independently of stable identity colors. Preserve coverage checks and withhold percentages for partial periods.
+
 ## 4.0.0 (2026-10-21)
 
 - Start the negotiated model without obsolete automatic analysis or mail previews filling the Recorder queue. Preserve legacy startup on older backends and resume correctly after observing or stopping an idle client.

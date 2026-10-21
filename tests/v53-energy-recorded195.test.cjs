@@ -24,6 +24,10 @@ test('largest current consumers use actual device readings, independent of stabl
  const m=fixture();m.devices=[{id:'new',name:'New current leader',kwh:99},{id:'old',name:'Old leader',kwh:1}];m.ranking=[{id:'old',name:'Old leader',kwh:1,color:'d1'},{id:'_other_measured',color:'other',children:[m.devices[0]],kwh:99}];
  const d=render(m);try{const panel=d.window.document.querySelector('.two');assert.match(panel.textContent,/New current leader/);assert.ok(panel.textContent.indexOf('New current leader')<panel.textContent.indexOf('Old leader'));}finally{d.window.close();}
 });
+test('partial readings retain their exact producer precision in Data',()=>{
+ const m=fixture();m.hourly=[{start:m.period.start,kwh:null,recorded_kwh:'0.123456789012345',measured_sources:1,expected_sources:2}];
+ const d=render(m);try{const tables=[...d.window.document.querySelectorAll('table')];const exact=tables.find(x=>x.caption?.textContent==='Exact values');assert.match(exact.textContent,/0\.123456789012345/);assert.match(d.window.document.querySelector('.c').title,/Known readings.*incomplete/);}finally{d.window.close();}
+});
 test('backend-qualified comparisons remain visible when unrelated current hours are incomplete',()=>{
  const m=fixture();m.coverage={complete:false,measured_hours:23,expected_hours:24};m.comparisons=[{key:'previous_day',kwh:20,delta_kwh:3,delta_pct:15,coverage_ok:true}];
  const d=render(m);try{assert.match(d.window.document.querySelector('.k .n').textContent,/3(?:\.0+)? kWh/);assert.doesNotMatch(d.window.document.querySelector('.k .n').textContent,/Insufficient|%/);}finally{d.window.close();}

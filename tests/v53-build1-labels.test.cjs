@@ -59,7 +59,7 @@ for(const language of ['en','pl']){
  test(`user device, room and child names are not translated (${language})`,()=>{
   const m=fixture(),user={id:'sensor.custom',name:'Niezmierzone',area_id:'custom-room',color:'d1',kwh:1.23,
    children:[{id:'sensor.child',name:'Unmeasured <custom> & child',kwh:.12}]};
-  m.ranking=[user];m.rooms=[{...user,name:'Niezmierzone room'}];m.floors=[{...user,name:'Unmeasured floor'}];
+  m.devices=[user];m.ranking=[user];m.rooms=[{...user,name:'Niezmierzone room'}];m.floors=[{...user,name:'Unmeasured floor'}];
   const v=view(language);
   assert.ok(v.markup(m,{section:'breakdown'}).includes('<span>Niezmierzone'));
   assert.ok(v.markup(m,{section:'breakdown'}).includes('Unmeasured &lt;custom&gt; &amp; child'));
