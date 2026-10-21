@@ -387,13 +387,13 @@ Use HACS to update Energy Optimizer, then reload the browser. Keep the resource 
 
 All three cards now report only the grid-import sources configured in Home Assistant's Energy Dashboard. Legacy `entities` lists, device exclusions, export and solar meters do not change the grid-import report total. Configure the source in Energy Dashboard if the cards show the missing-source guidance. Missing Recorder history stays unavailable; it is not replaced with lifetime readings or demo numbers.
 
-Optimizer and Insights Today cover completed hourly buckets since local midnight in the Home Assistant timezone. Email daily reports use the last 24 completed hours. Weekly and monthly report windows are 168 and 720 completed hours. Compare the displayed start and end timestamps when checking values: Today and a daily email can cover different windows.
+Day, week, month and year follow the report's measurement calendar. The start is inclusive and the end is exclusive. An ongoing period includes only the part up to the data cutoff. Hours that have not occurred are not measured zeroes. Older rolling 24/168/720-hour reports retain their separate rules documented below.
 
 Review the tariff explicitly if costs are wanted. Missing tariff, currency, measurement or rate coverage means unavailable cost; zero prices and zero measurements remain valid. The shared tariff supplies its currency and clock. Legacy `energy_price` / peak-hour settings remain compatibility inputs. They are sent to the same backend as an ephemeral read and never replace the stored shared tariff or global entities. HA Tools Email 2.4.0+ is required for all prices, including card-owned tariffs; older backends leave usage visible and prices unavailable. Update the backend before this card when upgrading from 3.x.
 
 ### Email installation and report modes
 
-The Energy card can display Recorder-backed usage without SMTP. To send reports, install HA Tools Email through HACS, add its integration under Settings → Devices & services → Add integration, then configure SMTP through that integration's Configure action. No SMTP password is stored in the Energy card configuration.
+Install **HA Tools Email 2.4.0+** through HACS and add its integration under **Settings → Devices & services → Add integration** for the current report APIs and delivery channels. Reading a report and using **HA notification** do not require SMTP. To send email, configure SMTP through the integration's **Configure** action, then explicitly choose the email channel and review the recipient in **Reports**. No SMTP password is stored in the Energy card configuration.
 
 With HA Tools Email 2.2.0 or newer, administrator calendar schedule saves use the backend. Server previews are available from 2.1.2; the calendar editor deliberately stays locked on that older version. Check the matching backend schedule readback before relying on automatic reports. An unavailable backend or permission error is not evidence that the integration is missing.
 
