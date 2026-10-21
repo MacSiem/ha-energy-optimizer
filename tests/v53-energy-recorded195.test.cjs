@@ -7,7 +7,7 @@ const {createFormatUi}=require('../shared/ha-tools-format.js');
 const fixture=()=>JSON.parse(readFileSync(require('node:path').join(__dirname,'fixtures/build1/golden-energy-2026-10-17.json'),'utf8')).model;
 const render=m=>new JSDOM(createEnergyBuild1ViewV53({format:createFormatUi('en','Europe/Warsaw')}).markup(m));
 test('known energy without a price classification is visible in the consumption color',()=>{
- const m=fixture();m.zones=[{id:'flat',label:'Single zone',kwh:24,share:1}];m.hourly=[{start:m.period.start,kwh:1,zone:'flat'}];
+ const m=fixture();m.zones=[{id:'flat',label:'Single zone',kwh:24,share:1}];m.tariff.zones=[{id:'flat',label:'Single zone',rate:.5}];m.hourly=[{start:m.period.start,kwh:1,zone:'flat'}];
  const d=render(m);try{const bar=d.window.document.querySelector('.chart-stack i');assert.match(bar.getAttribute('style'),/var\(--hat-primary\)/);assert.doesNotMatch(bar.getAttribute('style'),/hat-zone-cheap|hat-zone-exp|hat-text-3/);
  assert.match(d.window.document.querySelectorAll('.k')[2].textContent,/Single price zone/);assert.doesNotMatch(d.window.document.querySelectorAll('.k')[2].textContent,/No data|cheap/);
  }finally{d.window.close();}
@@ -26,5 +26,5 @@ test('largest current consumers use actual device readings, independent of stabl
 });
 test('backend-qualified comparisons remain visible when unrelated current hours are incomplete',()=>{
  const m=fixture();m.coverage={complete:false,measured_hours:23,expected_hours:24};m.comparisons=[{key:'previous_day',kwh:20,delta_kwh:3,delta_pct:15,coverage_ok:true}];
- const d=render(m);try{assert.match(d.window.document.querySelector('.k .n').textContent,/3 kWh/);assert.doesNotMatch(d.window.document.querySelector('.k .n').textContent,/Insufficient/);}finally{d.window.close();}
+ const d=render(m);try{assert.match(d.window.document.querySelector('.k .n').textContent,/3(?:\.0+)? kWh/);assert.doesNotMatch(d.window.document.querySelector('.k .n').textContent,/Insufficient|%/);}finally{d.window.close();}
 });
