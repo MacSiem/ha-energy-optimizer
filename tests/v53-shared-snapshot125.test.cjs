@@ -8,6 +8,9 @@ function setup(name,legacy,own=false){
  const errors=[],calls=[],vc=new VirtualConsole();
  vc.on('jsdomError',e=>{if(e.type!=='css parsing'&&!e.message.includes('CSS stylesheet'))errors.push(e.message);});
  const dom=new JSDOM('<body></body>',{url:'http://localhost/',runScripts:'outside-only',pretendToBeVisual:true,virtualConsole:vc}),w=dom.window;
+ // This case verifies initial negotiation, not a refresh across the backend's
+ // 30-second cache bucket. A real wall-clock boundary may validly trigger read 2.
+ w.Date.now=()=>Date.parse('2026-10-20T12:00:00Z');
  w.ResizeObserver=class{observe(){}disconnect(){}};w.fetch=()=>{throw Error('network forbidden');};w.HTMLCanvasElement.prototype.getContext=()=>({});
  w.eval(['optimizer','energy-insights','energy-email'].map(f=>fs.readFileSync(`src/${f}.js`,'utf8')).join('\n')+'\nconst HA_ENERGY_CHART=class{destroy(){}update(){}};');
  const card=w.document.createElement(name),override={...clone(producer.rates[0].profile),currency:'PLN'};
