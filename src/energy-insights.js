@@ -5897,6 +5897,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
         const choices=name==='ha-energy-optimizer'?[['patterns','Patterns','Wzorce'],['recommendations','Recommendations','Rekomendacje']]:name==='ha-energy-insights'?[['tips','Recommendations','Rekomendacje']]:[['config','Email settings','Ustawienia e-mail'],['schedule','Schedules','Harmonogramy'],['send','Send form','Formularz wysyłki'],['history','History','Historia']];
         for(const [tab,en,polish] of choices){if(name==='ha-energy-email'&&card._hass?.user?.is_admin!==true)continue;const b=document.createElement('button');b.textContent=text(card,en,polish);b.onclick=()=>legacy(card,tab);extra.append(b);}
       }
+      card._syncDashboardPlacementV53?.();
     }finally{painting.delete(card);}
   }
   function render(card){if(!full(card)||!card._hass?.user?.id||!card.shadowRoot)return false;client(card).update(card._build1SelectionV53||{period:options(card).period_default||'day',mode:'full'});paint(card);return true;}
@@ -6468,7 +6469,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
         host._dashboardPlacementV53?.close(); host._energyStatisticsV110?.close(); syncPlacement(host);
       });
     }
-    const parent = root.querySelector('.card-container,.panel-root,.card') || root;
+    const parent = root.querySelector('.card-container,.panel-root,.card') || root.querySelector('ha-card') || root;
     let footer = root.querySelector('[data-energy-dashboard-footer]');
     if (!footer) {
       footer = document.createElement('footer'); footer.dataset.energyDashboardFooter = '';
