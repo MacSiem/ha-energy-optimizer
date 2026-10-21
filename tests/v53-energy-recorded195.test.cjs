@@ -9,7 +9,7 @@ const render=m=>new JSDOM(createEnergyBuild1ViewV53({format:createFormatUi('en',
 test('known energy without a price classification is visible in the consumption color',()=>{
  const m=fixture();m.zones=[{id:'flat',label:'Single zone',kwh:24,share:1}];m.tariff.zones=[{id:'flat',label:'Single zone',rate:.5}];m.hourly=[{start:m.period.start,kwh:1,zone:'flat'}];
  const d=render(m);try{const bar=d.window.document.querySelector('.chart-stack i');assert.match(bar.getAttribute('style'),/var\(--hat-primary\)/);assert.doesNotMatch(bar.getAttribute('style'),/hat-zone-cheap|hat-zone-exp|hat-text-3/);
- assert.match(d.window.document.querySelectorAll('.k')[2].textContent,/Single price zone/);assert.doesNotMatch(d.window.document.querySelectorAll('.k')[2].textContent,/No data|cheap/);
+ const tile=d.window.document.querySelectorAll('.k')[2];assert.match(tile.textContent,/Single price zone/);assert.doesNotMatch(tile.querySelector('.v').textContent,/No data|cheap/);assert.match(tile.querySelector('.n').textContent,/No cheap \/ expensive split/);
  }finally{d.window.close();}
 });
 test('partial source readings appear with their own label and hatch while the qualified balance remains separate',()=>{
