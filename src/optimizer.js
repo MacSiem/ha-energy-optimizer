@@ -6244,9 +6244,10 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},onScheduleChang
     if(!['day','week','month','year'].includes(next.period)||!['full','so_far'].includes(next.mode||'full'))throw Error('invalid_energy_selection');
     if(next.date!==undefined&&(!/^\d{4}-\d{2}-\d{2}$/.test(next.date)||!Number.isFinite(Date.parse(next.date))||new Date(next.date).toISOString().slice(0,10)!==next.date))throw Error('invalid_energy_date');
     const s={period:next.period,mode:next.mode||'full',...(next.date?{date:next.date}:{})};
-    if(!enabled){enabled=true;authority=guard.subscribe(()=>invalidate());wire=guard.subscribeWire(()=>queueMicrotask(()=>pump()));}
+    const starting=!enabled;
+    if(starting){enabled=true;authority=guard.subscribe(()=>invalidate());wire=guard.subscribeWire(()=>queueMicrotask(()=>pump()));}
     const changed=JSON.stringify(s)!==JSON.stringify(selection);selection=s;
-    const was=identity;observe();if(changed){clear();pending=true;}else if(!was)pending=available();
+    const was=identity;observe();if(changed){clear();pending=true;}else if(starting||!was)pending=available();
     if(pending)void pump();
   }
   async function preview(){
