@@ -36,3 +36,12 @@ test('capabilities precede subscribe and grants are reconfirmed before the first
 test('a confirmed schema with revoked access remains a denied new backend, never legacy',async()=>{const h=harness();h.caps.capabilities.energy_analysis.read=false;h.caps.capabilities.energy_reports.read=false;h.client.update();await tick();assert.equal(h.client.state().supported,true);assert.equal(h.client.state().status,'denied');assert.equal(h.subscriptions(),0);h.client.stop();});
 
 test('confirmed old protocol is reused across display preferences without private or duplicate reads',async()=>{const h=harness();delete h.caps.energy_model_schema;h.client.update();await tick();const count=h.calls.length;h.card._hass.locale.language='pl';h.client.update();await tick();assert.equal(h.client.state().status,'legacy');assert.equal(h.calls.length,count);h.card._hass.connection={...h.card._hass.connection};h.client.update();await tick();assert.equal(h.calls.length,count+1);h.client.stop();});
+
+
+test('reading idle state before enable or after stop does not suppress the next explicit update',async()=>{
+ const h=harness();try{
+  assert.equal(h.client.state().status,'idle');h.client.update();await tick();assert.equal(h.client.state().status,'ready');
+  h.client.stop();assert.equal(h.client.state().model,null);const before=h.calls.length;
+  h.client.update();await tick();assert.equal(h.client.state().status,'ready');assert.equal(h.calls.length,before+4);
+ }finally{h.client.stop();}
+});
