@@ -7941,7 +7941,8 @@ function createEnergyBuild1ViewV53({format, language = format?.language || 'en'}
     const total=m.totals||{},current=o.current||{},period=m.period?.kind;
     const cheapZones=list(m.zones).filter(z=>zoneClass(z)==='cheap'),cheap=cheapZones.length===1?cheapZones[0]:null;
     const comparisons=list(m.comparisons),previous=comparisons.find(r=>['previous_day','previous'].includes(r.key));
-    const comparison=r=>r.coverage_ok!==true?esc(t('Insufficient coverage for comparison','Za mało danych do porównania')):`${energy(r.delta_kwh,period)}${partial?'':` (${percent(r.delta_pct,'change')})`}`;
+    const enoughCurrent=!partial||valid(m.coverage?.measured_hours)&&valid(m.coverage?.expected_hours)&&Number(m.coverage.expected_hours)>0&&Number(m.coverage.measured_hours)>=.9*Number(m.coverage.expected_hours);
+    const comparison=r=>!enoughCurrent||r.coverage_ok!==true?esc(t('Insufficient coverage for comparison','Za mało danych do porównania')):`${energy(r.delta_kwh,period)}${partial?'':` (${percent(r.delta_pct,'change')})`}`;
     const top=list(m.devices).filter(r=>valid(r.kwh)).sort((a,b)=>Number(b.kwh)-Number(a.kwh)||String(a.id).localeCompare(String(b.id))).slice(0,3);
     const single=list(m.tariff?.zones).length===1&&!zoneClass(m.tariff.zones[0]);
     const zoneKpi=single?kpi(t('Single price zone','Jedna strefa cenowa'),esc(m.tariff.zones[0].label||t('One rate','Jedna stawka')),t('No cheap / expensive split','Bez podziału na tanią i drogą strefę')):kpi(t('In the cheap zone','W taniej strefie'),partial?unknown():ratio(cheap?.share),cheap?energy(cheap.kwh,period):t('Zone classification unavailable','Brak klasyfikacji stref'));
