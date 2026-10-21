@@ -52,7 +52,7 @@ function createEnergyCardOptionsV5({ Card, Editor, name, title, tabs, labels }) 
         host._dashboardPlacementV53?.close(); host._energyStatisticsV110?.close(); syncPlacement(host);
       });
     }
-    const parent = root.querySelector('.card-container,.panel-root,.card') || root;
+    const parent = root.querySelector('.card-container,.panel-root,.card') || root.querySelector('ha-card') || root;
     let footer = root.querySelector('[data-energy-dashboard-footer]');
     if (!footer) {
       footer = document.createElement('footer'); footer.dataset.energyDashboardFooter = '';
