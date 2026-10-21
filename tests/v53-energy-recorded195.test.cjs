@@ -43,5 +43,5 @@ test('a missing source with a real zero remains incomplete in a daily bar and Da
 });
 test('household balance wording also covers a current short interval with all sources',()=>{
  const m=fixture();m.coverage={complete:false,measured_hours:23,expected_hours:24};m.hourly=[{start:m.period.start,kwh:.22,recorded_kwh:.22,partial:true,measured_sources:2,expected_sources:2}];
- const d=render(m);try{const root=d.window.document;assert.match(root.querySelector('.k .l').textContent,/Household balance/);assert.doesNotMatch(root.querySelector('.notice').textContent,/complete household hours/);}finally{d.window.close();}
+ const d=render(m);try{const root=d.window.document;assert.match(root.querySelector('.k .l').textContent,/Household balance/);assert.doesNotMatch(root.textContent,/complete household hours/);}finally{d.window.close();}
 });
