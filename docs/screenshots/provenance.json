@@ -1,8 +1,34 @@
 {
-  "runtime_candidate": "123a527e72d9231d030deef6707b6ed0f3bea85f",
-  "runtime_bundle_sha256": "14e81ebac66bfa7f486da14b008e48729bc0e4e8431d09decfd5f2fe1cb48e46",
-  "backend_candidate": "337bd1102e747e968f27ce98791edd3a743d677b",
+  "runtime_candidate": "d04c07df05a3e087a1ab75491145f86428e6382a",
+  "runtime_bundle_sha256": "a1a18335085583b1ef80d51795f37884369d9d8c8d727588fc6c3bf9eccf94b1",
+  "backend_candidate": "b78dde367ca770cf8e3328a5285fcc84ff334cd5",
   "images": [
+    {
+      "file": "known-readings-en-light-1280.jpg",
+      "sha256": "12aa05de909eee81e61a83f4c35eac6a202ecda58d8da392c237324428ca8833",
+      "pixels": [
+        1280,
+        900
+      ],
+      "captured_at": "2026-10-21",
+      "source_candidate": "7c34cf4a83963f3a33964beb0f1bd427c7f685aa",
+      "backend_candidate": "b78dde367ca770cf8e3328a5285fcc84ff334cd5",
+      "capture": "partial-en-light-1280.png",
+      "qualification": "Unedited actual native HA screenshot, English/Light, personally inspected; exact current bundle a1a183 and retained synthetic Recorder. Known92.6/complete8.6/2of24hours/22hatched; missing tariff stays unknown. d04 changes only test clock; runtime identical. Not actual browser200percent zoom."
+    },
+    {
+      "file": "known-readings-pl-dark-390.jpg",
+      "sha256": "a6cfbbfc446559a617d70da6a235b12a129e3097b7d4e6e5ccfff80d70db4a5c",
+      "pixels": [
+        390,
+        900
+      ],
+      "captured_at": "2026-10-21",
+      "source_candidate": "7c34cf4a83963f3a33964beb0f1bd427c7f685aa",
+      "backend_candidate": "b78dde367ca770cf8e3328a5285fcc84ff334cd5",
+      "capture": "partial-pl-dark-390.png",
+      "qualification": "Unedited actual native HA screenshot, Polish/Dark, personally inspected; exact current bundle a1a183 and retained synthetic Recorder. Known92.6/complete8.6/2of24hours/22hatched; missing tariff stays unknown. d04 changes only test clock; runtime identical. Not actual browser200percent zoom."
+    },
     {
       "file": "optimizer-mobile-light.jpg",
       "sha256": "49b41b882bc44360a23e58a3ce3909b4f62fa25c224e36e8572da056ce349b03",
@@ -203,7 +229,7 @@
     }
   ],
   "data": "Controlled synthetic Recorder Alpha/Beta, sample EUR gross tariff, no household data or real recipient.",
-  "windows": "Optimizer/Insights today18Oct2026 Europe/Warsaw00:00–10:00:37.20kWh/10completedhours. Optimizer usage cost34.50EUR includes energy25.20EUR and variablefees9.30EUR. Email rolling24h:90.6kWh/48of48sourcehours/103.20EUR energy cost. Weekly actual mail5–12Oct:634.20kWh/336sourcehours/880.95EUR usagecost. Fixed monthly7EUR remains separate. Different windows and cost components are intentional.",
+  "windows": "Optimizer/Insights today18Oct2026 Europe/Warsaw00:00\u201310:00:37.20kWh/10completedhours. Optimizer usage cost34.50EUR includes energy25.20EUR and variablefees9.30EUR. Email rolling24h:90.6kWh/48of48sourcehours/103.20EUR energy cost. Weekly actual mail5\u201312Oct:634.20kWh/336sourcehours/880.95EUR usagecost. Fixed monthly7EUR remains separate. Different windows and cost components are intentional.",
   "email_preview": "Current Polish weekly actual backend HTML, HA languagepl/Warsaw, readable local header, chart and comparison dates. Preview-only, no Send.",
   "capture_limit": "Optimizer native92 captures CSS390x844; older compatibility mobile images CSS390x674. Native browser200percent is separate. All images retain original JPEG bytes without crop/retouch/scaling/compositing. This partial image set does not qualify the whole W22 or mail-client matrix.",
   "compact": "Three compact cards in Masonry after actual Polish visual-editor saves; N/A reflects a missing new measured hour. Same frontend989, backend source84e; later backend0869 changes mail dates only, without compact/tariff engine changes.",

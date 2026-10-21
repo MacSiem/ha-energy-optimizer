@@ -180,6 +180,15 @@ confirm inbox delivery; an occupied send is never automatically retried.
 
 ## Screenshots
 
+The 4.0.1 overview retains known readings when one configured meter is missing. These native Home Assistant captures use the same synthetic day: **92.60 kWh known source readings**, **8.6 kWh across 2 complete household hours** and 22 incomplete hourly bars. Hatching identifies the partial readings; missing prices and comparisons remain unavailable.
+
+| Polish · Dark · 390 px | English · Light · 1280 px |
+| --- | --- |
+| ![Partial source readings in the Polish mobile overview](docs/screenshots/known-readings-pl-dark-390.jpg) | ![The same incomplete source measurements in the English desktop overview](docs/screenshots/known-readings-en-light-1280.jpg) |
+
+The figures are different measurement scopes, not competing estimates of a complete household total. The Data view retains both columns. These are synthetic HA browser views; no household readings or recipients are included.
+
+
 The current full cards share **Overview / Breakdown / Costs / Reports**, with dashboard placement and opt-in cost statistics in each footer:
 
 ![Current full Optimizer, Insights and Email cards in actual Home Assistant Light, using synthetic measurements](docs/screenshots/full-family-current-en-light.png)
