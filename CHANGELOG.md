@@ -2,6 +2,8 @@
 
 ## 4.0.1 (2026-10-21)
 
+- Preserve measured historical tariff classifications, full numeric Data precision and incomplete daily coverage even when a missing-source interval has a real zero reading. Clarify that the household balance uses intervals covered by every source, including an available current short interval.
+
 - Show known source readings and incomplete chart bars separately from the complete-hour household balance. Make unclassified consumption visible without claiming it is cheap energy, and explain single-price-zone tariffs.
 - List the actual largest consumers for the selected period independently of stable identity colors. Preserve coverage checks and withhold percentages for partial periods.
 

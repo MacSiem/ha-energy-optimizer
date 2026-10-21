@@ -1,33 +1,33 @@
 {
-  "runtime_candidate": "d04c07df05a3e087a1ab75491145f86428e6382a",
-  "runtime_bundle_sha256": "a1a18335085583b1ef80d51795f37884369d9d8c8d727588fc6c3bf9eccf94b1",
+  "runtime_candidate": "41b20309fc9bf5c847e2194f2fac3b4f5f3efc03",
+  "runtime_bundle_sha256": "21f2d81f32f9eca9065cd8d6ccc00f6e0311e1e876e6c62dd9f5ad9e9d6eae54",
   "backend_candidate": "b78dde367ca770cf8e3328a5285fcc84ff334cd5",
   "images": [
     {
       "file": "known-readings-en-light-1280.jpg",
-      "sha256": "12aa05de909eee81e61a83f4c35eac6a202ecda58d8da392c237324428ca8833",
+      "sha256": "4d05423a073de001709537b112502f7ef7db0e580b86d9d66a34a0a7618aae74",
       "pixels": [
         1280,
         900
       ],
       "captured_at": "2026-10-21",
-      "source_candidate": "7c34cf4a83963f3a33964beb0f1bd427c7f685aa",
+      "source_candidate": "41b20309fc9bf5c847e2194f2fac3b4f5f3efc03",
       "backend_candidate": "b78dde367ca770cf8e3328a5285fcc84ff334cd5",
-      "capture": "partial-en-light-1280.png",
-      "qualification": "Unedited actual native HA screenshot, English/Light, personally inspected; exact current bundle a1a183 and retained synthetic Recorder. Known92.6/complete8.6/2of24hours/22hatched; missing tariff stays unknown. d04 changes only test clock; runtime identical. Not actual browser200percent zoom."
+      "capture": "native196/partial-en-light-1280.jpg",
+      "qualification": "Unedited actual native HA screenshot, personally inspected; actual CSS viewport matches pixels. Exact current bundle21f2d81/2382598B and retained synthetic Recorder. Known92.6/householdbalance8.6/2of24hours/22hatched; missing tariff remains unknown. Native Data retains numeric producer precision. No household data. Not actual browser200percent zoom."
     },
     {
       "file": "known-readings-pl-dark-390.jpg",
-      "sha256": "a6cfbbfc446559a617d70da6a235b12a129e3097b7d4e6e5ccfff80d70db4a5c",
+      "sha256": "60a2e8f6f76f6381557dcf5cdeffae643bc09e19b149c981b0b5470f1de0de1f",
       "pixels": [
         390,
         900
       ],
       "captured_at": "2026-10-21",
-      "source_candidate": "7c34cf4a83963f3a33964beb0f1bd427c7f685aa",
+      "source_candidate": "41b20309fc9bf5c847e2194f2fac3b4f5f3efc03",
       "backend_candidate": "b78dde367ca770cf8e3328a5285fcc84ff334cd5",
-      "capture": "partial-pl-dark-390.png",
-      "qualification": "Unedited actual native HA screenshot, Polish/Dark, personally inspected; exact current bundle a1a183 and retained synthetic Recorder. Known92.6/complete8.6/2of24hours/22hatched; missing tariff stays unknown. d04 changes only test clock; runtime identical. Not actual browser200percent zoom."
+      "capture": "native196/partial-pl-dark-390.jpg",
+      "qualification": "Unedited actual native HA screenshot, personally inspected; actual CSS viewport matches pixels. Exact current bundle21f2d81/2382598B and retained synthetic Recorder. Known92.6/householdbalance8.6/2of24hours/22hatched; missing tariff remains unknown. Native Data retains numeric producer precision. No household data. Not actual browser200percent zoom."
     },
     {
       "file": "optimizer-mobile-light.jpg",
