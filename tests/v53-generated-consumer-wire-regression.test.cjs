@@ -84,6 +84,10 @@ test('three native card startups do not saturate the four-slot Recorder admissio
   assert.deepEqual(cards.map(c=>c._build1ClientV53?.state().status),['ready','ready','ready'],JSON.stringify({calls:calls.map(q=>q.type),states:cards.map(c=>c._build1ClientV53?.state())}));
   assert.equal(calls.filter(q=>/preview_energy_report|energy_analysis$/.test(q.type)).length,0,'schema model replaces obsolete automatic analysis and three eager mail previews');
   assert.ok(maximum<=3);
+  for(const c of cards){
+   assert.ok(c.shadowRoot.querySelector('[data-energy-dashboard-add]'),'new model preserves native Add entry');
+   assert.ok(c.shadowRoot.querySelector('[data-energy-statistics-open]'),'new model preserves native Cost statistics entry');
+  }
  }finally{held.splice(0).forEach(r=>r());for(const c of cards){c.remove();c._tariffHostController?.backend.invalidate();c._tariffHostController?.guard.dispose();}dom.window.close();}
 });
 
