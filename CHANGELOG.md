@@ -2,6 +2,9 @@
 
 ## 4.0.0 (Unreleased)
 
+- Start the negotiated model without obsolete automatic analysis or mail previews filling the Recorder queue. Preserve legacy startup on older backends and resume correctly after observing or stopping an idle client.
+- Keep the native Add to dashboard and Cost statistics controls connected after model redraws, including their existing access, dialog and Undo protections.
+
 - Keep the accepted result of a manual report action visible across its own secured refresh, while preserving fresh permission checks and unconfirmed outcomes without replay. Refresh schedules in other active report cards after an authorized change; retain local drafts and locked unknown writes.
 - Fit narrow Compact Energy cards into their bounded Sections height with complete tariff context, comparisons and legends, readable units and compact hourly axes. Retain full date/offset details and scroll access for unusually long content.
 

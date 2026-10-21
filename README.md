@@ -10,17 +10,17 @@ Part of the [HA Tools](https://github.com/MacSiem/ha-tools-panel) collection for
 
 ## Start here
 
-1. Select your grid-import meters in Home Assistant’s **Energy Dashboard**. Add the card from the dashboard’s **Add card** picker; no card YAML is required for the default view.
-2. Install and add **HA Tools Email 2.4+** for the current shared analysis and report APIs. SMTP is optional. Choose a period in **Overview**, **Tariff costs** or **Compare**. **Date and comparison** contains the calendar date and baseline choices.
-3. If HA Energy already records your grid-import cost, the cards and reports show **Cost recorded in HA** automatically. An administrator can save a tariff under **Tariff settings** to calculate its energy charges, variable charges and fixed fees. Unavailable values stay unavailable. Open **Data** or the named details for original precision and measurement bounds.
-4. In **Energy Email → Preview**, choose **Day / Week / Month / Year**, an optional date and comparison, then press **Read report**. Read it inside HA or explicitly download HTML, text or CSV. You do not need an email account or recipient.
-5. To receive email, configure SMTP under **Settings → Devices & services → HA Tools Email → Configure**, then use **Send Now** or explicitly save a **Schedule**. Reading a report never sends mail or enables a schedule. Report access follows the administrator’s saved policy; existing defaults remain until explicitly changed.
+1. Select your grid-import meters in Home Assistant’s **Energy Dashboard**. Install and add **HA Tools Email 2.4+**, then add an Energy card from the dashboard’s **Add card** picker. The default Compact view needs no card YAML; open it to reach the full view. SMTP is optional.
+2. The full view has **Overview / Breakdown / Costs / Reports**. Choose **Day / Week / Month / Year** and use the period arrows for history. All three cards read the same server model. **More sections** retains the supported advanced views and configuration.
+3. If HA Energy already records grid-import costs, the report keeps that recorded amount and its coverage. To calculate tariff components, an administrator can review a tariff under **Costs**. Missing values stay unknown. **Data** keeps the original precision and measurement bounds.
+4. In **Reports**, choose **Load preview** to read the report inside HA. **Phone / Desktop** and **Light / Dark** change the preview locally. No email account or recipient is required to read it.
+5. A new report defaults to **HA notification**. Review the target and explicitly confirm a manual action or save a schedule. To send email, first configure SMTP under **Settings → Devices & services → HA Tools Email → Configure**, then choose the email channel. Reading a report never sends it or enables a schedule. Home Assistant acceptance does not prove phone or inbox delivery; an unconfirmed handoff is never automatically repeated.
 
-The current schema-2 views share server-owned measurements, calendar periods and tariff calculations across all three cards. Overview contains consumption, total household cost, cheap-zone share and the highest measured hour. **Patterns** explores measured 7/30-day data. **Tariff costs** separates rates, usage components, fixed fees and group costs. **Compare** uses matching server baselines. Unmeasured energy is separate from devices with no room; group costs exclude household fixed fees.
+The current views share server-owned calendar measurements, tariff versions and cost calculations. Breakdown separates measured devices, rooms and unmeasured energy; household fixed fees stay separate from group usage. A partial import and independently measured device cost do not establish the cost of their residual. Supported older analysis and mail-preview views are documented below with their own period and access rules.
 
 Dates follow your HA profile’s display settings and your device timezone by default. **Time zone → Server** explicitly selects the HA zone. **Time format → System** and **Date format → Use system locale** use your device preferences. Changing presentation leaves measurement periods, tariff clocks and costs unchanged.
 
-On phones, consumption and cost are the primary readings; tariff share and peak time remain in a compact secondary row. Swipe the tab row or use the keyboard to reach every section. Very narrow cards provide a named view selector. **Help** remains available beside the Optimizer title, and configured power-sensor errors stay visible.
+On phones, consumption and cost are the primary readings; tariff share and peak time remain in a compact secondary row. Swipe the tab row or use the keyboard to reach every section. Very narrow cards provide a named view selector. The supported advanced views retain their help and optional power-sensor controls.
 
 The sections below also describe supported older integration APIs. Only an explicit unsupported-command response activates the compatible Recorder view; access or network errors do not silently switch to another data source. Legacy rolling windows and mail previews retain their documented limits.
 
@@ -131,14 +131,14 @@ Late meter readings are retried for their original hour, including across a rest
 
 These native Recorder statistics can be read by **all signed-in Home Assistant users**. Disabling sharing stops future writes; it leaves existing statistics and exported copies available. The feature is off until enabled. It does not enable notifications or send email. For a native seven-day chart, add Home Assistant's **Statistics graph** card, select the published cost series by their catalog names, choose hourly changes and seven days, and keep different currencies separate. Do not add a household zone total to its room breakdown: they describe the same cost from different views.
 
-### Enable the five Energy entities
+### Enable the seven Energy entities
 
 1. Install **HA Tools Email 2.4.0+** in HACS and add **HA Tools Email** under **Settings → Devices & services → Add integration**. SMTP is unnecessary for energy values.
 2. Configure your grid-import source in **Energy Dashboard** and review a shared tariff in the card's **Tariff settings**. An administrator saves it with confirmed readback.
 3. For zone and next-cheap values, choose each zone's optional **Zone type**: Cheap, Expensive or Mixed. Missing classification means unknown; names or low prices never imply Cheap. Dynamic intervals accept the same optional `classification` field.
-4. Open the Energy device under the HA Tools Email integration to find tariff zone, current usage price, cheap-zone binary state, next cheap start and cost today.
+4. Open the Energy device under the HA Tools Email integration to find tariff zone, current usage price, cheap-zone binary state, next cheap start, usage cost today, grid import today and cheap-energy share today.
 
-The entities and all compact cards show the persisted shared tariff. A card-owned tariff can differ and is used only by that card's view. The primary current price and today cost include energy plus variable fees, in the tariff's currency. Missing variable fees leave that combined amount unavailable; known energy-only cost stays separate in Tariff costs. Fixed monthly fees are never spread over a day. Today covers HA-local midnight to the last completed Recorder hour. Unknown values are unavailable, never measured zero. These entities do not enable notifications by themselves.
+The entities and all compact cards show the persisted shared tariff. A card-owned tariff can differ and is used only by that card's view. The primary current price and today cost include energy plus variable fees, in the tariff's currency. Missing variable fees leave that combined amount unavailable; known energy-only cost stays separate in Tariff costs. These entities exclude monthly fixed fees; reports show household fixed fees separately. The daily energy, usage-cost and cheap-share entities combine completed five-minute Recorder measurements with non-overlapping full hours, using a common HA-local cutoff. Unknown values are unavailable, never measured zero. These entities do not enable notifications by themselves.
 
 ### Server calendars and send history
 
@@ -178,6 +178,15 @@ confirm inbox delivery; an occupied send is never automatically retried.
 
 ## Screenshots
 
+The narrow Compact view retains its tariff context, comparison, hourly axis and complete legend in a 183 px Sections column:
+
+![Actual narrow Compact cards in English and Home Assistant Dark, with measured 12.0 kWh and 7.20 EUR](docs/screenshots/compact-narrow-en-dark.png)
+
+This unedited native capture uses synthetic data on HA 2026.9.4. Unknown comparisons and report history remain explicit. [Capture provenance](docs/screenshots/provenance.json) records each source version and the scope retained by later changes.
+
+### Earlier analysis and compatibility views
+
+
 The overview explains measured consumption using the selected comparable baseline. Unknown comparisons stay explicit; ordinary peak times follow your clock preference, with offsets retained for repeated DST hours or a different display zone.
 
 ![Current Polish dark overview: 250 kWh, previous-period change 0, cost 247 EUR and peak at 18:00](docs/screenshots/overview-comparison-pl-dark.png)
@@ -214,7 +223,7 @@ These current simple views use the shared tariff book on 20 October 2026. The Po
 |---|---|
 | ![Server-composed Polish weekly mail in Phone/Dark preview; no message sent](docs/screenshots/email-polish-preview-dark.jpg) | ![Three compact cards after Polish visual-editor saves; missing data stays N/A](docs/screenshots/compact-masonry-pl-dark.jpg) |
 
-Optimizer captures show the current schema-2 view at 390 × 844 px: the complete
+These earlier Optimizer captures show the schema-2 view at 390 × 844 px: the complete
 10 October 2026 measurement day, 250 kWh, total period cost 247 EUR and 23.2%
 cheap-zone share. The total includes 221 EUR energy, 25 EUR variable charges and
 1 EUR period fixed fee. The measured peak is 22 kWh at 18:00 Europe/Warsaw.

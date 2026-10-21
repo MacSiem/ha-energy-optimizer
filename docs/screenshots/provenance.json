@@ -171,10 +171,23 @@
       "backend_candidate": "6b7ebafb872fcbb354253970c92fdf09f38a755d",
       "capture": "optimizer-day10-pl390-dark.png",
       "qualification": "Unedited native HA Core2026.9.4 capture, synthetic Recorder dayOct10 250kWh247EUR, previous full-period delta0, effective0.99EUR/kWh, highest18:00 without redundant offset. PL390Dark no horizontal overflow. Backend337 changes mail presentation only; overview facts/view unchanged. No physical phone or delivery claim."
+    },
+    {
+      "file": "compact-narrow-en-dark.png",
+      "sha256": "863bb572839dedf21c231712aa2d37399b92cadb9e8629e20d3183f1e32e22bd",
+      "pixels": [
+        65536,
+        4292542531
+      ],
+      "captured_at": "2026-10-21",
+      "source_candidate": "40a7ea10b2abece28896e66d8fc3afa2c185f384",
+      "backend_candidate": "001f986962840d4630b7cf8c9609871bae2e80c7",
+      "capture": "native167/narrow-en24-dark-390.png",
+      "qualification": "Unedited actual HA2026.9.4 capture, viewport390, English/24-hour, HA Dark. Two Energy Compact cards183px wide and225px high, complete tariff/comparison/axis/legend, minimum font12 and actions44. Synthetic12kWh/7.20EUR; unknown comparisons and Email history intentional. Later startup and full-view footer changes leave this unexpanded Compact markup and data unchanged."
     }
   ],
   "data": "Controlled synthetic Recorder Alpha/Beta, sample EUR gross tariff, no household data or real recipient.",
-  "windows": "Optimizer/Insights today18Oct2026 Europe/Warsaw00:00\u201310:00:37.20kWh/10completedhours. Optimizer usage cost34.50EUR includes energy25.20EUR and variablefees9.30EUR. Email rolling24h:90.6kWh/48of48sourcehours/103.20EUR energy cost. Weekly actual mail5\u201312Oct:634.20kWh/336sourcehours/880.95EUR usagecost. Fixed monthly7EUR remains separate. Different windows and cost components are intentional.",
+  "windows": "Optimizer/Insights today18Oct2026 Europe/Warsaw00:00–10:00:37.20kWh/10completedhours. Optimizer usage cost34.50EUR includes energy25.20EUR and variablefees9.30EUR. Email rolling24h:90.6kWh/48of48sourcehours/103.20EUR energy cost. Weekly actual mail5–12Oct:634.20kWh/336sourcehours/880.95EUR usagecost. Fixed monthly7EUR remains separate. Different windows and cost components are intentional.",
   "email_preview": "Current Polish weekly actual backend HTML, HA languagepl/Warsaw, readable local header, chart and comparison dates. Preview-only, no Send.",
   "capture_limit": "Optimizer native92 captures CSS390x844; older compatibility mobile images CSS390x674. Native browser200percent is separate. All images retain original JPEG bytes without crop/retouch/scaling/compositing. This partial image set does not qualify the whole W22 or mail-client matrix.",
   "compact": "Three compact cards in Masonry after actual Polish visual-editor saves; N/A reflects a missing new measured hour. Same frontend989, backend source84e; later backend0869 changes mail dates only, without compact/tariff engine changes.",
