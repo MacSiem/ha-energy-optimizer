@@ -1,4 +1,4 @@
-// HA Energy Optimizer Bundle v4.0.0
+// HA Energy Optimizer Bundle v4.0.1
 // HTML escape helper — wrap any user-derived string before interpolation into innerHTML.
 const _esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 

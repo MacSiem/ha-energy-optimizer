@@ -1,6 +1,6 @@
 # Changelog — Energy Optimizer
 
-## 4.0.0 (Unreleased)
+## 4.0.0 (2026-10-21)
 
 - Start the negotiated model without obsolete automatic analysis or mail previews filling the Recorder queue. Preserve legacy startup on older backends and resume correctly after observing or stopping an idle client.
 - Keep the native Add to dashboard and Cost statistics controls connected after model redraws, including their existing access, dialog and Undo protections.
