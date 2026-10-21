@@ -178,9 +178,15 @@ confirm inbox delivery; an occupied send is never automatically retried.
 
 ## Screenshots
 
+The current full cards share **Overview / Breakdown / Costs / Reports**, with dashboard placement and opt-in cost statistics in each footer:
+
+![Current full Optimizer, Insights and Email cards in actual Home Assistant Light, using synthetic measurements](docs/screenshots/full-family-current-en-light.png)
+
+This actual HACS capture keeps incomplete measurements and unknown values visible. Opening the footer dialogs does not add a card or publish statistics.
+
 The narrow Compact view retains its tariff context, comparison, hourly axis and complete legend in a 183 px Sections column:
 
-![Actual narrow Compact cards in English and Home Assistant Dark, with measured 12.0 kWh and 7.20 EUR](docs/screenshots/compact-narrow-en-dark.png)
+![Actual narrow Compact cards in English and Home Assistant Dark, with measured 12.0 kWh and 7.20 EUR](docs/screenshots/compact-narrow-en-dark.jpg)
 
 This unedited native capture uses synthetic data on HA 2026.9.4. Unknown comparisons and report history remain explicit. [Capture provenance](docs/screenshots/provenance.json) records each source version and the scope retained by later changes.
 

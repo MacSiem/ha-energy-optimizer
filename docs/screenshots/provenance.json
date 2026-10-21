@@ -173,17 +173,33 @@
       "qualification": "Unedited native HA Core2026.9.4 capture, synthetic Recorder dayOct10 250kWh247EUR, previous full-period delta0, effective0.99EUR/kWh, highest18:00 without redundant offset. PL390Dark no horizontal overflow. Backend337 changes mail presentation only; overview facts/view unchanged. No physical phone or delivery claim."
     },
     {
-      "file": "compact-narrow-en-dark.png",
+      "file": "compact-narrow-en-dark.jpg",
       "sha256": "863bb572839dedf21c231712aa2d37399b92cadb9e8629e20d3183f1e32e22bd",
       "pixels": [
-        65536,
-        4292542531
+        390,
+        1100
       ],
       "captured_at": "2026-10-21",
       "source_candidate": "40a7ea10b2abece28896e66d8fc3afa2c185f384",
       "backend_candidate": "001f986962840d4630b7cf8c9609871bae2e80c7",
       "capture": "native167/narrow-en24-dark-390.png",
-      "qualification": "Unedited actual HA2026.9.4 capture, viewport390, English/24-hour, HA Dark. Two Energy Compact cards183px wide and225px high, complete tariff/comparison/axis/legend, minimum font12 and actions44. Synthetic12kWh/7.20EUR; unknown comparisons and Email history intentional. Later startup and full-view footer changes leave this unexpanded Compact markup and data unchanged."
+      "qualification": "Unedited actual HA2026.9.4 capture, viewport390, English/24-hour, HA Dark. Two Energy Compact cards183px wide and225px high, complete tariff/comparison/axis/legend, minimum font12 and actions44. Synthetic12kWh/7.20EUR; unknown comparisons and Email history intentional. Later startup and full-view footer changes leave this unexpanded Compact markup and data unchanged. Original screenshot bytes preserved; extension and dimensions corrected from the actual JPEG header.",
+      "format": "JPEG"
+    },
+    {
+      "file": "full-family-current-en-light.png",
+      "sha256": "9a28d9a6a5c07fd2737692df499830ac54fd7076aaa20c58cccc428898cb27cf",
+      "pixels": [
+        1280,
+        2200
+      ],
+      "format": "PNG",
+      "captured_at": "2026-10-21",
+      "source_candidate": "4ad23115e32e62852fee981382302c939534e476",
+      "backend_candidate": "b13fc333aeb4a89d9f1ecc8ef7c443fdebdebaf9",
+      "runtime_bundle_sha256": "ed51ad4bf57be5e3edfe8eaad3a5ce5b454f72058d8a4f73666427fb239ca4f9",
+      "capture": "native169/full-family-current.png",
+      "qualification": "Unedited native HA2026.9.4, actual HACS pair and browser-served bundle SHA verified, English/System12h/Light, CSS1280x2200 DPR1. All three full cards retain Add to dashboard and Cost statistics after model paint and ordinary reentry. Actual statistics status/read/Close and placement dialog/Cancel checked; no enable, import, send or dashboard addition. Synthetic grid12kWh/7.20EUR; current gaps, unknown device costs and absent history remain explicit. Whole original HA restored and independently verified."
     }
   ],
   "data": "Controlled synthetic Recorder Alpha/Beta, sample EUR gross tariff, no household data or real recipient.",
@@ -208,5 +224,7 @@
   "current_simple_candidate": "42e4eb1c039932e5ff2b09bf4909373233373e9b",
   "current_simple_bundle_sha256": "31f7d6e7a258ccd820e144d3df13f18477f3dc1ee718af9b47d31744849c31f6",
   "current_native_cost_candidate": "07d9d4fd83bb6e2c27524db436afc557db56d8f7",
-  "current_native_cost_bundle_sha256": "c52c36f74f09c48114b943cfe844d0d4893471fbf2d350e28cf0d361fa6957f8"
+  "current_native_cost_bundle_sha256": "c52c36f74f09c48114b943cfe844d0d4893471fbf2d350e28cf0d361fa6957f8",
+  "current_build1_candidate": "4ad23115e32e62852fee981382302c939534e476",
+  "current_build1_bundle_sha256": "ed51ad4bf57be5e3edfe8eaad3a5ce5b454f72058d8a4f73666427fb239ca4f9"
 }
