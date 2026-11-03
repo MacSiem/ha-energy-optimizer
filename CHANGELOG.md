@@ -1,5 +1,9 @@
 # Changelog — Energy Optimizer
 
+## 4.0.2 (2026-11-03)
+
+- Clarify all-day tariff labels in Energy analysis and show known combined rates without presenting unknown distribution as zero.
+
 ## 4.0.1 (2026-10-21)
 
 - Preserve measured historical tariff classifications, full numeric Data precision and incomplete daily coverage even when a missing-source interval has a real zero reading. Clarify that the household balance uses intervals covered by every source, including an available current short interval.
