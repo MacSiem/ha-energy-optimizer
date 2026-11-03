@@ -310,7 +310,7 @@ createFormatUi.forHass = hass => {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=4d83bbba36d21503c91f09273ab39ec5cacb1b316b2de814d95b34a4f6a0613c
+      // HA_TARIFF_V3_START sha256=ae5c8bd677ff42e1f2a11b060e905618be8d9eeeb7a241b8408c71fc38adeff9
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -2773,7 +2773,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     ].map(([label,value])=>`${label}: ${amount(value)}`).join(' · ');
     const entries=proof.zones.filter(zone=>zone&&typeof zone.version_id==='string'&&typeof zone.zone_id==='string').map(zone=>{
       const rate=(snapshot.rates||[]).find(r=>r.version_id===zone.version_id);
-      const label=typeof zone.label==='string'&&zone.label&&zone.label!==zone.zone_id?zone.label:t('Unnamed tariff zone','Strefa taryfy bez nazwy');
+      const label=proofZoneTitle(zone,snapshot);
       const version=rate?`${t('Rates from','Stawki od')} ${date(rate.valid_from)}${rate.valid_to?' – '+date(rate.valid_to):''}`:t('Rate version unavailable','Wersja stawek niedostępna');
       const complete=proof.status==='ready'&&zone.complete===true;
       const value=complete?quantity(zone.kwh):`${t('Recorded','Zarejestrowano')}: ${quantity(zone.recorded_kwh)}`;
@@ -2872,7 +2872,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const title=`<h4>${esc(t('Energy by tariff zone','Energia według stref taryfy'))}</h4>`;
     const details=proof?zoneEntries(snapshot,snapshot.period_summary,{period:true}):null;
     const rows=proof?.zones.map(zone=>{
-      const ready=proof.status==='ready'&&zone.complete,label=zone.label&&zone.label!==zone.zone_id?zone.label:t('Unnamed tariff zone','Strefa taryfy bez nazwy');
+      const ready=proof.status==='ready'&&zone.complete,label=proofZoneTitle(zone,snapshot);
       return `<li data-analysis-period-zone style="border-inline-start:6px solid ${zoneColor(zone.version_id,zone.zone_id,snapshot)}"><strong>${esc(label)}</strong><span>${esc((ready?'':t('Recorded','Zarejestrowano')+': ')+quantity(ready?zone.kwh:zone.recorded_kwh))}</span><span>${esc(t('Usage cost','Koszt zużycia'))}: ${esc(money(ready?zone.usage_cost:null,proof.currency))}</span></li>`;
     }).join('')||'';
     const u=proof?.unattributed;
@@ -2915,7 +2915,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const proof=periodZoneProof({...snapshot,totals:{...snapshot.totals,measurement_complete:true},coverage:{...snapshot.coverage,complete:true},period_summary:{zone_breakdown:row.zone_breakdown}},frame);
     if(proof?.status!=='ready'||proof.zones.length!==1||!energyPartition(proof.zones.map(z=>z.kwh),row.kwh))return null;
     const zone=proof.zones[0];if(zone.measured_seconds!==row.measured_seconds)return null;
-    return {key:zone.version_id+'|'+zone.zone_id,label:zone.label,color:zoneColor(zone.version_id,zone.zone_id,snapshot)};
+    return {key:zone.version_id+'|'+zone.zone_id,label:proofZoneTitle(zone,snapshot),color:zoneColor(zone.version_id,zone.zone_id,snapshot)};
   };
   // Ratios only draw marks/labels. They never feed proof, prices, or money.
   const shareGeometry=(value,total)=>nonnegative(value)&&nonnegative(total)&&compare(total,'0')>0&&Number(total)>0?
@@ -3004,6 +3004,20 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     (rule.intervals || []).map(interval=>`${interval.from}–${interval.to}`).join(', '),
     rule.priority == null ? '' : `${t('priority','priorytet')} ${number(rule.priority)}`
   ].filter(Boolean).join(' · ');
+  const zoneTitle = (zone, profile={}) => {
+    const label = zone?.label || t('Unnamed zone','Strefa bez nazwy');
+    if (String(label).toLowerCase() !== 'flat') return label;
+    const allDay = Array.isArray(profile.zones) && profile.zones.length === 1 &&
+      profile.defaultZone === zone.id && !(profile.rules || []).length && !(profile.exceptions || []).length;
+    return allDay ? t('All-day','Całodobowa') : t('Standard zone','Strefa standardowa');
+  };
+  const proofZoneTitle = (zone, snapshot) => {
+    if (typeof zone?.label === 'string' && zone.label.toLowerCase() === 'flat') {
+      const rate = (snapshot?.rates || []).find(row=>row.version_id === zone.version_id);
+      return zoneTitle({id:zone.zone_id,label:zone.label}, rate?.profile || {});
+    }
+    return zone?.label || t('Unnamed tariff zone','Strefa taryfy bez nazwy');
+  };
   const ratesView = (snapshot,options={}) => {
     const total=snapshot.totals || {}, groups=snapshot.groups || {}, data=options.view==='data';
     const summaryMoney=(value,currency,signed=false)=>data?money(value,currency,signed):briefMoney(value,currency,signed);
@@ -3037,8 +3051,8 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
         <p class="analysis-rate76-meta">${esc(rate.currency || unknown())} · ${esc(basis(rate.price_basis))} · ${esc(profile.timezone || unknown())} · ${esc(clock)}</p>
         <ul class="analysis-rate76-rate-list">${zones.map(zone=>{
           const rules=[...(profile.rules || []).filter(rule=>rule.zone===zone.id).map(rule=>ruleText(rule)),...(profile.exceptions || []).filter(rule=>rule.zone===zone.id).map(rule=>t('Exception','Wyjątek')+': '+ruleText(rule))];
-          if(zone.id===profile.defaultZone)rules.push(t('Default outside matching rules','Domyślna poza pasującymi regułami'));
-          return `<li><strong>${esc(zone.label || t('Unnamed zone','Strefa bez nazwy'))}</strong><div class="analysis-rate76-schedule">${rules.length?rules.map(rule=>`<p>${esc(rule)}</p>`).join(''):esc(unknown())}</div><dl class="analysis-rate76-rate-values"><div><dt>${esc(legacy?t('Combined usage / kWh','Łączna stawka zużycia / kWh'):t('Energy / kWh','Energia / kWh'))}</dt><dd>${esc(summaryRate(zone.energyRate,rate.currency))}</dd></div><div><dt>${esc(t('Distribution / kWh','Dystrybucja / kWh'))}</dt><dd>${esc(legacy?unknown():summaryRate(zone.variableRate,rate.currency))}</dd></div><div><dt>${esc(t('Total / kWh','Razem / kWh'))}</dt><dd data-analysis-rate76-total="${esc(zone.id)}">${esc(summaryRate(combinedRates.get(zone.id),rate.currency))}</dd></div></dl></li>`;
+          if(zone.id===profile.defaultZone)rules.push(zones.length===1 && !(profile.rules || []).length && !(profile.exceptions || []).length ? t('All day','Całą dobę') : t('Default outside matching rules','Domyślna poza pasującymi regułami'));
+          return `<li><strong>${esc(zoneTitle(zone, profile))}</strong><div class="analysis-rate76-schedule">${rules.length?rules.map(rule=>`<p>${esc(rule)}</p>`).join(''):esc(unknown())}</div><dl class="analysis-rate76-rate-values"><div><dt>${esc(legacy?t('Combined usage / kWh','Łączna stawka zużycia / kWh'):t('Energy / kWh','Energia / kWh'))}</dt><dd>${esc(summaryRate(zone.energyRate,rate.currency))}</dd></div><div><dt>${esc(t('Distribution / kWh','Dystrybucja / kWh'))}</dt><dd>${esc(legacy?unknown():summaryRate(zone.variableRate,rate.currency))}</dd></div><div><dt>${esc(t('Total / kWh','Razem / kWh'))}</dt><dd data-analysis-rate76-total="${esc(zone.id)}">${esc(summaryRate(combinedRates.get(zone.id),rate.currency))}</dd></div></dl></li>`;
         }).join('')}</ul>
         ${!zones.length?`<p>${esc(unknown())}</p>`:''}
         ${dynamic.length?table(t('Dynamic rate intervals','Przedziały stawek dynamicznych'),[t('Period','Okres'),t('Energy / kWh','Energia / kWh'),t('Distribution / kWh','Dystrybucja / kWh')],dynamic,'class="analysis-rate76-table"'):''}
@@ -3046,7 +3060,7 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     }).join('');
     const versions=(snapshot.rates || []).map(rate=>{
       const profile=rate.profile || {},zones=profile.zones || [],label=id=>zones.find(zone=>zone.id===id)?.label || t('Unnamed zone','Strefa bez nazwy');
-      const rateRows=zones.map(zone=>[esc(zone.label || t('Unnamed zone','Strefa bez nazwy')),esc(money(zone.energyRate,rate.currency)),esc(money(zone.variableRate,rate.currency)),esc(zone.id === profile.defaultZone ? t('Default outside matching rules','Domyślna poza pasującymi regułami') : '')]);
+      const rateRows=zones.map(zone=>[esc(zoneTitle(zone, profile)),esc(money(zone.energyRate,rate.currency)),esc(rate.rate_semantics === 'legacy_combined' ? unknown() : money(zone.variableRate,rate.currency)),esc(zone.id === profile.defaultZone ? t('Default outside matching rules','Domyślna poza pasującymi regułami') : '')]);
       const ruleRows=[...(profile.rules || []).map(rule=>[esc(t('Rule','Reguła')),esc(label(rule.zone)),esc(ruleText(rule))]),...(profile.exceptions || []).map(rule=>[esc(t('Exception','Wyjątek')),esc(label(rule.zone)),esc(ruleText(rule))])];
       const dynamic=(profile.dynamic?.intervals || []).map(row=>[esc(`${dateTime(row.from)} – ${dateTime(row.to)}`),esc(money(row.energyRate,rate.currency)),esc(money(row.variableRate,rate.currency))]);
       const fees=Object.entries(feeLabels).filter(([key])=>Object.hasOwn(rate.fixed_monthly || {},key)).map(([key,label])=>[esc(label),`<span data-analysis-monthly="${key}">${esc(money(rate.fixed_monthly[key],rate.currency))}</span>`]);
@@ -3061,11 +3075,11 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
     const proof=periodZoneProof(snapshot,periodWindow(snapshot));
     const zoneReady=proof?.status==='ready'&&currencyKnown&&positive(total.usage_cost)&&proof.zones.every(zone=>zone.complete&&positive(zone.usage_cost)&&compare(zone.usage_cost,total.usage_cost)<=0);
     const zoneDetails=proof?zoneEntries(snapshot,snapshot.period_summary,{period:true}):null;
-    const zoneGraphic=!data&&zoneReady?`<div class="analysis-rate76-track" aria-hidden="true">${proof.zones.map(zone=>`<span data-analysis-rate76-bar style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)};width:${width(zone.usage_cost,Number(total.usage_cost))}%" title="${esc(zone.label+': '+summaryMoney(zone.usage_cost,proof.currency))}"></span>`).join('')}</div>`:'';
+    const zoneGraphic=!data&&zoneReady?`<div class="analysis-rate76-track" aria-hidden="true">${proof.zones.map(zone=>`<span data-analysis-rate76-bar style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)};width:${width(zone.usage_cost,Number(total.usage_cost))}%" title="${esc(proofZoneTitle(zone,snapshot)+': '+summaryMoney(zone.usage_cost,proof.currency))}"></span>`).join('')}</div>`:'';
     const zoneRows=proof?.zones.map(zone=>{
       const rate=(snapshot.rates || []).find(row=>row.version_id===zone.version_id),complete=proof.status==='ready'&&zone.complete;
       const known=[[t('Known energy cost','Znany koszt energii'),'energy_cost'],[t('Known distribution cost','Znany koszt dystrybucji'),'variable_cost'],[t('Known legacy usage cost','Znany dawny koszt zużycia'),'legacy_combined_cost']].map(([label,key])=>`${label}: ${summaryMoney(zone.known_costs[key],proof.currency)}`).join(' · ');
-      return `<li data-analysis-rate76-zone="${esc(zone.version_id+'|'+zone.zone_id)}"><span class="analysis-rate76-swatch" style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)}" aria-hidden="true"></span><div><strong>${esc(zone.label)}</strong><span class="analysis-rate76-meta"> · ${esc(t('Rates from','Stawki od'))} ${esc(rate?date(rate.valid_from):unknown())}</span><p>${esc(complete?summaryEnergy(zone.kwh):t('Recorded','Zarejestrowano')+': '+summaryEnergy(zone.recorded_kwh))} · <strong>${esc(summaryMoney(complete?zone.usage_cost:null,proof.currency))}</strong></p>${!complete?`<p class="analysis-rate76-meta">${esc(known)}</p>`:''}</div></li>`;
+      return `<li data-analysis-rate76-zone="${esc(zone.version_id+'|'+zone.zone_id)}"><span class="analysis-rate76-swatch" style="background:${zoneColor(zone.version_id,zone.zone_id,snapshot)}" aria-hidden="true"></span><div><strong>${esc(proofZoneTitle(zone,snapshot))}</strong><span class="analysis-rate76-meta"> · ${esc(t('Rates from','Stawki od'))} ${esc(rate?date(rate.valid_from):unknown())}</span><p>${esc(complete?summaryEnergy(zone.kwh):t('Recorded','Zarejestrowano')+': '+summaryEnergy(zone.recorded_kwh))} · <strong>${esc(summaryMoney(complete?zone.usage_cost:null,proof.currency))}</strong></p>${!complete?`<p class="analysis-rate76-meta">${esc(known)}</p>`:''}</div></li>`;
     }).join('') || '';
     const level=['areas','floors','devices'].includes(options.level)?options.level:'areas';
     const groupRows=rowsFor(groups,level).sort((a,b)=>valid(a.row.usage_cost)&&valid(b.row.usage_cost)?compare(b.row.usage_cost,a.row.usage_cost):valid(a.row.usage_cost)?-1:valid(b.row.usage_cost)?1:0);
