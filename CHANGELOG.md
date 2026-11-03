@@ -2,6 +2,7 @@
 
 ## 4.0.2 (2026-11-03)
 
+- Show matched comparison hours, readable tariff zones and localized fixed-fee labels across the Energy cards.
 - Clarify all-day tariff labels in Energy analysis and show known combined rates without presenting unknown distribution as zero.
 
 ## 4.0.1 (2026-10-21)
