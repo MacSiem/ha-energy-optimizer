@@ -184,3 +184,29 @@ test('absent malformed duplicate or foreign combined-rate entries remain unavail
  const dto=projectedFutureContract();dto.rates[0].zone_usage_rates[0].usage_rate=null;
  use(dto,root=>{assert.equal(node(root,'[data-analysis-rate76-total="low"]').textContent,'No data');assert.equal(node(root,'[data-analysis-rate76-total="high"]').textContent,'1.10 EUR');});
 });
+
+test('flat tariff uses localized all-day label and known combined rate without false components',()=>{
+ for(const [language,label] of [['en','All-day'],['pl','Całodobowa']]){
+  const dto=fixture(), rate=dto.rates[0];
+  rate.rate_semantics='legacy_combined'; rate.profile.defaultZone='flat'; rate.profile.rules=[]; rate.profile.exceptions=[];
+  rate.profile.zones=[{id:'flat',label:'flat',energyRate:.75,variableRate:0}];
+  rate.zone_usage_rates=[{zone_id:'flat',usage_rate:'0.75'}];
+  use(dto,root=>{const rates=node(root,'[data-analysis-rate76-current]');
+   assert.match(rates.textContent,new RegExp(label));
+   assert.match(rates.textContent,/0[.,]75/);
+   assert.doesNotMatch(rates.textContent,/flat/i);
+   const history=node(root,'[data-analysis-rate-history]');
+   const row=history.querySelector('.analysis-rate-version table tbody tr');
+   assert.ok(row);
+   assert.doesNotMatch(row.textContent,/0[.,]00/);
+  },{},language);
+ }
+});
+
+test('period breakdown localizes a flat source label without changing proof identity',()=>{
+ const dto=fixture(),zone=dto.rates[0].profile.zones[0];zone.label='flat';
+ for(const row of dto.period_summary.zone_breakdown.zones)if(row.zone_id===zone.id)row.label='flat';
+ use(dto,root=>{const content=node(root,'[data-analysis-rate76-zones]').textContent;
+  assert.match(content,/Standard zone/); assert.doesNotMatch(content,/flat/i);
+ });
+});
