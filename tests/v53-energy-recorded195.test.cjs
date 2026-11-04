@@ -51,3 +51,8 @@ test('partial KPI, named missing source, ranges and chart are visible in both la
  m.totals.import_kwh=null;m.totals.recorded_import_kwh=24;m.totals.recorded_usage_cost=12;m.hourly=[{start:m.period.start,kwh:null,recorded_kwh:1,measured_sources:1,expected_sources:2}];
  for(const lang of ['pl','en']){const d=new JSDOM(createEnergyBuild1ViewV53({format:createFormatUi(lang,'Europe/Warsaw'),language:lang}).markup(m));try{const doc=d.window.document;assert.match(doc.querySelector('.k .v').textContent,/24/);assert.match(doc.querySelector('.build1-panel').textContent,/24\/48/);assert.match(doc.querySelector('.build1-panel').textContent,/<script>B<\/script>/);assert.equal(doc.querySelector('script'),null);assert.ok(doc.querySelector('[data-partial-reading]'));}finally{d.window.close();}}
 });
+
+test('grouped known readings remain visible and marked when a member is missing',()=>{
+ const m=fixture();m.coverage={status:'partial',complete:false,measured_hours:0,expected_hours:24};m.totals.import_kwh=null;m.ranking=[{id:'_other_measured',name:'Other',color:'other',kwh:null,recorded_kwh:24,children:[]}];m.rooms=[{name:'Room',area_id:'a',kwh:null,recorded_kwh:24}];
+ const v=createEnergyBuild1ViewV53({format:createFormatUi('en','UTC')});for(const group of ['devices','rooms']){const d=new JSDOM(v.markup(m,{section:'breakdown',group}));try{const text=d.window.document.querySelector('.rk2').textContent;assert.match(text,/24/);assert.match(text,/known readings/);}finally{d.window.close();}}
+});
