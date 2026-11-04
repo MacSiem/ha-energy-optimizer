@@ -1,4 +1,9 @@
-# Changelog — Energy Optimizer
+# Changelog
+
+## 4.0.3 (2026-11-04)
+
+- Show known Energy source readings in the main tiles and identify missing sources and intervals alongside complete-hour and source-hour coverage.
+ — Energy Optimizer
 
 ## 4.0.2 (2026-11-03)
 
