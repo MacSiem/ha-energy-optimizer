@@ -6536,6 +6536,7 @@ function createEnergyBuild1ViewV53({format, language = format?.language || 'en'}
   const percent=(v,role='share')=>formatted('reportPercent',v,{role});
   const ratio=v=>valid(v)?percent(Number(v)*100):esc(unknown());
   const exact=v=>valid(v)?formatted('number',typeof v==='number'?String(v):v):esc(unknown());
+  const sourceHours=v=>valid(v)?formatted('number',Number(v),{maximumFractionDigits:2}):esc(unknown());
   const when=v=>formatted('dateTime',v);
   const date=v=>formatted('calendarDate',v);
   const action=(name,label,value='',extra='')=>`<button type="button" data-energy-build1="${esc(name)}" data-value="${esc(value)}" ${extra}>${label}</button>`;
@@ -6691,7 +6692,7 @@ function createEnergyBuild1ViewV53({format, language = format?.language || 'en'}
     else if(section==='reports'&&o.reportAccess===true)content=reports(m,o);
     else if(missing||o.notConfigured)content=`<p>${t('The Energy dashboard is not configured.','Panel Energia nie jest skonfigurowany.')}</p>${action('configure-energy',t('Configure Energy','Skonfiguruj Energię'))}`;
     else if(m.schema!=='ha_tools.energy_report/1')content=`<p role="status">${t('Energy report unavailable.','Raport energii niedostępny.')}</p>`;
-    else content=deviceNotice+(partial?`<div class="notice" role="status">${m.coverage?.status==='no_data'?t('No data','Brak danych'):t('Incomplete data','Dane niepełne')} (${exact(m.coverage?.full_hours??m.coverage?.measured_hours)}/${exact(m.coverage?.expected_full_hours??m.coverage?.expected_hours)} ${t('complete hours','pełnych godzin')}${valid(m.coverage?.expected_source_hours)?` · ${exact(m.coverage?.measured_source_hours)}/${exact(m.coverage?.expected_source_hours)} ${t('source-hours','źródło-godzin')}`:''})${list(m.coverage?.missing_sources).length?`<p>${t('Missing sources','Brakujące źródła')}: ${list(m.coverage.missing_sources).map(s=>`${esc(s.name||s.id)}: ${list(s.ranges).map(missingRange).join(', ')}`).join('; ')}</p>`:''}</div>`:'')+(double?`<p class="notice" role="alert">${doubleMessage()}</p>`:'')+(section==='overview'?overview(m,o,partial):section==='breakdown'?breakdown(m,o,partial,double):section==='costs'?costs(m,o):reports(m,o));
+    else content=deviceNotice+(partial?`<div class="notice" role="status">${m.coverage?.status==='no_data'?t('No data','Brak danych'):t('Incomplete data','Dane niepełne')} (${exact(m.coverage?.full_hours??m.coverage?.measured_hours)}/${exact(m.coverage?.expected_full_hours??m.coverage?.expected_hours)} ${t('complete hours','pełnych godzin')}${valid(m.coverage?.expected_source_hours)?` · ${sourceHours(m.coverage?.measured_source_hours)}/${sourceHours(m.coverage?.expected_source_hours)} ${t('source-hours','źródło-godzin')}`:''})${list(m.coverage?.missing_sources).length?`<p>${t('Missing sources','Brakujące źródła')}: ${list(m.coverage.missing_sources).map(s=>`${esc(s.name||s.id)}: ${list(s.ranges).map(missingRange).join(', ')}`).join('; ')}</p>`:''}</div>`:'')+(double?`<p class="notice" role="alert">${doubleMessage()}</p>`:'')+(section==='overview'?overview(m,o,partial):section==='breakdown'?breakdown(m,o,partial,double):section==='costs'?costs(m,o):reports(m,o));
     return `<section class="hat build1 cq" data-energy-build1-section="${section}">${header}${tabs}<div class="build1-panel">${content}</div></section>`;
   }
   function styles(){return BUILD1_STYLES_V53;}

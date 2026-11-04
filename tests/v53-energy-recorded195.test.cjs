@@ -82,3 +82,8 @@ test('complete grid with missing group member displays known group subtotal with
  const m=fixture();m.coverage={status:'complete',complete:true,measured_hours:24,expected_hours:24,missing_devices:[{name:'B',ranges:[{start:m.period.start,end:m.period.end}]}]};m.totals.import_kwh=48;m.ranking=[{id:'_other_measured',color:'other',kwh:null,recorded_kwh:24,measurement_complete:false,children:[{id:'a',name:'A',kwh:24},{id:'b',name:'B',kwh:null,measurement_complete:false}]}];
  const view=createEnergyBuild1ViewV53({format:createFormatUi('en','UTC')});const dom=new JSDOM(view.markup(m,{section:'breakdown'}));try{const group=dom.window.document.querySelector('.rk2');assert.match(group.textContent,/24/);assert.match(group.textContent,/known readings/);assert.equal(dom.window.document.querySelector('.compbar'),null);}finally{dom.window.close();}
 });
+
+test('fractional source-hours use readable local precision without altering source facts',()=>{
+ const m=fixture();m.coverage={status:'partial',complete:false,full_hours:0,expected_full_hours:13,measured_source_hours:0,expected_source_hours:26.666666666666668};
+ for(const lang of ['pl','en']){const d=new JSDOM(createEnergyBuild1ViewV53({format:createFormatUi(lang,'UTC'),language:lang}).markup(m));try{assert.match(d.window.document.querySelector('.notice').textContent,lang==='pl'?/0\/26,67/:/0\/26\.67/);assert.equal(m.coverage.expected_source_hours,26.666666666666668);}finally{d.window.close();}}
+});
