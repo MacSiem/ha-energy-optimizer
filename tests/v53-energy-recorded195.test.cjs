@@ -61,3 +61,8 @@ test('partial breakdown shows subtotal without a misleading composition bar and 
  const m=fixture();m.coverage={status:'partial',complete:false,measured_hours:0,expected_hours:24,missing_sources:[{name:'Meter',ranges:[{start:'2026-10-25T02:00:00+02:00',end:'2026-10-25T02:00:00+01:00'}]}]};m.totals.import_kwh=null;m.totals.recorded_import_kwh=24;
  const v=createEnergyBuild1ViewV53({format:createFormatUi('en','Europe/Warsaw')});const d=new JSDOM(v.markup(m,{section:'breakdown'}));try{const doc=d.window.document;assert.match(doc.querySelector('.sec2 b').textContent,/Known source readings.*24/);assert.equal(doc.querySelector('.compbar'),null);assert.match(doc.querySelector('.notice').textContent,/GMT\+2.*GMT\+1/);assert.doesNotMatch(doc.querySelector('.notice').textContent,/2026-10-25T/);}finally{d.window.close();}
 });
+
+test('device-only data remains partial and the KPI labels the device instead of inventing grid import',()=>{
+ const m=fixture();m.coverage={status:'partial',complete:false,measured_hours:0,expected_hours:24};m.totals.import_kwh=null;m.totals.recorded_import_kwh=null;m.devices=[{id:'a',name:'<img>',kwh:24}];
+ const d=render(m);try{const k=d.window.document.querySelector('.k');assert.match(k.textContent,/Device: <img>/);assert.match(k.textContent,/24/);assert.equal(k.querySelector('img'),null);}finally{d.window.close();}
+});
