@@ -43,5 +43,47 @@ test('a missing source with a real zero remains incomplete in a daily bar and Da
 });
 test('household balance wording also covers a current short interval with all sources',()=>{
  const m=fixture();m.coverage={complete:false,measured_hours:23,expected_hours:24};m.hourly=[{start:m.period.start,kwh:.22,recorded_kwh:.22,partial:true,measured_sources:2,expected_sources:2}];
- const d=render(m);try{const root=d.window.document;assert.match(root.querySelector('.k .l').textContent,/Household balance/);assert.doesNotMatch(root.body.textContent,/complete household hours/);}finally{d.window.close();}
+ const d=render(m);try{const root=d.window.document;assert.match(root.querySelector('.k .l').textContent,/Known source readings/);assert.doesNotMatch(root.body.textContent,/complete household hours/);}finally{d.window.close();}
+});
+
+test('partial KPI, named missing source, ranges and chart are visible in both languages and escaped',()=>{
+ const m=fixture();m.coverage={status:'partial',complete:false,measured_hours:0,expected_hours:24,measured_source_hours:24,expected_source_hours:48,missing_sources:[{id:'b',name:'<script>B</script>',ranges:[{start:m.period.start,end:m.period.end}]}]};
+ m.totals.import_kwh=null;m.totals.recorded_import_kwh=24;m.totals.recorded_usage_cost=12;m.hourly=[{start:m.period.start,kwh:null,recorded_kwh:1,measured_sources:1,expected_sources:2}];
+ for(const lang of ['pl','en']){const d=new JSDOM(createEnergyBuild1ViewV53({format:createFormatUi(lang,'Europe/Warsaw'),language:lang}).markup(m));try{const doc=d.window.document;assert.match(doc.querySelector('.k .v').textContent,/24/);assert.match(doc.querySelector('.build1-panel').textContent,/24\/48/);assert.match(doc.querySelector('.build1-panel').textContent,/<script>B<\/script>/);assert.match(doc.querySelector('.build1-panel').textContent,/entire period|cały okres/);assert.equal(doc.querySelector('script'),null);assert.ok(doc.querySelector('[data-partial-reading]'));}finally{d.window.close();}}
+});
+
+test('grouped known readings remain visible and marked when a member is missing',()=>{
+ const m=fixture();m.coverage={status:'partial',complete:false,measured_hours:0,expected_hours:24};m.totals.import_kwh=null;m.ranking=[{id:'_other_measured',name:'Other',color:'other',kwh:null,recorded_kwh:24,children:[]}];m.rooms=[{name:'Room',area_id:'a',kwh:null,recorded_kwh:24}];
+ const v=createEnergyBuild1ViewV53({format:createFormatUi('en','UTC')});for(const group of ['devices','rooms']){const d=new JSDOM(v.markup(m,{section:'breakdown',group}));try{const text=d.window.document.querySelector('.rk2').textContent;assert.match(text,/24/);assert.match(text,/known readings/);}finally{d.window.close();}}
+});
+
+test('partial breakdown shows subtotal without a misleading composition bar and dates are localized',()=>{
+ const m=fixture();m.coverage={status:'partial',complete:false,measured_hours:0,expected_hours:24,missing_sources:[{name:'Meter',ranges:[{start:'2026-10-25T02:00:00+02:00',end:'2026-10-25T02:00:00+01:00'}]}]};m.totals.import_kwh=null;m.totals.recorded_import_kwh=24;
+ const v=createEnergyBuild1ViewV53({format:createFormatUi('en','Europe/Warsaw')});const d=new JSDOM(v.markup(m,{section:'breakdown'}));try{const doc=d.window.document;assert.match(doc.querySelector('.sec2 b').textContent,/Known source readings.*24/);assert.equal(doc.querySelector('.compbar'),null);assert.match(doc.querySelector('.notice').textContent,/GMT\+2.*GMT\+1/);assert.doesNotMatch(doc.querySelector('.notice').textContent,/2026-10-25T/);}finally{d.window.close();}
+});
+
+test('device-only data remains partial and the KPI labels the device instead of inventing grid import',()=>{
+ const m=fixture();m.coverage={status:'partial',complete:false,measured_hours:0,expected_hours:24};m.totals.import_kwh=null;m.totals.recorded_import_kwh=null;m.devices=[{id:'a',name:'<img>',kwh:24}];
+ const d=render(m);try{const k=d.window.document.querySelector('.k');assert.match(k.textContent,/Device: <img>/);assert.match(k.textContent,/24/);assert.equal(k.querySelector('img'),null);}finally{d.window.close();}
+});
+
+test('complete grid and incomplete device have separate truthful statuses',()=>{
+ const m=fixture();m.coverage={status:'complete',complete:true,measured_hours:24,expected_hours:24,missing_devices:[{name:'<img>',ranges:[{start:m.period.start,end:m.period.end}]}]};m.totals.import_kwh=48;m.devices=[{id:'d',name:'<img>',kwh:21,measurement_complete:false}];m.ranking=m.devices;
+ const v=createEnergyBuild1ViewV53({format:createFormatUi('en','Europe/Warsaw')});for(const section of ['overview','breakdown']){const d=new JSDOM(v.markup(m,{section}));try{const doc=d.window.document;assert.match(doc.querySelector('.notice').textContent,/Missing device readings: <img>.*entire period/);assert.equal(doc.querySelector('img'),null);assert.match(doc.querySelector('.build1-panel').textContent,/known readings/);}finally{d.window.close();}}
+});
+
+test('costs show known-reading subtotal separately and included device cost is contextual',()=>{
+ const m=fixture();m.coverage={status:'partial',complete:false,measured_hours:0,expected_hours:24};m.totals.import_kwh=null;m.totals.usage_cost=null;m.totals.recorded_import_kwh=24;m.totals.recorded_usage_cost=12;m.totals.fixed_share=1.03;m.totals.total_with_fixed=null;m.ranking=[{id:'_other_measured',color:'other',kwh:null,recorded_kwh:24,cost:null,children:[{id:'a',name:'A',kwh:24,cost:12}]}];
+ const v=createEnergyBuild1ViewV53({format:createFormatUi('en','UTC')});let d=new JSDOM(v.markup(m,{section:'costs'}));try{const rows=[...d.window.document.querySelectorAll('tr')];const known=rows.find(r=>r.textContent.includes('Known readings cost'));assert.match(known.textContent,/12\.00/);assert.match(rows.find(r=>r.textContent.includes('Total including fixed charges')).textContent,/No data/);}finally{d.window.close();}
+ d=new JSDOM(v.markup(m,{section:'breakdown'}));try{const child=d.window.document.querySelector('.rk2.child .c');assert.match(child.textContent,/12\.00/);assert.match(child.title,/not added again/);}finally{d.window.close();}
+});
+
+test('complete grid with missing group member displays known group subtotal without full composition',()=>{
+ const m=fixture();m.coverage={status:'complete',complete:true,measured_hours:24,expected_hours:24,missing_devices:[{name:'B',ranges:[{start:m.period.start,end:m.period.end}]}]};m.totals.import_kwh=48;m.ranking=[{id:'_other_measured',color:'other',kwh:null,recorded_kwh:24,measurement_complete:false,children:[{id:'a',name:'A',kwh:24},{id:'b',name:'B',kwh:null,measurement_complete:false}]}];
+ const view=createEnergyBuild1ViewV53({format:createFormatUi('en','UTC')});const dom=new JSDOM(view.markup(m,{section:'breakdown'}));try{const group=dom.window.document.querySelector('.rk2');assert.match(group.textContent,/24/);assert.match(group.textContent,/known readings/);assert.equal(dom.window.document.querySelector('.compbar'),null);}finally{dom.window.close();}
+});
+
+test('fractional source-hours use readable local precision without altering source facts',()=>{
+ const m=fixture();m.coverage={status:'partial',complete:false,full_hours:0,expected_full_hours:13,measured_source_hours:0,expected_source_hours:26.666666666666668};
+ for(const lang of ['pl','en']){const d=new JSDOM(createEnergyBuild1ViewV53({format:createFormatUi(lang,'UTC'),language:lang}).markup(m));try{assert.match(d.window.document.querySelector('.notice').textContent,lang==='pl'?/0\/26,67/:/0\/26\.67/);assert.equal(m.coverage.expected_source_hours,26.666666666666668);}finally{d.window.close();}}
 });
