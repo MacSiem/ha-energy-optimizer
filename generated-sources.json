@@ -4,15 +4,15 @@
   "sources": [
     {
       "path": "src/optimizer.js",
-      "sha256": "22dc01b260162bd4fc1f81c2cdc4297d2caa51d79b19139ecc22b5d4e2dbfe07"
+      "sha256": "4008ece6e975ef9b7562da3190ec684af6a7e1ccb96cda29518d038a121ff94f"
     },
     {
       "path": "src/energy-insights.js",
-      "sha256": "223244d4ffb4ec6f5ecf29ead5ab896d0dc4a9295af20b828a524ff6496f6cb8"
+      "sha256": "25b483aa462101604fbf069ac96da1eec4455d2d3457046cd60e03e05af159ef"
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "52fe6ddfee9b301beddcb680ba83aad27218d5c8941146f7060ddc4bf61c443a"
+      "sha256": "2ca99aa7a6961fb3fccdb3c7e95ef1c86f971e701d6038843f217e155868144e"
     },
     {
       "path": "src/chart-vendor.js",
@@ -124,7 +124,7 @@
     },
     {
       "path": "shared/ha-tools-energy-build1-view.js",
-      "sha256": "9d1c3dd67b8b887eaa500c2f2b313a019c35c1a533acf401f72270edc75d328f"
+      "sha256": "338f3550d1ca7acd77cf1ac0a4a10c134b43d3f8a665164e43a5b1f5042803a3"
     },
     {
       "path": "shared/ha-tools-energy-build1-host.js",
