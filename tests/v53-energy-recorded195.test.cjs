@@ -47,7 +47,7 @@ test('household balance wording also covers a current short interval with all so
 });
 
 test('partial KPI, named missing source, ranges and chart are visible in both languages and escaped',()=>{
- const m=fixture();m.coverage={status:'partial',complete:false,measured_hours:0,expected_hours:24,measured_source_hours:24,expected_source_hours:48,missing_sources:[{id:'b',name:'<script>B</script>',ranges:[{start:'2026-11-03T00:00:00+01:00',end:'2026-11-04T00:00:00+01:00'}]}]};
+ const m=fixture();m.coverage={status:'partial',complete:false,measured_hours:0,expected_hours:24,measured_source_hours:24,expected_source_hours:48,missing_sources:[{id:'b',name:'<script>B</script>',ranges:[{start:m.period.start,end:m.period.end}]}]};
  m.totals.import_kwh=null;m.totals.recorded_import_kwh=24;m.totals.recorded_usage_cost=12;m.hourly=[{start:m.period.start,kwh:null,recorded_kwh:1,measured_sources:1,expected_sources:2}];
  for(const lang of ['pl','en']){const d=new JSDOM(createEnergyBuild1ViewV53({format:createFormatUi(lang,'Europe/Warsaw'),language:lang}).markup(m));try{const doc=d.window.document;assert.match(doc.querySelector('.k .v').textContent,/24/);assert.match(doc.querySelector('.build1-panel').textContent,/24\/48/);assert.match(doc.querySelector('.build1-panel').textContent,/<script>B<\/script>/);assert.match(doc.querySelector('.build1-panel').textContent,/entire period|cały okres/);assert.equal(doc.querySelector('script'),null);assert.ok(doc.querySelector('[data-partial-reading]'));}finally{d.window.close();}}
 });
