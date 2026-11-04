@@ -66,3 +66,8 @@ test('device-only data remains partial and the KPI labels the device instead of 
  const m=fixture();m.coverage={status:'partial',complete:false,measured_hours:0,expected_hours:24};m.totals.import_kwh=null;m.totals.recorded_import_kwh=null;m.devices=[{id:'a',name:'<img>',kwh:24}];
  const d=render(m);try{const k=d.window.document.querySelector('.k');assert.match(k.textContent,/Device: <img>/);assert.match(k.textContent,/24/);assert.equal(k.querySelector('img'),null);}finally{d.window.close();}
 });
+
+test('complete grid and incomplete device have separate truthful statuses',()=>{
+ const m=fixture();m.coverage={status:'complete',complete:true,measured_hours:24,expected_hours:24,missing_devices:[{name:'<img>',ranges:[{start:m.period.start,end:m.period.end}]}]};m.totals.import_kwh=48;m.devices=[{id:'d',name:'<img>',kwh:21,measurement_complete:false}];m.ranking=m.devices;
+ const v=createEnergyBuild1ViewV53({format:createFormatUi('en','Europe/Warsaw')});for(const section of ['overview','breakdown']){const d=new JSDOM(v.markup(m,{section}));try{const doc=d.window.document;assert.match(doc.querySelector('.notice').textContent,/Missing device readings: <img>.*entire period/);assert.equal(doc.querySelector('img'),null);assert.match(doc.querySelector('.build1-panel').textContent,/known readings/);}finally{d.window.close();}}
+});
