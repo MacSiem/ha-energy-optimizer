@@ -74,3 +74,7 @@ test('styles preserve Build1 sizing, container stacking and theme tokens',()=>{
  const css=view('en').styles();
  for(const text of ['height:120px','height:14px','@container(max-width:520px)','--hat-zone-cheap','--primary-text-color','grid-template-columns:repeat(2','hat-dark'])assert.ok(css.includes(text),text);
 });
+
+test('unconfigured Energy grid offers setup in both languages',()=>{
+ for(const lang of ['pl','en']){const html=view(lang).markup(null,{notConfigured:true});assert.match(html,lang==='pl'?/Panel Energia nie jest skonfigurowany/:/Energy dashboard is not configured/);assert.match(html,/data-energy-build1="configure-energy"/);assert.doesNotMatch(html,/Energy report unavailable/);}
+});

@@ -7592,7 +7592,7 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},onScheduleChang
       if(!current(e))return;
       if(validModel(live,{period:'day'}))view.current=clone(live.current||null);
       emit();
-    } catch(error){if(current(e)){view.model=null;view.current=null;view.preview=null;view.capabilities=null;if(error?.code==='unknown_command'&&view.supported!==true){view.supported=false;view.status='legacy';}else view.status=['unauthorized','not_allowed'].includes(error?.code)?'denied':'error';view.error=error?.code||error?.message||'unavailable';emit();}}
+    } catch(error){if(current(e)){view.model=null;view.current=null;view.preview=null;if(error?.code==='energy_not_configured'){view.status='not_configured';}else{view.capabilities=null;if(error?.code==='unknown_command'&&view.supported!==true){view.supported=false;view.status='legacy';}else view.status=['unauthorized','not_allowed'].includes(error?.code)?'denied':'error';}view.error=error?.code||error?.message||'unavailable';emit();}}
     finally{if(raw===lane)raw=null;reservation?.release();emit();if(pending)void pump();}
   }
   function update(next=selection){
@@ -8030,7 +8030,7 @@ function createEnergyBuild1ViewV53({format, language = format?.language || 'en'}
     let content;
     if(o.loading)content=`<div class="skeleton" role="status" aria-busy="true">${t('Loading…','Wczytywanie…')}</div>`;
     else if(section==='reports'&&o.reportAccess===true)content=reports(m,o);
-    else if(missing)content=`<p>${t('The Energy dashboard is not configured.','Panel Energia nie jest skonfigurowany.')}</p>${action('configure-energy',t('Configure Energy','Skonfiguruj Energię'))}`;
+    else if(missing||o.notConfigured)content=`<p>${t('The Energy dashboard is not configured.','Panel Energia nie jest skonfigurowany.')}</p>${action('configure-energy',t('Configure Energy','Skonfiguruj Energię'))}`;
     else if(m.schema!=='ha_tools.energy_report/1')content=`<p role="status">${t('Energy report unavailable.','Raport energii niedostępny.')}</p>`;
     else content=deviceNotice+(partial?`<div class="notice" role="status">${m.coverage?.status==='no_data'?t('No data','Brak danych'):t('Incomplete data','Dane niepełne')} (${exact(m.coverage?.full_hours??m.coverage?.measured_hours)}/${exact(m.coverage?.expected_full_hours??m.coverage?.expected_hours)} ${t('complete hours','pełnych godzin')}${valid(m.coverage?.expected_source_hours)?` · ${exact(m.coverage?.measured_source_hours)}/${exact(m.coverage?.expected_source_hours)} ${t('source-hours','źródło-godzin')}`:''})${list(m.coverage?.missing_sources).length?`<p>${t('Missing sources','Brakujące źródła')}: ${list(m.coverage.missing_sources).map(s=>`${esc(s.name||s.id)}: ${list(s.ranges).map(missingRange).join(', ')}`).join('; ')}</p>`:''}</div>`:'')+(double?`<p class="notice" role="alert">${doubleMessage()}</p>`:'')+(section==='overview'?overview(m,o,partial):section==='breakdown'?breakdown(m,o,partial,double):section==='costs'?costs(m,o):reports(m,o));
     return `<section class="hat build1 cq" data-energy-build1-section="${section}">${header}${tabs}<div class="build1-panel">${content}</div></section>`;
@@ -8145,7 +8145,7 @@ function installEnergyBuild1HostV53({Card,name,format,createClient=createEnergyM
       if(!root.querySelector('[data-build1-content]')){root.innerHTML='<style data-build1-style></style><ha-card><div data-build1-content></div><div data-build1-extra></div><div data-build1-tariff-host></div><div data-build1-reports-host></div></ha-card>';memory.markup=null;}
       const style=root.querySelector('[data-build1-style]');if(style.textContent!==v.styles())style.textContent=v.styles();
       const panel=root.querySelector('[data-build1-content]');
-      const markup=v.markup(sectionAllowed?s.model:null,{section,group:card._build1GroupV53,current:s.current||{},title:c.title,showAlternatives:c.show_alternatives!==false,loading:s.status==='loading',reportAccess:section==='reports'&&reportAllowed,period:s.selection?.period,canManageReports:reportState?.canExecute===true&&!reportState?.busy,canManageSchedules:reportState?.canManageSchedules===true&&!reportState?.busy,schedules:reportState?.schedules,deliveries:reportState?.deliveries});
+      const markup=v.markup(sectionAllowed?s.model:null,{section,group:card._build1GroupV53,current:s.current||{},title:c.title,showAlternatives:c.show_alternatives!==false,loading:s.status==='loading',notConfigured:s.status==='not_configured',reportAccess:section==='reports'&&reportAllowed,period:s.selection?.period,canManageReports:reportState?.canExecute===true&&!reportState?.busy,canManageSchedules:reportState?.canManageSchedules===true&&!reportState?.busy,schedules:reportState?.schedules,deliveries:reportState?.deliveries});
       const replaced=memory.markup!==markup;
       if(replaced){panel.innerHTML=markup;memory.markup=markup;}
       for(const details of panel.querySelectorAll('[data-energy-build1-disclosure]'))if(memory.details.has(details.dataset.energyBuild1Disclosure))details.open=memory.details.get(details.dataset.energyBuild1Disclosure);

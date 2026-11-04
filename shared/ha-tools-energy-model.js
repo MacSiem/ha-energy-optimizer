@@ -72,7 +72,7 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},onScheduleChang
       if(!current(e))return;
       if(validModel(live,{period:'day'}))view.current=clone(live.current||null);
       emit();
-    } catch(error){if(current(e)){view.model=null;view.current=null;view.preview=null;view.capabilities=null;if(error?.code==='unknown_command'&&view.supported!==true){view.supported=false;view.status='legacy';}else view.status=['unauthorized','not_allowed'].includes(error?.code)?'denied':'error';view.error=error?.code||error?.message||'unavailable';emit();}}
+    } catch(error){if(current(e)){view.model=null;view.current=null;view.preview=null;if(error?.code==='energy_not_configured'){view.status='not_configured';}else{view.capabilities=null;if(error?.code==='unknown_command'&&view.supported!==true){view.supported=false;view.status='legacy';}else view.status=['unauthorized','not_allowed'].includes(error?.code)?'denied':'error';}view.error=error?.code||error?.message||'unavailable';emit();}}
     finally{if(raw===lane)raw=null;reservation?.release();emit();if(pending)void pump();}
   }
   function update(next=selection){

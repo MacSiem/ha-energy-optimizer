@@ -45,3 +45,7 @@ test('reading idle state before enable or after stop does not suppress the next 
   h.client.update();await tick();assert.equal(h.client.state().status,'ready');assert.equal(h.calls.length,before+4);
  }finally{h.client.stop();}
 });
+
+test('unconfigured grid is a setup state while unrelated failures stay errors',async()=>{
+ for(const [code,status] of [['energy_not_configured','not_configured'],['energy_report_unavailable','error']]){const h=harness();h.setPending(async request=>{if(request.type.endsWith('feature_capabilities'))return h.caps;throw {code};});try{h.client.update();await tick();assert.equal(h.client.state().status,status);if(status==='not_configured')assert.equal(h.client.state().capabilities.energy_analysis.read,true);}finally{h.client.stop();}}
+});
