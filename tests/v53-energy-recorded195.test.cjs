@@ -80,6 +80,5 @@ test('costs show known-reading subtotal separately and included device cost is c
 
 test('complete grid with missing group member displays known group subtotal without full composition',()=>{
  const m=fixture();m.coverage={status:'complete',complete:true,measured_hours:24,expected_hours:24,missing_devices:[{name:'B',ranges:[{start:m.period.start,end:m.period.end}]}]};m.totals.import_kwh=48;m.ranking=[{id:'_other_measured',color:'other',kwh:null,recorded_kwh:24,measurement_complete:false,children:[{id:'a',name:'A',kwh:24},{id:'b',name:'B',kwh:null,measurement_complete:false}]}];
- const d=render(m);try{d.window.close();}finally{}
  const view=createEnergyBuild1ViewV53({format:createFormatUi('en','UTC')});const dom=new JSDOM(view.markup(m,{section:'breakdown'}));try{const group=dom.window.document.querySelector('.rk2');assert.match(group.textContent,/24/);assert.match(group.textContent,/known readings/);assert.equal(dom.window.document.querySelector('.compbar'),null);}finally{dom.window.close();}
 });
