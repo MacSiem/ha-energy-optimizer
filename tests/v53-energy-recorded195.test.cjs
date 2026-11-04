@@ -49,10 +49,15 @@ test('household balance wording also covers a current short interval with all so
 test('partial KPI, named missing source, ranges and chart are visible in both languages and escaped',()=>{
  const m=fixture();m.coverage={status:'partial',complete:false,measured_hours:0,expected_hours:24,measured_source_hours:24,expected_source_hours:48,missing_sources:[{id:'b',name:'<script>B</script>',ranges:[{start:'2026-11-03T00:00:00+01:00',end:'2026-11-04T00:00:00+01:00'}]}]};
  m.totals.import_kwh=null;m.totals.recorded_import_kwh=24;m.totals.recorded_usage_cost=12;m.hourly=[{start:m.period.start,kwh:null,recorded_kwh:1,measured_sources:1,expected_sources:2}];
- for(const lang of ['pl','en']){const d=new JSDOM(createEnergyBuild1ViewV53({format:createFormatUi(lang,'Europe/Warsaw'),language:lang}).markup(m));try{const doc=d.window.document;assert.match(doc.querySelector('.k .v').textContent,/24/);assert.match(doc.querySelector('.build1-panel').textContent,/24\/48/);assert.match(doc.querySelector('.build1-panel').textContent,/<script>B<\/script>/);assert.equal(doc.querySelector('script'),null);assert.ok(doc.querySelector('[data-partial-reading]'));}finally{d.window.close();}}
+ for(const lang of ['pl','en']){const d=new JSDOM(createEnergyBuild1ViewV53({format:createFormatUi(lang,'Europe/Warsaw'),language:lang}).markup(m));try{const doc=d.window.document;assert.match(doc.querySelector('.k .v').textContent,/24/);assert.match(doc.querySelector('.build1-panel').textContent,/24\/48/);assert.match(doc.querySelector('.build1-panel').textContent,/<script>B<\/script>/);assert.match(doc.querySelector('.build1-panel').textContent,/entire period|cały okres/);assert.equal(doc.querySelector('script'),null);assert.ok(doc.querySelector('[data-partial-reading]'));}finally{d.window.close();}}
 });
 
 test('grouped known readings remain visible and marked when a member is missing',()=>{
  const m=fixture();m.coverage={status:'partial',complete:false,measured_hours:0,expected_hours:24};m.totals.import_kwh=null;m.ranking=[{id:'_other_measured',name:'Other',color:'other',kwh:null,recorded_kwh:24,children:[]}];m.rooms=[{name:'Room',area_id:'a',kwh:null,recorded_kwh:24}];
  const v=createEnergyBuild1ViewV53({format:createFormatUi('en','UTC')});for(const group of ['devices','rooms']){const d=new JSDOM(v.markup(m,{section:'breakdown',group}));try{const text=d.window.document.querySelector('.rk2').textContent;assert.match(text,/24/);assert.match(text,/known readings/);}finally{d.window.close();}}
+});
+
+test('partial breakdown shows subtotal without a misleading composition bar and dates are localized',()=>{
+ const m=fixture();m.coverage={status:'partial',complete:false,measured_hours:0,expected_hours:24,missing_sources:[{name:'Meter',ranges:[{start:'2026-10-25T02:00:00+02:00',end:'2026-10-25T02:00:00+01:00'}]}]};m.totals.import_kwh=null;m.totals.recorded_import_kwh=24;
+ const v=createEnergyBuild1ViewV53({format:createFormatUi('en','Europe/Warsaw')});const d=new JSDOM(v.markup(m,{section:'breakdown'}));try{const doc=d.window.document;assert.match(doc.querySelector('.sec2 b').textContent,/Known source readings.*24/);assert.equal(doc.querySelector('.compbar'),null);assert.match(doc.querySelector('.notice').textContent,/GMT\+2.*GMT\+1/);assert.doesNotMatch(doc.querySelector('.notice').textContent,/2026-10-25T/);}finally{d.window.close();}
 });
