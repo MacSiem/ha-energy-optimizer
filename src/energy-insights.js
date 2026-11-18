@@ -310,7 +310,7 @@ createFormatUi.forHass = hass => {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=c50c22a2d99f8f7c70ffdf44f538987ff84a4ccb3f18b42341e988d34bf4b6b5
+      // HA_TARIFF_V3_START sha256=6392c69940bbdd4cbbd42bd5455ab155bba92518e18eccf7759d2862afc605a4
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -779,6 +779,7 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
     } };
     reservation = owner; return owner;
   };
+  const annualReportTimeoutMs = 240000;
   const call = (token, payload, admin = false, owner = null) => {
     if (!current(token, admin)) return Promise.reject({ code: 'authority_changed' });
     if (raw || reservation && reservation !== owner) return Promise.reject({ code: 'wire_occupied' });
@@ -791,7 +792,7 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
       payload.period === 'year' && (payload.representation === 'model' ||
         payload.representation === undefined && typeof payload.language === 'string' &&
         typeof payload.date_language === 'string' && typeof payload.timezone === 'string' && ['12','24'].includes(payload.hour_cycle));
-    const timer = setTimeout(() => { finished = true; rejectPublic({ code: 'timeout' }); }, yearlyRead ? 45000 : timeoutMs);
+    const timer = setTimeout(() => { finished = true; rejectPublic({ code: 'timeout' }); }, yearlyRead ? annualReportTimeoutMs : timeoutMs);
     let request;
     try { request = Promise.resolve(token.callWS.call(getHass(), payload)); }
     catch (error) { request = Promise.reject(error); }
@@ -4960,7 +4961,8 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
     let done = false;
     const finish = (fn, value) => { if (done) return; done = true; clearTimeout(timer); cancellations.delete(cancel); fn(value); };
     const cancel = () => finish(reject, { code: 'stale_context' });
-    const timer = setTimeout(() => finish(reject, { code: 'request_timeout' }), timeoutMs);
+    const deadline = message.type === 'ha_tools_email/preview_energy_report' && message.cadence === 'monthly' ? 120000 : timeoutMs;
+    const timer = setTimeout(() => finish(reject, { code: 'request_timeout' }), deadline);
     cancellations.add(cancel);
     if (holder) holder.cancel = cancel;
     Promise.resolve().then(() => { if (!done && allowed()) return source.callWS(message); if (!done) throw { code: 'stale_context' }; }).then(value => finish(resolve, value), error => finish(reject, error));
@@ -5100,11 +5102,16 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
         const response = await request(source, message, token);
         if (epoch !== token.epoch || previewing !== token || !allowed()) return;
         if (message.format === 'mail') {
+          const rawPeriod = response?.period;
+          const from = rawPeriod?.from ?? (kind === 'energy_report' ? rawPeriod?.start : undefined);
+          const to = rawPeriod?.to ?? (kind === 'energy_report' ? rawPeriod?.end : undefined);
           if (!response || response.cadence !== message.cadence || typeof response.subject !== 'string' ||
             typeof response.body !== 'string' || typeof response.html !== 'string' || response.html.length > 2000000 ||
-            typeof response.period?.from !== 'string' || typeof response.period?.to !== 'string' ||
-            !Number.isFinite(Date.parse(response.period.from)) || !Number.isFinite(Date.parse(response.period.to)) ||
-            Date.parse(response.period.from) >= Date.parse(response.period.to) ||
+            typeof from !== 'string' || typeof to !== 'string' ||
+            !Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) ||
+            Date.parse(from) >= Date.parse(to) ||
+            (rawPeriod.from != null && rawPeriod.start != null && Date.parse(rawPeriod.from) !== Date.parse(rawPeriod.start)) ||
+            (rawPeriod.to != null && rawPeriod.end != null && Date.parse(rawPeriod.to) !== Date.parse(rawPeriod.end)) ||
             response.period.semantics !== (message.period_mode === 'calendar' ? 'previous_completed_calendar_period' :
               kind === 'log_digest' ? 'rolling_retained_last_observed' : 'rolling_completed_hours') ||
             typeof response.source !== 'object' || response.source === null ||
@@ -5112,7 +5119,7 @@ function createHaToolsEmailSchedules({ changed = () => {}, timeoutMs = 8000,
             typeof response.source.complete !== 'boolean' ||
             typeof response.generated_at !== 'string' || !Number.isFinite(Date.parse(response.generated_at))) throw { code: 'invalid_response' };
           preview = { cadence: response.cadence, subject: response.subject, body: response.body, html: response.html,
-            period: { ...response.period }, source: { ...response.source }, generated_at: response.generated_at,
+            period: { ...response.period, from, to }, source: { ...response.source }, generated_at: response.generated_at,
             effective_timezone: response.effective_timezone };
           previewStatus = { state: response.source.status === 'no_data' ? 'no_data' : response.source.complete === false ? 'partial' : 'success', reason: 'loaded' }; return;
         }
