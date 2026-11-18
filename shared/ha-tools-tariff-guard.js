@@ -56,6 +56,7 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
     } };
     reservation = owner; return owner;
   };
+  const annualReportTimeoutMs = 240000;
   const call = (token, payload, admin = false, owner = null) => {
     if (!current(token, admin)) return Promise.reject({ code: 'authority_changed' });
     if (raw || reservation && reservation !== owner) return Promise.reject({ code: 'wire_occupied' });
@@ -68,7 +69,7 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
       payload.period === 'year' && (payload.representation === 'model' ||
         payload.representation === undefined && typeof payload.language === 'string' &&
         typeof payload.date_language === 'string' && typeof payload.timezone === 'string' && ['12','24'].includes(payload.hour_cycle));
-    const timer = setTimeout(() => { finished = true; rejectPublic({ code: 'timeout' }); }, yearlyRead ? 45000 : timeoutMs);
+    const timer = setTimeout(() => { finished = true; rejectPublic({ code: 'timeout' }); }, yearlyRead ? annualReportTimeoutMs : timeoutMs);
     let request;
     try { request = Promise.resolve(token.callWS.call(getHass(), payload)); }
     catch (error) { request = Promise.reject(error); }

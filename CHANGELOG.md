@@ -1,5 +1,10 @@
 # Changelog — Energy Optimizer
 
+## 4.0.5 (Unreleased)
+
+- Keep annual energy reports and monthly email previews loading while Home Assistant processes longer requests.
+- Accept the native calendar period returned by monthly energy email previews.
+
 ## 4.0.4 (Unreleased)
 
 - Show available energy, tariff costs and comparable readings when individual sources are missing. Keep the coverage required for a full household balance.

@@ -4,15 +4,15 @@
   "sources": [
     {
       "path": "src/optimizer.js",
-      "sha256": "42ece9738d64290ecbdfbda609b639190d9a3e0b7f4e700624b7f733a23aa0b0"
+      "sha256": "996900f268268d6e1123b12ce87760420cd2da543adf9f880b479ab00b2f939c"
     },
     {
       "path": "src/energy-insights.js",
-      "sha256": "7a39bdef29d8406d0491c37bc2904788fa68a5a8b89410bdc656431723777f87"
+      "sha256": "98f50854c22bd11077aa7ebb739510604d557bd9c5606fe6e1bca71d38bece0e"
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "db46576103f6989b93d13aa9153a887611857c0c94e02a739fc0edf85a3f4f13"
+      "sha256": "7ec6d7428221b7259448ad1f207b9b5ea8cfeceb380cb387fa345a2a2b36f862"
     },
     {
       "path": "src/chart-vendor.js",
@@ -20,7 +20,7 @@
     }
   ],
   "sharedTariff": {
-    "sha256": "c50c22a2d99f8f7c70ffdf44f538987ff84a4ccb3f18b42341e988d34bf4b6b5",
+    "sha256": "6392c69940bbdd4cbbd42bd5455ab155bba92518e18eccf7759d2862afc605a4",
     "modules": [
       {
         "path": "shared/ha-tools-ui.js",
@@ -32,7 +32,7 @@
       },
       {
         "path": "shared/ha-tools-tariff-guard.js",
-        "sha256": "40d670527976e2916441f5738e2a2413473cd47109e492ad1e11044b4ee18224"
+        "sha256": "a38e8b65def189941e19b6eac0095c3766738c4869f530018a218de7a7a327bb"
       },
       {
         "path": "shared/ha-tools-tariff-settings.js",
@@ -83,8 +83,8 @@
   },
   "sharedEmailSchedules": {
     "path": "shared/ha-tools-email-schedules.js",
-    "sha256": "085619535e8592dd2d5ce2a0ee946c8d5cc8926d28ffa5902b37e454cf15edda",
-    "inlineSha256": "f4c9702de9ab96ca1aa87732034afa9c1d4cbb02ab5288121332910641c2dd92"
+    "sha256": "9eaae85b2546fa65ec7791ffd3ac52f88512be25f7d62b05ca4792d4ed90a317",
+    "inlineSha256": "da4685059322490df5539045e8c7fe45edf30f6d8a8c0aea4b0fd24e71581cd6"
   },
   "sharedFormat": {
     "path": "shared/ha-tools-format.js",
@@ -112,7 +112,7 @@
   "sharedEnergyBuild1": [
     {
       "path": "shared/ha-tools-email-schedules.js",
-      "sha256": "085619535e8592dd2d5ce2a0ee946c8d5cc8926d28ffa5902b37e454cf15edda"
+      "sha256": "9eaae85b2546fa65ec7791ffd3ac52f88512be25f7d62b05ca4792d4ed90a317"
     },
     {
       "path": "shared/ha-tools-energy-model.js",
