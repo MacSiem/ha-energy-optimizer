@@ -635,7 +635,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=973267b44851807dd0745ef7b1a7b3f60a036367d9abc44332eef066a4502817
+    // HA_TARIFF_V3_START sha256=c50c22a2d99f8f7c70ffdf44f538987ff84a4ccb3f18b42341e988d34bf4b6b5
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1110,11 +1110,13 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
     let resolvePublic, rejectPublic, finished = false;
     const result = new Promise((resolve, reject) => { resolvePublic = resolve; rejectPublic = reject; });
     const slot = {}; raw = slot;
-    // A yearly report model can require a full Recorder scan. Only the reserved
-    // read lane gets the longer deadline; previews and all writes retain the default.
-    const yearlyModel = !!owner && owner === reservation && !admin && payload?.type === 'ha_tools_email/energy_report' &&
-      payload.period === 'year' && payload.representation === 'model';
-    const timer = setTimeout(() => { finished = true; rejectPublic({ code: 'timeout' }); }, yearlyModel ? 45000 : timeoutMs);
+    // Yearly model and explicitly reserved read-only previews can scan Recorder.
+    // Other reads and every write keep the default deadline.
+    const yearlyRead = !!owner && owner === reservation && !admin && payload?.type === 'ha_tools_email/energy_report' &&
+      payload.period === 'year' && (payload.representation === 'model' ||
+        payload.representation === undefined && typeof payload.language === 'string' &&
+        typeof payload.date_language === 'string' && typeof payload.timezone === 'string' && ['12','24'].includes(payload.hour_cycle));
+    const timer = setTimeout(() => { finished = true; rejectPublic({ code: 'timeout' }); }, yearlyRead ? 45000 : timeoutMs);
     let request;
     try { request = Promise.resolve(token.callWS.call(getHass(), payload)); }
     catch (error) { request = Promise.reject(error); }
@@ -6279,11 +6281,13 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},onScheduleChang
     if(!available()||!ack||raw||guard.occupied()||grant?.visible!==true||grant?.read!==true)return false;
     const e=epoch,token=guard.snapshot(),lane={};raw=lane;view.preview=null;emit();
     const ui=format.forHass(card._hass),request={type:'ha_tools_email/energy_report',period:selection.period,...(selection.date?{anchor:selection.date}:{}),language:String(ui.language).startsWith('pl')?'pl':'en',date_language:String(ui.dateLanguage).startsWith('pl')?'pl':'en',timezone:ui.timeZone,hour_cycle:['h11','h12'].includes(ui.hourCycle)?'12':'24'};
-    try{const result=await guard.call(token,request);if(!current(e))return false;
+    let reservation=null;
+    try{if(request.period==='year')reservation=guard.reserve?.(token) || null;
+      const result=await guard.call(token,request,false,reservation);if(!current(e))return false;
       if(typeof result?.html!=='string'||result.context?.access_purpose!=='report_read'||result.period?.kind!==selection.period||result.display?.timezone!==request.timezone||result.display?.language!==request.language||result.display?.hour_cycle!==request.hour_cycle||result.display?.date_language!==request.date_language)throw Error('invalid_report_preview');
       view.preview={html:result.html};emit();return true;
     }catch(error){if(current(e)){view.preview=null;view.error=error?.code||'preview_unavailable';if(['unauthorized','not_allowed'].includes(error?.code)){clear('denied');pending=false;}emit();}return false;}
-    finally{if(raw===lane)raw=null;if(pending)void pump();}
+    finally{if(raw===lane)raw=null;reservation?.release();if(pending)void pump();}
   }
   function state(){observe();return clone({...view,busy:!!raw,selection});}
   return {update,state,preview,stop,refresh:invalidate};

@@ -62,11 +62,13 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
     let resolvePublic, rejectPublic, finished = false;
     const result = new Promise((resolve, reject) => { resolvePublic = resolve; rejectPublic = reject; });
     const slot = {}; raw = slot;
-    // A yearly report model can require a full Recorder scan. Only the reserved
-    // read lane gets the longer deadline; previews and all writes retain the default.
-    const yearlyModel = !!owner && owner === reservation && !admin && payload?.type === 'ha_tools_email/energy_report' &&
-      payload.period === 'year' && payload.representation === 'model';
-    const timer = setTimeout(() => { finished = true; rejectPublic({ code: 'timeout' }); }, yearlyModel ? 45000 : timeoutMs);
+    // Yearly model and explicitly reserved read-only previews can scan Recorder.
+    // Other reads and every write keep the default deadline.
+    const yearlyRead = !!owner && owner === reservation && !admin && payload?.type === 'ha_tools_email/energy_report' &&
+      payload.period === 'year' && (payload.representation === 'model' ||
+        payload.representation === undefined && typeof payload.language === 'string' &&
+        typeof payload.date_language === 'string' && typeof payload.timezone === 'string' && ['12','24'].includes(payload.hour_cycle));
+    const timer = setTimeout(() => { finished = true; rejectPublic({ code: 'timeout' }); }, yearlyRead ? 45000 : timeoutMs);
     let request;
     try { request = Promise.resolve(token.callWS.call(getHass(), payload)); }
     catch (error) { request = Promise.reject(error); }

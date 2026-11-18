@@ -49,3 +49,5 @@ test('reading idle state before enable or after stop does not suppress the next 
 test('unconfigured grid is a setup state while unrelated failures stay errors',async()=>{
  for(const [code,status] of [['energy_not_configured','not_configured'],['energy_report_unavailable','error']]){const h=harness();h.setPending(async request=>{if(request.type.endsWith('feature_capabilities'))return h.caps;throw {code};});try{h.client.update();await tick();assert.equal(h.client.state().status,status);if(status==='not_configured')assert.equal(h.client.state().capabilities.energy_analysis.read,true);}finally{h.client.stop();}}
 });
+
+test('yearly preview remains unavailable when report read is revoked',async()=>{const h=harness();h.caps.capabilities.energy_reports.read=false;h.setPending(async q=>{if(q.type.endsWith('feature_capabilities'))return h.caps;const m=model();m.period.kind=q.period;return m;});h.client.update({period:'year',mode:'full'});await tick();assert.equal(h.client.state().status,'ready');const before=h.calls.length;assert.equal(await h.client.preview(),false);assert.equal(h.calls.length,before);h.client.stop();});
