@@ -1,5 +1,11 @@
 # Changelog — Energy Optimizer
 
+## 4.0.4 (Unreleased)
+
+- Show available energy, tariff costs and comparable readings when individual sources are missing. Keep the coverage required for a full household balance.
+- Label device cost estimates based on the purchase tariff in installations with solar or a battery.
+- Summarize missing sources once and retain a useful device-only view.
+
 ## 4.0.3 (2026-11-04)
 
 - Show known Energy source readings in the main tiles and identify missing sources and intervals alongside complete-hour and source-hour coverage.
