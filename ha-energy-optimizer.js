@@ -635,7 +635,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=4cd1bb9481175beb1f138bf2f3ed4c7d050cccfc7c7150051e85f0afcce1ead7
+    // HA_TARIFF_V3_START sha256=68f5fec16edcedac7f9ae7a716cbb6d959dc3f621f951418eb2666e4e41cf2a6
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -2966,16 +2966,17 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
       <details data-analysis-native-details><summary>${esc(t('Exact HA cost and source details','Dokładny koszt HA i źródło'))}</summary><p>${esc(label)}: ${esc(p.amount ?? p.recorded_amount ?? unknown())} ${esc(p.currency || '')}</p><p>${esc(t('Source hours measured / expected','Godziny źródeł zmierzone / oczekiwane'))}: ${esc(c.measured_source_hours)} / ${esc(c.expected_source_hours)}</p>${p.reason?`<p>${esc(p.reason)}</p>`:''}<ul>${native.provenance.map(row=>`<li>${esc(row.energy_source_id)} · ${esc(row.cost_statistic_id || unknown())}</li>`).join('')}</ul></details>
       ${prices.length?`<h4>${esc(t('Current prices · now','Bieżące ceny · teraz'))}</h4><p class="analysis-note">${esc(t('Observed now; not a price for the selected period. No historical cost is calculated from these prices.','Odczytane teraz; nie są cenami za wybrany okres. Nie obliczamy z nich kosztu historycznego.'))}</p>${table(t('Current prices · now','Bieżące ceny · teraz'),[t('Source','Źródło'),t('Price now','Cena teraz'),t('Observed at','Czas odczytu')],prices)}<details data-analysis-native-price-details><summary>${esc(t('Exact current price values','Dokładne wartości bieżących cen'))}</summary><ul>${native.current_prices.map(row=>`<li>${esc(row.source_id)}: ${esc(row.price ?? unknown())} ${esc(row.currency || '')}/kWh · ${esc(row.origin)} · ${esc(row.observed_at)}</li>`).join('')}</ul></details>`:''}</section>`;
   };
-  // Describe the displayed household total only with a matching producer delta.
-  // Paired/common measurements may be useful in Comparison, but are a different total.
+  // Common readings are a separate producer comparison, not the displayed subtotal.
   const kpiComparison = (snapshot,data=false) => {
     const kind=snapshot.context?.comparison_kind || 'previous', c=snapshot.comparisons?.[kind];
-    if (!comparisons[kind] || c?.status!=='ready' || c.reason!=null || c.comparison_scope!=='calendar_totals' ||
-        snapshot.coverage?.complete!==true || snapshot.totals?.measurement_complete!==true ||
-        !valid(c.current_kwh) || !valid(snapshot.totals.kwh) || compare(c.current_kwh,snapshot.totals.kwh)!==0 || !valid(c.delta_kwh))
+    const common=c?.comparison_scope==='common_measurements';
+    const calendar=c?.comparison_scope==='calendar_totals' && snapshot.coverage?.complete===true &&
+      snapshot.totals?.measurement_complete===true && valid(c.current_kwh) && valid(snapshot.totals.kwh) && compare(c.current_kwh,snapshot.totals.kwh)===0;
+    if (!comparisons[kind] || c?.status!=='ready' || c.reason!=null || !valid(c.delta_kwh) ||
+        !(calendar || common && valid(c.current_kwh) && valid(c.baseline_kwh)))
       return t('No comparable baseline — incomplete or unavailable data','Brak porównywalnego odniesienia — dane niepełne lub niedostępne');
     const direction=compare(c.delta_kwh,'0'), text=direction<0?t('Decrease','Spadek'):direction>0?t('Increase','Wzrost'):t('No change','Bez zmian');
-    return `${comparisons[kind]} · ${text} ${data?quantity(c.delta_kwh,'kWh',true):briefEnergy(c.delta_kwh,true)}${valid(c.percent)?' · '+(data?quantity(c.percent,'%',true):briefNumber(c.percent,0,0,true)+'%'):''}`;
+    return `${common?t('Common readings','Wspólne odczyty')+' · ':''}${comparisons[kind]} · ${text} ${data?quantity(c.delta_kwh,'kWh',true):briefEnergy(c.delta_kwh,true)}${valid(c.percent)?' · '+(data?quantity(c.percent,'%',true):briefNumber(c.percent,0,0,true)+'%'):''}`;
   };
   const peakClock = (snapshot,peak) => {
     const plain=ui.clock(peak.start), start=Date.parse(peak.start);
@@ -8562,7 +8563,7 @@ createFormatUi.forHass = hass => {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=4cd1bb9481175beb1f138bf2f3ed4c7d050cccfc7c7150051e85f0afcce1ead7
+      // HA_TARIFF_V3_START sha256=68f5fec16edcedac7f9ae7a716cbb6d959dc3f621f951418eb2666e4e41cf2a6
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -10893,16 +10894,17 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
       <details data-analysis-native-details><summary>${esc(t('Exact HA cost and source details','Dokładny koszt HA i źródło'))}</summary><p>${esc(label)}: ${esc(p.amount ?? p.recorded_amount ?? unknown())} ${esc(p.currency || '')}</p><p>${esc(t('Source hours measured / expected','Godziny źródeł zmierzone / oczekiwane'))}: ${esc(c.measured_source_hours)} / ${esc(c.expected_source_hours)}</p>${p.reason?`<p>${esc(p.reason)}</p>`:''}<ul>${native.provenance.map(row=>`<li>${esc(row.energy_source_id)} · ${esc(row.cost_statistic_id || unknown())}</li>`).join('')}</ul></details>
       ${prices.length?`<h4>${esc(t('Current prices · now','Bieżące ceny · teraz'))}</h4><p class="analysis-note">${esc(t('Observed now; not a price for the selected period. No historical cost is calculated from these prices.','Odczytane teraz; nie są cenami za wybrany okres. Nie obliczamy z nich kosztu historycznego.'))}</p>${table(t('Current prices · now','Bieżące ceny · teraz'),[t('Source','Źródło'),t('Price now','Cena teraz'),t('Observed at','Czas odczytu')],prices)}<details data-analysis-native-price-details><summary>${esc(t('Exact current price values','Dokładne wartości bieżących cen'))}</summary><ul>${native.current_prices.map(row=>`<li>${esc(row.source_id)}: ${esc(row.price ?? unknown())} ${esc(row.currency || '')}/kWh · ${esc(row.origin)} · ${esc(row.observed_at)}</li>`).join('')}</ul></details>`:''}</section>`;
   };
-  // Describe the displayed household total only with a matching producer delta.
-  // Paired/common measurements may be useful in Comparison, but are a different total.
+  // Common readings are a separate producer comparison, not the displayed subtotal.
   const kpiComparison = (snapshot,data=false) => {
     const kind=snapshot.context?.comparison_kind || 'previous', c=snapshot.comparisons?.[kind];
-    if (!comparisons[kind] || c?.status!=='ready' || c.reason!=null || c.comparison_scope!=='calendar_totals' ||
-        snapshot.coverage?.complete!==true || snapshot.totals?.measurement_complete!==true ||
-        !valid(c.current_kwh) || !valid(snapshot.totals.kwh) || compare(c.current_kwh,snapshot.totals.kwh)!==0 || !valid(c.delta_kwh))
+    const common=c?.comparison_scope==='common_measurements';
+    const calendar=c?.comparison_scope==='calendar_totals' && snapshot.coverage?.complete===true &&
+      snapshot.totals?.measurement_complete===true && valid(c.current_kwh) && valid(snapshot.totals.kwh) && compare(c.current_kwh,snapshot.totals.kwh)===0;
+    if (!comparisons[kind] || c?.status!=='ready' || c.reason!=null || !valid(c.delta_kwh) ||
+        !(calendar || common && valid(c.current_kwh) && valid(c.baseline_kwh)))
       return t('No comparable baseline — incomplete or unavailable data','Brak porównywalnego odniesienia — dane niepełne lub niedostępne');
     const direction=compare(c.delta_kwh,'0'), text=direction<0?t('Decrease','Spadek'):direction>0?t('Increase','Wzrost'):t('No change','Bez zmian');
-    return `${comparisons[kind]} · ${text} ${data?quantity(c.delta_kwh,'kWh',true):briefEnergy(c.delta_kwh,true)}${valid(c.percent)?' · '+(data?quantity(c.percent,'%',true):briefNumber(c.percent,0,0,true)+'%'):''}`;
+    return `${common?t('Common readings','Wspólne odczyty')+' · ':''}${comparisons[kind]} · ${text} ${data?quantity(c.delta_kwh,'kWh',true):briefEnergy(c.delta_kwh,true)}${valid(c.percent)?' · '+(data?quantity(c.percent,'%',true):briefNumber(c.percent,0,0,true)+'%'):''}`;
   };
   const peakClock = (snapshot,peak) => {
     const plain=ui.clock(peak.start), start=Date.parse(peak.start);
@@ -16979,7 +16981,7 @@ function createFeatureAccessV53({card, guard}) {
     }
     _getTariffHostV3() {
       if (this._tariffHostController) return this._tariffHostController;
-      // HA_TARIFF_V3_START sha256=4cd1bb9481175beb1f138bf2f3ed4c7d050cccfc7c7150051e85f0afcce1ead7
+      // HA_TARIFF_V3_START sha256=68f5fec16edcedac7f9ae7a716cbb6d959dc3f621f951418eb2666e4e41cf2a6
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -19310,16 +19312,17 @@ function createEnergyAnalysisViewV53({card, format} = {}) {
       <details data-analysis-native-details><summary>${esc(t('Exact HA cost and source details','Dokładny koszt HA i źródło'))}</summary><p>${esc(label)}: ${esc(p.amount ?? p.recorded_amount ?? unknown())} ${esc(p.currency || '')}</p><p>${esc(t('Source hours measured / expected','Godziny źródeł zmierzone / oczekiwane'))}: ${esc(c.measured_source_hours)} / ${esc(c.expected_source_hours)}</p>${p.reason?`<p>${esc(p.reason)}</p>`:''}<ul>${native.provenance.map(row=>`<li>${esc(row.energy_source_id)} · ${esc(row.cost_statistic_id || unknown())}</li>`).join('')}</ul></details>
       ${prices.length?`<h4>${esc(t('Current prices · now','Bieżące ceny · teraz'))}</h4><p class="analysis-note">${esc(t('Observed now; not a price for the selected period. No historical cost is calculated from these prices.','Odczytane teraz; nie są cenami za wybrany okres. Nie obliczamy z nich kosztu historycznego.'))}</p>${table(t('Current prices · now','Bieżące ceny · teraz'),[t('Source','Źródło'),t('Price now','Cena teraz'),t('Observed at','Czas odczytu')],prices)}<details data-analysis-native-price-details><summary>${esc(t('Exact current price values','Dokładne wartości bieżących cen'))}</summary><ul>${native.current_prices.map(row=>`<li>${esc(row.source_id)}: ${esc(row.price ?? unknown())} ${esc(row.currency || '')}/kWh · ${esc(row.origin)} · ${esc(row.observed_at)}</li>`).join('')}</ul></details>`:''}</section>`;
   };
-  // Describe the displayed household total only with a matching producer delta.
-  // Paired/common measurements may be useful in Comparison, but are a different total.
+  // Common readings are a separate producer comparison, not the displayed subtotal.
   const kpiComparison = (snapshot,data=false) => {
     const kind=snapshot.context?.comparison_kind || 'previous', c=snapshot.comparisons?.[kind];
-    if (!comparisons[kind] || c?.status!=='ready' || c.reason!=null || c.comparison_scope!=='calendar_totals' ||
-        snapshot.coverage?.complete!==true || snapshot.totals?.measurement_complete!==true ||
-        !valid(c.current_kwh) || !valid(snapshot.totals.kwh) || compare(c.current_kwh,snapshot.totals.kwh)!==0 || !valid(c.delta_kwh))
+    const common=c?.comparison_scope==='common_measurements';
+    const calendar=c?.comparison_scope==='calendar_totals' && snapshot.coverage?.complete===true &&
+      snapshot.totals?.measurement_complete===true && valid(c.current_kwh) && valid(snapshot.totals.kwh) && compare(c.current_kwh,snapshot.totals.kwh)===0;
+    if (!comparisons[kind] || c?.status!=='ready' || c.reason!=null || !valid(c.delta_kwh) ||
+        !(calendar || common && valid(c.current_kwh) && valid(c.baseline_kwh)))
       return t('No comparable baseline — incomplete or unavailable data','Brak porównywalnego odniesienia — dane niepełne lub niedostępne');
     const direction=compare(c.delta_kwh,'0'), text=direction<0?t('Decrease','Spadek'):direction>0?t('Increase','Wzrost'):t('No change','Bez zmian');
-    return `${comparisons[kind]} · ${text} ${data?quantity(c.delta_kwh,'kWh',true):briefEnergy(c.delta_kwh,true)}${valid(c.percent)?' · '+(data?quantity(c.percent,'%',true):briefNumber(c.percent,0,0,true)+'%'):''}`;
+    return `${common?t('Common readings','Wspólne odczyty')+' · ':''}${comparisons[kind]} · ${text} ${data?quantity(c.delta_kwh,'kWh',true):briefEnergy(c.delta_kwh,true)}${valid(c.percent)?' · '+(data?quantity(c.percent,'%',true):briefNumber(c.percent,0,0,true)+'%'):''}`;
   };
   const peakClock = (snapshot,peak) => {
     const plain=ui.clock(peak.start), start=Date.parse(peak.start);
