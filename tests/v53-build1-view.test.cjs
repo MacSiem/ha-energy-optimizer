@@ -89,3 +89,11 @@ for(const language of ['pl','en'])test(`partial coverage preserves known reading
  assert.equal((html.match(/data-partial-reading/g)||[]).length,1);assert.match(html,/0[,.]00 kWh/);
  const breakdown=v.markup(m,{section:'breakdown'});assert.doesNotMatch(breakdown,/<div class="p">/);
 });
+
+test('new producer known totals and full-hour evidence preserve partial costs and hatching',()=>{
+ const m=fixture();m.coverage.complete=false;m.hourly[0]={...m.hourly[0],kwh:'2',recorded_kwh:'2',full_kwh:null,future:false};
+ m.totals.usage_cost='12.34';m.totals.recorded_usage_cost=null;m.totals.total_with_fixed='15.67';
+ const v=view('en'),overview=v.markup(m),costs=v.markup(m,{section:'costs'});
+ assert.match(overview,/12\.34 PLN/);assert.match(overview,/data-partial-reading/);
+ assert.match(costs,/15\.67 PLN/);assert.match(costs,/Costs cover known source readings/);
+});
