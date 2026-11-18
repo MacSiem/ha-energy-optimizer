@@ -33,7 +33,7 @@ function fixture(name='ha-energy-email'){
   _render(){}
   _getTariffHostV3(){if(!this.host){this.guard=createTariffGuardV3({getHass:()=>this._hass,browser:null});this.host={guard:this.guard,markup:()=>'',bind:()=>{}};}return this.host;}
  }
- w.installHost({Card,name,format:{forHass:()=>({language:'en'})},createClient:createEnergyModelV53,createReports:opts=>createEnergyReportsActionsV53({...opts,createSchedules:null}),createView:()=>({styles:()=>'',markup:()=>'<section>report</section>'})});
+ w.installHost({Card,name,format:{forHass:()=>({language:'en',dateLanguage:'en',timeZone:'UTC',hourCycle:'h23'})},createClient:createEnergyModelV53,createReports:opts=>createEnergyReportsActionsV53({...opts,createSchedules:null}),createView:()=>({styles:()=>'',markup:()=>'<section>report</section>'})});
  w.customElements.define('test-energy-card',Card);const card=w.document.createElement('test-energy-card');card.setConfig({});w.document.body.append(card);card.hass=hass;
  return {dom,card,calls,hass,setHook:f=>hook=f,maximum:()=>maximum,signal:()=>{for(const fn of [...callbacks])fn();},close:()=>{card.remove();card.guard.dispose();dom.window.close();}};
 }
@@ -80,4 +80,55 @@ test('public await continuation precedes queued wire listeners on success and re
 });
 test('failed targets read is visible as error and explicit refresh can load the real targets',async()=>{
  const f=fixture();try{f.setHook(q=>q.type.endsWith('list_delivery_targets')?Promise.reject({code:'unavailable'}):undefined);await tick();assert.equal(f.card._build1ReportsV53.state().status,'error');assert.match(f.card.shadowRoot.textContent,/Report status could not be loaded/);assert.equal(f.card._build1ClientV53.state().status,'ready');const count=f.calls.length;await tick();assert.equal(f.calls.length,count);f.setHook(null);f.card._build1ReportsV53.refresh();await tick();assert.equal(f.card._build1ReportsV53.state().status,'ready');assert.equal(f.card._build1ReportsV53.state().targets.length,2);}finally{f.close();}
+});
+
+test('yearly model can cross 15 seconds while navigation waits for raw settlement',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});const f=fixture('ha-energy-optimizer');let release;
+ try{
+  await tick();f.setHook(q=>q.type==='ha_tools_email/energy_report'&&q.representation==='model'&&q.period==='year'?new Promise(r=>release=()=>r(model(q))):undefined);
+  f.card._build1ClientV53.update({period:'year',mode:'full'});await tick();assert.ok(release);
+  t.mock.timers.tick(15001);await tick();assert.equal(f.card._build1ClientV53.state().status,'loading');assert.equal(f.card.guard.occupied(),true);
+  const before=f.calls.length;f.card._build1ClientV53.update({period:'day',mode:'full'});await tick();assert.equal(f.calls.length,before);
+  release();await tick();await tick();assert.equal(f.card._build1ClientV53.state().status,'ready');assert.equal(f.card._build1ClientV53.state().model.period.kind,'day');
+ }finally{release?.();f.close();t.mock.timers.reset();}
+});
+
+test('45 seconds applies only to the reserved yearly model, not other reads or writes',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});let release;const hass={user:{id:'test',is_active:true},connection:{connected:true},config:{},callWS:()=>new Promise(r=>release=r)};
+ const guard=createTariffGuardV3({getHass:()=>hass,browser:null});
+ try{for(const payload of [
+  {type:'ha_tools_email/energy_report',period:'day',representation:'model'},
+  {type:'ha_tools_email/energy_report',period:'year'},
+  {type:'ha_tools_email/energy_report',period:'day',language:'en',date_language:'en',timezone:'UTC',hour_cycle:'24'},
+  {type:'ha_tools_email/send_now',period:'year',representation:'model'},
+ ]){const token=guard.snapshot(),owner=guard.reserve(token),result=guard.call(token,payload,false,owner);const rejected=assert.rejects(result,e=>e.code==='timeout');t.mock.timers.tick(15000);await rejected;assert.equal(guard.occupied(),true);release({});await Promise.resolve();owner.release();}
+  const token=guard.snapshot(),owner=guard.reserve(token),result=guard.call(token,{type:'ha_tools_email/energy_report',period:'year',representation:'model'},false,owner),rejected=assert.rejects(result,e=>e.code==='timeout');
+  t.mock.timers.tick(44999);await Promise.resolve();assert.equal(guard.occupied(),true);t.mock.timers.tick(1);await rejected;release({});await Promise.resolve();owner.release();
+ }finally{release?.({});guard.dispose();t.mock.timers.reset();}
+});
+
+test('authority loss rejects a late yearly model after the old deadline',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});const f=fixture('ha-energy-optimizer');let release;
+ try{await tick();f.setHook(q=>q.type==='ha_tools_email/energy_report'&&q.representation==='model'&&q.period==='year'?new Promise(r=>release=()=>r(model(q))):undefined);
+  f.card._build1ClientV53.update({period:'year',mode:'full'});await tick();t.mock.timers.tick(15001);f.hass.user.is_active=false;f.card._build1ClientV53.update({period:'year',mode:'full'});release();await tick();
+  assert.equal(f.card._build1ClientV53.state().model,null);assert.equal(f.card.guard.occupied(),false);
+ }finally{release?.();f.close();t.mock.timers.reset();}
+});
+
+const previewResponse=q=>({html:'<p>annual</p>',context:{access_purpose:'report_read'},period:{kind:q.period},display:{language:q.language,date_language:q.date_language,timezone:q.timezone,hour_cycle:q.hour_cycle}});
+test('authorized yearly preview succeeds after 15 seconds while maintaining single flight',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});const f=fixture('ha-energy-optimizer');let release;
+ try{await tick();f.card._build1ClientV53.update({period:'year',mode:'full'});await tick();
+  f.setHook(q=>q.type==='ha_tools_email/energy_report'&&q.representation===undefined?new Promise(r=>release=()=>r(previewResponse(q))):undefined);
+  const result=f.card._build1ClientV53.preview();await tick();assert.ok(release);t.mock.timers.tick(16000);await tick();
+  assert.equal(f.card.guard.occupied(),true);assert.equal(await f.card._build1ClientV53.preview(),false);release();assert.equal(await result,true);assert.match(f.card._build1ClientV53.state().preview.html,/annual/);
+ }finally{release?.();f.close();t.mock.timers.reset();}
+});
+test('late yearly preview expires at 45 seconds and authority loss discards it',async t=>{
+ t.mock.timers.enable({apis:['setTimeout']});const f=fixture('ha-energy-optimizer');let release;
+ try{await tick();f.card._build1ClientV53.update({period:'year',mode:'full'});await tick();
+  f.setHook(q=>q.type==='ha_tools_email/energy_report'&&q.representation===undefined?new Promise(r=>release=()=>r(previewResponse(q))):undefined);
+  const expired=f.card._build1ClientV53.preview();await tick();t.mock.timers.tick(45000);assert.equal(await expired,false);assert.equal(f.card.guard.occupied(),true);release();await tick();assert.equal(f.card._build1ClientV53.state().preview,null);
+  const revoked=f.card._build1ClientV53.preview();await tick();t.mock.timers.tick(16000);f.hass.user.is_active=false;f.card._build1ClientV53.update({period:'year',mode:'full'});release();assert.equal(await revoked,false);assert.equal(f.card._build1ClientV53.state().preview,null);
+ }finally{release?.();f.close();t.mock.timers.reset();}
 });

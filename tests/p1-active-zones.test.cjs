@@ -17,7 +17,7 @@ for(const [lang,word] of [['en','Components unknown'],['pl','Składniki nieznane
  const v=createEnergyBuild1ViewV53({format:createFormatUi(lang),language:lang}); const html=v.markup(m,{section:'costs'});
  assert.ok(html.includes(word)); assert.doesNotMatch(html,/0[.,]50[^<]*\+[^<]*0[.,]00/);
 });
-for(const [lang,matched,short,note] of [['en','Matched hours','Reading hours:','Hours do not distinguish dates'],['pl','Wspólne godziny','Godziny pomiarów:','Godziny nie rozróżniają dat']]) test(`matched comparison and concise hours ${lang}`,()=>{
+for(const [lang,matched,short,note] of [['en','Common readings: current / previous','Reading hours:','Hours do not distinguish dates'],['pl','Wspólne odczyty: bieżący / poprzedni','Godziny pomiarów:','Godziny nie rozróżniają dat']]) test(`matched comparison and concise hours ${lang}`,()=>{
  const m=structuredClone(model);m.tariff={...m.tariff,defaultZone:'flat',rules:[],zones:[{id:'flat',rate:.5,hours_label:'0–24'}]};
  m.comparisons=[{key:'previous_day',coverage_ok:true,kwh:119,compared_current_kwh:69,compared_baseline_kwh:119,delta_kwh:-50,delta_pct:-42.0168,comparison_scope:'common_measurements'}];
  const v=createEnergyBuild1ViewV53({format:createFormatUi(lang),language:lang});const overview=v.markup(m), costs=v.markup(m,{section:'costs'});

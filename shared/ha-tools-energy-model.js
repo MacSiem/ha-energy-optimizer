@@ -90,11 +90,13 @@ function createEnergyModelV53({card,guard,format,onChange=()=>{},onScheduleChang
     if(!available()||!ack||raw||guard.occupied()||grant?.visible!==true||grant?.read!==true)return false;
     const e=epoch,token=guard.snapshot(),lane={};raw=lane;view.preview=null;emit();
     const ui=format.forHass(card._hass),request={type:'ha_tools_email/energy_report',period:selection.period,...(selection.date?{anchor:selection.date}:{}),language:String(ui.language).startsWith('pl')?'pl':'en',date_language:String(ui.dateLanguage).startsWith('pl')?'pl':'en',timezone:ui.timeZone,hour_cycle:['h11','h12'].includes(ui.hourCycle)?'12':'24'};
-    try{const result=await guard.call(token,request);if(!current(e))return false;
+    let reservation=null;
+    try{if(request.period==='year')reservation=guard.reserve?.(token) || null;
+      const result=await guard.call(token,request,false,reservation);if(!current(e))return false;
       if(typeof result?.html!=='string'||result.context?.access_purpose!=='report_read'||result.period?.kind!==selection.period||result.display?.timezone!==request.timezone||result.display?.language!==request.language||result.display?.hour_cycle!==request.hour_cycle||result.display?.date_language!==request.date_language)throw Error('invalid_report_preview');
       view.preview={html:result.html};emit();return true;
     }catch(error){if(current(e)){view.preview=null;view.error=error?.code||'preview_unavailable';if(['unauthorized','not_allowed'].includes(error?.code)){clear('denied');pending=false;}emit();}return false;}
-    finally{if(raw===lane)raw=null;if(pending)void pump();}
+    finally{if(raw===lane)raw=null;reservation?.release();if(pending)void pump();}
   }
   function state(){observe();return clone({...view,busy:!!raw,selection});}
   return {update,state,preview,stop,refresh:invalidate};

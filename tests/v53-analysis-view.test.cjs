@@ -212,7 +212,7 @@ for(const language of ['en','pl'])test('overview KPI includes signed producer co
  const dto=fixture();dto.totals.measurement_complete=true;
  withView(root=>{const note=root.querySelector('[data-analysis-kpi-comparison]');assert.ok(note);assert.match(note.textContent,language==='pl'?/Poprzedni okres/:/Previous period/);assert.match(note.textContent,language==='pl'?/-1,0 kWh/:/-1\.0 kWh/);assert.match(note.textContent,/-25%/);assert.match(note.textContent,language==='pl'?/Spadek/:/Decrease/);},dto,{section:'overview'},language);
 });
-for(const change of [c=>{c.status='unknown';},c=>{c.comparison_scope='common_measurements';},c=>{c.current_kwh='2';},c=>{c.delta_kwh=null;},c=>{c.reason='incomplete';}])test('overview never places an unrelated or incomplete delta under the household total',()=>{
+for(const change of [c=>{c.status='unknown';},c=>{c.current_kwh='2';},c=>{c.delta_kwh=null;},c=>{c.reason='incomplete';}])test('overview never places an unrelated or incomplete delta under the household total',()=>{
  const dto=fixture();dto.totals.measurement_complete=true;change(dto.comparisons.previous);
  withView(root=>{const note=root.querySelector('[data-analysis-kpi-comparison]');assert.ok(note);assert.match(note.textContent,/No comparable baseline/);assert.doesNotMatch(note.textContent,/-1 kWh|-25%/);},dto,{section:'overview'},'en');
 });
@@ -223,4 +223,30 @@ test('overview preserves producer zero delta and unknown percentage without divi
 test('overview uses the requested baseline rather than a different available comparison',()=>{
  const dto=fixture();dto.totals.measurement_complete=true;dto.context.comparison_kind='year_ago';
  withView(root=>assert.match(root.querySelector('[data-analysis-kpi-comparison]').textContent,/No comparable baseline/),dto,{section:'overview'},'en');
+});
+
+test('known-source projection displays server values without claiming a full balance',()=>{
+ for(const language of ['pl','en']){
+  const dto=fixture();dto.coverage={complete:false};dto.totals.measurement_complete=false;
+  dto.known_totals={kwh:'8.5',usage_cost:'2.5',total_cost:'3.0',effective_price:'0.294',currency:'PLN',price_basis:'gross'};
+  dto.known_chart={bins:dto.chart.bins.map((b,i)=>({...b,kwh:i===0?'8.5':b.kwh,usage_cost:i===0?'2.5':b.usage_cost,complete:i!==0}))};
+  withView(root=>{assert.match(root.textContent,/8[,.]5/);assert.ok(root.querySelector('.analysis-known-partial'));assert.equal(root.querySelectorAll('[data-analysis-rank-share]').length,0);},dto,{},language);
+  withView(root=>{assert.match(root.textContent,/3[,.]00 (?:PLN|zł)/);assert.match(root.textContent,language==='pl'?/Koszt znanych odczytów/:/Known readings cost/);},dto,{section:'rates'},language);
+ }
+});
+
+for(const language of ['pl','en'])test(`partial usage and fixed fees are separate in overview and costs (${language})`,()=>{
+ const dto=fixture();dto.coverage={complete:false};dto.totals.measurement_complete=false;
+ dto.known_totals={kwh:'8.5',usage_cost:'2.50',fixed_cost:'1.25',total_cost:'3.75',effective_price:'0.294',currency:'PLN',price_basis:'gross'};
+ for(const supplied of [false,true]){const m=structuredClone(dto);if(supplied)m.period_summary={};
+  withView(root=>{const tile=root.querySelectorAll('.analysis-tile')[1];assert.match(tile.textContent,language==='pl'?/Koszt znanych odczytów/:/Known readings cost/);assert.match(tile.textContent,/2[,.]50/);assert.doesNotMatch(tile.textContent,/3[,.]75/);},m,{},language);
+ }
+ for(const view of ['chart','data'])withView(root=>{const c=root.querySelector('[data-analysis-rate76-cost]');assert.match(c.textContent,/2[,.]5/);assert.match(c.textContent,/1[,.]25/);assert.match(c.textContent,/3[,.]75/);assert.match(c.textContent,language==='pl'?/Znane odczyty z opłatami stałymi/:/Known readings plus fixed charges/);},dto,{section:'rates',view},language);
+});
+
+for(const language of ['pl','en'])test(`partial common comparison is visible without implying a full-period delta (${language})`,()=>{
+ const m=fixture();m.coverage={complete:false};m.totals.measurement_complete=false;m.known_totals={kwh:'15',usage_cost:'4',currency:'PLN'};
+ m.comparisons.previous={status:'ready',reason:null,comparison_scope:'common_measurements',current_kwh:'8',baseline_kwh:'10',delta_kwh:'-2',percent:-20,coverage:{common_current:0.1}};
+ withView(root=>{const n=root.querySelector('[data-analysis-kpi-comparison]').textContent;assert.match(n,language==='pl'?/Wspólne odczyty/:/Common readings/);assert.match(n,/-2[,.]0 kWh/);assert.match(n,/-20%/);assert.doesNotMatch(n,/No comparable|Brak porównywalnego/);},m,{},language);
+ m.comparisons.previous.status='unknown';withView(root=>{const n=root.querySelector('[data-analysis-kpi-comparison]').textContent;assert.match(n,language==='pl'?/Brak porównywalnego/:/No comparable/);assert.doesNotMatch(n,/-20%/);},m,{},language);
 });
