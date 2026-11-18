@@ -224,3 +224,13 @@ test('overview uses the requested baseline rather than a different available com
  const dto=fixture();dto.totals.measurement_complete=true;dto.context.comparison_kind='year_ago';
  withView(root=>assert.match(root.querySelector('[data-analysis-kpi-comparison]').textContent,/No comparable baseline/),dto,{section:'overview'},'en');
 });
+
+test('known-source projection displays server values without claiming a full balance',()=>{
+ for(const language of ['pl','en']){
+  const dto=fixture();dto.coverage={complete:false};dto.totals.measurement_complete=false;
+  dto.known_totals={kwh:'8.5',usage_cost:'2.5',total_cost:'3.0',effective_price:'0.294',currency:'PLN',price_basis:'gross'};
+  dto.known_chart={bins:dto.chart.bins.map((b,i)=>({...b,kwh:i===0?'8.5':b.kwh,usage_cost:i===0?'2.5':b.usage_cost,complete:i!==0}))};
+  withView(root=>{assert.match(root.textContent,/8[,.]5/);assert.ok(root.querySelector('.analysis-known-partial'));assert.equal(root.querySelectorAll('[data-analysis-rank-share]').length,0);},dto,{},language);
+  withView(root=>{assert.match(root.textContent,/3[,.]00 (?:PLN|zł)/);assert.match(root.textContent,language==='pl'?/Koszt znanych odczytów/:/Cost of known readings/);},dto,{section:'rates'},language);
+ }
+});
