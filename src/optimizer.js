@@ -635,7 +635,7 @@ class HaEnergyOptimizer extends HTMLElement {
   }
   _getTariffHostV3() {
     if (this._tariffHostController) return this._tariffHostController;
-    // HA_TARIFF_V3_START sha256=68f5fec16edcedac7f9ae7a716cbb6d959dc3f621f951418eb2666e4e41cf2a6
+    // HA_TARIFF_V3_START sha256=973267b44851807dd0745ef7b1a7b3f60a036367d9abc44332eef066a4502817
 // HA Tools v3: vendored inside each consumer's own closure, never a window API.
 function createUiV3({ language = 'en' } = {}) {
   const pl = String(language).startsWith('pl');
@@ -1110,7 +1110,11 @@ function createTariffGuardV3({ getHass, getContext = () => null, browser = typeo
     let resolvePublic, rejectPublic, finished = false;
     const result = new Promise((resolve, reject) => { resolvePublic = resolve; rejectPublic = reject; });
     const slot = {}; raw = slot;
-    const timer = setTimeout(() => { finished = true; rejectPublic({ code: 'timeout' }); }, timeoutMs);
+    // A yearly report model can require a full Recorder scan. Only the reserved
+    // read lane gets the longer deadline; previews and all writes retain the default.
+    const yearlyModel = !!owner && owner === reservation && !admin && payload?.type === 'ha_tools_email/energy_report' &&
+      payload.period === 'year' && payload.representation === 'model';
+    const timer = setTimeout(() => { finished = true; rejectPublic({ code: 'timeout' }); }, yearlyModel ? 45000 : timeoutMs);
     let request;
     try { request = Promise.resolve(token.callWS.call(getHass(), payload)); }
     catch (error) { request = Promise.reject(error); }

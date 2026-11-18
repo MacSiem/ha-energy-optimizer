@@ -4,15 +4,15 @@
   "sources": [
     {
       "path": "src/optimizer.js",
-      "sha256": "72e9ef54f45ab1d03febe0d888ff6ba3f322337beba5880a9300b59005b4d2b1"
+      "sha256": "4daf57299196cb37b235f61e6f5035f9d673e163f5bd2cd9bcc2de5993e25d28"
     },
     {
       "path": "src/energy-insights.js",
-      "sha256": "dbda61bdb3b3f110e8609d4a10667b8197dd74441c2f10802573eab9c8467592"
+      "sha256": "19f19755e0c4ba564fcb17b8e279bf651964622424cefd3a466657fad09e3f29"
     },
     {
       "path": "src/energy-email.js",
-      "sha256": "1e06fc412dfaab2bb29f0c25a090c1216c78ff6ed20d23d4472108d8207f074c"
+      "sha256": "4213ca57a4321c07b07c89611054886bff80c8ff2ebca947907f504f07b2e4fd"
     },
     {
       "path": "src/chart-vendor.js",
@@ -20,7 +20,7 @@
     }
   ],
   "sharedTariff": {
-    "sha256": "68f5fec16edcedac7f9ae7a716cbb6d959dc3f621f951418eb2666e4e41cf2a6",
+    "sha256": "973267b44851807dd0745ef7b1a7b3f60a036367d9abc44332eef066a4502817",
     "modules": [
       {
         "path": "shared/ha-tools-ui.js",
@@ -32,7 +32,7 @@
       },
       {
         "path": "shared/ha-tools-tariff-guard.js",
-        "sha256": "e6869c15d66d32b33993577a233be68ff41199ca3d303b451399b54e1ab29b2a"
+        "sha256": "6ca0fb7da3224a038e8a421e331a975bfd1f66c053be7bf2e28d3b14fdeebd59"
       },
       {
         "path": "shared/ha-tools-tariff-settings.js",
