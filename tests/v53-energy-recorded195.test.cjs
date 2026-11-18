@@ -49,7 +49,7 @@ test('household balance wording also covers a current short interval with all so
 test('partial KPI, named missing source, ranges and chart are visible in both languages and escaped',()=>{
  const m=fixture();m.coverage={status:'partial',complete:false,measured_hours:0,expected_hours:24,measured_source_hours:24,expected_source_hours:48,missing_sources:[{id:'b',name:'<script>B</script>',ranges:[{start:m.period.start,end:m.period.end}]}]};
  m.totals.import_kwh=null;m.totals.recorded_import_kwh=24;m.totals.recorded_usage_cost=12;m.hourly=[{start:m.period.start,kwh:null,recorded_kwh:1,measured_sources:1,expected_sources:2}];
- for(const lang of ['pl','en']){const d=new JSDOM(createEnergyBuild1ViewV53({format:createFormatUi(lang,'Europe/Warsaw'),language:lang}).markup(m));try{const doc=d.window.document;assert.match(doc.querySelector('.k .v').textContent,/24/);assert.match(doc.querySelector('.build1-panel').textContent,/24\/48/);assert.match(doc.querySelector('.build1-panel').textContent,/<script>B<\/script>/);assert.match(doc.querySelector('.build1-panel').textContent,/entire period|cały okres/);assert.equal(doc.querySelector('script'),null);assert.ok(doc.querySelector('[data-partial-reading]'));}finally{d.window.close();}}
+ for(const lang of ['pl','en']){const d=new JSDOM(createEnergyBuild1ViewV53({format:createFormatUi(lang,'Europe/Warsaw'),language:lang}).markup(m));try{const doc=d.window.document;assert.match(doc.querySelector('.k .v').textContent,/24/);assert.doesNotMatch(doc.querySelector('.build1-panel').textContent,/24\/48|source-hours|źródło-godzin/);assert.match(doc.querySelector('.build1-panel').textContent,/<script>B<\/script>/);assert.match(doc.querySelector('.build1-panel').textContent,/entire period|cały okres/);assert.equal(doc.querySelector('script'),null);assert.ok(doc.querySelector('[data-partial-reading]'));}finally{d.window.close();}}
 });
 
 test('grouped known readings remain visible and marked when a member is missing',()=>{
@@ -83,7 +83,19 @@ test('complete grid with missing group member displays known group subtotal with
  const view=createEnergyBuild1ViewV53({format:createFormatUi('en','UTC')});const dom=new JSDOM(view.markup(m,{section:'breakdown'}));try{const group=dom.window.document.querySelector('.rk2');assert.match(group.textContent,/24/);assert.match(group.textContent,/known readings/);assert.equal(dom.window.document.querySelector('.compbar'),null);}finally{dom.window.close();}
 });
 
-test('fractional source-hours use readable local precision without altering source facts',()=>{
+test('fractional source-hours stay out of UI without altering source facts',()=>{
  const m=fixture();m.coverage={status:'partial',complete:false,full_hours:0,expected_full_hours:13,measured_source_hours:0,expected_source_hours:26.666666666666668};
- for(const lang of ['pl','en']){const d=new JSDOM(createEnergyBuild1ViewV53({format:createFormatUi(lang,'UTC'),language:lang}).markup(m));try{assert.match(d.window.document.querySelector('.notice').textContent,lang==='pl'?/0\/26,67/:/0\/26\.67/);assert.equal(m.coverage.expected_source_hours,26.666666666666668);}finally{d.window.close();}}
+ for(const lang of ['pl','en']){const d=new JSDOM(createEnergyBuild1ViewV53({format:createFormatUi(lang,'UTC'),language:lang}).markup(m));try{assert.doesNotMatch(d.window.document.querySelector('.notice').textContent,/26[,.]67|source-hours|źródło-godzin/);assert.equal(m.coverage.expected_source_hours,26.666666666666668);}finally{d.window.close();}}
+});
+
+test('coverage names an entire-period source once in one notice, including legacy DTO',()=>{
+ for(const lang of ['pl','en'])for(const complete of [false,true]){
+  const m=fixture();const item={id:'sensor.k1',name:'K1 — kuchnia parter',ranges:[{start:m.period.start,end:m.period.end}]};
+  m.coverage={complete,measured_hours:23,expected_hours:24,measured_source_hours:419.25,expected_source_hours:429,missing_sources:[item],missing_devices:[structuredClone(item),{id:'sensor.k2',name:'K2',ranges:[]}]};
+  const d=new JSDOM(createEnergyBuild1ViewV53({format:createFormatUi(lang,'UTC'),language:lang}).markup(m));try{
+   const notices=d.window.document.querySelectorAll('.build1-panel > .notice[role="status"]');assert.equal(notices.length,1);
+   assert.equal((notices[0].textContent.match(/K1 — kuchnia parter/g)||[]).length,1);assert.match(notices[0].textContent,lang==='pl'?/cały okres/:/entire period/);assert.match(notices[0].textContent,/K2/);
+   assert.doesNotMatch(notices[0].textContent,/419[,.]25|źródło-godzin|source-hours/);
+  }finally{d.window.close();}
+ }
 });
