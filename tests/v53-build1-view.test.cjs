@@ -25,7 +25,7 @@ test('partial coverage suppresses comparison and allocation percentages',()=>{
  const v=view('en'),overview=v.markup(m),breakdown=v.markup(m,{section:'breakdown'});
  assert.match(overview,/Incomplete data/);assert.match(overview,/Insufficient coverage/);
  assert.doesNotMatch(breakdown,/<div class="p">[^<]*[0-9]%/);
- assert.match(breakdown,/<div class="p">—<\/div>/);
+ assert.doesNotMatch(breakdown,/<div class="p">/);
 });
 test('double counting replaces unmeasured facts in every grouping',()=>{
  const m=fixture();m.unmeasured.status='double_counting';m.ranking.find(r=>r.id==='_unmeasured').kwh=-1234.56;
@@ -67,7 +67,7 @@ test('current snapshot is explicit and now marker uses supplied timestamps',()=>
 test('invalid schema, missing meter and loading state do not display fictional totals',()=>{
  const v=view('en'),m=fixture();
  assert.match(v.markup(null),/Energy report unavailable/);
- m.issues=[{code:'no_grid_meter'}];assert.match(v.markup(m),/not configured/);
+ m.issues=[{code:'no_grid_meter'}];assert.match(v.markup(m),/Grid meter unavailable/);assert.match(v.markup(m),/data-energy-build1-series/);
  assert.match(v.markup(m,{loading:true}),/aria-busy="true"/);
 });
 test('styles preserve Build1 sizing, container stacking and theme tokens',()=>{
@@ -77,4 +77,15 @@ test('styles preserve Build1 sizing, container stacking and theme tokens',()=>{
 
 test('unconfigured Energy grid offers setup in both languages',()=>{
  for(const lang of ['pl','en']){const html=view(lang).markup(null,{notConfigured:true});assert.match(html,lang==='pl'?/Panel Energia nie jest skonfigurowany/:/Energy dashboard is not configured/);assert.match(html,/data-energy-build1="configure-energy"/);assert.doesNotMatch(html,/Energy report unavailable/);}
+});
+
+for(const language of ['pl','en'])test(`partial coverage preserves known readings and deduplicates sources (${language})`,()=>{
+ const m=fixture();m.coverage.complete=false;m.coverage.measured_source_hours=419.25;m.coverage.expected_source_hours=429;
+ m.coverage.missing_sources=[{id:'sensor.a',name:'K1',ranges:[]}];m.coverage.missing_devices=[{id:'sensor.a',name:'K1',ranges:[]}];
+ m.hourly[0]={...m.hourly[0],kwh:null,recorded_kwh:0,complete:false};
+ m.hourly[1]={...m.hourly[1],kwh:null,recorded_kwh:1,complete:true};
+ const v=view(language),html=v.markup(m);
+ assert.equal((html.match(/K1/g)||[]).length,1);assert.doesNotMatch(html,/419[.,]25|source-hours|źródło-godzin/);
+ assert.equal((html.match(/data-partial-reading/g)||[]).length,1);assert.match(html,/0[,.]00 kWh/);
+ const breakdown=v.markup(m,{section:'breakdown'});assert.doesNotMatch(breakdown,/<div class="p">/);
 });
