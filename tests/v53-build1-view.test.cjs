@@ -97,3 +97,10 @@ test('new producer known totals and full-hour evidence preserve partial costs an
  assert.match(overview,/12\.34 PLN/);assert.match(overview,/data-partial-reading/);
  assert.match(costs,/15\.67 PLN/);assert.match(costs,/Costs cover known source readings/);
 });
+
+for(const language of ['pl','en'])test(`known usage and fixed fees remain separate in the active report (${language})`,()=>{
+ const m=fixture();m.coverage.complete=false;m.hourly[0].full_kwh=null;m.totals.usage_cost=12.34;m.totals.fixed_share=1.25;m.totals.total_with_fixed=13.59;
+ const v=view(language),overview=v.markup(m),costs=v.markup(m,{section:'costs'});
+ assert.match(overview,/12[,.]34/);assert.match(overview,language==='pl'?/Koszt znanych odczytów/:/Known readings cost/);
+ assert.match(costs,/12[,.]34/);assert.match(costs,/1[,.]25/);assert.match(costs,/13[,.]59/);assert.match(costs,language==='pl'?/Znane odczyty z opłatami stałymi/:/Known readings plus fixed charges/);
+});

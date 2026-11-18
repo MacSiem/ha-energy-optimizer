@@ -231,6 +231,15 @@ test('known-source projection displays server values without claiming a full bal
   dto.known_totals={kwh:'8.5',usage_cost:'2.5',total_cost:'3.0',effective_price:'0.294',currency:'PLN',price_basis:'gross'};
   dto.known_chart={bins:dto.chart.bins.map((b,i)=>({...b,kwh:i===0?'8.5':b.kwh,usage_cost:i===0?'2.5':b.usage_cost,complete:i!==0}))};
   withView(root=>{assert.match(root.textContent,/8[,.]5/);assert.ok(root.querySelector('.analysis-known-partial'));assert.equal(root.querySelectorAll('[data-analysis-rank-share]').length,0);},dto,{},language);
-  withView(root=>{assert.match(root.textContent,/3[,.]00 (?:PLN|zł)/);assert.match(root.textContent,language==='pl'?/Koszt znanych odczytów/:/Cost of known readings/);},dto,{section:'rates'},language);
+  withView(root=>{assert.match(root.textContent,/3[,.]00 (?:PLN|zł)/);assert.match(root.textContent,language==='pl'?/Koszt znanych odczytów/:/Known readings cost/);},dto,{section:'rates'},language);
  }
+});
+
+for(const language of ['pl','en'])test(`partial usage and fixed fees are separate in overview and costs (${language})`,()=>{
+ const dto=fixture();dto.coverage={complete:false};dto.totals.measurement_complete=false;
+ dto.known_totals={kwh:'8.5',usage_cost:'2.50',fixed_cost:'1.25',total_cost:'3.75',effective_price:'0.294',currency:'PLN',price_basis:'gross'};
+ for(const supplied of [false,true]){const m=structuredClone(dto);if(supplied)m.period_summary={};
+  withView(root=>{const tile=root.querySelectorAll('.analysis-tile')[1];assert.match(tile.textContent,language==='pl'?/Koszt znanych odczytów/:/Known readings cost/);assert.match(tile.textContent,/2[,.]50/);assert.doesNotMatch(tile.textContent,/3[,.]75/);},m,{},language);
+ }
+ for(const view of ['chart','data'])withView(root=>{const c=root.querySelector('[data-analysis-rate76-cost]');assert.match(c.textContent,/2[,.]5/);assert.match(c.textContent,/1[,.]25/);assert.match(c.textContent,/3[,.]75/);assert.match(c.textContent,language==='pl'?/Znane odczyty z opłatami stałymi/:/Known readings plus fixed charges/);},dto,{section:'rates',view},language);
 });
