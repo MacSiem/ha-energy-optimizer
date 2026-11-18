@@ -99,3 +99,16 @@ test('coverage names an entire-period source once in one notice, including legac
   }finally{d.window.close();}
  }
 });
+
+test('known subtotal is not repeated when the active import already matches, while legacy notice remains',()=>{
+ for(const lang of ['pl','en']){
+  const m=fixture();m.coverage={status:'partial',complete:false,measured_sources:43,expected_sources:44,measured_hours:0,expected_hours:24,missing_sources:[{id:'k1',name:'K1',ranges:[]}]};
+  m.totals.import_kwh=2064;m.totals.recorded_import_kwh=2064;m.totals.usage_cost=1032;m.hourly=[{start:m.period.start,kwh:1,recorded_kwh:1,full_kwh:null}];
+  m.comparisons=[{key:'previous_day',coverage_ok:true,comparison_scope:'common_measurements',delta_kwh:1032,delta_pct:100,compared_current_kwh:2064,compared_baseline_kwh:1032}];
+  const view=createEnergyBuild1ViewV53({format:createFormatUi(lang,'UTC'),language:lang});
+  const d=new JSDOM(view.markup(m));try{const panel=d.window.document.querySelector('.build1-panel'),tile=panel.querySelector('.kpi4');
+   assert.equal(panel.querySelectorAll(':scope > p.notice').length,0);assert.match(tile.textContent,/2[\s,.]?064/);assert.match(tile.textContent,/1[\s,.]?032/);assert.match(tile.textContent,/100(?:[,.]0)?%/);assert.equal((tile.textContent.match(/2[\s,.]?064/g)||[]).length,1);assert.match(panel.querySelector('[role="status"]').textContent,/43\/44.*K1/);
+  }finally{d.window.close();}
+  m.totals.import_kwh=null;const legacy=new JSDOM(view.markup(m));try{assert.match(legacy.window.document.querySelector('.build1-panel > p.notice').textContent,/2[\s,.]?064/);}finally{legacy.window.close();}
+ }
+});
