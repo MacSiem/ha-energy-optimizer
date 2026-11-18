@@ -41,3 +41,24 @@ test('chart Data disclosure and focused summary return after loading and new dat
 test('unchanged preview emits keep iframe and controls; explicit themes update internal document only',()=>{const f=hostFixture('reports');try{f.state.preview={html:'<html><head><style>@media(prefers-color-scheme:dark){body{color:white}}</style></head><body>report</body></html>'};f.signal();const frame=f.card.shadowRoot.querySelector('iframe'),button=f.card.shadowRoot.querySelector('[data-energy-build1="preview-theme"][data-value="dark"]');assert.ok(frame);button.focus();f.signal();assert.equal(f.card.shadowRoot.querySelector('iframe'),frame);assert.equal(f.card.shadowRoot.activeElement,button);button.click();assert.equal(f.card.shadowRoot.querySelector('iframe'),frame);assert.match(frame.srcdoc,/data-mail-preview-theme="dark"/);assert.match(frame.srcdoc,/min-width: 0px/);assert.equal(frame.getAttribute('sandbox'),'');assert.equal(button.getAttribute('aria-pressed'),'true');const light=f.card.shadowRoot.querySelector('[data-energy-build1="preview-theme"][data-value="light"]');light.click();assert.match(frame.srcdoc,/data-mail-preview-theme="light"/);assert.match(frame.srcdoc,/max-width: -1px/);}finally{f.close();}});
 test('confirmed tariff read revocation removes the displayed draft instead of keeping its stable mount',()=>{const f=hostFixture('costs');try{const area=f.card.shadowRoot.querySelector('[data-build1-tariff-host]');assert.ok(area.firstChild);f.state.capabilities.energy_tariff={visible:false,read:false,execute:false};f.signal();assert.equal(area.firstChild,null);assert.equal(area.hidden,true);}finally{f.close();}});
 test('a selected-period change does not reopen a previously expanded Data disclosure',()=>{const f=hostFixture();try{const old=f.card.shadowRoot.querySelector('[data-energy-build1-disclosure="chart-data"]');old.open=true;f.state.selection={period:'day',mode:'full',date:'2026-10-16'};f.state.model.period.start='2026-10-16T00:00:00+02:00';f.signal();assert.equal(f.card.shadowRoot.querySelector('[data-energy-build1-disclosure="chart-data"]').open,false);}finally{f.close();}});
+
+test('producer DTO reaches the active host with matched comparison and PV cost basis in PL and EN',()=>{
+ const producer=JSON.parse(readFileSync(path.join(__dirname,'fixtures/build1/producer-partial-pv-20261118.json'),'utf8'));
+ for(const language of ['pl','en']){
+  const f=hostFixture();try{
+   f.card._hass.locale.language=language;f.state.model=structuredClone(producer);f.signal();
+   let root=f.card.shadowRoot, text=root.textContent;
+   assert.match(text,language==='pl'?/wspólne odczyty źródeł/:/common source readings/);
+   assert.match(text,language==='pl'?/Wspólne odczyty: bieżący \/ poprzedni/:/Common readings: current \/ previous/);
+   assert.match(text,/50%/);assert.match(text,/1\s*\/\s*2/);
+   assert.equal(root.querySelectorAll('.cols24 em').length,1);
+   assert.equal((text.match(/<script>B<\/script>/g)||[]).length,1);
+   assert.equal(root.querySelector('script'),null);
+   root.querySelector('[data-energy-build1="section"][data-value="breakdown"]').click();root=f.card.shadowRoot;
+   assert.match(root.textContent,language==='pl'?/szacunkowe.*bez uwzględnienia PV i baterii/:/estimates.*excluding solar and battery/);
+   assert.match(root.textContent,/12[,.]00/);assert.equal(root.querySelectorAll('.rk2 .p').length,0);
+   root.querySelector('[data-energy-build1="section"][data-value="costs"]').click();root=f.card.shadowRoot;
+   assert.match(root.textContent,language==='pl'?/Koszty dotyczą znanych odczytów/:/Costs cover known source readings/);
+  }finally{f.close();}
+ }
+});
