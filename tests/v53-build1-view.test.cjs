@@ -20,10 +20,10 @@ for(const language of ['pl','en'])test(`all four Build1 sections render supplied
  assert.ok(costs.includes(format.reportMoney(m.totals.total_with_fixed,m.currency)));
  assert.equal(JSON.stringify(m),before);
 });
-test('partial coverage suppresses comparison and allocation percentages',()=>{
+test('partial coverage retains producer comparison and suppresses unsupported allocation percentages',()=>{
  const m=fixture();m.coverage.complete=false;m.coverage.measured_hours=8;
  const v=view('en'),overview=v.markup(m),breakdown=v.markup(m,{section:'breakdown'});
- assert.match(overview,/Incomplete data/);assert.match(overview,/Insufficient coverage/);
+ assert.match(overview,/Missing readings/);assert.doesNotMatch(overview,/Insufficient coverage/);
  assert.doesNotMatch(breakdown,/<div class="p">[^<]*[0-9]%/);
  assert.doesNotMatch(breakdown,/<div class="p">/);
 });
@@ -86,15 +86,15 @@ for(const language of ['pl','en'])test(`partial coverage preserves known reading
  m.hourly[1]={...m.hourly[1],kwh:null,recorded_kwh:1,complete:true};
  const v=view(language),html=v.markup(m);
  assert.equal((html.match(/K1/g)||[]).length,1);assert.doesNotMatch(html,/419[.,]25|source-hours|źródło-godzin/);
- assert.equal((html.match(/data-partial-reading/g)||[]).length,1);assert.match(html,/0[,.]00 kWh/);
+ assert.doesNotMatch(html,/data-partial-reading/);assert.match(html,/0[,.]00 kWh/);
  const breakdown=v.markup(m,{section:'breakdown'});assert.doesNotMatch(breakdown,/<div class="p">/);
 });
 
-test('new producer known totals and full-hour evidence preserve partial costs and hatching',()=>{
+test('new producer known totals and full-hour evidence preserve partial costs without hatching',()=>{
  const m=fixture();m.coverage.complete=false;m.hourly[0]={...m.hourly[0],kwh:'2',recorded_kwh:'2',full_kwh:null,future:false};
  m.totals.usage_cost='12.34';m.totals.recorded_usage_cost=null;m.totals.total_with_fixed='15.67';
  const v=view('en'),overview=v.markup(m),costs=v.markup(m,{section:'costs'});
- assert.match(overview,/12\.34 PLN/);assert.match(overview,/data-partial-reading/);
+ assert.match(overview,/12\.34 PLN/);assert.doesNotMatch(overview,/data-partial-reading/);
  assert.match(costs,/15\.67 PLN/);assert.match(costs,/Costs cover known source readings/);
 });
 
@@ -103,4 +103,13 @@ for(const language of ['pl','en'])test(`known usage and fixed fees remain separa
  const v=view(language),overview=v.markup(m),costs=v.markup(m,{section:'costs'});
  assert.match(overview,/12[,.]34/);assert.match(overview,language==='pl'?/Koszt znanych odczytów/:/Known readings cost/);
  assert.match(costs,/12[,.]34/);assert.match(costs,/1[,.]25/);assert.match(costs,/13[,.]59/);assert.match(costs,language==='pl'?/Znane odczyty z opłatami stałymi/:/Known readings plus fixed charges/);
+});
+
+for(const language of ['pl','en'])test(`diagnostics keep all sections and tables stable (${language})`,()=>{
+ const m=fixture(),v=view(language);m.coverage={...m.coverage,complete:true,measured_sources:44,expected_sources:44,missing_sources:[],missing_devices:[]};
+ for(const section of ['overview','breakdown','costs','reports'])assert.doesNotMatch(v.markup(m,{section,reportAccess:true}),/data-energy-missing/);
+ m.coverage.complete=false;m.coverage.measured_sources=43;m.coverage.missing_sources=[{id:'sensor.grid',name:'Grid',ranges:[{start:m.period.start,end:m.period.end}]}];m.configuration_facts={grid_is_devices:true};
+ m.hourly[0]={...m.hourly[0],kwh:null,recorded_kwh:0,complete:false};m.comparisons=[{key:'previous_day',coverage_ok:false,comparison_scope:'common_measurements'}];
+ for(const section of ['overview','breakdown','costs','reports']){const html=v.markup(m,{section,reportAccess:true});assert.equal((html.match(/data-energy-missing/g)||[]).length,1);assert.match(html,/43\/44/);assert.match(html,/Grid/);assert.doesNotMatch(html,/44\/44|data-partial-reading/);}
+ const html=v.markup(m);assert.match(html,/0[,.]00 kWh/);assert.match(html,/Insufficient coverage|Za mało danych/);assert.doesNotMatch(html,/<th scope="col">Known readings|<th scope="col">Znane odczyty/);assert.match(v.styles(),/@container\(max-width:520px\)/);
 });
