@@ -80,7 +80,6 @@ test('comparison label polish keeps coverage guards and exact backend readings',
  m.comparisons[0].coverage_ok=false;
  assert.ok(v.markup(m).includes('Insufficient coverage for comparison'));
  m.coverage.complete=false;
- assert.ok(v.markup(m).includes('Incomplete data'));
  assert.ok(v.markup(m).includes('Insufficient coverage for comparison'));
  m.schema='unsupported';
  assert.ok(v.markup(m).includes('Energy report unavailable.'));

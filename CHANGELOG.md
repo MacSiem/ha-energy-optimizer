@@ -1,5 +1,10 @@
 # Changelog — Energy Optimizer
 
+## 4.0.6 (Unreleased)
+
+- Keep missing readings and configuration facts in one unobtrusive data detail while preserving reported energy, costs and comparisons.
+- Keep all recorded daily energy visible when tariff zone data does not cover the complete reading.
+
 ## 4.0.5 (Unreleased)
 
 - Keep annual energy reports and monthly email previews loading while Home Assistant processes longer requests.
