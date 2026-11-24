@@ -23,7 +23,7 @@ for(const language of ['pl','en'])test(`all four Build1 sections render supplied
 test('partial coverage retains producer comparison and suppresses unsupported allocation percentages',()=>{
  const m=fixture();m.coverage.complete=false;m.coverage.measured_hours=8;
  const v=view('en'),overview=v.markup(m),breakdown=v.markup(m,{section:'breakdown'});
- assert.match(overview,/Missing readings/);assert.doesNotMatch(overview,/Insufficient coverage/);
+ assert.match(overview,/Data details/);assert.doesNotMatch(overview,/Insufficient coverage/);
  assert.doesNotMatch(breakdown,/<div class="p">[^<]*[0-9]%/);
  assert.doesNotMatch(breakdown,/<div class="p">/);
 });
@@ -112,4 +112,15 @@ for(const language of ['pl','en'])test(`diagnostics keep all sections and tables
  m.hourly[0]={...m.hourly[0],kwh:null,recorded_kwh:0,complete:false};m.comparisons=[{key:'previous_day',coverage_ok:false,comparison_scope:'common_measurements'}];
  for(const section of ['overview','breakdown','costs','reports']){const html=v.markup(m,{section,reportAccess:true});assert.equal((html.match(/data-energy-missing/g)||[]).length,1);assert.match(html,/43\/44/);assert.match(html,/Grid/);assert.doesNotMatch(html,/44\/44|data-partial-reading/);}
  const html=v.markup(m);assert.match(html,/0[,.]00 kWh/);assert.match(html,/Insufficient coverage|Za mało danych/);assert.doesNotMatch(html,/<th scope="col">Known readings|<th scope="col">Znane odczyty/);assert.match(v.styles(),/@container\(max-width:520px\)/);
+});
+
+for(const language of ['pl','en'])test(`partial tariff facts, matched comparison and data details (${language})`,()=>{
+ const m=fixture();m.coverage.complete=false;m.zones=[{id:'cheap',classification:'cheap',kwh:3,share:0.6}];m.tariff.zones=[{id:'cheap',classification:'cheap'}];m.totals.effective_rate=0.5;
+ m.comparisons=[{key:'previous_day',coverage_ok:true,delta_kwh:1,delta_pct:25,comparison_scope:'common_measurements',compared_current_kwh:5,compared_baseline_kwh:4,matched_coverage:{common_current:1}}];
+ m.unmeasured.status='double_counting';const html=view(language).markup(m);assert.match(html,/60%/);assert.match(html,/25%/);assert.match(html,/0[,.]50/);assert.doesNotMatch(html,/Current coverage|Pokrycie bieżące|>100%/);assert.equal((html.match(/data-energy-missing/g)||[]).length,1);assert.doesNotMatch(html,/role="alert"/);assert.ok(html.indexOf('data-energy-missing')>html.indexOf('data-energy-build1-series'));assert.match(html,language==='pl'?/Szczegóły danych/:/Data details/);
+});
+test('daily bars use zone segments only when they cover the recorded total',()=>{
+ const m=fixture();m.period.kind='week';m.daily=[{start:m.period.start,kwh:10,recorded_kwh:10,zones:[{id:'cheap',kwh:4},{id:'exp',kwh:3}]}];m.zones=[{id:'cheap',classification:'cheap'},{id:'exp',classification:'expensive'}];
+ const bars=html=>html.match(/<span class="chart-stack">(.*?)<\/span>/)[1];let html=view('en').markup(m);assert.equal((bars(html).match(/<i /g)||[]).length,1);assert.match(bars(html),/height:100%/);assert.match(bars(html),/--hat-primary/);
+ m.daily[0].zones[1].kwh=6;html=view('en').markup(m);assert.equal((bars(html).match(/<i /g)||[]).length,2);assert.match(bars(html),/--hat-zone-cheap/);assert.match(bars(html),/--hat-zone-exp/);
 });

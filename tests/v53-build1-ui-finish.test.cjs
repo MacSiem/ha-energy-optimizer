@@ -50,7 +50,7 @@ test('producer DTO reaches the active host with matched comparison and PV cost b
    let root=f.card.shadowRoot, text=root.textContent;
    assert.match(text,language==='pl'?/wspólne odczyty źródeł/:/common source readings/);
    assert.match(text,language==='pl'?/Wspólne odczyty: bieżący \/ poprzedni/:/Common readings: current \/ previous/);
-   assert.match(text,/50%/);assert.match(text,/1\s*\/\s*2/);
+   assert.doesNotMatch(text,/Current coverage|Pokrycie bieżące/);assert.match(text,/1\s*\/\s*2/);
    assert.equal(root.querySelectorAll('.cols24 em').length,1);
    assert.equal((text.match(/<script>B<\/script>/g)||[]).length,1);
    assert.equal(root.querySelector('script'),null);
